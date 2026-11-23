@@ -107,19 +107,27 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 	// the admin a verdict in Settings, not a dropped browser connection.
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
-	if err := h.db.IntegrityCheckContext(ctx); err != nil {
+	corrupt, err := h.db.IntegrityCheckContext(ctx)
+	if err != nil {
 		// Driver errors contain paths and page numbers. Log the detail for
 		// support; tell the person only what they need to know. A timeout is
-		// retryable, a real integrity failure is not.
-		slog.Warn("database integrity check failed", "error", err)
+		// retryable; so is a locked or unreadable file.
+		slog.Warn("database integrity check could not run", "error", err)
+		status := http.StatusInternalServerError
 		if ctx.Err() != nil {
-			JSON(w, http.StatusGatewayTimeout, map[string]any{
-				"status": "timeout", "corrupt": false,
-				"message": "Sol couldn't finish checking the database file. Please try again.",
-			})
-			return
+			status = http.StatusGatewayTimeout
 		}
-		JSON(w, http.StatusInternalServerError, map[string]any{
+		JSON(w, status, map[string]any{
+			"status": "unavailable", "corrupt": false,
+			"message": "Sol couldn't finish checking the database file. Please try again.",
+		})
+		return
+	}
+	if corrupt {
+		// The check ran to completion and found damage. This is permanent, so
+		// a 200 with a corrupt flag reaches the card instead of being caught
+		// as a failed request and reported as "try again".
+		JSON(w, http.StatusOK, map[string]any{
 			"status": "corrupt", "corrupt": true,
 			"message": "Sol found a problem with the database file.",
 		})

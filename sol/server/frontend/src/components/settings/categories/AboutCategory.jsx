@@ -33,9 +33,7 @@ function SystemChecksCard({ index = 2 }) {
     try {
       const res = await api("/system/database/integrity", { signal: controller.signal });
       const result = await res.json();
-      setFileResult(result.corrupt
-        ? "Sol found a problem with the database file."
-        : "The database file is fine.");
+      setFileResult(result.message || "The database file is fine.");
     } catch {
       setFileResult("Sol couldn't finish checking the database file. Please try again.");
     } finally {

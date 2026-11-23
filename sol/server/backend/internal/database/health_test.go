@@ -40,7 +40,8 @@ func TestIntegrityEndpointDiagnosticStillRuns(t *testing.T) {
 	if err := db.HealthCheck(); err != nil {
 		t.Fatalf("healthy database failed probe: %v", err)
 	}
-	if err := db.IntegrityCheck(); err != nil {
-		t.Fatalf("healthy database failed integrity check: %v", err)
+	corrupt, err := db.IntegrityCheck()
+	if err != nil || corrupt {
+		t.Fatalf("healthy database failed integrity check: corrupt=%v err=%v", corrupt, err)
 	}
 }

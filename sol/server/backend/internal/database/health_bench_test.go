@@ -41,7 +41,7 @@ func BenchmarkIntegrityCheck(b *testing.B) {
 	db := benchDB(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := db.IntegrityCheck(); err != nil {
+		if _, err := db.IntegrityCheck(); err != nil {
 			b.Fatal(err)
 		}
 	}

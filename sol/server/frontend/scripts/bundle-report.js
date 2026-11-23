@@ -56,17 +56,19 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   const initial = initialFiles(readFileSync(indexHtml, "utf8"));
 
   // Fonts are referenced from CSS rather than index.html. A TTF next to a
-  // WOFF2 is a fallback a modern browser never downloads, so count only the
-  // preferred face.
+  // WOFF2 is a fallback a modern browser never downloads: count only the
+  // preferred face and leave the fallback out of every total.
   const all = walk(distDir);
+  const fallbacks = new Set(
+    all.filter((f) => /\.ttf$/.test(f) && all.includes(f.replace(/\.ttf$/, ".woff2"))),
+  );
   for (const file of all) {
-    if (!FONT_RE.test(file) || !file.startsWith("fonts/")) continue;
-    if (/\.ttf$/.test(file) && all.includes(file.replace(/\.ttf$/, ".woff2"))) continue;
+    if (!FONT_RE.test(file) || !file.startsWith("fonts/") || fallbacks.has(file)) continue;
     initial.add(file);
   }
 
   const files = all
-    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f))
+    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f) && !fallbacks.has(f))
     .map((file) => {
       const bytes = readFileSync(path.join(distDir, file));
       const gz = existsSync(path.join(distDir, `${file}.gz`))

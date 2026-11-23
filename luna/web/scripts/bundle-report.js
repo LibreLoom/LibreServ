@@ -56,21 +56,23 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
 
   const all = walk(distDir);
   // Fonts come from CSS, not index.html. A TTF next to a WOFF2 is a fallback
-  // a modern browser never downloads, so count only the preferred face.
+  // a modern browser never downloads: count the preferred face and leave the
+  // fallback out of every total, including `lazy`.
+  const fallbacks = new Set(
+    all.filter((f) => /\.ttf$/.test(f) && all.includes(f.replace(/\.ttf$/, ".woff2"))),
+  );
   for (const file of all) {
-    if (!FONT_RE.test(file) || !file.startsWith("fonts/")) continue;
-    if (/\.ttf$/.test(file) && all.includes(file.replace(/\.ttf$/, ".woff2"))) continue;
+    if (!FONT_RE.test(file) || !file.startsWith("fonts/") || fallbacks.has(file)) continue;
     initial.add(file);
   }
 
   const files = all
-    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f))
+    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f) && !fallbacks.has(f))
     .map((file) => {
       const bytes = readFileSync(path.join(distDir, file));
-      // A prebuilt .gz next to the file is what lunad would serve; else compress.
-      const gz = existsSync(path.join(distDir, `${file}.gz`))
-        ? statSync(path.join(distDir, `${file}.gz`)).size
-        : gzipSync(bytes, { level: 9 }).length;
+      // Informational only: lunad has no gzip layer, so `wire` below uses the
+      // raw bytes regardless of this hypothetical compressed size.
+      const gz = gzipSync(bytes, { level: 9 }).length;
       // lunad embeds web/dist and serves every file verbatim: no .gz lookup,
       // no compression layer. What you see here is what the browser gets.
       const wire = bytes.length;

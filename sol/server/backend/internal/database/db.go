@@ -216,8 +216,12 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 	if err := d.Migrate(); err != nil {
 		return err
 	}
-	if err := d.IntegrityCheck(); err != nil {
+	corrupt, err := d.IntegrityCheck()
+	if err != nil {
 		return err
+	}
+	if corrupt {
+		return errors.New("restored database failed its integrity check")
 	}
 
 	// Clean up the rollback safety net on success.
@@ -246,49 +250,38 @@ func (d *DB) HealthCheck() error {
 
 // IntegrityCheck walks every page of the database. It is intentionally not
 // part of HealthCheck: probes hit that on a short interval and a full scan on
-// every request added disk IO proportional to database size. Callers that
-// need on-disk verification (restore, admin diagnostic) use this explicitly.
-// IntegrityCheck uses a generous budget: a page walk on a small eMMC disk can
-// take longer than a request timeout and still be healthy. An admin diagnostic
-// can use IntegrityCheckContext to carry its own limit.
-func (d *DB) IntegrityCheck() error {
+// every request added disk IO proportional to database size. The bool reports
+// corruption found by a completed check; an error means the check could not
+// run, which is a different thing to tell an admin.
+func (d *DB) IntegrityCheck() (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	return d.integrityCheck(ctx)
+	return d.IntegrityCheckContext(ctx)
 }
 
-func (d *DB) IntegrityCheckContext(ctx context.Context) error {
+func (d *DB) IntegrityCheckContext(ctx context.Context) (bool, error) {
 	// The main pool has a single connection. A page walk on it would block
 	// every other query and make the 2 s health probe report the database as
-	// unhealthy while an admin runs the diagnostic. Use a separate handle.
+	// unhealthy, whether this is a restore or an admin diagnostic. Use a
+	// separate handle for both.
 	tmp, err := sql.Open("sqlite", d.path)
 	if err != nil {
-		return fmt.Errorf("database integrity check failed: %w", err)
+		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
 	defer tmp.Close()
 	tmp.SetMaxOpenConns(1)
 	_, _ = tmp.ExecContext(ctx, "PRAGMA busy_timeout=5000")
-	return integrityCheckOn(ctx, tmp)
-}
 
-func (d *DB) integrityCheck(ctx context.Context) error {
-	return integrityCheckOn(ctx, d.db)
-}
-
-func integrityCheckOn(ctx context.Context, conn *sql.DB) error {
 	var count int
-	err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
-	if err != nil {
-		return fmt.Errorf("database integrity check failed: %w", err)
+	if err := tmp.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
+		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	var integrityOk string
-	err = conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk)
-	if err != nil || integrityOk != "ok" {
-		return fmt.Errorf("database integrity check failed (result: %s): %v", integrityOk, err)
+	if err := tmp.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
+		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
-
-	return nil
+	return integrityOk != "ok", nil
 }
 
 // CopyFile is a helper to copy a file from src to dst.
