@@ -77,7 +77,6 @@ function PhotoThumb({
   style = undefined,
   sizes = undefined,
 }) {
-  const [loaded, setLoaded] = useState(false);
   const srcSet = sizes && isLunadThumb(photo.thumb) ? gridThumbSrcSet(photo.thumb) : undefined;
   // The image is asked for once the cell nears the screen (nearViewport.js),
   // so a jump loads what is in view first. Its src is set on the element,
@@ -92,6 +91,8 @@ function PhotoThumb({
       started.current = true;
       if (srcSet) img.srcset = srcSet;
       else img.removeAttribute("srcset");
+      // A recycled cell may still carry the previous photo's loaded flag.
+      delete img.dataset.thumbLoaded;
       img.src = photo.thumb || "";
       img.removeAttribute("data-thumb-pending");
     };
@@ -192,7 +193,7 @@ function PhotoThumb({
         <img
           ref={(img) => {
             imgRef.current = img;
-            if (img?.complete && img.currentSrc) setLoaded(true);
+            if (img?.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}
@@ -203,10 +204,10 @@ function PhotoThumb({
           // for its own check at the next frame, behind any long render.
           loading={gated ? undefined : "lazy"}
           decoding="async"
-          onLoad={() => setLoaded(true)}
-          className={`h-full w-full object-cover motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
-            loaded ? "opacity-100" : "opacity-0"
-          }`}
+          onLoad={(e) => {
+            e.currentTarget.dataset.thumbLoaded = "1";
+          }}
+          className="h-full w-full object-cover opacity-0 motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100"
         />
       ) : (
         <span className="flex h-full w-full items-center justify-center font-mono text-xs">

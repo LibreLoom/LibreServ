@@ -55,9 +55,12 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Update last seen
-			_, _ = db.ExecContext(r.Context(),
-				"UPDATE devices SET last_seen_at = $1 WHERE id = $2", time.Now(), deviceID)
+			// Update last seen, but not on every request. Device endpoints are
+			// polled frequently and this write used to serialize on the same
+			// row each time. The visible value only needs to be recent.
+			_, _ = db.ExecContext(r.Context(), `
+				UPDATE devices SET last_seen_at = NOW() WHERE id = $1
+				AND (last_seen_at IS NULL OR last_seen_at < NOW() - interval '90 seconds')`, deviceID)
 
 			ctx := context.WithValue(r.Context(), deviceContext{}, deviceID)
 			next.ServeHTTP(w, r.WithContext(ctx))

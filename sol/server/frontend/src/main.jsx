@@ -19,7 +19,9 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       retry: 1,
-      refetchOnWindowFocus: true,
+      // Dashboard queries already poll. Refetching all of them on every tab
+      // focus produced a burst of requests exactly when the page is busiest.
+      refetchOnWindowFocus: false,
     },
   },
 });

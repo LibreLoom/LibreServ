@@ -11,7 +11,8 @@
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/FreeMono.ttf') format('truetype');
+  src: url('/fonts/FreeMono.woff2') format('woff2'),
+       url('/fonts/FreeMono.ttf') format('truetype');
 }
 
 @font-face {
@@ -19,7 +20,8 @@
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/FreeMonoOblique.ttf') format('truetype');
+  src: url('/fonts/FreeMonoOblique.woff2') format('woff2'),
+       url('/fonts/FreeMonoOblique.ttf') format('truetype');
 }
 
 @font-face {
@@ -27,7 +29,8 @@
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/FreeMonoBold.ttf') format('truetype');
+  src: url('/fonts/FreeMonoBold.woff2') format('woff2'),
+       url('/fonts/FreeMonoBold.ttf') format('truetype');
 }
 
 @font-face {
@@ -35,7 +38,8 @@
   font-style: italic;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
+  src: url('/fonts/FreeMonoBoldOblique.woff2') format('woff2'),
+       url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
 }
 
 @property --primary {

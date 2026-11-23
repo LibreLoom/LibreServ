@@ -15,7 +15,7 @@ export function useSystemHealthCheck(refreshInterval) {
       const res = await api("/system/health/check", { allowNonOk: true });
       return res.json();
     },
-    refetchInterval: refreshInterval ?? 60_000,
+    refetchInterval: refreshInterval ?? 120_000,
     retry: 1,
   });
 }

@@ -53,16 +53,12 @@ function formatUptime(seconds) {
   return parts.join(" ") || "0 secs";
 }
 
-export default function Dashboard() {
-  const greeting = useMemo(() => getGreeting(), []);
-  const { data: user } = useUser();
-  const { data: uptimeSeconds } = useUptime();
-  const { data: resources } = useMonitoring();
-
-  // Store server uptime and fetch timestamp for drift-free calculation
+// The ticking seconds live in this leaf. Keeping the interval state here
+// means the once-a-second update re-renders only the uptime card, not the
+// whole dashboard with its health check and app list.
+function UptimeTicker({ uptimeSeconds }) {
   const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
 
-  // Calculate display uptime: server uptime + elapsed time since last fetch
   const getDisplayUptime = useCallback(() => {
     const { serverUptime, fetchTime } = uptimeDataRef.current;
     if (fetchTime === 0) return "...";
@@ -72,7 +68,6 @@ export default function Dashboard() {
 
   const [displayUptime, setDisplayUptime] = useState(getDisplayUptime);
 
-  // Update stored uptime when API returns new data
   useEffect(() => {
     if (uptimeSeconds == null) return;
     uptimeDataRef.current = {
@@ -88,6 +83,15 @@ export default function Dashboard() {
     }, 1000);
     return () => clearInterval(interval);
   }, [getDisplayUptime]);
+
+  return <UptimeCard value={displayUptime} />;
+}
+
+export default function Dashboard() {
+  const greeting = useMemo(() => getGreeting(), []);
+  const { data: user } = useUser();
+  const { data: uptimeSeconds } = useUptime();
+  const { data: resources } = useMonitoring();
 
   const stressIndex = useMemo(() => {
     if (!resources) return 0;
@@ -133,7 +137,7 @@ export default function Dashboard() {
         aria-label="Dashboard metrics"
       >
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
-          <UptimeCard value={displayUptime} />
+          <UptimeTicker uptimeSeconds={uptimeSeconds} />
           <StressIndexCard
             value={resources ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}

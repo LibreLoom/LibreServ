@@ -379,10 +379,13 @@ function VirtualRowWindow({
   // shows another file, so drop the focus, as the old unmount did: Enter
   // must never act on a row the person did not pick.
   useLayoutEffect(() => {
+    // This runs after every virtualizer step. Almost no row has focus, so
+    // check that first and skip the DOM walk on the common path.
+    const focused = slots.focusedPath;
+    if (focused == null) return;
     const active = /** @type {HTMLElement | null} */ (document.activeElement);
     const row = active?.closest?.("li[data-file-path]");
-    const focused = slots.focusedPath;
-    if (!row || focused == null) return;
+    if (!row) return;
     if (/** @type {HTMLElement} */ (row).dataset.filePath !== focused) active.blur();
   });
   useEffect(() => slots.trackFocus(), [slots]);

@@ -1,4 +1,5 @@
 import fs from "fs";
+import { bundleReportPlugin } from "./scripts/bundle-report.js";
 import path from "path";
 import zlib from "zlib";
 import { defineConfig } from "vite";
@@ -31,13 +32,15 @@ function gzipAssets() {
     name: "gzip-assets",
     apply: "build",
     closeBundle() {
-      compress(path.resolve(__dirname, "../backend/OS/dist"));
+      const outDir = path.resolve(__dirname, "../backend/OS/dist");
+      fs.mkdirSync(outDir, { recursive: true });
+      compress(outDir);
     },
   };
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), gzipAssets()],
+  plugins: [react(), tailwindcss(), gzipAssets(), bundleReportPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

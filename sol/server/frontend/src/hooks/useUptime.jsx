@@ -9,7 +9,6 @@ export function useUptime() {
       const data = await res.json();
       return data.uptime_seconds ?? 0;
     },
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: 120_000,
   });
 }

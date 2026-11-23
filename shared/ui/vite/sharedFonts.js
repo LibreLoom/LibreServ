@@ -3,8 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The FreeMono files live once, in shared/ui/fonts. Each app's index.css asks
-// for them at /fonts/<file>.ttf: the dev server answers from here, and the
-// build copies them next to the app's other assets.
+// for WOFF2 first (smaller) with TTF as fallback: the dev server answers from
+// here, and the build copies them next to the app's other assets.
 const FONT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fonts");
 
 export default function sharedFonts() {
@@ -22,7 +22,7 @@ export default function sharedFonts() {
         const file = path.join(FONT_DIR, name);
         const stat = file.startsWith(FONT_DIR + path.sep) && fs.statSync(file, { throwIfNoEntry: false });
         if (!stat || !stat.isFile()) return next();
-        res.setHeader("content-type", "font/ttf");
+        res.setHeader("content-type", file.endsWith(".woff2") ? "font/woff2" : "font/ttf");
         fs.createReadStream(file).pipe(res);
       });
     },

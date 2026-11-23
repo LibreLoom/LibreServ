@@ -5,7 +5,8 @@
 //! floors that still match the web client's chunk/multipart sizes.
 
 use std::fs;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * 1024;
@@ -75,9 +76,24 @@ pub fn meminfo() -> MemInfo {
     })
 }
 
+/// How long a parsed `/proc/meminfo` snapshot stays valid. Photo scans call
+/// `limits()` for every image; rereading and reparsing meminfo each time cost
+/// more than some of the decodes they bound. Available memory moves slowly,
+/// and the callers already clamp to the snapshot they get.
+const LIMITS_TTL: Duration = Duration::from_secs(30);
+static LIMITS_CACHE: OnceLock<Mutex<(Instant, Limits)>> = OnceLock::new();
+
 pub fn limits() -> Limits {
-    let m = meminfo();
-    limits_from(m.available_bytes, m.total_bytes)
+    let slot = LIMITS_CACHE.get_or_init(|| {
+        let m = meminfo();
+        Mutex::new((Instant::now(), limits_from(m.available_bytes, m.total_bytes)))
+    });
+    let mut cached = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cached.0.elapsed() >= LIMITS_TTL {
+        let m = meminfo();
+        *cached = (Instant::now(), limits_from(m.available_bytes, m.total_bytes));
+    }
+    cached.1
 }
 
 /// Pure policy used by production and unit tests.

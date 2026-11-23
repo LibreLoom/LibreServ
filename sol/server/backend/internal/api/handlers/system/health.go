@@ -97,6 +97,17 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// DatabaseIntegrity handles GET /api/v1/system/database/integrity (admin only).
+// A full PRAGMA integrity_check walks every page, so it is an explicit
+// diagnostic instead of part of the short-interval health probes.
+func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request) {
+	if err := h.db.IntegrityCheck(); err != nil {
+		JSONError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // LivenessCheck handles GET /health/live
 // Returns whether the service is alive (simple ping)
 func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {

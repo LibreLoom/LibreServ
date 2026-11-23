@@ -15,7 +15,10 @@
 //! `Layout::detect` recovers the prefix from the marker file, so no prefix
 //! has to be threaded through call sites or stored in `luna.db`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// `.luna-<uuid>` namespaced layout for one adopted drive.
 #[derive(Debug, Clone)]
@@ -23,11 +26,37 @@ pub struct Layout {
     prefix: String,
 }
 
+/// Marker scans are cheap once, but photo scans resolve the thumb directory
+/// for every image and every thumbnail request. A drive's prefix only changes
+/// when it is adopted or reformatted, so remember it briefly and check the
+/// marker file is still there on a cache hit. `None` is not cached: a drive
+/// adopted just after a lookup must be seen on the next one.
+const DETECT_TTL: Duration = Duration::from_secs(60);
+static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>> = OnceLock::new();
+
 impl Layout {
     /// Detect this drive's prefix from its `.luna-<uuid>.sqlite3` marker.
     /// `None` when the drive is not adopted.
     pub fn detect(root: &Path) -> Option<Self> {
-        crate::drives::drive_db::prefix_for(root).map(Self::from_prefix)
+        let cache = DETECT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+
+        if let Some((at, prefix, marker)) = cache.get(root) {
+            if at.elapsed() < DETECT_TTL && marker.is_file() {
+                return Some(Self::from_prefix(prefix.clone()));
+            }
+        }
+        // Ejected drives must not leave entries behind forever.
+        if cache.len() > 64 {
+            cache.retain(|_, (_, _, marker)| marker.is_file());
+        }
+
+        let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);
+        if let Some(layout) = &found {
+            let marker = root.join(format!("{}.sqlite3", layout.prefix));
+            cache.insert(root.to_path_buf(), (Instant::now(), layout.prefix.clone(), marker));
+        }
+        found
     }
 
     pub fn from_prefix(prefix: impl Into<String>) -> Self {
