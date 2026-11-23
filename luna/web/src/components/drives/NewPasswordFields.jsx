@@ -7,7 +7,9 @@ import FormInput from "../common/forms/FormInput.jsx";
  * drive's password is chosen: Protect, Change password, and the Add-drive
  * hand-off. The caller owns the values (they are never stored anywhere else)
  * and checks them with `newPasswordProblem` before going on. The live strength
- * chips make the rules visible while the password is being typed.
+ * chips make the rules visible while the password is being typed. Both the
+ * chips and that check count characters, the unit lunad uses, so a 12-character
+ * multi-byte password looks acceptable here and is accepted there.
  *
  * @param {{
  *   idPrefix: string,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import SystemUpdatesCard from "./SystemUpdatesCard.jsx";
+import SystemUpdatesCard, { compareVersions } from "./SystemUpdatesCard.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 const UP_TO_DATE = {
@@ -156,5 +156,45 @@ describe("SystemUpdatesCard", () => {
     expect(status).toHaveTextContent("Installing update…");
     expect(status.querySelector('[data-slot="spinner"]')).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Update now/ })).toBeNull();
+  });
+
+  it("calls a dev build from a new source older than the running release", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      ...UP_TO_DATE,
+      update_available: true,
+      current_version: "0.4.1",
+      latest_version: "0.4.1-0.dev.12",
+      from_new_source: true,
+    })));
+    renderCard();
+    expect(await screen.findByText(/It is older than the version Luna runs now/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /See what's in/ })).toBeTruthy();
+  });
+});
+
+describe("compareVersions", () => {
+  it("compares core numbers numerically", () => {
+    expect(compareVersions("1.4.10", "1.4.2")).toBe(1);
+    expect(compareVersions("1.4.2", "1.4.10")).toBe(-1);
+    expect(compareVersions("1.4.2", "1.4.2")).toBe(0);
+  });
+
+  it("ranks a prerelease below its release", () => {
+    expect(compareVersions("0.4.1-beta.2", "0.4.1")).toBe(-1);
+    expect(compareVersions("0.4.1", "0.4.1-beta.2")).toBe(1);
+    expect(compareVersions("0.4.1-0.dev.12", "0.4.1")).toBe(-1);
+    expect(compareVersions("0.4.1-0.dev.12", "0.4.1-beta.1")).toBe(-1);
+  });
+
+  it("compares prerelease identifiers by semver precedence", () => {
+    expect(compareVersions("0.3.0-beta.2", "0.3.0-beta.10")).toBe(-1);
+    expect(compareVersions("0.3.0-beta.10", "0.3.0-beta.2")).toBe(1);
+    expect(compareVersions("0.4.0-alpha", "0.4.0-alpha.1")).toBe(-1);
+    expect(compareVersions("0.4.0-beta", "0.4.0-alpha")).toBe(1);
+    expect(compareVersions("0.4.0-1", "0.4.0-alpha")).toBe(-1);
+  });
+
+  it("ignores build metadata", () => {
+    expect(compareVersions("1.2.3+build.4", "1.2.3")).toBe(0);
   });
 });

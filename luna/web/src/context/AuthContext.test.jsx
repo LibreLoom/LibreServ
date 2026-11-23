@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { getJson } from "../lib/api";
@@ -394,5 +394,95 @@ describe("AuthProvider when Luna is unreachable", () => {
     renderApp();
     expect(await screen.findByText("LUNA HOME")).toBeInTheDocument();
     expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
+  });
+});
+
+describe("AuthProvider recovery poll", () => {
+  const json = (body, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("treats any HTTP answer as recovery and never overlaps two ticks", async () => {
+    vi.useFakeTimers();
+    let online = false;
+    /** @type {(value?: any) => void} */
+    let releaseMe = () => {};
+    const meGate = new Promise((resolve) => { releaseMe = resolve; });
+    let meCalls = 0;
+
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) {
+        meCalls += 1;
+        await meGate; // hold the answer across a whole interval tick
+        return new Response("null", { status: 401 });
+      }
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, unreachable } = useAuth();
+      return <div>{loading ? "LOADING" : unreachable ? "UNREACHABLE" : "REACHABLE"}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    // Luna is back but /auth/me answers 401: that is still an HTTP answer.
+    online = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(meCalls).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(meCalls).toBe(1); // in-flight guard: no second poll on top of the first
+
+    await act(async () => { releaseMe(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("REACHABLE")).toBeTruthy();
+    // One completed tick makes two /auth/me calls: the poll's apiFetch probe,
+    // then refresh()'s own getJson. Both got the gated 401 from the stub.
+    expect(meCalls).toBe(2);
+
+    // Recovery cleared the timer: four more intervals must add no calls.
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(meCalls).toBe(2);
+  });
+
+  it("also recovers when /auth/me answers 500", async () => {
+    vi.useFakeTimers();
+    let online = false;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) return new Response("{}", { status: 500 });
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, unreachable } = useAuth();
+      return <div>{loading ? "LOADING" : unreachable ? "UNREACHABLE" : "REACHABLE"}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    online = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByText("REACHABLE")).toBeTruthy();
   });
 });

@@ -21,6 +21,25 @@ const pill = (text) => ({ pill: String(text) });
 const n = (count, one, many) => (count === 1 ? one : many);
 
 /**
+ * Names of the real files the person kept. A dropped folder's own item is
+ * bookkeeping (it only makes directories) and its title is the folder, so
+ * neither may stand in for the file that was actually skipped.
+ * @param {any} op
+ * @returns {string[]}
+ */
+function skippedFileNames(op) {
+  return (op.items || [])
+    .filter((i) => i.state === "skipped" && !i.isDir)
+    .map((i) => i.name)
+    .filter(Boolean);
+}
+
+/** @param {any} op */
+function skippedFileCount(op) {
+  return op.skippedCount ?? skippedFileNames(op).length;
+}
+
+/**
  * What a batch did, naming the items when there are few enough to name.
  *
  * "Moving 3 items to Trash" tells you nothing about what is going. A person
@@ -239,11 +258,15 @@ export function opStatus(op) {
   const running = state === "preparing" || state === "running" || state === "waiting";
   const partial = state === "partial";
 
-  // Every item was answered "Skip": the person kept what was already there.
+  // Every file was answered "Skip": the person kept what was already there.
   // No files moved, so "Uploaded"/"Copied" would claim work that didn't happen.
+  // Name the skipped file, not a folder the drop happened to arrive in.
   if (op.kept && state === "done") {
-    const skipped = op.skippedCount ?? (op.items || []).filter((i) => i.state === "skipped").length;
-    if (skipped === 1 && name) return ["Kept the original ", pill(name)];
+    const skipped = skippedFileCount(op);
+    if (skipped === 1) {
+      const keptName = skippedFileNames(op)[0] || name;
+      if (keptName) return ["Kept the original ", pill(keptName)];
+    }
     const noun = op.kind === "gallery" ? "photo" : op.kind === "copy" || op.kind === "move" ? "item" : "file";
     return [`Skipped ${skipped} ${n(skipped, noun, `${noun}s`)}`];
   }
@@ -549,8 +572,11 @@ export function finishedText(op) {
   const total = op.itemsTotal ?? 0;
   const folders = op.foldersDone ?? 0;
   if (op.kept && op.state === "done") {
-    const skipped = op.skippedCount ?? 0;
-    if (skipped === 1 && op.title) return `Kept the original ${op.title}`;
+    const skipped = skippedFileCount(op);
+    if (skipped === 1) {
+      const keptName = skippedFileNames(op)[0] || op.title;
+      if (keptName) return `Kept the original ${keptName}`;
+    }
     const noun = op.kind === "gallery" ? "photo" : op.kind === "copy" || op.kind === "move" ? "item" : "file";
     return `Skipped ${skipped} ${n(skipped, noun, `${noun}s`)}`;
   }

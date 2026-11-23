@@ -4,6 +4,7 @@ import {
   backupStatus,
   buildBackupRows,
   groupByCreator,
+  isPausedByLock,
   lastCopyLine,
   lastTestedLine,
   needsALook,
@@ -240,16 +241,19 @@ describe("privateGroups", () => {
 describe("backups paused by a locked drive", () => {
   // lunad sends the unlock reason alongside `paused: "locked"` and every locked
   // drive's name. The generic waiting reason must not win over the pause.
-  const paused = () => drive({
+  /** @param {any} [overrides] */
+  const paused = (overrides = {}) => drive({
     status: "active",
     state: "waiting",
     paused: "locked",
     locked_drive_names: ["Family photos", "Backup drive"],
     waiting_reason: "Backup drive is locked. Unlock it to continue the backups.",
     waiting_since: null,
+    ...overrides,
   });
 
   it("is Paused, not Waiting or a failure, and needs no look", () => {
+    expect(isPausedByLock(paused())).toBe(true);
     expect(backupStatus(paused())).toEqual({ label: "Paused", variant: "warning" });
     expect(needsALook(paused())).toBe(false);
   });
@@ -257,5 +261,43 @@ describe("backups paused by a locked drive", () => {
   it("is said in the headline instead of All backed up or Waiting", () => {
     expect(backupHeadline([paused()])).toBe("1 backup is paused");
     expect(backupHeadline([paused(), paused()])).toBe("2 backups are paused");
+  });
+
+  // lunad also flags a locked drive on backups that are finished for another
+  // reason. Those must keep their own pill and must never promise an unlock.
+  it("is not a lock pause when the row is stopped or the source is gone", () => {
+    for (const status of ["stopped", "source_gone"]) {
+      const row = paused({ status, state: "failing" });
+      expect(isPausedByLock(row)).toBe(false);
+      expect(backupStatus(row)).toEqual(
+        status === "stopped"
+          ? { label: "Stopped", variant: "default" }
+          : { label: "Original is gone", variant: "default" },
+      );
+      expect(needsALook(row)).toBe(false);
+    }
+  });
+
+  it("is not a lock pause for a backup rebuilt from a drive", () => {
+    const row = paused({ status: "paused", can_resume: true });
+    expect(isPausedByLock(row)).toBe(false);
+    expect(backupStatus(row)).toMatchObject({ label: "Paused", variant: "warning" });
+  });
+
+  it("is not a lock pause when a bigger backup already covers this one", () => {
+    const row = paused({ covered_by: { name: "Everything", path: "" } });
+    expect(isPausedByLock(row)).toBe(false);
+    expect(backupStatus(row)).toEqual({ label: "Included in a bigger backup", variant: "default" });
+  });
+
+  it("is not a lock pause when the original files are missing", () => {
+    const row = paused({ source_missing: true, waiting_reason: null });
+    expect(isPausedByLock(row)).toBe(false);
+    expect(backupStatus(row)).toEqual({ label: "Backup paused", variant: "warning" });
+  });
+
+  it("does not count stopped or covered locked rows as paused in the headline", () => {
+    expect(backupHeadline([paused({ status: "stopped" })])).not.toBe("1 backup is paused");
+    expect(backupHeadline([paused({ covered_by: { name: "Everything", path: "" } })])).not.toBe("1 backup is paused");
   });
 });

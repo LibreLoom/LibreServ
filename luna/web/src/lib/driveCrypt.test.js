@@ -10,9 +10,16 @@ describe("newPasswordProblem", () => {
     expect(newPasswordProblem("abc", "abc")).toBe("Passwords need at least 12 characters.");
   });
 
-  it("counts UTF-8 bytes, as lunad does", () => {
-    // Six characters, but eleven bytes — still too short for the drive.
-    expect(newPasswordProblem("ééééé1", "ééééé1")).toBe("Passwords need at least 12 characters.");
+  it("counts characters, as lunad and the strength checklist do", () => {
+    // 11 characters but 19 UTF-8 bytes — with an ASCII letter and digit, a
+    // byte count would accept it. Only the character count refuses it.
+    const short = `${"é".repeat(9)}a1`;
+    expect(newPasswordProblem(short, short)).toBe("Passwords need at least 12 characters.");
+  });
+
+  it("accepts twelve characters even when they are multi-byte", () => {
+    const longEnough = `${"é".repeat(10)}a1`;
+    expect(newPasswordProblem(longEnough, longEnough)).toBe("");
   });
 
   it("still catches a mismatch once the policy is met", () => {

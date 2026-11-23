@@ -13,6 +13,11 @@ import { formatFields } from "./format.js";
 const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, folders: null, files: null, shortcuts: [] });
 const healthy = () => smartHealth();
 const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").every((u) => u.id === id);
+// lunad has no separate "has an Admin" flag: every setup gate is the user
+// count — count_users() > 0 in api/auth.rs (register, status) and api/setup.rs.
+// Derive it the same way so the fake can never validate a world with a user
+// row but no Admin, which real lunad cannot produce.
+const hasAdmin = (world) => world.users.length > 0;
 const DEVICE_TOKEN_REJECTED = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
 
 /** crate::password::validate_password. */
@@ -29,7 +34,7 @@ const userJson = (u) => ({ id: u.id, username: u.username, display_name: u.displ
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 get("/api/v1/auth/me", ({ user, world }) => (user ? { ...userJson(user), phrase_set: Boolean(world.phrase?.set) } : null), { public: true });
-get("/api/v1/auth/status", ({ world }) => ({ has_admin: world.users.length > 0 && world.hasAdmin, connect_active: world.connectActive }), { public: true });
+get("/api/v1/auth/status", ({ world }) => ({ has_admin: hasAdmin(world), connect_active: world.connectActive }), { public: true });
 
 post("/api/v1/auth/login", ({ world, body }) => {
   const u = world.users.find((x) => x.username === String(body.username ?? "").trim().toLowerCase());
@@ -41,10 +46,10 @@ post("/api/v1/auth/login", ({ world, body }) => {
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return { ok: true }; }, { public: true });
 
 post("/api/v1/auth/register", ({ world, user, body }) => {
-  // First setup is open to the browser: an Admin hasn't been created yet. Once
-  // one exists, adding people is Admin-only. `hasAdmin`, not the row count, is
-  // the gate — a seeded row can own a username while the first form is open.
-  const firstSetup = !world.hasAdmin;
+  // First setup is open to the browser until a user exists, exactly like
+  // lunad's `has_users` gate (api/auth.rs). Once one exists, adding people is
+  // Admin-only — so a taken username can only be reported from that workflow.
+  const firstSetup = !hasAdmin(world);
   if (!firstSetup) {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can add users.");
@@ -90,9 +95,8 @@ post("/api/v1/auth/revoke-devices", ({ world }) => {
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 get("/api/v1/setup", ({ world, user }) => {
-  // Setup reads stay open until the first Admin exists, as in lunad. A seeded
-  // user row without an Admin is still first setup.
-  if (world.hasAdmin && !user) return fail(401, "Sign in to Luna first.");
+  // Setup reads stay open until a user exists, as in lunad (api/setup.rs).
+  if (hasAdmin(world) && !user) return fail(401, "Sign in to Luna first.");
   const sd = world.setup?.step_data ?? {};
   return { ...world.setup, step_data: { network_connected: sd.network_connected ?? true, ...(sd.preflight_passed !== undefined ? { preflight_passed: sd.preflight_passed } : {}) } };
 }, { public: true });

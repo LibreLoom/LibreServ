@@ -399,6 +399,45 @@ describe("upload runner: folders", () => {
     expect(opMeta(op)).toBe("2 folders made");
   });
 
+  it("a dropped folder that already exists with its file skipped is kept, not Uploaded", async () => {
+    // The folder item finishes "done" (the folder is already on Luna, so it
+    // makes nothing) while the only file is skipped. The folder must not make
+    // the whole operation read as an upload.
+    const listDir = vi.fn(async (_d, path) =>
+      path === "Inbox" ? [{ name: "Docs", kind: "dir" }]
+        : path === "Inbox/Docs" ? [{ name: "a.txt", kind: "file" }]
+          : [],
+    );
+    const mkdir = vi.fn(async () => {
+      throw new ApiError(409, "A folder with this name is already here.");
+    });
+    const stat = vi.fn(async () => ({ kind: "dir" }));
+    const source = fakeSource({ listDir, mkdir, stat });
+    const { store } = harness();
+    const id = store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      destLabel: "Inbox",
+      dropped: { entries: [dirEntry("Docs", [fileEntry("a.txt"), dirEntry("Empty", [])])], files: [] },
+    });
+    await tick();
+    await tick();
+    let op = store.getState().ops[0];
+    const fileItem = op.items.find((i) => !i.isDir);
+    expect(op.items.find((i) => i.isDir).state).toBe("done");
+    expect(fileItem.state).toBe("needs-decision");
+    store.decide(id, fileItem.id, "skip");
+    await tick();
+    op = store.getState().ops[0];
+    expect(op.items.find((i) => !i.isDir).state).toBe("skipped");
+    expect(op.foldersDone).toBe(0);
+    expect(op.state).toBe("done");
+    expect(op.kept).toBe(true);
+    expect(op.skippedCount).toBe(1);
+    expect(plain(opStatus(op))).toBe("Kept the original a.txt");
+  });
+
   it("cancelling stops the folder levels that are left", async () => {
     const mkdir = vi.fn(async () => {
       throw new DOMException("Aborted", "AbortError");

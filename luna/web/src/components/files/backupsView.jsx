@@ -31,6 +31,17 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [restoreError, setRestoreError] = useState("");
+  // One flag per version row. A shared `restore.isPending` disabled every row in
+  // the list; dropping it altogether let the same row be clicked twice and run
+  // two restores at once. Tracking the target version keeps other rows usable.
+  const [pendingRestores, setPendingRestores] = useState(() => new Set());
+  const markRestore = (at, pending) =>
+    setPendingRestores((prev) => {
+      const next = new Set(prev);
+      if (pending) next.add(at);
+      else next.delete(at);
+      return next;
+    });
   const versions = useQuery({
     queryKey: ["drive-backup-versions", driveId, backup.id, file.rel],
     queryFn: () => getJson(`${base(driveId, backup.id)}/versions?path=${encodeURIComponent(file.rel)}`),
@@ -42,12 +53,14 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
         `/api/v1/drives/${driveId}/backups/${backup.id}/restore`,
         at == null ? { path: file.rel } : { path: file.rel, at },
       ),
-    onSuccess: (data) => {
+    onSuccess: (data, at) => {
+      markRestore(at, false);
       setRestoreError("");
       addToast({ type: "success", message: `Restored as ${data.name}.` });
       queryClient.invalidateQueries({ queryKey: ["drive-backups", driveId] });
     },
-    onError: (err) => {
+    onError: (err, at) => {
+      markRestore(at, false);
       setRestoreError(apiErrorMessage(err, "Could not restore this file. Try again."));
     },
   });
@@ -84,6 +97,8 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
         <ul className="divide-y divide-accent">
           {list.map((v) => {
             const isLatest = v.at == null;
+            const target = v.at ?? null;
+            const restorePending = pendingRestores.has(target);
             const label = isLatest ? "Latest" : dateText(v.at);
             return (
               <li key={v.at ?? "latest"} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -107,10 +122,13 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
                     variant="outline"
                     size="sm"
                     surface="secondary"
-                    loading={restore.isPending && restore.variables === (v.at ?? null)}
+                    loading={restorePending}
+                    disabled={restorePending}
                     onClick={() => {
+                      if (restorePending) return;
                       setRestoreError("");
-                      restore.mutate(v.at ?? null);
+                      markRestore(target, true);
+                      restore.mutate(target);
                     }}
                   >
                     <RotateCcw className="h-4 w-4" aria-hidden="true" />

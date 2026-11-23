@@ -144,6 +144,9 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
   const folder = (photo.path || "").split("/").slice(0, -1).join("/");
   const camera = [photo.camera_make, photo.camera_model].filter(Boolean).join(" ");
   const duration = fmtDuration(photo.duration_secs);
+  // Unknown dimensions are omitted entirely; below one full megapixel the
+  // rounded value would read "0 MP", which is worse than no figure at all.
+  const megapixels = ((photo.width || 0) * (photo.height || 0)) / 1e6;
 
   return (
     <div className="space-y-3">
@@ -234,11 +237,11 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
               </dd>
             </>
           )}
-          {photo.width > 0 && photo.height > 0 && (
+          {megapixels >= 1 && (
             <>
               <dt className="text-secondary">Megapixels</dt>
               <dd>
-                <InlinePill>{Math.round((photo.width * photo.height) / 1e6)} MP</InlinePill>
+                <InlinePill>{Math.round(megapixels)} MP</InlinePill>
               </dd>
             </>
           )}

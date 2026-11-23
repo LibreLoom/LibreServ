@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { previewHeadline } from "../../lib/driveFormat.js";
 import FormatDriveFlow from "./FormatDriveFlow.jsx";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -90,10 +91,22 @@ describe("FormatDriveFlow", () => {
     });
     show();
     expect(await screen.findByText("Luna can't read this drive.")).toBeInTheDocument();
-    expect(screen.getByText(/It may be damaged/)).toBeInTheDocument();
+    expect(screen.getByText(/This part may be damaged, so Luna can't show its files/)).toBeInTheDocument();
     expect(screen.getByText(/locked with a password/)).toBeInTheDocument();
     expect(screen.getByText(/doesn't recognise how this part is set up/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/filesystem|partition|LUKS|exFAT/i);
+  });
+
+  it("calls a drive made only of locked parts protected, not unreadable", async () => {
+    const locked = { ...FILES_PART, label: "", state: "locked", used_bytes: null, folders: 0, files: 0, entries: [] };
+    const allLocked = preview({ partitions: [{ ...locked, name: "sdb1" }, { ...locked, name: "sdb2" }] });
+    // A whole drive behind a password is sealed, not damaged: careful, not an error.
+    expect(previewHeadline(allLocked)).toEqual({ title: "This drive is protected with a password.", tone: "careful" });
+    stub({ previewBody: allLocked });
+    show();
+    expect(await screen.findByText("This drive is protected with a password.")).toBeInTheDocument();
+    expect(screen.getAllByText(/locked with a password/)).toHaveLength(2);
+    expect(document.body.textContent).not.toMatch(/damaged|Luna can't read this drive/i);
   });
 
   it("calls an installer disk by name", async () => {

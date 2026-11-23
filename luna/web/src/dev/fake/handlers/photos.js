@@ -46,12 +46,8 @@ function albumRow(w, a, user) {
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
     created_at: a.created_at ?? Math.floor(Date.now() / 1000),
-    // Lets the owner see that an album is shared (a small chip on its card).
-    shared: (a.shared_with || []).length > 0
-      || (w.sharing?.subjects || []).some(
-        (s) => s.kind === "album" && s.drive_id === a.home_drive_id && s.album_id === a.id
-          && ((s.members?.length || 0) > 0 || (s.links?.length || 0) > 0),
-      ),
+    // No `shared` flag: lunad's Album projection has no such key. A member
+    // knows an album was shared because they aren't its owner.
   };
 }
 
@@ -126,9 +122,16 @@ get("/api/v1/photos/albums/:drive/:id/items", ({ world, user, params }) => {
   if (!a) return fail(404, "That album no longer exists.");
   if (!canSee(world, a, user)) return fail(403, "You don't have permission to see this album.");
   const keys = new Set(world.albumItems[a.id] || []);
+  // Match lunad's AlbumItem projection (crates/lunad/src/api/photos.rs): an
+  // opaque id and a display name alongside the coordinates the UI diffs on.
   return world.photos
     .filter((p) => keys.has(photoKey(p)))
-    .map((p) => ({ drive_id: p.drive_id, path: p.path }));
+    .map((p) => ({
+      id: `${a.id}:${photoKey(p)}`,
+      name: String(p.path).split("/").pop() || "photo",
+      drive_id: p.drive_id,
+      path: p.path,
+    }));
 });
 
 // ── Library ─────────────────────────────────────────────────────────────────

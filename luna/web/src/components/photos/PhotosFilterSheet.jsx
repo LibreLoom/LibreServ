@@ -378,6 +378,9 @@ function PhotosFilterSheet({
   const [draft, setDraft] = useState(() => ({ ...EMPTY_FILTERS, ...value }));
   const [cameras, setCameras] = useState(/** @type {Array<{make:string,model:string,count:number}>} */ ([]));
   const [facets, setFacets] = useState(/** @type {PhotosFacets|null} */ (null));
+  // "loading" → "ready" | "error": an empty successful lens list and a failed
+  // request must not both claim the list couldn't be loaded.
+  const [facetsStatus, setFacetsStatus] = useState("loading");
   const [saved, setSaved] = useState(readSavedFilters);
   const [saveName, setSaveName] = useState("");
   const [justCleared, setJustCleared] = useState(false);
@@ -418,6 +421,8 @@ function PhotosFilterSheet({
     if (!open) return undefined;
     let cancelled = false;
     (async () => {
+      if (cancelled) return;
+      setFacetsStatus("loading");
       try {
         const data = await getJson("/api/v1/photos/cameras");
         if (!cancelled) setCameras(Array.isArray(data?.cameras) ? data.cameras : []);
@@ -426,9 +431,15 @@ function PhotosFilterSheet({
       }
       try {
         const data = await getJson("/api/v1/photos/filter-facets");
-        if (!cancelled) setFacets(data && typeof data === "object" ? data : null);
+        if (!cancelled) {
+          setFacets(data && typeof data === "object" ? data : null);
+          setFacetsStatus("ready");
+        }
       } catch {
-        if (!cancelled) setFacets(null);
+        if (!cancelled) {
+          setFacets(null);
+          setFacetsStatus("error");
+        }
       }
     })();
     return () => {
@@ -739,9 +750,17 @@ function PhotosFilterSheet({
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
-              <p className="text-xs text-secondary">
-                Luna couldn't load the lens list. Type a lens name to filter by it, or leave this blank for any lens.
-              </p>
+              {facetsStatus === "loading" ? (
+                <p className="text-xs text-secondary">Loading lenses…</p>
+              ) : facetsStatus === "error" ? (
+                <p className="text-xs text-secondary">
+                  Luna couldn't load the lens list. Type a lens name to filter by it, or leave this blank for any lens.
+                </p>
+              ) : (
+                <p className="text-xs text-secondary">
+                  No lenses found. Type a lens name to filter by it, or leave this blank for any lens.
+                </p>
+              )}
             </>
           )}
           <div className="grid grid-cols-2 gap-2">

@@ -153,7 +153,7 @@ const ExcalidrawLazy = lazy(() =>
 /**
  * Error boundary that catches any runtime crash inside Excalidraw or its
  * subcomponents, preventing the entire React root from unmounting.
- * @extends {Component<{ downloadUrl?: string, downloadName?: string, onClose?: () => void, onRetry?: () => void, children?: import("react").ReactNode }>}
+ * @extends {Component<{ downloadUrl?: string, downloadName?: string, onClose?: () => void, onRetry?: () => void, onError?: () => void, children?: import("react").ReactNode }>}
  */
 class WhiteboardErrorBoundary extends Component {
   constructor(props) {
@@ -167,6 +167,9 @@ class WhiteboardErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error("Whiteboard editor crashed:", error, info);
+    // A crashed view owns the screen now. Drop any stale "live editing isn't
+    // connected" line so the frame can't banner it over the error card.
+    this.props.onError?.();
   }
 
   render() {
@@ -197,6 +200,7 @@ WhiteboardErrorBoundary.propTypes = {
   downloadName: PropTypes.string,
   onClose: PropTypes.func,
   onRetry: PropTypes.func,
+  onError: PropTypes.func,
   children: PropTypes.node,
 };
 
@@ -236,6 +240,7 @@ export default function WhiteboardEditor({ onRetry = undefined, ...props }) {
       downloadName={name}
       onClose={props.onClose}
       onRetry={retry}
+      onError={() => props.onPresenceChange?.("")}
     >
       <EditorSession
         key={`${props.driveId}:${props.path}:${attempt}`}
@@ -337,12 +342,14 @@ function EditorSession({
   // `_offline` means the hub never answered (or gave up) and the document was
   // seeded from the file. That is NOT a live session, even though the socket
   // may still report "open" for a solo room — say so, rather than "Live".
+  // Keep a dead hub distinct from a failed open: only the former still saves
+  // to this Luna. The latter reports no presence so the error card can speak.
   const presenceStatus =
     phase === "ready"
       ? connStatus === "open" && !sync._offline
         ? "ready"
         : connStatus === "closed" || connStatus === "error" || sync._offline
-          ? "error"
+          ? "collab-offline"
           : "loading"
       : phase === "error"
         ? "error"

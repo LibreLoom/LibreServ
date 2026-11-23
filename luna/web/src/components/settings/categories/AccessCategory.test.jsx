@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccessCategory from "./AccessCategory.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
@@ -265,5 +265,57 @@ describe("AccessCategory", () => {
     await user.click(screen.getByRole("button", { name: /Show as QR code/i }));
     expect(await screen.findByRole("heading", { name: /Show as QR code/i })).toBeTruthy();
     expect(screen.getByText(/tap Scan QR code/i)).toBeTruthy();
+  });
+});
+
+describe("AccessCategory password-change errors", () => {
+  const jsonError = (body, status) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  function renderWithPatch(patchResponse) {
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/auth/me") && init?.method === "PATCH") return patchResponse;
+      if (u.includes("/device-tokens") && (!init?.method || init.method === "GET")) {
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    renderAccess();
+  }
+
+  async function changePassword() {
+    fireEvent.change(await screen.findByLabelText("Current password"), { target: { value: "old-password-1" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "brand-new-pass-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps a real wrong-current-password refusal under Current password", async () => {
+    renderWithPatch(jsonError({ error: "That's not your current password." }, 403));
+    await changePassword();
+    expect(await screen.findByText("That's not your current password.")).toBeTruthy();
+    expect(screen.getByLabelText("Current password")).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById("profile-current-password-error")).toBeTruthy();
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeNull();
+  });
+
+  it("puts an expired-page 403 in a form notice, not on Current password", async () => {
+    renderWithPatch(jsonError({ error: "This page expired. Refresh and try again.", code: "page_expired" }, 403));
+    await changePassword();
+    expect(await screen.findByText("This page expired. Refresh and try again.")).toBeTruthy();
+    expect(screen.getByLabelText("Current password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.getElementById("profile-current-password-error")).toBeNull();
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeTruthy();
+  });
+
+  it("puts a rate-limit failure in a form notice, not on New password", async () => {
+    renderWithPatch(jsonError({ error: "Too many tries. Wait a moment, then try again." }, 429));
+    await changePassword();
+    expect(await screen.findByText("Too many tries. Wait a moment, then try again.")).toBeTruthy();
+    expect(screen.getByLabelText("Current password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.getElementById("profile-current-password-error")).toBeNull();
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeTruthy();
   });
 });

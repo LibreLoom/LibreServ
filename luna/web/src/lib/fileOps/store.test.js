@@ -280,6 +280,45 @@ describe("file ops store: skips, stops and folder-only work", () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 
+  it("stopping the last file of a folder drop settles as cancelled, not Uploaded", async () => {
+    const dirEntry = (name, children) => ({
+      isFile: false,
+      isDirectory: true,
+      name,
+      createReader: () => {
+        const queue = [children, []];
+        return { readEntries: (ok) => ok(queue.shift()) };
+      },
+    });
+    const fileEntry = (name) => ({ isFile: true, isDirectory: false, name, file: (ok) => ok(file(name)) });
+    const source = fakeSource({
+      uploadFile: vi.fn((_d, _f, _p, _n, opts) => new Promise((_resolve, reject) => {
+        opts.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      })),
+    });
+    const { store, addToast } = harness();
+    const id = store.startUpload({
+      source,
+      driveId: "d",
+      destFolder: "Inbox",
+      destLabel: "Inbox",
+      dropped: { entries: [dirEntry("Docs", [fileEntry("a.txt"), dirEntry("Empty", [])])], files: [] },
+    });
+    await tick();
+    await tick();
+    let op = store.getState().ops[0];
+    const fileItem = op.items.find((i) => !i.isDir);
+    expect(fileItem.state).toBe("uploading");
+    store.cancel(id, fileItem.id);
+    await tick();
+    op = store.getState().ops[0];
+    expect(op.items.find((i) => !i.isDir).state).toBe("cancelled");
+    expect(op.items.find((i) => i.isDir).state).toBe("done");
+    // The folder bookkeeping must not turn the cancelled file into a finished upload.
+    expect(op.state).toBe("cancelled");
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
   it("toasts for a folder-only drop that made folders", async () => {
     const dirEntry = (name, children) => ({
       isFile: false,

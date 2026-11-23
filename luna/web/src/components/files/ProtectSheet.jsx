@@ -18,7 +18,7 @@ import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { deleteJson, getDrives, getJson, postJson, apiErrorMessage } from "../../lib/api";
 import { getPhraseStatus, PHRASE_QUERY_KEY } from "../../lib/cloudPhrase";
 import { formatRecentAgo } from "../../lib/recentItems.js";
-import { backupWaitingReason, PAUSED_FROM_DRIVE_HINT } from "../../lib/backupRows.js";
+import { backupWaitingReason, isPausedByLock, PAUSED_FROM_DRIVE_HINT } from "../../lib/backupRows.js";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -223,18 +223,21 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
   );
-  const cloudPausedByLock = cloudBackup?.paused === "locked";
+  // lunad flags a locked drive on every backup that touches it, even a stopped or
+  // covered one. Only a genuine lock pause may show the unlock note / header state.
+  const cloudPausedByLock = cloudBackup ? isPausedByLock(cloudBackup) : false;
   const cloudWaiting = cloudBackup?.status === "active" && !cloudBackup.covered_by
     ? cloudPrerequisite || backupWaitingReason({ ...cloudBackup, kind: "cloud" })
     : null;
   const driveWaiting = (backup) => backupWaitingReason({ ...backup, kind: "drive" });
   const activeDriveBackups = matchingBackups.filter((b) => b.status === "active" && !b.covered_by);
   const drivesOn = driveCovers.length > 0 || matchingBackups.some((b) => b.status === "active" && b.covered_by)
-    || activeDriveBackups.some((b) => b.paused !== "locked" && !driveWaiting(b));
-  // A locked drive still reports a waiting reason; the unlock note wins over it.
-  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => b.paused !== "locked" && driveWaiting(b));
+    || activeDriveBackups.some((b) => !isPausedByLock(b) && !driveWaiting(b));
+  // A genuinely lock-paused row still reports lunad's waiting reason; the unlock
+  // note wins over it. Stopped/covered/source-gone rows keep their own status.
+  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => !isPausedByLock(b) && driveWaiting(b));
   const drivesPaused = !drivesOn && !drivesWaiting && matchingBackups.some(
-    (b) => b.status === "paused" || (b.status === "active" && b.paused === "locked"),
+    (b) => b.status === "paused" || isPausedByLock(b),
   );
   // Someone else's private item: only its owner can back it up, and its cloud copies are theirs alone.
   const isOthersPrivate = privateItem?.private === true && privateItem?.mine !== true;
@@ -492,8 +495,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : driveWaiting(b) ? "Waiting" : backupHeadline(b)}</LayeredPill>
-                        {b.paused === "locked" ? (
+                        <LayeredPill actionLabel={b.target_drive_name}>{isPausedByLock(b) ? "Paused" : driveWaiting(b) ? "Waiting" : backupHeadline(b)}</LayeredPill>
+                        {isPausedByLock(b) ? (
                           <PausedByLockNote backup={b} />
                         ) : driveWaiting(b) ? (
                           <p className="text-sm break-words">{driveWaiting(b)}</p>

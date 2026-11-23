@@ -16,7 +16,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
 import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
-import { COLLAB_OFFLINE_PREFIX } from "./collabPresence.js";
+import { isCollabOfflinePresence } from "./collabPresence.js";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
@@ -250,12 +250,26 @@ export default function FullscreenEditorFrame({
       closeRef.current?.focus();
     }
 
+    // A second fullscreen editor opened on top (a database editor from inside
+    // a form) owns the key; only the topmost overlay acts on it. Both capture
+    // listeners are on window, so the parent runs first and must bow out
+    // before it stops propagation.
+    const isTopmostOverlay = () => {
+      const overlays = document.querySelectorAll(
+        '[data-slot="file-viewer-overlay"]',
+      );
+      return overlays.length <= 1 || overlays[overlays.length - 1] === overlayRef.current;
+    };
+
     const handleKeyDown = (event) => {
       // Ctrl/Cmd+S saves this file, not the browser's Save page dialog. This
       // has to stay in the window capture listener: CodeMirror keeps DOM
       // focus and the app's useShortcut registry deliberately skips typing
       // fields, so a normal shortcut would never reach the editor.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        // Same check as Escape, before stopping the event: a nested editor's
+        // save must not be swallowed by the frame underneath it.
+        if (!isTopmostOverlay()) return;
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -267,17 +281,7 @@ export default function FullscreenEditorFrame({
         // capture listener and would otherwise eat the keypress before the
         // modal's document listener sees it.
         if (confirmCloseRef.current) return;
-        // A second fullscreen editor opened on top (a database editor from
-        // inside a form) owns Escape; only the topmost overlay closes.
-        const overlays = document.querySelectorAll(
-          '[data-slot="file-viewer-overlay"]',
-        );
-        if (
-          overlays.length > 1 &&
-          overlays[overlays.length - 1] !== overlayRef.current
-        ) {
-          return;
-        }
+        if (!isTopmostOverlay()) return;
         // Any other open dialog owns Escape too — without this the frame
         // would close the editor out from under the modal, or stack the
         // unsaved-changes guard on top.
@@ -440,10 +444,11 @@ export default function FullscreenEditorFrame({
         ? "Unsaved"
         : "Saved";
 
-  // An offline presence line gets a banner as well as the rail/topbar status —
-  // "live editing isn't connected" is too important to live in a tooltip only.
-  const offlinePresence =
-    typeof presence === "string" && presence.startsWith(COLLAB_OFFLINE_PREFIX);
+  // A genuine collab disconnect gets a banner as well as the rail/topbar
+  // status — "live editing isn't connected" is too important to live in a
+  // tooltip only. A failed open reports no presence (its error card speaks),
+  // so it never produces this banner.
+  const offlinePresence = isCollabOfflinePresence(presence);
 
   return (
     <>

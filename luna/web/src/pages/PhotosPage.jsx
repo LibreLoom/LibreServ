@@ -92,7 +92,6 @@ import {
  *   cover_thumb?: string,
  *   contrib_path?: string,
  *   item_count?: number,
- *   shared?: boolean,
  * }} PhotosAlbum
  */
 
@@ -451,6 +450,8 @@ export default function PhotosPage() {
   const activeSegment = SEGMENT_IDS.includes(segment) ? segment : DEFAULT_SEGMENT;
   const segmentOrder = SEGMENT_IDS.indexOf(activeSegment);
   const [error, setError] = useState(null);
+  // Why a dead album view was left — shown on the Albums list after the eject.
+  const [albumExitNotice, setAlbumExitNotice] = useState(/** @type {string|null} */ (null));
   const { addToast } = useToast();
   const fileOps = useFileOps();
   const [q, setQ] = useState("");
@@ -921,6 +922,9 @@ export default function PhotosPage() {
 
   // Keep multi-select items in sync with visible photos.
   const selection = useMultiSelect({ items: photos });
+  // `exit` keeps one identity for the hook's lifetime; capture it so effects
+  // above can end selection without depending on the whole selection object.
+  const endSelection = selection.exit;
 
   const pendingSelectRef = useRef(false);
   useEffect(() => {
@@ -1060,17 +1064,38 @@ export default function PhotosPage() {
     ? apiErrorMessage(connectionError, "Couldn't reach Luna. Check this device's connection and try again.")
     : null;
 
-  // An album can be deleted (or lose its share) while it is open. Its photos
-  // request then answers 404; leave the dead view and land on the album list.
+  // An album can be deleted, lose its share, or live on a drive that was
+  // unplugged while it was open. Its photos request then answers 404/403; say
+  // why, leave the dead view, and land on the album list with nothing stale
+  // pointing at the old list.
   useEffect(() => {
-    if (!albumView || !photoQuery.isError || /** @type {any} */ (photoQuery.error)?.status !== 404) return;
+    const err = /** @type {any} */ (photoQuery.error);
+    if (!albumView || !photoQuery.isError || !err) return;
+    const status = err.status;
+    if (status !== 404 && status !== 403) return;
+    const code = String(err.code || "").toLowerCase();
+    const message = String(err.message || "");
+    let notice;
+    if (status === 403 || /access|permission|forbidden/.test(code)) {
+      notice = "You no longer have access to that album.";
+    } else if (/isn[’']t mounted|not mounted|can[’']t find that drive|couldn[’']t open this drive/i.test(message)) {
+      notice = "That drive isn't mounted. Plug it in and try again.";
+    } else {
+      notice = "That album no longer exists.";
+    }
     haptic("warning");
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a dead album must leave the view on the 404
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a dead album must leave the view and say why
     setAlbumView(null);
     setViewLabel(null);
+    setLightbox(null);
+    setSlideshow(false);
+    endSelection();
+    setAddToAlbumTarget(null);
+    setAlbumExitNotice(notice);
     window.location.hash = "albums";
     queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-  }, [albumView, photoQuery.isError, photoQuery.error, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ["photos"] });
+  }, [albumView, photoQuery.isError, photoQuery.error, queryClient, endSelection]);
   const noPhotos =
     !looking &&
     !indexing &&
@@ -1186,6 +1211,7 @@ export default function PhotosPage() {
     onSuccess: (_d, items) => {
       setTrashBulk(null);
       selection.exit();
+      setAddToAlbumTarget(null);
       addToast({
         type: "success",
         message: items.length === 1 ? "Moved to Trash." : `Moved ${items.length} items to Trash.`,
@@ -1218,6 +1244,7 @@ export default function PhotosPage() {
       setNewAlbumName("");
       setNewAlbumSeed(null);
       selection.exit();
+      setAddToAlbumTarget(null);
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
       if (shareAfterCreate && album) {
@@ -1312,6 +1339,7 @@ export default function PhotosPage() {
       if (vars.close) vars.close();
       else setAlbumPick(null);
       selection.exit();
+      setAddToAlbumTarget(null);
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
     },
@@ -1334,6 +1362,7 @@ export default function PhotosPage() {
     },
     onSuccess: (_d, items) => {
       selection.exit();
+      setAddToAlbumTarget(null);
       addToast({
         type: "success",
         message: items.length === 1
@@ -1360,6 +1389,7 @@ export default function PhotosPage() {
     },
     onSuccess: (_d, items) => {
       selection.exit();
+      setAddToAlbumTarget(null);
       addToast({
         type: "success",
         message: items.length === 1 ? "Added to Favorites." : `Added ${items.length} photos to Favorites.`,
@@ -1767,7 +1797,6 @@ export default function PhotosPage() {
             <Button
               variant="primary"
               onClick={() => {
-                haptic("light");
                 queryClient.invalidateQueries({ queryKey: ["drives"] });
                 photoQuery.refetch();
               }}
@@ -1881,13 +1910,27 @@ export default function PhotosPage() {
             variant="outline"
             surface="primary"
             onClick={() => {
-              haptic("light");
               setFilters({ ...EMPTY_FILTERS });
             }}
           >
             Clear filters
           </Button>
         </div>
+      )}
+      {albumExitNotice && activeSegment === "albums" && !albumView && (
+        <PageNotice variant="warning" className="mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{albumExitNotice}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              surface="primary"
+              onClick={() => setAlbumExitNotice(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </PageNotice>
       )}
       {showPageLevelError(photosLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
@@ -2302,7 +2345,6 @@ export default function PhotosPage() {
               <Button
                 variant="primary"
                 onClick={() => {
-                  haptic("medium");
                   setAddToAlbumTarget(albumView);
                   if (activeSegment === "library") {
                     selection.enter();
@@ -2863,11 +2905,6 @@ function AlbumsPanel({
                       {album.item_count} {album.item_count === 1 ? "photo" : "photos"}
                     </p>
                   </div>
-                  {manage && album.shared && (
-                    <span className="mt-1 inline-flex rounded-pill surface-primary px-2 py-0.5 text-xs">
-                      Shared
-                    </span>
-                  )}
                   {!manage && <p className="text-xs mt-1">Shared with you</p>}
                 </div>
               </button>

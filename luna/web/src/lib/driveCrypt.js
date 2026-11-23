@@ -15,14 +15,14 @@ export function lockedDrives(drives) {
 
 /**
  * Why a new password can't be used yet, in one sentence, or "" when it can.
- * Drive passwords follow the same policy as account passwords. lunad counts
- * the UTF-8 bytes of the password, so a short run of multi-byte characters
- * must be refused here too rather than failing only at the erase step.
+ * Drive passwords follow the same policy as account passwords: lunad counts
+ * characters, not UTF-8 bytes, and so does the live strength checklist. Use
+ * the default unit here too so the three agree on a multi-byte password.
  * @param {string} password
  * @param {string} again
  */
 export function newPasswordProblem(password, again) {
-  const policy = passwordPolicyError(password, { lengthUnit: "utf8-bytes" });
+  const policy = passwordPolicyError(password);
   if (policy) return policy;
   if (password !== again) return "The two passwords don't match.";
   return "";
@@ -41,5 +41,5 @@ export function lockedDrivesTitle(drives, paused) {
   return [`${drives.length} drives are locked${tail}`];
 }
 
-/** Does this backup row wait on a locked drive? */
-export const isPausedByLock = (/** @type {any} */ row) => row?.paused === "locked";
+/** Does this backup row wait on a locked drive? (single definition, shared with the backup UI) */
+export { isPausedByLock } from "./backupRows.js";

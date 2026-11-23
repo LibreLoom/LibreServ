@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
+import { collabPresenceLabel } from "./collabPresence.js";
 
 /**
  * The chrome picks desktop or mobile from matchMedia (the test setup's stub
@@ -30,14 +31,20 @@ function stubPhoneViewport() {
  * the frame hands its child, so a test can report dirty state and register a
  * save thunk.
  */
-function renderFrame({ canWrite = true, onClose = vi.fn(), presence = "" } = {}) {
+function renderFrame({
+  canWrite = true,
+  onClose = vi.fn(),
+  presence = "",
+  name = "Letter.docx",
+  sessionKey = "session-1",
+} = {}) {
   /** @type {Record<string, any>} */
   const api = {};
   const view = render(
     <ToastProvider>
       <FullscreenEditorFrame
-        name="Letter.docx"
-        sessionKey="session-1"
+        name={name}
+        sessionKey={sessionKey}
         canWrite={canWrite}
         presence={presence}
         onClose={onClose}
@@ -281,6 +288,29 @@ describe("FullscreenEditorFrame Ctrl+S", () => {
     expect(event.defaultPrevented).toBe(true);
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   });
+
+  it("lets only the topmost editor save when one is opened over another", async () => {
+    // A database editor opened from a form: both frames listen on window in
+    // capture phase, so the parent must bow out before stopping the key.
+    const parent = renderFrame({ name: "Form.form", sessionKey: "parent" });
+    const child = renderFrame({ name: "Data.db", sessionKey: "child" });
+    const parentSave = vi.fn(async () => true);
+    const childSave = vi.fn(async () => true);
+    act(() => parent.api.onRegisterSave(parentSave));
+    act(() => child.api.onRegisterSave(childSave));
+
+    const overlays = document.querySelectorAll('[data-slot="file-viewer-overlay"]');
+    expect(overlays).toHaveLength(2);
+
+    const event = new KeyboardEvent("keydown", {
+      key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => window.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(childSave).toHaveBeenCalledTimes(1));
+    expect(parentSave).not.toHaveBeenCalled();
+  });
 });
 
 describe("FullscreenEditorFrame presence", () => {
@@ -297,9 +327,16 @@ describe("FullscreenEditorFrame presence", () => {
   });
 
   it("banners an offline presence line instead of hiding it in a tooltip", () => {
-    const offline = "Live editing isn't connected. Changes still save to this Luna.";
+    const offline = collabPresenceLabel("collab-offline", [], true);
     renderFrame({ presence: offline });
     const banner = document.querySelector('[data-slot="editor-presence-banner"]');
     expect(banner).toHaveTextContent(offline);
+  });
+
+  it("does not banner a failed open, which reports no presence", () => {
+    // "error" also covers a bad file type, a start timeout and a crash. The
+    // error card says what happened; a "changes still save" banner would lie.
+    renderFrame({ presence: collabPresenceLabel("error", [], true) });
+    expect(document.querySelector('[data-slot="editor-presence-banner"]')).toBeNull();
   });
 });

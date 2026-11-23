@@ -183,8 +183,9 @@ export function createFileOpsStore({
     let skippedCount = 0;
     for (const item of op.items) {
       // Kept originals aren't progress: counting them as files would let an
-      // all-skipped operation settle as "done" with work it never did.
-      if (item.state === "skipped") skippedCount += 1;
+      // all-skipped operation settle as "done" with work it never did. Folder
+      // items are bookkeeping (they make directories), never skipped files.
+      if (item.state === "skipped" && !item.isDir) skippedCount += 1;
       if (item.isDir) {
         // A folder-only drop uploads no bytes, so the card counts folders
         // instead of saying "0 of 0 files".
@@ -409,10 +410,14 @@ export function createFileOpsStore({
     // "Skip" on a name clash means the person kept what was already there.
     // That is a terminal state of its own — neither a finished upload nor a
     // stop — so the card can say so rather than claiming work it didn't do.
-    const allSkipped = items.length > 0 && items.every((i) => i.state === "skipped");
-    // One X on the last item used to settle as "done". Once every item is
-    // stopped (cancelled, or cancelled plus kept), nothing succeeded.
-    const allStopped = items.length > 0 && items.every((i) => i.state === "cancelled" || i.state === "skipped");
+    // Folder items only make directories: a dropped folder that already exists
+    // ends "done" alongside skipped files, and must not turn the op into a
+    // plain "Uploaded". A folder-only drop has no file items at all.
+    const fileItems = items.filter((i) => !i.isDir);
+    const allSkipped = fileItems.length > 0 && fileItems.every((i) => i.state === "skipped");
+    // Once every file item is stopped (cancelled, or cancelled plus kept),
+    // nothing succeeded — regardless of how the folder bookkeeping ended.
+    const allStopped = fileItems.length > 0 && fileItems.every((i) => i.state === "cancelled" || i.state === "skipped");
     op.kept = allSkipped;
 
     if (problems) op.shown = true;

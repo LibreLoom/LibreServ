@@ -78,6 +78,19 @@ describe("UnlockPrompt", () => {
     expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "false");
   });
 
+  it("announces a busy notice politely, with an id under the field and no error styling", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => reply({ error: "Luna is already working on this drive. Wait until it finishes.", code: "drive_busy" }, 409)));
+    show();
+    type("anything");
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveAttribute("aria-live", "polite");
+    expect(notice.textContent).toMatch(/already working on this drive/);
+    expect(document.getElementById("unlock-d1-notice")).toBe(notice);
+    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-describedby", "unlock-d1-notice");
+    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.querySelector("#unlock-d1-error")).toBeNull();
+  });
+
   it("adds a drive Luna hasn't added through unlock-and-add, letting go of the look first", async () => {
     const order = [];
     const fetchMock = vi.fn(async () => { order.push("send"); return reply({ ok: true, drive_id: "d9" }); });

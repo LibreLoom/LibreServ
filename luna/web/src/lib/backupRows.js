@@ -90,6 +90,24 @@ export function backupWaitingReason({ kind, last_error: error, waiting_reason: r
 }
 
 /**
+ * Whether a row's effective status is really a pause caused by a locked drive.
+ * lunad flags `paused: "locked"` on every backup that touches a locked drive —
+ * including ones that are stopped, covered by a bigger backup, or missing their
+ * source. Those say so through their own status and must not promise "Paused
+ * until … is unlocked". Only an active, uncovered backup whose source is still
+ * there is genuinely paused by the lock.
+ * @param {any} b
+ */
+export function isPausedByLock(b) {
+  return (
+    b.paused === "locked" &&
+    (b.status ?? "active") === "active" &&
+    !b.covered_by &&
+    !b.source_missing
+  );
+}
+
+/**
  * A paused backup (rebuilt from a drive) needs a look: it doesn't run until resumed.
  * Otherwise a backup needs a look when it is still running and its last copy failed
  * or went stale. A cloud backup also needs a look when its last check or
@@ -104,7 +122,7 @@ export function needsALook(b, now = Date.now()) {
   if (backupWaitingReason(b)) {
     return b.waiting_since > 0 && now - b.waiting_since * 1000 >= 24 * 60 * 60 * 1000;
   }
-  if (b.paused === "locked") return false;
+  if (isPausedByLock(b)) return false;
   if (b.state === "in_progress") return !!b.check_problem;
   if (b.state === "failing" || b.state === "stale") return true;
   return b.kind === "cloud" && (!!b.check_problem || !!b.source_missing);
@@ -120,9 +138,10 @@ export function backupStatus(b, now = Date.now()) {
   if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
   if (b.status === "paused") return { label: "Paused", variant: "warning", hint: PAUSED_FROM_DRIVE_HINT };
   if (b.covered_by) return { label: "Included in a bigger backup", variant: "default" };
-  // A lock-paused backup also carries a waiting reason from lunad, but the person
-  // needs the unlock instruction ("Paused until …"), not the generic "Waiting".
-  if (b.paused === "locked") return { label: "Paused", variant: "warning" };
+  // A genuinely lock-paused backup also carries a waiting reason from lunad, but
+  // the person needs the unlock instruction ("Paused until …"), not the generic
+  // "Waiting". A stopped/covered/source-gone backup keeps its own label instead.
+  if (isPausedByLock(b)) return { label: "Paused", variant: "warning" };
   if (backupWaitingReason(b)) return { label: "Waiting", variant: "warning" };
   if (b.state === "in_progress") {
     return b.check_problem
@@ -197,7 +216,7 @@ export function backupHeadline(rows) {
   if (count === 0) {
     // A lock-paused row keeps lunad's waiting reason; it is still a paused backup,
     // so count it here before the generic "waiting" line below.
-    const paused = rows.filter((b) => b.status === "active" && !b.covered_by && b.paused === "locked").length;
+    const paused = rows.filter(isPausedByLock).length;
     if (paused === 1) return "1 backup is paused";
     if (paused > 1) return `${paused} backups are paused`;
     const waiting = rows.filter((b) => b.status === "active" && !b.covered_by && backupWaitingReason(b)).length;

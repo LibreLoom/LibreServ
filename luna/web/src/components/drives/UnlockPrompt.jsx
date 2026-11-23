@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -15,8 +15,9 @@ import { apiErrorMessage, postJson } from "../../lib/api.js";
  *
  * A wrong password is a field error: it shakes the field and paints its border
  * red. A busy drive or a lock-out after too many tries ("wait a few minutes";
- * lunad sends no clock, so none is shown) is a plain notice under the field —
- * neither says anything about what the person typed. Success is one toast.
+ * lunad sends no clock, so none is shown) is a plain, polite live notice under
+ * the field — it neither shakes nor says anything about what was typed, but a
+ * screen reader still hears it. Success is one toast.
  * The password lives only in this component's state and is cleared as soon as
  * it is sent.
  *
@@ -39,6 +40,23 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
   const [notice, setNotice] = useState("");
   const adding = Boolean(deviceName);
   const key = adding ? `add-${deviceName}` : driveId;
+  const inputId = `unlock-${key}`;
+  const noticeId = `${inputId}-notice`;
+
+  // FormInput owns `aria-describedby` when there is a field error (a wrong
+  // password). For the plain busy/lock-out notice there is no error prop, so
+  // attach it to the input ourselves; this never touches shake or red border.
+  useEffect(() => {
+    if (error) return undefined;
+    const input = document.getElementById(inputId);
+    if (!input) return undefined;
+    if (notice) input.setAttribute("aria-describedby", noticeId);
+    return () => {
+      if (input.getAttribute("aria-describedby") === noticeId) {
+        input.removeAttribute("aria-describedby");
+      }
+    };
+  }, [inputId, noticeId, notice, error]);
 
   const unlock = useMutation({
     mutationFn: async (/** @type {string} */ pw) => {
@@ -82,7 +100,7 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
     <form onSubmit={submit} className="flex flex-col gap-3" data-slot="unlock-prompt">
       <FormInput
         label="Drive password"
-        name={`unlock-${key}`}
+        name={inputId}
         type="password"
         icon="password"
         autoComplete="current-password"
@@ -97,7 +115,9 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
         surface={surface}
         className="mb-0"
       />
-      {notice && <p className="text-sm">{notice}</p>}
+      {notice && (
+        <p id={noticeId} role="status" aria-live="polite" className="text-sm">{notice}</p>
+      )}
       <div>
         <Button type="submit" size="sm" variant={surface === "primary" ? "secondary" : "primary"} surface={surface} loading={unlock.isPending} disabled={!password}>{buttonLabel}</Button>
       </div>

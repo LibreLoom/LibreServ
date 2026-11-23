@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- compareVersions shared with tests */
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
@@ -27,20 +28,66 @@ const HEALTH_POLL_MS = 2000;
 const HEALTH_GIVE_UP_DOWN_MS = 20_000;
 
 /**
- * Compare two version strings piece by piece (1.4.10 is newer than 1.4.2).
+ * Compare two strict-semver versions, the format the release feed uses.
+ * Core numbers compare as numbers (1.4.10 > 1.4.2); build metadata after `+`
+ * is ignored. A prerelease is older than its release (0.4.1-beta.2 < 0.4.1),
+ * and prerelease identifiers follow semver's order: numeric ones compare as
+ * numbers (beta.2 < beta.10) and always rank below non-numeric ones
+ * (0.dev.12 < beta.1); a longer run wins when all earlier ones tie.
  * @param {string|undefined|null} a
  * @param {string|undefined|null} b
  * @returns {-1|0|1} -1 when a is older than b, 1 when newer, 0 when equal.
  */
-function compareVersions(a, b) {
-  const left = String(a ?? "").split(/[.-]/);
-  const right = String(b ?? "").split(/[.-]/);
-  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-    const rawLeft = Number.parseInt(left[i] ?? "0", 10);
-    const rawRight = Number.parseInt(right[i] ?? "0", 10);
-    const l = Number.isNaN(rawLeft) ? 0 : rawLeft;
-    const r = Number.isNaN(rawRight) ? 0 : rawRight;
+export function compareVersions(a, b) {
+  /** @param {string|undefined|null} value */
+  function parse(value) {
+    const text = String(value ?? "").trim();
+    const withoutBuild = text.split("+", 1)[0];
+    const dash = withoutBuild.indexOf("-");
+    const core = dash === -1 ? withoutBuild : withoutBuild.slice(0, dash);
+    // A prerelease may itself contain hyphens (beta-2), so split at the first.
+    const prerelease = dash === -1 ? null : withoutBuild.slice(dash + 1);
+    return {
+      numbers: core.split(".").map((part) => {
+        const n = Number.parseInt(part, 10);
+        return Number.isNaN(n) ? 0 : n;
+      }),
+      identifiers: prerelease ? prerelease.split(".") : null,
+    };
+  }
+
+  const left = parse(a);
+  const right = parse(b);
+  for (let i = 0; i < 3; i += 1) {
+    const l = left.numbers[i] ?? 0;
+    const r = right.numbers[i] ?? 0;
     if (l !== r) return l < r ? -1 : 1;
+  }
+
+  // No prerelease outranks any prerelease of the same version.
+  if (!left.identifiers || !right.identifiers) {
+    if (left.identifiers) return -1;
+    if (right.identifiers) return 1;
+    return 0;
+  }
+  for (let i = 0; i < Math.max(left.identifiers.length, right.identifiers.length); i += 1) {
+    const l = left.identifiers[i];
+    const r = right.identifiers[i];
+    if (l === undefined) return -1;
+    if (r === undefined) return 1;
+    if (l === r) continue;
+    const lNumeric = /^\d+$/.test(l);
+    const rNumeric = /^\d+$/.test(r);
+    if (lNumeric && rNumeric) {
+      const ln = Number(l);
+      const rn = Number(r);
+      if (ln !== rn) return ln < rn ? -1 : 1;
+      continue;
+    }
+    // A numeric identifier always ranks below a non-numeric one.
+    if (lNumeric) return -1;
+    if (rNumeric) return 1;
+    return l < r ? -1 : 1;
   }
   return 0;
 }

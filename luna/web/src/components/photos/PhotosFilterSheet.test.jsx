@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getJson } from "../../lib/api";
 import PhotosFilterSheet, {
   EMPTY_FILTERS,
   clearFilterChip,
@@ -40,9 +41,29 @@ describe("datePresetRange", () => {
   });
 });
 
+/** Choose what the facets request answers; cameras always succeed. */
+function stubFacets(response) {
+  vi.mocked(getJson).mockImplementation(async (url) => {
+    if (String(url).includes("/cameras")) {
+      return { cameras: [{ make: "Canon", model: "EOS", count: 3 }] };
+    }
+    if (String(url).includes("/filter-facets")) {
+      if (response === "error") {
+        const err = /** @type {Error & { status?: number }} */ (new Error("not found"));
+        err.status = 404;
+        throw err;
+      }
+      if (response === "pending") return new Promise(() => {});
+      return response;
+    }
+    return {};
+  });
+}
+
 describe("PhotosFilterSheet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stubFacets("error");
   });
 
   it("renders filter sections", async () => {
@@ -156,5 +177,46 @@ describe("PhotosFilterSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
     expect(onApply).toHaveBeenCalled();
     expect(onApply.mock.calls[0][0].undated).toBe(true);
+  });
+
+  it("blames the lens request only when it actually failed", async () => {
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/couldn't load the lens list/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Lens")).toBeInTheDocument();
+  });
+
+  it("says no lenses were found for a successful empty list", async () => {
+    stubFacets({ lenses: [], formats: [], iso: true, focal: true, flash: true });
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/No lenses found/i)).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't load the lens list/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a loading note while the facets request is pending", async () => {
+    stubFacets("pending");
+    render(
+      <PhotosFilterSheet
+        open
+        value={{ ...EMPTY_FILTERS }}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/Loading lenses/i)).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't load the lens list/i)).not.toBeInTheDocument();
   });
 });

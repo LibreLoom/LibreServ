@@ -288,7 +288,20 @@ function myRows(w, user) {
       });
     }
   }
-  return [...rows, ...sh.withMe.map((r) => ({ created_by: "", ...r }))];
+  // Extra "shared with you" rows have no share-sheet subject behind them, so a
+  // scenario may seed only a few keys (the dashboard's nine album rows name just
+  // id/kind/drive/album/name/caps/exists). lunad always sends every key, so fill
+  // the rest explicitly rather than letting the seed decide the response shape.
+  return [...rows, ...sh.withMe.map((r) => {
+    const row = { created_by: "", ...r };
+    return {
+      ...row,
+      drive_label: row.drive_label ?? driveLabel(w, row.drive_id),
+      path: row.path ?? "",
+      is_file: row.is_file ?? false,
+      shared_by: row.shared_by ?? "",
+    };
+  })];
 }
 
 get("/api/v1/access/mine", ({ world, user }) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -14,6 +14,12 @@ import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+
+// A picked search hit gets one transient inset ring — it never repaints a
+// surface, so the text colour that came with that surface keeps reading.
+// `ring-inset` also keeps it inside a card's overflow-hidden clip.
+const HIT_RING_CLASSES = ["ring-2", "ring-inset", "ring-accent"];
+const HIT_FLASH_MS = 1800;
 
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
@@ -95,6 +101,20 @@ export default function SettingsPage() {
   const [pendingHit, setPendingHit] = useState(
     /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (null),
   );
+  const flashElementRef = useRef(/** @type {Element | null} */ (null));
+  const flashTimerRef = useRef(/** @type {number | null} */ (null));
+
+  const clearHitFlash = useCallback(() => {
+    if (flashTimerRef.current != null) {
+      window.clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
+    flashElementRef.current?.classList.remove(...HIT_RING_CLASSES);
+    flashElementRef.current = null;
+  }, []);
+
+  // Leaving Settings mid-flash must not leave a ring on a detached node.
+  useEffect(() => clearHitFlash, [clearHitFlash]);
 
   // On a phone the box only exists on the category list, so `/` goes back to it first.
   useEffect(() => {
@@ -124,30 +144,43 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!pendingHit || searching) return undefined;
     let tries = 0;
-    const timers = /** @type {number[]} */ ([]);
+    let pollTimer = /** @type {number | null} */ (null);
     const look = () => {
       const target = findSettingsTarget(document, pendingHit);
       if (target) {
         const reduce = typeof window.matchMedia === "function"
           && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         target.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
-        // A background tint, not a ring: rows already have a divider border, so
-        // a ring reads as a second outline and gets clipped by the card's
-        // overflow-hidden. The descendant rule makes a card hit tint its card,
-        // which is opaque and would otherwise hide the wrapper's tint.
-        const flash = ["bg-secondary/10", "[&_[data-slot=card]]:bg-secondary/10"];
-        target.classList.add(...flash);
-        timers.push(window.setTimeout(() => target.classList.remove(...flash), 1800));
+        // A card paints its surface on the rounded outer clip; ring that
+        // (inset, so it follows the radius and isn't clipped) rather than the
+        // wrapper. Rows are the surface themselves. Either way it is one ring,
+        // not a background swap that would separate a surface from the text
+        // colour it came with. The fallback covers a card without a height
+        // animation, where the surface sits on the card element itself.
+        const isCard = target.matches('[data-settings-item="card"]');
+        const el = isCard
+          ? target.querySelector('[data-slot="card-clip"], [data-slot="card"]') ?? target
+          : target;
+        clearHitFlash();
+        el.classList.add(...HIT_RING_CLASSES);
+        flashElementRef.current = el;
         setPendingHit(null);
-      } else if (++tries < 30) {
-        timers.push(window.setTimeout(look, 100));
-      } else {
-        setPendingHit(null);
+        // The removal timer lives in a ref, not in this effect's timer list:
+        // setPendingHit(null) re-runs the effect, and its cleanup must not
+        // cancel the ring's own timeout.
+        flashTimerRef.current = window.setTimeout(clearHitFlash, HIT_FLASH_MS);
+        return;
       }
+      if (++tries < 30) pollTimer = window.setTimeout(look, 100);
+      else setPendingHit(null);
     };
-    timers.push(window.setTimeout(look, 0));
-    return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [pendingHit, searching, activeCategory]);
+    pollTimer = window.setTimeout(look, 0);
+    return () => {
+      // Only the retry poll belongs to this effect. The flash timer is in a
+      // ref so clearing the pending hit cannot make the ring permanent.
+      if (pollTimer != null) window.clearTimeout(pollTimer);
+    };
+  }, [pendingHit, searching, activeCategory, clearHitFlash]);
 
   const searchField = (
     <SettingsSearchField

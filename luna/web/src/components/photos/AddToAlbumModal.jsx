@@ -26,7 +26,7 @@ export function albumKey(album) {
  *
  * @param {{
  *   open: boolean,
- *   albums?: Array<{ id: string, home_drive_id: string, name: string, item_count?: number, shared?: boolean }>,
+ *   albums?: Array<{ id: string, home_drive_id: string, name: string, item_count?: number }>,
  *   photos?: Array<{ drive_id: string, path: string }>,
  *   albumsLoading?: boolean,
  *   applying?: boolean,

@@ -29,7 +29,7 @@ import { searchWhen } from "../../lib/fileSearch.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import BackupNotes from "../protect/BackupNotes.jsx";
-import { backupStatus, backupWaitingReason } from "../../lib/backupRows.js";
+import { backupStatus, backupWaitingReason, isPausedByLock } from "../../lib/backupRows.js";
 import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
 import { warmTextEditor } from "./editorWarm.js";
@@ -418,7 +418,7 @@ function FileRow({
               <Pill variant={backupHealth.variant}>{backupHealth.label}</Pill>
             </div>
             {waiting && <p className="text-sm break-words">{waiting}</p>}
-            {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+            {isPausedByLock(backup) && <PausedByLockNote backup={backup} />}
             <BackupNotes notes={backup.notes} />
           </div>
         ) : (

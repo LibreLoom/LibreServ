@@ -29,6 +29,13 @@ describe("NewPasswordFields", () => {
     expect(screen.getByText("symbols")).toBeInTheDocument();
   });
 
+  it("counts characters in the strength chips, like lunad and the caller's check", () => {
+    onCard(<Harness />);
+    // 12 characters, 21 UTF-8 bytes: the length chip must be satisfied.
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: `${"é".repeat(10)}a1` } });
+    expect(screen.getByText("✓ Acceptable")).toBeInTheDocument();
+  });
+
   it("shows the caller's message under the second field", () => {
     onCard(<Harness error="The two passwords don't match." />);
     expect(screen.getByText("The two passwords don't match.")).toBeInTheDocument();

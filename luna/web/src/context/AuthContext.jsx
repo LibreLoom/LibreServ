@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UNAUTHORIZED_EVENT, getJson, postJson } from "../lib/api";
+import { UNAUTHORIZED_EVENT, apiFetch, getJson, postJson } from "../lib/api";
 
 const AuthContext = createContext(undefined);
 
@@ -125,18 +125,30 @@ export function AuthProvider({ children }) {
       // /setup would say a working Luna had lost its setup.
       if (unreachable) {
         setLoading(false);
-        pollTimer = window.setInterval(async () => {
-          try {
-            await getJson("/api/v1/auth/me");
-          } catch {
-            // Still down. Any HTTP answer — even a 401 — means Luna is back.
-            return;
-          }
-          const next = await refresh();
-          if (!alive || next.unreachable) return;
-          window.clearInterval(pollTimer);
-          setUnreachable(false);
-          routeAfterRefresh(next);
+        // A tick can outlive the 2 s interval (a slow answer, then refresh).
+        // Never start a second one on top of it.
+        let polling = false;
+        pollTimer = window.setInterval(() => {
+          if (polling) return;
+          polling = true;
+          (async () => {
+            try {
+              // apiFetch resolves on any HTTP answer — 401, 403 and 500 all
+              // mean Luna is back. It throws only when no answer arrived,
+              // which is the one case where Luna is still restarting.
+              await apiFetch("/api/v1/auth/me", { cache: "no-store" });
+              const next = await refresh();
+              if (!alive || next.unreachable) return;
+              if (pollTimer) window.clearInterval(pollTimer);
+              pollTimer = 0;
+              setUnreachable(false);
+              routeAfterRefresh(next);
+            } catch {
+              // No HTTP answer at all: Luna is still down. Keep polling.
+            } finally {
+              polling = false;
+            }
+          })();
         }, 2000);
         return;
       }
@@ -146,6 +158,7 @@ export function AuthProvider({ children }) {
     return () => {
       alive = false;
       if (pollTimer) window.clearInterval(pollTimer);
+      pollTimer = 0;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);

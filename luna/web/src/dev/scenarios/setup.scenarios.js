@@ -128,13 +128,23 @@ export default [
   {
     id: "setup/username-taken",
     area: "Setup",
-    title: "Account step: username already used",
+    title: "Username already used on this Luna",
     url: "/setup",
     seed: (w) => {
+      // A first-setup "username taken" 409 cannot happen: with zero users there
+      // is no name to take. lunad reports has_admin from the user count, so the
+      // reachable state is an existing Admin with a signed-out browser. From
+      // there the duplicate-name error comes from the Admin's add-user flow.
       fresh({ setup: { current_step: "account", step_data: { preflight_passed: true } } })(w);
-      w.users = [{ id: "u9", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.users = [{ id: "u1", username: "max", display_name: "Max", role: "admin", created_at: DEFAULT_NOW / 1000 }];
+      w.sessionUserId = null;
     },
-    check: ["Use username: max", "Error points back at the username step"],
+    check: [
+      "/setup offers 'Sign in to continue', not a second first-account form",
+      "Sign in as max (the wrong password 'wrong' shows a clear message)",
+      "Continue through naming and finish setup, then open Settings → Users",
+      "Add a person named max: Luna says 'That username is already taken.' and keeps the typed name",
+    ],
   },
   {
     id: "setup/register-fails",

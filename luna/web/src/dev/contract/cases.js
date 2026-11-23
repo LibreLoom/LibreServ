@@ -157,6 +157,16 @@ export const CASES = {
   // Photos
   "GET /api/v1/photos": plain("/api/v1/photos"),
   "GET /api/v1/photos/albums": plain("/api/v1/photos/albums"),
+  // Needs an album that holds a photo: the editor asks which of a selection an
+  // album already has. Look one up by property so seed changes don't break it.
+  "GET /api/v1/photos/albums/:drive/:id/items": {
+    url: (w) => {
+      const a = (w.albums || []).find(
+        (x) => x?.id && x?.home_drive_id && (w.albumItems?.[x.id] || []).length,
+      );
+      return a ? `/api/v1/photos/albums/${q(a.home_drive_id)}/${q(a.id)}/items` : null;
+    },
+  },
   "GET /api/v1/photos/places": plain("/api/v1/photos/places"),
   "GET /api/v1/photos/status": plain("/api/v1/photos/status"),
   "GET /api/v1/photos/cameras": plain("/api/v1/photos/cameras"),

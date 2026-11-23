@@ -216,6 +216,21 @@ describe("copy and errors", () => {
     expect(plain(opStatus(moved))).toBe("Kept the original notes.txt");
   });
 
+  it("names the skipped file of a dropped folder, not the folder", () => {
+    const kept = {
+      kind: "upload", state: "done", title: "Docs", rootFolder: true,
+      kept: true, skippedCount: 1, itemsTotal: 0, itemsDone: 0,
+      items: [
+        { id: "f", name: "a.txt", state: "skipped" },
+        { id: "d", name: "Empty", isDir: true, state: "done" },
+      ],
+    };
+    expect(plain(opStatus(kept))).toBe("Kept the original a.txt");
+    expect(finishedText(kept)).toBe("Kept the original a.txt");
+    // The folder's own name must never be offered as the thing that was kept.
+    expect(opStatus(kept)[1]).toEqual({ pill: "a.txt" });
+  });
+
   it("names the real folder in a nested clash", () => {
     const op = { destLabel: "Documents" };
     const item = { name: "notes.txt", destPath: "Documents/Trip/Lisbon", decision: { type: "exists", existingKind: "file", options: ["keep_both", "skip"] } };

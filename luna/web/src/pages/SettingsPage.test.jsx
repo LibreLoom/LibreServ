@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -244,7 +244,40 @@ describe("SettingsPage", () => {
       expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
       expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
       const card = await screen.findByRole("heading", { level: 2, name: "Haptics" });
-      await waitFor(() => expect(card.closest("[data-settings-item]")).toHaveClass("bg-secondary/10"));
+      const wrapper = card.closest("[data-settings-item]");
+      // A readable inset ring on the card's own surface — never a background
+      // tint that would break the surface/text pairing.
+      await waitFor(() =>
+        expect(wrapper?.querySelector('[data-slot="card-clip"], [data-slot="card"]')).toHaveClass(
+          "ring-2", "ring-inset", "ring-accent",
+        ),
+      );
+      expect(wrapper).not.toHaveClass("bg-secondary/10");
+    });
+
+    it("rings a row hit readably and clears the ring even though the pending hit was cleared", async () => {
+      stubFetch("admin");
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      try {
+        renderPage();
+        await screen.findByText("max");
+        await user.click(screen.getByRole("searchbox", { name: "Search settings" }));
+        await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "color scheme");
+        await user.click(await screen.findByRole("button", { name: /Color scheme/ }));
+
+        const label = await screen.findByText("Color scheme");
+        const row = label.closest('[data-settings-item="row"]');
+        expect(row).toBeTruthy();
+        await waitFor(() => expect(row).toHaveClass("ring-2", "ring-inset", "ring-accent"));
+        expect(row).not.toHaveClass("bg-secondary/10");
+        // The effect re-ran when pickHit cleared pendingHit; its cleanup must
+        // not have cancelled this timer, or the ring would stay forever.
+        await act(async () => { await vi.advanceTimersByTimeAsync(1800); });
+        expect(row).not.toHaveClass("ring-2");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("says so when nothing matches", async () => {

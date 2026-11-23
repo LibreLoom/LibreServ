@@ -6,7 +6,7 @@ import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import BackupNotes from "./BackupNotes.jsx";
 import PausedByLockNote from "./PausedByLockNote.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { backupKindLabel, backupStatus, backupWaitingReason, lastCopyLine } from "../../lib/backupRows.js";
+import { backupKindLabel, backupStatus, backupWaitingReason, isPausedByLock, lastCopyLine } from "../../lib/backupRows.js";
 
 /**
  * One backup as a layered row: kind eyebrow with its status pill, the name in mono, a pill for
@@ -24,9 +24,10 @@ import { backupKindLabel, backupStatus, backupWaitingReason, lastCopyLine } from
  */
 export default function BackupItem({ backup, surface = "primary", note = null, children = null, className }) {
   const status = backupStatus(backup);
-  // A lock-paused backup also carries a waiting reason, but the unlock note is the
-  // useful thing to read here; never let the generic waiting line replace it.
-  const pausedByLock = backup.paused === "locked";
+  // lunad flags `paused: "locked"` even on stopped, covered and source-gone rows.
+  // Only a row whose effective status really is the lock pause gets the unlock
+  // note; its waiting reason must not be replaced by the generic "Waiting" line.
+  const pausedByLock = isPausedByLock(backup);
   const waiting = !pausedByLock && status.label === "Waiting" ? backupWaitingReason(backup) : null;
   const DestIcon = backup.kind === "cloud" ? Cloud : HardDrive;
   const dot = surface === "primary" ? "surface-secondary" : "surface-primary";
@@ -67,7 +68,7 @@ export default function BackupItem({ backup, surface = "primary", note = null, c
         <span>{lastCopyLine(backup)}</span>
       </div>
 
-      {!waiting && (pausedByLock || (backup.status === "active" && !backup.covered_by)) && <PausedByLockNote backup={backup} />}
+      {pausedByLock && <PausedByLockNote backup={backup} />}
       {waiting && <p className="text-sm break-words">{waiting}</p>}
       {backup.kind === "drive" && <BackupNotes notes={backup.notes} />}
       {note && <div className="text-sm space-y-1">{note}</div>}

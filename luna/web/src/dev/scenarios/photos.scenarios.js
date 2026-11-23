@@ -262,7 +262,7 @@ export default [
       album(w, "al-vanish", "Disappearing album", {}, w.photos.slice(0, 10));
       w.photoScan = { busy: false, found_count: 0, drive_label: "", last_error: "", vanishAlbum: "al-vanish" };
     },
-    check: ["Open 'Disappearing album': Luna says the album no longer exists", "You land back on the Albums list, and it is not there any more", "No blank page"],
+    check: ["Open 'Disappearing album': a notice says 'That album no longer exists.'", "You land back on the Albums list, and it is not there any more", "No blank page"],
   },
   {
     id: "gallery/album-member-view",
@@ -276,7 +276,7 @@ export default [
       album(w, "al-hidden", "Admin only", {}, w.photos.slice(12, 15));
       asMember(w);
     },
-    check: ["Sam sees only 'Sam's own' and 'Admin shared it'", "Rename/Delete on the shared one is not offered (or is refused in plain words)", "Share button on their own album opens the sharing sheet"],
+    check: ["Sam sees only 'Sam's own' and 'Admin shared it'", "The shared album's card says 'Shared with you'; there is no owner-only 'Shared' chip", "Rename/Delete on the shared one is not offered (or is refused in plain words)", "Share button on their own album opens the sharing sheet"],
   },
   {
     id: "gallery/album-add-fails-partway",

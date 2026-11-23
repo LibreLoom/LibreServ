@@ -16,7 +16,7 @@ import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import PairingQrModal from "../PairingQrModal.jsx";
 import FormInput from "../../common/forms/FormInput";
-import { getJson, postJson, deleteJson, patchJson, apiErrorMessage } from "../../../lib/api";
+import { getJson, postJson, deleteJson, patchJson, apiErrorMessage, isRequestGuardError } from "../../../lib/api";
 import { meetsPasswordPolicy, passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -38,6 +38,20 @@ function formatWhen(unix) {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+/**
+ * Only lunad's exact refusal of the Current password belongs on that field.
+ * A 403 can also be an expired page, a cross-site request, or a permission
+ * refusal — none of those is something the person typed in the field.
+ * @param {any} err
+ */
+function isWrongCurrentPassword(err) {
+  if (isRequestGuardError(err)) return false;
+  const code = err?.code;
+  return err?.status === 403
+    && (code === "wrong_current_password"
+      || /^that['’]s not your current password\.?$/i.test(apiErrorMessage(err, "")));
 }
 
 /**
@@ -229,11 +243,12 @@ function ProfileCard() {
   const [nameError, setNameError] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  // The error names the field it belongs to: Luna refuses a wrong Current
-  // password and a bad New password differently, and each must show on its own.
+  // Only a wrong Current password is a field error. Every other failed change
+  // (network, 401, 429, an expired page) is one plain notice for the whole form.
   const [passwordError, setPasswordError] = useState(
-    /** @type {null | { field: "current" | "new", message: string }} */ (null),
+    /** @type {null | { field: "current", message: string }} */ (null),
   );
+  const [formError, setFormError] = useState(null);
 
   const nameClean = name.trim();
   const nameDirty = nameClean !== (user?.display_name || "");
@@ -241,7 +256,7 @@ function ProfileCard() {
     ? passwordPolicyError(newPassword) || "Choose a stronger password."
     : null;
   const currentPasswordError = passwordError?.field === "current" ? passwordError.message : null;
-  const newPasswordFieldError = passwordError?.field === "new" ? passwordError.message : passwordProblem;
+  const newPasswordFieldError = passwordProblem;
 
   const saveName = useMutation({
     mutationFn: () => patchJson("/api/v1/auth/me", { display_name: nameClean }),
@@ -259,6 +274,8 @@ function ProfileCard() {
       new_password: newPassword,
     }),
     onSuccess: (data) => {
+      setPasswordError(null);
+      setFormError(null);
       // When the breach service could not answer, Luna allowed the password
       // unchecked and says so — the person should hear it, not guess it.
       addToast({
@@ -272,11 +289,15 @@ function ProfileCard() {
     },
     onError: (err) => {
       const message = apiErrorMessage(err, "Couldn't change your password. Try again.");
-      // A 403 from this request (or any message naming the current password)
-      // points at the Current field; everything else points at New.
-      const aboutCurrent = /** @type {any} */ (err)?.status === 403
-        || /current password/i.test(message);
-      setPasswordError({ field: aboutCurrent ? "current" : "new", message });
+      if (isWrongCurrentPassword(err)) {
+        setFormError(null);
+        setPasswordError({ field: "current", message });
+        return;
+      }
+      // A network error, 401, 429, or a guard/permission 403 is not a field
+      // mistake. Say it once for the form, with no shake or red field border.
+      setPasswordError(null);
+      setFormError(message);
     },
   });
 
@@ -372,6 +393,7 @@ function ProfileCard() {
             onChange={(e) => {
               setCurrentPassword(e.target.value);
               setPasswordError(null);
+              setFormError(null);
             }}
             autoComplete="current-password"
             placeholder="Enter current password"
@@ -387,6 +409,7 @@ function ProfileCard() {
             onChange={(e) => {
               setNewPassword(e.target.value);
               setPasswordError(null);
+              setFormError(null);
             }}
             autoComplete="new-password"
             placeholder="Pick a new password"
@@ -396,6 +419,11 @@ function ProfileCard() {
         {newPassword ? (
           <PasswordStrengthChecklist password={newPassword} surface="primary" />
         ) : null}
+        {formError && (
+          <PageNotice variant="error" surface="secondary" className="mt-3 mb-3">
+            {formError}
+          </PageNotice>
+        )}
         <Button
           variant="secondary"
           surface="primary"
