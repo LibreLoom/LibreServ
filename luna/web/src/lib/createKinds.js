@@ -1,7 +1,8 @@
-import { ClipboardList, FilePlus, FileSpreadsheet, FileText, FolderLock, FolderPlus, PenLine, Presentation, Workflow } from "lucide-react";
+import { ClipboardList, Database, FilePlus, FileSpreadsheet, FileText, FolderLock, FolderPlus, PenLine, Presentation, Workflow } from "lucide-react";
 import { blankFormDocument, serializeFormDocument } from "./formDocument.js";
 import { BLANK_DRAWIO_XML } from "./diagramFile.js";
 import { BLANK_EXCALIDRAW_JSON } from "./whiteboardFile.js";
+import { blankSqliteBytes } from "./blankSqlite.js";
 
 /**
  * Things people can make from the New menu.
@@ -22,6 +23,7 @@ import { BLANK_EXCALIDRAW_JSON } from "./whiteboardFile.js";
  *   defaultExt?: string,
  *   stub?: "docx" | "xlsx" | "pptx",
  *   initialContent?: () => string,
+ *   initialBytes?: () => Uint8Array,
  * }} CreateKind
  */
 
@@ -65,6 +67,21 @@ export const CREATE_KINDS = [
     confirmLabel: "Create file",
     defaultName: "note.md",
     defaultExt: ".md",
+  },
+  {
+    id: "database",
+    label: "Database",
+    group: "Files",
+    icon: Database,
+    action: "create-file",
+    openAfter: "viewer",
+    title: "New database",
+    nameLabel: "Name for this database",
+    placeholder: "e.g. Inventory.sqlite3",
+    confirmLabel: "Create database",
+    defaultName: "Database.sqlite3",
+    defaultExt: ".sqlite3",
+    initialBytes: () => blankSqliteBytes(),
   },
   {
     id: "document",

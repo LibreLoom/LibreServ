@@ -366,14 +366,22 @@ export default function DriveFileExplorer({
 
   const createFileMutation = useMutation({
     mutationFn: async (/** @type {string} */ fullPath) => {
-      if (createKind?.stub || createKind?.initialContent) {
+      if (
+        createKind?.stub ||
+        createKind?.initialContent ||
+        createKind?.initialBytes
+      ) {
         const folder = fullPath.includes("/")
           ? fullPath.slice(0, fullPath.lastIndexOf("/"))
           : "";
         const name = fullPath.split("/").pop() || fullPath;
-        const blob = createKind.initialContent
-          ? new Blob([createKind.initialContent()], { type: "application/json" })
-          : blankOfficeStub(createKind.stub);
+        const blob = createKind.initialBytes
+          ? new Blob([new Uint8Array(createKind.initialBytes())], {
+              type: "application/vnd.sqlite3",
+            })
+          : createKind.initialContent
+            ? new Blob([createKind.initialContent()], { type: "application/json" })
+            : blankOfficeStub(createKind.stub);
         const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
         await source.uploadFile(driveId, file, folder, name);
         return fullPath;
@@ -404,7 +412,7 @@ export default function DriveFileExplorer({
     if (!createKind) return Promise.reject(new Error("Choose what to create."));
     const parsed = parseCreateName(
       createName,
-      createKind.stub || createKind.initialContent
+      createKind.stub || createKind.initialContent || createKind.initialBytes
         ? { forceExt: createKind.defaultExt || `.${createKind.stub}` }
         : createKind.defaultExt
           ? { defaultExt: createKind.defaultExt }
