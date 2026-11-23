@@ -69,42 +69,48 @@ impl Layout {
         }
 
         let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);
-        if let Some(layout) = &found {
-            let marker = root.join(format!("{}.sqlite3", layout.prefix));
-            // Ejected drives must not leave entries behind forever. Collect
-            // the candidates under the lock, stat them outside it, then
-            // re-lock to remove the ones that vanished.
-            let sweep = {
-                let guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
-                if guard.len() > 64 {
-                    Some(
-                        guard
-                            .iter()
-                            .map(|(key, (_, _, marker))| (key.clone(), marker.clone()))
-                            .collect::<Vec<_>>(),
-                    )
-                } else {
-                    None
-                }
-            };
-            if let Some(entries) = sweep {
-                let gone = entries
-                    .into_iter()
-                    .filter_map(|(key, marker)| (!marker.is_file()).then_some(key))
-                    .collect::<Vec<_>>();
-                if !gone.is_empty() {
-                    let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
-                    for key in gone {
-                        guard.remove(&key);
-                    }
+
+        // Sweep on every detect, including a miss: an ejected drive makes
+        // prefix_for return None, so its own entry would otherwise survive.
+        // Collect under the lock, stat outside it, then re-lock to remove.
+        let sweep = {
+            let guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+            if guard.len() > 64 {
+                Some(
+                    guard
+                        .iter()
+                        .map(|(key, (_, _, marker))| (key.clone(), marker.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                None
+            }
+        };
+        if let Some(entries) = sweep {
+            let gone = entries
+                .into_iter()
+                .filter_map(|(key, marker)| (!marker.is_file()).then_some(key))
+                .collect::<Vec<_>>();
+            if !gone.is_empty() {
+                let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+                for key in gone {
+                    guard.remove(&key);
                 }
             }
+        }
 
-            let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
-            guard.insert(
-                root.to_path_buf(),
-                (Instant::now(), layout.prefix.clone(), marker),
-            );
+        let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+        match &found {
+            Some(layout) => {
+                let marker = root.join(format!("{}.sqlite3", layout.prefix));
+                guard.insert(
+                    root.to_path_buf(),
+                    (Instant::now(), layout.prefix.clone(), marker),
+                );
+            }
+            None => {
+                guard.remove(root);
+            }
         }
         found
     }
@@ -199,6 +205,41 @@ mod tests {
         // inside the TTL, so an ejected drive is not treated as adopted.
         std::fs::remove_file(&marker).unwrap();
         assert!(Layout::detect(&dir).is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod invalidation_tests {
+    use super::*;
+
+    #[test]
+    fn detect_miss_drops_the_stale_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "luna-layout-miss-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join(".luna-00000000-0000-0000-0000-000000000002.sqlite3");
+        std::fs::write(&marker, b"").unwrap();
+        assert!(Layout::detect(&dir).is_some());
+
+        std::fs::remove_file(&marker).unwrap();
+        assert!(Layout::detect(&dir).is_none());
+        let cache = DETECT_CACHE
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        assert!(
+            !cache.contains_key(&dir),
+            "ejected drive must be evicted on the miss path"
+        );
+        drop(cache);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

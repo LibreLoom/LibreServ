@@ -361,13 +361,14 @@ are `perf/results/bundle-<time>.json`.
 
 A browser run against the built app with this harness's remote profile
 (80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop
-from 584,424 B to 189,468 B of font data (3.08x; the browser reported 189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
+from 584,424 B to 189,468 B of font data (3.08x; the browser reported
+189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
 (1.08x). The remaining time is JS parse, layout and round trips; the byte win
 does not become a 1.5x wall-clock win in that setup. A few mono labels use a
 500 weight or bold text inside a mono container, so the two bold faces remain:
-they keep Latin-1, Latin Extended-A and common symbols in WOFF2 subsets
-of 51.4 and 52.0 KiB, and would need
-widening for a non-Latin bold-mono string. Regular and oblique retain every
+they keep Latin-1, Latin Extended-A and common symbols: `FreeMonoBold` in a
+51.4 KiB WOFF2 subset, `FreeMonoBoldOblique` in a 52.0 KiB one. A non-Latin
+bold-mono string would need those subsets widened. Regular and oblique retain every
 codepoint in the original TTF `cmap`.
 
 Daemon changes in this round: `Layout::detect` caches the drive marker prefix

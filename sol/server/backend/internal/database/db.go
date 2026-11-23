@@ -290,7 +290,7 @@ func (d *DB) HealthCheck() error {
 	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
 		// This probe also backs the public comprehensive check and its
 		// background refresh; warn once per outage so those paths are logged.
-		if d.healthWarned.Swap(true) {
+		if !d.healthWarned.Swap(true) {
 			slog.Warn("database schema read failed", "error", err)
 		} else {
 			slog.Debug("database schema read failed", "error", err)
@@ -299,6 +299,11 @@ func (d *DB) HealthCheck() error {
 	}
 	if count == 0 {
 		// An empty file is a valid SQLite database but not a usable Sol one.
+		if !d.healthWarned.Swap(true) {
+			slog.Warn("database has no schema tables")
+		} else {
+			slog.Debug("database has no schema tables")
+		}
 		return ErrDatabaseUnreadable
 	}
 	// A new outage after recovery deserves a new warning.

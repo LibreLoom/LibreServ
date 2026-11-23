@@ -46,7 +46,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       .then((res) => res.json())
       .then((result) => {
         if (cancelled || manualStartedRef.current || !result.status || result.status === "running" || result.status === "idle") return;
-        setFileResult(result.message || null);
+        setFileResult(result.message || (result.status === "ok" ? "The database file is fine." : null));
         setFileProblem(result.status === "corrupt" || result.reason === "missing");
         setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");
       })
@@ -125,6 +125,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
             await request("/system/database/integrity", { method: "POST" });
             continue;
           }
+          setFileChecked(true);
           setFileResult("The database check hasn't started yet. Please try again.");
           break;
         }
@@ -137,6 +138,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           break;
         }
         if (Date.now() > deadline) {
+          setFileChecked(true);
           setFileResult("Sol couldn't finish checking the database file. Please try again.");
           break;
         }
@@ -156,6 +158,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     } catch (err) {
       if (!controller.signal.aborted) {
         setFileProblem(false);
+        setFileChecked(true);
         setFileResult(err?.message === "request-timeout"
           ? "The database check took too long. Please try again."
           : "Sol couldn't check the database file right now. Please try again.");

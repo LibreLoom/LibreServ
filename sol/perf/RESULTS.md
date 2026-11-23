@@ -12,9 +12,10 @@ TTF replaced with WOFF2, TTF kept as a fallback for older browsers. The
 regular face is preloaded in both products.
 
 A few places use a 500 weight or bold text inside a mono container, so the two
-bold faces still exist. They keep Latin-1, Latin Extended-A and common
-symbols in WOFF2 subsets of 51.4 and 52.0 KiB respectively; today's strings are covered, but a future non-Latin bold-mono
-string would need the subset widened. The regular and italic faces retain every
+bold faces still exist. `FreeMonoBold` keeps Latin-1, Latin Extended-A and
+common symbols in a 51.4 KiB WOFF2 subset and `FreeMonoBoldOblique` does the
+same in 52.0 KiB. Today's strings are covered; a future non-Latin bold-mono
+string would need the subsets widened. The regular and italic faces retain every
 codepoint in the original TTF `cmap`. Conversion commands are in
 `sol/perf/README.md`.
 
@@ -45,7 +46,8 @@ How each side was produced, so the numbers can be reproduced:
   (what the servers send), fonts at raw bytes (servers do not gzip fonts). The
   raw JSON is in the gitignored `*/perf/results/bundle-*.json` files.
 - Sol serves the `.gz` sibling for JS/CSS, so its wire total uses those bytes:
-  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.56 + 433.2 = 571.8 KiB (138.6 KiB JS/CSS + 433.2 KiB WOFF2).
+  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF;
+  after = 138.56 KiB JS/CSS + 433.2 KiB WOFF2 = 571.8 KiB.
   Lunad embeds `web/dist` and serves every file verbatim with no compression
   layer, so Luna's total is raw bytes throughout: before = 728.2 KiB JS/CSS +
   1530.0 KiB TTF; after = 727.4 + 433.2 = 1160.6 KiB WOFF2. Both sides were rebuilt with
@@ -53,7 +55,8 @@ How each side was produced, so the numbers can be reproduced:
   that does not exist; the report now uses each server's real transfer basis.
 - A browser check against the built Luna app with the luna/perf "remote"
   profile (80 ms RTT, 20 Mbit/s) saw the actually fetched regular face fall
-  from 584,424 bytes (TTF) to 189,468 bytes of font data; the browser reported 189,768 B including headers, 3.08x. W1 p50 fell from
+  from 584,424 bytes (TTF) to 189,468 bytes of font data, 3.08x. The browser
+  reported 189,768 B including headers. W1 p50 fell from
   1394 ms to 1286 ms (1.08x) with API responses mocked; the remaining time is
   JS parse, layout and round trips, so the byte win does not become a 1.5x
   wall-clock win there. That limit is stated rather than hidden.
