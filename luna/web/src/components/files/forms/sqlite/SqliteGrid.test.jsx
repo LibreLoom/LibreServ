@@ -66,6 +66,29 @@ describe("SqliteGrid", () => {
     expect(props.onAddColumn).toHaveBeenCalledTimes(1);
   });
 
+  it("puts Add row in an empty table instead of an empty message", () => {
+    const { props } = mount({ rows: [], total: 0 });
+    expect(screen.queryByText("No rows yet.")).not.toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add row" });
+    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+    fireEvent.click(add);
+    expect(props.onAddRow).toHaveBeenCalledTimes(1);
+  });
+
+  it("says No rows without an Add row when the table is read-only", () => {
+    mount({ rows: [], total: 0, canWrite: false });
+    expect(screen.getByText("No rows.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add row" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps Add row below an empty page of a table that has rows", () => {
+    mount({ rows: [], total: 5, page: 2 });
+    expect(screen.getByText("No rows on this page.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+  });
+
   it("shows no row or column actions when the table is read-only", () => {
     mount({ canWrite: false });
     expect(

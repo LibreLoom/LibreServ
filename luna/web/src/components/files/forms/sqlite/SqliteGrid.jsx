@@ -174,6 +174,24 @@ export default function SqliteGrid({
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const last = total === 0 ? 0 : Math.min(total, page * pageSize);
   const columnCount = table.columns.length;
+  // An empty table has no rows to show, so its one action moves into the
+  // empty state instead of leaving a "No rows yet" line above an Add row.
+  const emptyTable = !loading && total === 0 && rows.length === 0;
+  const addRowButton = (
+    <Button
+      variant="ghost"
+      surface="primary"
+      size="sm"
+      smoothResize={false}
+      haptic="light"
+      type="button"
+      disabled={busy}
+      onClick={onAddRow}
+    >
+      <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+      Add row
+    </Button>
+  );
 
   /**
    * @param {number} rowIndex
@@ -314,7 +332,7 @@ export default function SqliteGrid({
                   ) : total > 0 ? (
                     "No rows on this page."
                   ) : canWrite ? (
-                    "No rows yet."
+                    addRowButton
                   ) : (
                     "No rows."
                   )}
@@ -403,25 +421,13 @@ export default function SqliteGrid({
                 </tr>
               ))
             )}
-            {canWrite ? (
+            {canWrite && !emptyTable ? (
               <tr>
                 <td
                   colSpan={columnCount + 1}
                   className="border-b border-secondary/10 px-2 py-1"
                 >
-                  <Button
-                    variant="ghost"
-                    surface="primary"
-                    size="sm"
-                    smoothResize={false}
-                    haptic="light"
-                    type="button"
-                    disabled={busy}
-                    onClick={onAddRow}
-                  >
-                    <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-                    Add row
-                  </Button>
+                  {addRowButton}
                 </td>
               </tr>
             ) : null}
