@@ -20,8 +20,8 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    namespace and nothing runs as root. build-rootfs.sh mounts os/dist (or
 #    LUNA_PACKS_DIR) at /in/packs and 05.frag unpacks the packs into it.
 ./os/build-rootfs.sh                  # rootfs → volume luna-os-rootfs
-./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.xz (+ .sha256)
-#    The .img.xz is compressed once. The OTA update part, the installer ISO and
+./os/make-image.sh                    # → os/dist/luna-os-x86_64.img.zst (+ .sha256)
+#    The .img.zst is compressed once. The OTA update part, the installer ISO and
 #    the box's os-image.sha256 all use these exact bytes. Skipped when the OS
 #    inputs did not change (os/build/input-hash.sh) and no pack is newer than
 #    the image — a pack built after the image leaves that image stale, so
@@ -31,7 +31,7 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 
 # 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
 #    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
-#    (keyboard, NVMe, firmware); it streams the .img.xz to both OS slots.
+#    (keyboard, NVMe, firmware); it streams the .img.zst to both OS slots.
 #    One-shot (web UI + musl lunad + rootfs + image + ISO):
 ./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
 #    Or after the image already exists:
@@ -68,12 +68,12 @@ podman, named-volume caches, `--memory` limit via `LUNA_BUILD_MEMORY`).
 | Step | Script (inside) | Container | In | Out |
 |---|---|---|---|---|
 | rootfs | `build/rootfs.sh` | `build/Containerfile.os` | `/luna/os` (ro), `LUNAD_BIN`, `LUNA_CONSOLE_BIN`, `/in/packs`, optional `LUNA_CACHE_DIR` | tree at `/rootfs` (volume) |
-| image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os` | `/out/luna-os-x86_64.img.xz` + `.sha256` |
-| ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.xz`), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
+| image | `build/image.sh` | `build/Containerfile.os` | `/rootfs`, `/luna/os` | `/out/luna-os-x86_64.img.zst` + `.sha256` |
+| ISO | `build/iso.sh` | `build/Containerfile.iso` | `/luna/os`, `/payload` (the `.img.zst`), optional `/cache` | `/out/luna-rapidinstall-x86_64.iso` |
 
 `build/input-hash.sh` prints the OS input hash (application and UI sources,
 rootfs scripts, pins, slot size). A box records the sha256 of the exact
-`.img.xz` as `os-image.sha256`, which is what the update feed lists for the
+`.img.zst` as `os-image.sha256`, which is what the update feed lists for the
 `os` part.
 
 ## End-to-end test (QEMU, rootless)
@@ -151,12 +151,18 @@ public key embedded at build time from `keys/luna.minisign.pub`. The feed
 lists the files in the Forgejo generic package registry; Luna checks each one's
 size and sha256 before use. A missing feed means nothing is published yet.
 
-- `os` — `luna-os-x86_64.img.xz`, the whole system: lunad, luna-console,
+- `os` — `luna-os-x86_64.img.zst`, the whole system: lunad, luna-console,
   cloudflared, the editor packs and the search models are all inside it
 - `installer` — `luna-rapidinstall-x86_64.iso.xz`, the factory ISO
 
 Every release ships both. Nothing is reused from an earlier version, because
 the image *is* the product.
+
+The `os` part moved from xz to zstd in this release. That is safe because there
+are no field boxes yet: a unit gets its daemon from the image, so a new image
+never has to be unpacked by an older daemon. Both the updater and the factory
+installer still accept a saved xz image by sniffing its magic bytes; that is
+for old assets and test fixtures, not a transition fleet.
 
 An admin taps **Install update** in Settings. When the feed's `os` part has a
 sha256 that differs from `/var/lib/luna/os-image.sha256`, that tap writes the
