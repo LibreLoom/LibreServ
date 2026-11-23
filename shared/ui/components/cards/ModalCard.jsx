@@ -302,6 +302,11 @@ export default function ModalCard({
     ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-large-element"
     : "p-4";
 
+  // The blur and the dim fade together; the blur is never transformed or
+  // scaled, because Chrome re-blurs the whole page for every frame that a
+  // backdrop-filter layer changes shape.
+  const backdropMotion = isClosing ? "animate-out fade-out" : "animate-in fade-in";
+
   return createPortal(
     <div
       data-slot="dialog-overlay"
@@ -313,23 +318,20 @@ export default function ModalCard({
       onClick={handleClose}
     >
       {/*
-        The blur is its own static layer, and only the dim fades. Chrome
-        re-blurs the whole page every frame while a backdrop-filter element is
-        itself fading or scaling, which is what made the animation choppy. The
-        dialog animates its own fade, rise and scale, so the backdrop is still.
+        Two backdrop layers, both fading: the blur and the dim. They only ever
+        change opacity — the dialog animates its own fade, rise and scale — so
+        Chrome can reuse the blurred backdrop instead of re-blurring the page
+        every frame, which is what made the old full-overlay scale choppy.
       */}
       <div
         data-slot="dialog-blur"
         aria-hidden="true"
-        className="absolute inset-0 -z-10 backdrop-blur-sm"
+        className={cn("absolute inset-0 -z-10 backdrop-blur-sm", backdropMotion)}
       />
       <div
         data-slot="dialog-scrim"
         aria-hidden="true"
-        className={cn(
-          "absolute inset-0 -z-10 bg-primary/60",
-          isClosing ? "animate-out fade-out" : "animate-in fade-in",
-        )}
+        className={cn("absolute inset-0 -z-10 bg-primary/60", backdropMotion)}
       />
       <div
         ref={setRefs}

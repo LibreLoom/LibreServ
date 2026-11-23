@@ -373,7 +373,7 @@ describe("ModalCard", () => {
     }
   });
 
-  it("animates the dialog itself, never the blurred backdrop", () => {
+  it("animates the dialog itself and only fades the blurred backdrop", () => {
     render(
       <ModalCard title="Zoom" onClose={() => {}}>
         Body
@@ -381,15 +381,18 @@ describe("ModalCard", () => {
     );
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveClass("pop-in");
-    // One animation on the dialog's own layer; nothing nested re-animates it,
-    // and anything with the backdrop-filter on it stays still, because Chrome
-    // re-blurs the whole page for every frame a blurred layer changes.
+    // One animation on the dialog's own layer; nothing nested re-animates it.
     expect(dialog.querySelector("[data-slot=card]")).not.toHaveClass("pop-in");
     const overlay = dialog.closest("[data-slot=dialog-overlay]");
     expect(overlay).not.toHaveClass("pop-in");
     expect(overlay).not.toHaveClass("animate-in");
-    expect(overlay.querySelector("[data-slot=dialog-blur]")).not.toHaveClass("animate-in");
-    expect(overlay.querySelector("[data-slot=dialog-blur]")).not.toHaveClass("pop-in");
+    // The blurred layer may fade, but scaling it re-blurs the whole page for
+    // every frame, which is what made the old overlay animation choppy.
+    const blur = overlay.querySelector("[data-slot=dialog-blur]");
+    expect(blur).toHaveClass("animate-in");
+    expect(blur).toHaveClass("fade-in");
+    expect(blur).not.toHaveClass("pop-in");
+    expect(blur).not.toHaveClass("zoom-in-95");
   });
 
   it("applies overlayClassName on the fixed overlay for stacking", () => {
