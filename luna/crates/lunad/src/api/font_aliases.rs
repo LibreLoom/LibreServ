@@ -71,8 +71,7 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
                         }
                         // Reject absolute paths and `..` components before joining.
                         let rel = Path::new(&alias.src);
-                        if rel.is_absolute()
-                            || rel.components().any(|c| c == Component::ParentDir)
+                        if rel.is_absolute() || rel.components().any(|c| c == Component::ParentDir)
                         {
                             continue;
                         }
@@ -123,16 +122,15 @@ pub async fn synth(pack_dir: &Path, name: &str) -> Option<Vec<u8>> {
         return None;
     }
     let entry = alias_for(pack_dir, name)?;
-    let body = tokio::fs::read(&entry.source).await.ok()?;
+    let mut body = tokio::fs::read(&entry.source).await.ok()?;
     if body.len() < entry.header.len() {
         return None;
     }
     // The source keeps its original first bytes; only the generated copy had
-    // them masked. Replace them with the recorded masked bytes.
-    let mut out = Vec::with_capacity(body.len());
-    out.extend_from_slice(&entry.header);
-    out.extend_from_slice(&body[entry.header.len()..]);
-    Some(out)
+    // them masked. Splice the masked prefix in place rather than allocating a
+    // second full-size Vec for every font request on the 2 GiB box.
+    body[..entry.header.len()].copy_from_slice(&entry.header);
+    Some(body)
 }
 
 #[cfg(test)]

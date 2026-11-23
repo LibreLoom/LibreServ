@@ -68,21 +68,8 @@ def main():
         removed += len(data)
 
     manifest = fonts / "aliases.json"
-    if aliases:
-        manifest.write_text(
-            json.dumps(
-                {"version": 1, "fonts": aliases},
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-    elif manifest.is_file():
-        # Already deduped: the manifest is the record of what was removed.
-        # A digit-named font that the manifest still lists is stale and must
-        # fail. One it does not list is a legitimately unique font (no core
-        # twin), so it stays and the no-op is correct.
+    recorded = {}
+    if manifest.is_file():
         try:
             parsed = json.loads(manifest.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
@@ -90,6 +77,34 @@ def main():
         if not isinstance(parsed, dict) or not isinstance(parsed.get("fonts"), dict):
             raise SystemExit(f"font dedup: {manifest.name} has an invalid 'fonts' map")
         recorded = parsed["fonts"]
+        # Keep only entries whose source still exists. A generated font may be
+        # removed from core-fonts/ between pack builds.
+        recorded = {
+            name: entry
+            for name, entry in recorded.items()
+            if isinstance(entry, dict)
+            and isinstance(entry.get("src"), str)
+            and (root / entry["src"]).is_file()
+        }
+
+    if aliases:
+        # A partial rerun must not forget aliases written by an earlier run:
+        # their generated files are already gone from fonts/.
+        merged = dict(recorded)
+        merged.update(aliases)
+        manifest.write_text(
+            json.dumps(
+                {"version": 1, "fonts": merged},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    elif recorded:
+        # Already deduped: a digit-named font the manifest still lists is stale
+        # and must fail. One it does not list is legitimately unique (no core
+        # twin), so it stays and the no-op is correct.
         leftover = [p.name for p in fonts.iterdir() if p.is_file() and p.name.isdigit()]
         stale = [name for name in leftover if name in recorded]
         if stale:

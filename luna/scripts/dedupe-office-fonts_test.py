@@ -119,6 +119,7 @@ class DedupeTest(unittest.TestCase):
             fonts = root / "fonts"
             core.mkdir()
             fonts.mkdir()
+            (core / "real.ttf").write_bytes(b"core" * 24)
             (fonts / "025").write_bytes(b"still here" * 8)
             (fonts / "aliases.json").write_text(
                 json.dumps(
@@ -142,6 +143,35 @@ class DedupeTest(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("stale", proc.stderr)
             self.assertTrue((fonts / "aliases.json").exists())
+
+    def test_partial_rerun_keeps_earlier_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / "core-fonts"
+            fonts = root / "fonts"
+            core.mkdir()
+            fonts.mkdir()
+
+            def pair(number):
+                source = bytes(range(96))
+                generated = bytearray(source)
+                for i in range(32):
+                    generated[i] ^= 0xA5
+                (core / f"real{number}.ttf").write_bytes(source)
+                (fonts / number).write_bytes(generated)
+
+            pair("001")
+            first = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            pair("002")
+            second = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            names = set(json.loads((fonts / "aliases.json").read_text())["fonts"])
+            self.assertEqual(names, {"001", "002"})
 
     def test_malformed_manifest_fails_cleanly(self):
         for bad in ("[]", '{"fonts": null}', "{}"):

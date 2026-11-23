@@ -697,11 +697,7 @@ fn prepare_os_slot(
 /// Refuses to write more than `max_bytes`, so a crafted file cannot balloon
 /// past the slot. New images are zstd; xz stays readable so an older release
 /// asset or a saved feed can still be installed.
-fn decompress_image_streaming(
-    src: &Path,
-    dest: &Path,
-    max_bytes: u64,
-) -> Result<(), UpdateError> {
+fn decompress_image_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<(), UpdateError> {
     let io = |e: std::io::Error| UpdateError::Other(e.to_string());
     let mut input =
         std::io::BufReader::with_capacity(256 * 1024, std::fs::File::open(src).map_err(io)?);

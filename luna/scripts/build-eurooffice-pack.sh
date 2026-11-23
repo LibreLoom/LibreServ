@@ -50,7 +50,8 @@ tmp="$TARBALL.tmp"
 # unpacks straight into the image's pack root (/usr/share/luna).
 # *.js.map files are debug-only (browser devtools); ServeDir never serves a
 # source map to the editor, so they are pure image weight (~23 MiB unpacked).
-tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' --exclude='*.js.map' -cf - eurooffice |
+tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' --exclude='*.js.map' \
+    --exclude='*/x2t/*.br' -cf - eurooffice |
 	zstd -19 -T0 -o "$tmp"
 mv "$tmp" "$TARBALL"
 
