@@ -57,7 +57,7 @@ export default function SegmentedControl({
         style={{
           width: `calc((100% - 6px) / ${options.length})`,
           transform: `translateX(${selectedIndex * 100}%)`,
-          transitionDuration: "var(--motion-duration-medium3)",
+          transitionDuration: "var(--motion-duration-short4)",
         }}
       >
         <div

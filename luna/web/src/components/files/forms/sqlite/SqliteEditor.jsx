@@ -1341,22 +1341,6 @@ export function SqliteEditorSession({
                   />
                 ) : null}
 
-                {query && selected ? (
-                  <SegmentedControl
-                    className="ml-1"
-                    options={[
-                      { value: "table", label: "Table" },
-                      { value: "query", label: "Result" },
-                    ]}
-                    value={panel}
-                    onChange={(value) =>
-                      setPanel(value === "query" ? "query" : "table")
-                    }
-                    surface="primary"
-                    aria-label="Data view"
-                  />
-                ) : null}
-
                 <span className="min-w-0 flex-1" />
                 {panel === "table" && selected ? (
                   <>
@@ -1374,6 +1358,21 @@ export function SqliteEditorSession({
                       <RefreshCw size={ICON_SIZE.sm} aria-hidden="true" />
                     </Button>
                   </>
+                ) : null}
+                {query && selected ? (
+                  <SegmentedControl
+                    className="ml-1"
+                    options={[
+                      { value: "table", label: "Table" },
+                      { value: "query", label: "Result" },
+                    ]}
+                    value={panel}
+                    onChange={(value) =>
+                      setPanel(value === "query" ? "query" : "table")
+                    }
+                    surface="primary"
+                    aria-label="Data view"
+                  />
                 ) : null}
               </TooltipTargets>
 
