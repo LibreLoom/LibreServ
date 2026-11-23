@@ -79,7 +79,7 @@ class DedupeTest(unittest.TestCase):
             self.assertIn("already deduped", second.stdout)
             self.assertEqual((fonts / "aliases.json").read_bytes(), manifest)
 
-    def test_manifest_with_unmatched_font_fails(self):
+    def test_manifest_with_unique_font_is_a_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             core = root / "core-fonts"
@@ -107,8 +107,40 @@ class DedupeTest(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("already deduped", proc.stdout)
+            self.assertTrue((fonts / "aliases.json").exists())
+            self.assertTrue((fonts / "025").exists())
+
+    def test_manifest_listing_an_existing_font_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / "core-fonts"
+            fonts = root / "fonts"
+            core.mkdir()
+            fonts.mkdir()
+            (fonts / "025").write_bytes(b"still here" * 8)
+            (fonts / "aliases.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "fonts": {
+                            "025": {
+                                "src": "core-fonts/real.ttf",
+                                "head": base64.b64encode(b"x" * 32).decode(),
+                                "sha256": "0" * 64,
+                            }
+                        },
+                    }
+                )
+            )
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)],
+                capture_output=True,
+                text=True,
+            )
             self.assertNotEqual(proc.returncode, 0)
-            self.assertIn("remain", proc.stderr)
+            self.assertIn("stale", proc.stderr)
             self.assertTrue((fonts / "aliases.json").exists())
 
     def test_no_aliases_fails_the_pack_build(self):

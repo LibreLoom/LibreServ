@@ -79,15 +79,20 @@ def main():
             encoding="utf-8",
         )
     elif manifest.is_file():
-        # Already deduped means the generated copies are gone and the manifest
-        # is the record of them. A leftover digit-named font means this run
-        # simply failed to match, so keep the hard failure instead of silently
-        # shipping the duplicates with a manifest that may be stale.
+        # Already deduped: the manifest is the record of what was removed.
+        # A digit-named font that the manifest still lists is stale and must
+        # fail. One it does not list is a legitimately unique font (no core
+        # twin), so it stays and the no-op is correct.
+        try:
+            recorded = json.loads(manifest.read_text(encoding="utf-8")).get("fonts", {})
+        except (ValueError, OSError) as exc:
+            raise SystemExit(f"font dedup: cannot read {manifest}: {exc}") from exc
         leftover = [p.name for p in fonts.iterdir() if p.is_file() and p.name.isdigit()]
-        if leftover:
+        stale = [name for name in leftover if name in recorded]
+        if stale:
             raise SystemExit(
-                f"font dedup found no aliases but {len(leftover)} generated fonts "
-                f"remain (for example {leftover[0]}): check fonts/ and core-fonts/."
+                f"font dedup: {manifest.name} still lists fonts that are present "
+                f"({', '.join(sorted(stale)[:5])}); the manifest is stale."
             )
         print("font dedup: already deduped, keeping existing aliases.json")
         return
