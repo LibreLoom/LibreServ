@@ -965,7 +965,7 @@ export function SqliteEditorSession({
             {tables.length > 0 ? (
               <nav
                 aria-label="Tables"
-                className="flex gap-1 overflow-x-auto px-2 pb-2 md:min-h-0 md:flex-1 md:flex-col md:overflow-x-visible md:overflow-y-auto"
+                className="flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-1 md:flex-col md:overflow-x-visible md:overflow-y-auto"
               >
                 {tables.map((table) => {
                   const active = table.name === selectedTable;
