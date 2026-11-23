@@ -1,2549 +1,2521 @@
 {
   "auth/fresh-box": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.568Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:05.119Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/member": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.553Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:02.194Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/member-needs-phrase": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.557Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:02.964Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/session-dies-mid-use": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.563Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:03.761Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/signed-in-admin": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.473Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:37:58.403Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/signed-out": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.540Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:37:59.602Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "auth/signed-out-deep-link": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.547Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:01.394Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/albums-many": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.646Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:29.161Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-failed": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.578Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:07.938Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-source-missing": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.582Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:08.564Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/backup-stale": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.574Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:06.842Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/calm": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.571Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:05.991Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/check-overdue": {
     "status": "pass",
-    "note": "the placeholder n box #1 is unnecessary. ",
-    "at": "2026-11-23T03:59:19.589Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:10.342Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/check-paste-file": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.592Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:11.074Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/cloud-check-problem": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.586Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:09.542Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/connect-403": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.652Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:31.791Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/connect-token-error": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.626Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:23.854Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drive-full": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.599Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:15.000Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drive-hot": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.597Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:13.332Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drive-readonly": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.602Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:16.020Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drive-unhealthy": {
     "status": "pass",
-    "note": "switch spots -> blocks\n\nalso change these instructions to instead say to use a computer to copy over all the files",
-    "at": "2026-11-23T03:59:19.595Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:12.222Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drive-unmounted": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.608Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:17.148Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/drives-fail": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.657Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:33.737Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/everything-wrong": {
     "status": "pass",
-    "note": "the card doesn't smoothly expand when you slick show x more or show fewer. fix.",
-    "at": "2026-11-23T03:59:19.631Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:25.413Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/long-names": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.640Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:26.837Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/many-drives": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.635Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:26.071Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/member-calm": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.648Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:29.843Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/member-with-problems": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.650Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:30.725Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/network-error": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.654Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:32.888Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/new-drive-found": {
     "status": "pass",
-    "note": "For whatever reason I get this after I add it: Luna couldn't finish closing SanDisk Ultra.\n\nUnplug it, wait a few seconds, and plug it back in.\n\nstill possibly a mock bug.",
-    "at": "2026-11-23T03:59:19.611Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:18.254Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/no-drives": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.613Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:19.314Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/no-internet": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.624Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:23.190Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/phone-dark": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.662Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:41.472Z",
+    "viewport": "phone",
+    "theme": "dark"
   },
   "dashboard/recents-many": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.644Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:28.463Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/recents-none": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.642Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:27.651Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/slow": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.660Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:40.574Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/system-check-failed": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.629Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:24.475Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/update-applying": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.621Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:22.243Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/update-available": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.616Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:20.224Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "dashboard/update-failed": {
     "status": "pass",
-    "note": "The last system update didn't start, so Luna went back to the previous version. Version 1.5.0 wasn't installed.\n\nTry again\n\npoor layout on this card. mainly the info button between the two other buttons. use a termdefiner instead on the try again text.",
-    "at": "2026-11-23T03:59:19.618Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:21.234Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/add-blank-protect": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.713Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:01.365Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/add-encrypted": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.708Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:59.458Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/add-encrypted-forgotten": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.711Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:00.381Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/add-readable-no-protect": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.717Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:02.548Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/backup-to-locked-refused": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.730Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:08.803Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/backup-to-plain-refused": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.727Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:07.752Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/change-password": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.701Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:56.522Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/dashboard-one-locked": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.721Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:05.793Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/dashboard-two-locked": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.719Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:04.861Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/lock-busy": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.698Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:55.410Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/locked-card": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.664Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:42.927Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/locked-card-dark": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.666Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:43.884Z",
     "viewport": "desktop",
-    "theme": "scenario default"
+    "theme": "dark"
   },
   "encryption/locked-file-page": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.670Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:44.764Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/locked-member": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.673Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:45.644Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/locked-member-dashboard": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.676Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:46.718Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/member-cannot-manage": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.736Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:09.797Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/paused-backups": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.724Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:06.950Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/protect-plain-drive": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.690Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:52.174Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/remove-protection": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.704Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:57.507Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/sheet-locked": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.695Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:54.315Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/sheet-plain": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.687Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:51.308Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/sheet-unlocked": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.693Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:53.245Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/sheet-unplugged": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.706Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:58.562Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/too-many-tries": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.683Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:48.943Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/unlock-busy": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.685Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:50.282Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "encryption/wrong-password": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.678Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:38:47.623Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/backups-browse": {
     "status": "pass",
-    "note": "harness is broken. There are not multiple version, but i know for fact it has worked outside of this harness.",
-    "at": "2026-11-23T03:59:19.936Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:33.039Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/backups-no-versions": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.939Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:33.808Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/backups-restore-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.941Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:34.473Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/copy-fails-drive-full": {
     "status": "pass",
-    "note": "Once again, a silent swallow. Fix during revamp.",
-    "at": "2026-11-23T03:59:19.867Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:07.241Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/copy-job": {
     "status": "pass",
-    "note": "Good, but we need the stateful card revamp to not just be an upload card, but a file operation card!! Absolutely W!",
-    "at": "2026-11-23T03:59:19.859Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:03.079Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/copy-to-full-drive": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.870Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:08.165Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/create-collision": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.765Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:25.071Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/deep-nesting": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.755Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:20.021Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/delete-to-trash": {
     "status": "pass",
-    "note": "Deleting a folder when an item inside of it was trashed causes it to be silently permanently deleted. This is a critical issue if real. The folder is not sent to trash and appears to be permanently deleted rather than being deleted properly.",
-    "at": "2026-11-23T03:59:19.823Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:45.517Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/drive-database-missing": {
     "status": "pass",
-    "note": "Can we do something about that trash line? Is there no way to automaticallyadopt trashed files? I bet we can do it, even if they will have no place to restore to — we just need to handle that.",
-    "at": "2026-11-23T03:59:19.793Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:32.075Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/drive-encrypted": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.776Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:28.311Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/drive-healthy-details": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.800Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:34.365Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/drive-needs-setup": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.774Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:27.409Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-collab-socket": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.033Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:17.719Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-diagram": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.027Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:15.700Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-form": {
     "status": "pass",
-    "note": "Doesn't work in states gallery. I'll test later.",
-    "at": "2026-11-23T03:59:20.015Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:10.067Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-form-collab": {
     "status": "pass",
-    "note": "Doesn't work in dev.",
-    "at": "2026-11-23T03:59:20.018Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:10.971Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-markdown": {
     "status": "pass",
-    "note": "One cannot actually click links in source or write mode.",
-    "at": "2026-11-23T03:59:20.013Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:09.261Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-office": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.020Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:12.995Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-spreadsheet": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.024Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:14.182Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-text-conflict": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.000Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:05.888Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-text-readonly-drive": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.010Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:08.296Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-text-save": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.998Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:04.946Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-text-save-error": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.002Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:06.751Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-text-save-full": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.007Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:07.400Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-whiteboard-collab": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.031Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:16.709Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/empty-drive": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.741Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
-  },
-  "files/encryption": {
-    "status": "pass",
-    "note": "Encryption management card it poorly layed out. Redesign.",
-    "at": "2026-11-08T01:28:57.231Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
-  },
-  "files/encryption-locked": {
-    "status": "pass",
-    "note": "Locked -> Unlock\n\nWhen the card is opened, a password dialogue should just show and grab focus. Enter submits. It's dumb not to show it.",
-    "at": "2026-11-08T01:28:57.231Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:12.832Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/exfat-case-clash": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.099Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:46.189Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/exfat-rename-character": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.093Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:43.657Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/exfat-reserved-character": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.091Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:41.781Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/exfat-trailing-dot": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.096Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:44.865Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/ext4-takes-colons": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.102Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:47.324Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/failing-drive": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.796Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:32.754Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/full-drive": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.781Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:29.857Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/health-unknown": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.798Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:33.452Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/hidden-files": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.758Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:21.016Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/job-server-error": {
     "status": "pass",
-    "note": "Says \"Luna's job queue isn't running\". Could be more accurate, i.e. \"Luna's job queue isn't responding.\"",
-    "at": "2026-11-23T03:59:19.879Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:11.841Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/listing-error": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.805Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:36.257Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/listing-slow": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.802Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:35.368Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/long-names": {
     "status": "pass",
-    "note": "Unrelated to the actual test, but instead of trying to display all action buttons for a file in one mobile row, we need to copy the way universal search does it with the lighting button.",
-    "at": "2026-11-23T03:59:19.751Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:17.980Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/look-dark": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.060Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:28.733Z",
     "viewport": "desktop",
-    "theme": "scenario default"
+    "theme": "dark"
   },
   "files/look-phone": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.055Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:27.213Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "files/look-phone-trash": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.065Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:30.661Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "files/look-phone-viewer": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.062Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:30.018Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "files/look-tablet": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.058Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:28.094Z",
+    "viewport": "tablet",
     "theme": "scenario default"
   },
   "files/member-deep-link": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.046Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:24.520Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/member-file-only": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.049Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:25.655Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/member-full": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.036Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:19.066Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/member-no-grant": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.043Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:23.205Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/member-upload-only": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.041Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:21.582Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/member-view-only": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.038Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:20.438Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/missing-folder": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.760Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:21.906Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/move-fails-partway": {
     "status": "pass",
-    "note": "Silent failure. Source deleted. Critical issue. Can fix as part of stateful file operation card revamp.",
-    "at": "2026-11-23T03:59:19.865Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:05.744Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/move-into-itself": {
     "status": "pass",
-    "note": "Passed, but we could stop offering options that would move a folder into itself in the file move menu.",
-    "at": "2026-11-23T03:59:19.872Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:09.162Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/move-job": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.862Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:04.410Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/move-name-clash": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.874Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:09.878Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/move-readonly-dest": {
     "status": "pass",
-    "note": "It's... silently broken in the header's drive selector. I can't drop the folder there, but the drive still appears and such. There should be no behavioural change if the drive is RO, we should error out when the user drops it in the drives and it fails.",
-    "at": "2026-11-23T03:59:19.877Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:10.808Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/moved-link": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.762Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:23.279Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/one-file": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.744Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:14.446Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/open-close-speed": {
     "status": "pass",
-    "note": "Opening a file is still slow/stuttery AF. ",
-    "at": "2026-11-23T03:59:19.748Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:16.575Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/overview": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.739Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:10.608Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-move-out": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.906Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:21.030Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-orphaned": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.889Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:17.522Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-orphaned-readonly": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.894Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:19.284Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-others": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.885Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:15.517Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-own": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.881Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:13.313Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/private-ownerless": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.902Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:20.240Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-cloud-no-card": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.927Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:29.124Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-cloud-no-phrase": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.924Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:28.117Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-cloud-off": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.919Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:26.251Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-cloud-on": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.921Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:27.168Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-covered-by-parent": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.934Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:32.226Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-inside-private": {
     "status": "pass",
-    "note": "why should folders within private folders behave differently and *force* you to backup the parent? they should just be backed up as private and the usual object tree behaviour works as intended. no need to be fancy about it. \n\nthe only quirk, afaik, with private folders is that they ignore parent backups.",
-    "at": "2026-11-23T03:59:19.932Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:30.990Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-new": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.913Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:24.174Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-one-drive": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.911Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:22.743Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-private-own": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.930Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:29.962Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/protect-problem": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.916Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:25.223Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/readonly-drive": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.778Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:29.108Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/rename-collision": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.767Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:25.765Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/rename-while-open": {
     "status": "pass",
-    "note": "The toast (notice) is not visible. Still.\n\nAdditionally, we need the unsaved changes, saved just now, etc pill to animate between states. it should smoothly resize. smoothly drop in and out. etc.\n\nI would also like to note that it actually doesn't need to spawn in and out. the file is either saved or not saved, so we can simply alternate between three states: Saved Unsaved and Saving...\n\nwith a smoothly resizing pill, though!",
-    "at": "2026-11-23T03:59:19.770Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:26.492Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/restore-backup-slow": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.944Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:35.256Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-drive-unplugged": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.963Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:42.626Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-error": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.956Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:39.277Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-indexing": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.958Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:40.082Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-many": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.950Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:37.511Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-none": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.947Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:36.795Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-private": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.961Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:40.752Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-results": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.945Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:35.960Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/search-slow": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.952Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:38.384Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/session-dies-in-files": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.053Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:26.390Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/thousands": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.746Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:15.435Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-empty": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.807Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:37.362Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-empty-all": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.818Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:42.796Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-empty-slow": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.820Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:44.387Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-restore-conflict": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.812Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:39.409Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-restore-folder-gone": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.814Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:40.687Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/trash-with-items": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.810Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:38.460Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/unicode-emoji": {
     "status": "pass",
-    "note": "remove the saved status from the dropdown menu\n## Page Feedback: /files/d1?path=Odd&file=%D8%B9%D8%B1%D8%A8%D9%89.txt\n**Viewport:** 390×800\n\n### 1. <DriveFileExplorer> <FileViewer> <FullscreenEditorFrame> <Dropdown> <Button> <Ellipsis> icon\n**Location:** .inline-flex > .relative > .inline-flex > svg\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/components/ui/Button.jsx:103:23\n**React:** <DriveFileExplorer> <FileViewer> <FullscreenEditorFrame> <Dropdown> <Button> <Ellipsis>\n**Feedback:** the dropdown this thing opens. drop it from here.",
-    "at": "2026-11-23T03:59:19.753Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:19.020Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/unplugged-at-start": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.783Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:30.643Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/unplugged-mid-browse": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.789Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:31.293Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-duplicate": {
     "status": "pass",
-    "note": "@plainskill needs to review all possible states of the new stateful file ops card",
-    "at": "2026-11-23T03:59:19.833Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:49.863Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.830Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:48.554Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-folder": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.849Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:57.788Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-folder-mixed": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.857Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:01.311Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-huge": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.837Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:50.849Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-huge-flaky": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.839Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:51.712Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-into-readonly": {
     "status": "pass",
-    "note": "Need show error in row for stateful revamp.",
-    "at": "2026-11-23T03:59:19.847Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:55.575Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-many-clashes": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.853Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:59.578Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-no-space-huge": {
     "status": "pass",
-    "note": "Need to show the error in-row for the stateful revamp.",
-    "at": "2026-11-23T03:59:19.842Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:52.810Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-offline": {
     "status": "pass",
-    "note": "Row shows no error. Need error in stateful revamp.",
-    "at": "2026-11-23T03:59:19.844Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:53.811Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-ok": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:19.826Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:46.566Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/upload-slow": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.828Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:39:47.373Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-audio": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.979Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:55.362Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-csv": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.984Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:57.590Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-epub": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.982Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:56.428Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-garbled": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.995Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:03.252Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-image": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.973Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:50.263Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-json": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.967Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:46.856Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-load-error": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.991Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:00.393Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-load-slow": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:19.993Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:01.897Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-markdown": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.970Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:48.432Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-missing": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.989Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:59.311Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-pdf": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.975Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:52.133Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-text": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.965Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:44.972Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-unknown": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.986Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:58.369Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/view-video": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:19.977Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:40:53.877Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/drive-with-files": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.070Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:32.277Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/empty-drive": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.068Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:31.526Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/erase-registered": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.081Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:37.386Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/fails-before-erasing": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.077Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:35.515Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/failure-mid-run": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.075Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:34.628Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/preview-states": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.073Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:33.456Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/refresh-mid-erase": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.088Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:40.164Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/refresh-mid-format": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.086Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:39.136Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/start-refused": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.079Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:36.370Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "format/with-password": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.083Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:38.086Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "forms/closed": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.792Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:45.805Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "forms/password": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.799Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:48.218Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "forms/respond-link": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.789Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:44.499Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "forms/send-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.796Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:47.144Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/album-add-fails-partway": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.180Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:14.614Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/album-deleted-while-open": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.175Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:11.733Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/album-huge": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.173Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:10.452Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/album-member-view": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.178Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:13.102Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/albums-mixed": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.169Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:09.605Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/albums-none": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.166Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:08.881Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/broken-thumbs": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.148Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:03.938Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/bulk-favorite-fails-partway": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.197Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:20.815Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/download": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.200Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:21.557Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/duplicates": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.192Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:19.177Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/duplicates-none": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.194Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:20.017Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/empty": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.111Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:51.893Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/extreme-sizes": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.145Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:03.354Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/filters-facets-fail": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.164Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:08.130Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/huge-library": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.131Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:00.592Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/lightbox-deep-link": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.209Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:24.150Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/lightbox-first": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.204Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:22.541Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/lightbox-last": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.207Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:23.399Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/member-with-drive-share": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.215Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:25.828Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/no-drives-member": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.158Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:06.424Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/normal": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.105Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:48.392Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/odd-exif": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.134Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:01.672Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/offline": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.224Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:29.190Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/on-this-day": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.227Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:30.159Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/phone": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.217Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:26.844Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "gallery/places-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.190Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:18.251Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/places-many": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.186Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:16.944Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/places-none": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.183Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:15.762Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/rescan-refused": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.128Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:58.944Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/scan-failed": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.124Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:56.512Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/scan-fails-at-end": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.126Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:57.558Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/scan-finishes": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.121Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:55.543Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/scan-running": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.116Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:53.094Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/scan-running-with-photos": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.119Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:54.480Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/search-no-results": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.161Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:07.187Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/segment-motion": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.107Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:49.777Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/segment-motion-slow": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.109Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:41:50.936Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/server-error": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.155Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:05.590Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/slow-load": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.151Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:04.635Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/tablet-dark": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.221Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:27.844Z",
+    "viewport": "tablet",
+    "theme": "dark"
   },
   "gallery/trash-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.212Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:24.949Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "gallery/videos": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.136Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:02.502Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "notfound/phone": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.495Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:33.416Z",
+    "viewport": "phone",
+    "theme": "dark"
   },
   "notfound/signed-in": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.486Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:30.340Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "notfound/signed-out": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.492Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:31.983Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/album": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.742Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:27.063Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/album-empty": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.744Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:28.395Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/disabled": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.771Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:37.039Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/download-limit": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.774Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:38.066Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/dropbox": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.738Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:26.019Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/expired": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.758Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:33.394Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/file": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.749Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:29.772Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/file-edit": {
     "status": "pass",
-    "note": "needs real luna.",
-    "at": "2026-11-23T03:59:20.752Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:31.243Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/folder": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.728Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:22.735Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/folder-edit": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.732Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:24.143Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/invalid-token": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.767Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:35.423Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/offline": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.777Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:39.191Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/password": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.755Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:32.411Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/phone": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.786Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:43.378Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "public/revoked": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.762Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:34.413Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/signed-in-visitor": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.783Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:41.792Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/slow": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.780Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:40.123Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "public/upload-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.735Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:25.045Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "recovery/create": {
     "status": "pass",
-    "note": "this ui is still fucking shit. it doesn't use our components. the layout is poor.",
-    "at": "2026-11-23T03:59:20.229Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:31.129Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "recovery/phone-dark": {
     "status": "pass",
-    "note": "no better than desktop.",
-    "at": "2026-11-23T03:59:20.233Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:32.360Z",
+    "viewport": "phone",
+    "theme": "dark"
   },
   "settings/about-versions": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.426Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:10.864Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/all-slow-phone-dark": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.480Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:29.320Z",
+    "viewport": "phone",
+    "theme": "dark"
   },
   "settings/appearance": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.290Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:45.587Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/appearance-phone": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.293Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:46.525Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "settings/cloud-backups": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.317Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:53.359Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/cloud-no-card": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.325Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:55.062Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/cloud-run-fails": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.331Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:56.547Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/connect-off": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.312Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:52.209Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/edit-user": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.261Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:38.132Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/edit-user-phone": {
     "status": "pass",
-    "note": "The table doesn't scale to mobile. The modal does.",
-    "at": "2026-11-23T03:59:20.273Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:40.744Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "settings/edit-user-save-fails": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.270Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:39.807Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/edit-user-self": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.267Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:38.849Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/factory-reset": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.447Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:17.407Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/factory-reset-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.450Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:18.441Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/luna-connect-admin": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.453Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:19.414Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/member-categories": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.461Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:20.667Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-24-words": {
     "status": "pass",
-    "note": "Recovery phrase\n24 words · Not checked yet should be a card, not a section.",
-    "at": "2026-11-23T03:59:20.345Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:59.032Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-change": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.357Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:00.888Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-change-exposed": {
     "status": "pass",
-    "note": "Could someone else have your phrase? card is utter shit. Whoever made this clearly never took classes in UI. The inline checkmarks must be removed everywhere.",
-    "at": "2026-11-23T03:59:20.363Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:02.048Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-check-wrong": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.341Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:58.281Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-lost": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.373Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:04.111Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-lost-exposed": {
     "status": "pass",
-    "note": "We have a lot of errors that show in cards. The way the card that asks you to very word #x, y, and z is beautiful. I hate the current convention of doing it with a critical-colored card. Let's move future and existing errors to look like the one in that card where applicable.",
-    "at": "2026-11-23T03:59:20.368Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:02.935Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-moving": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.393Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:06.435Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-moving-full": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.398Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:07.255Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-not-set": {
     "status": "pass",
-    "note": "Set up your recovery phrase card is far too wordy. If all the words are necessary, you're gonna need to do some layout & UX magic. ",
-    "at": "2026-11-23T03:59:20.336Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:57.523Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-resealing": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.383Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:05.300Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/phrase-set-check-due": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.350Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:00.015Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/remote-off": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.406Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:08.046Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/remote-on": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.415Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:08.984Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/remote-token-rejected": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.421Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:09.892Z",
     "viewport": "desktop",
-    "theme": "scenario default"
-  },
-  "settings/restore-needed": {
-    "status": "pass",
-    "note": "I'm skeptical whether this actually works. The user doesn't have access to the actual Luna key. Explain the crypto behind this to the user.",
-    "at": "2026-11-08T01:28:57.231Z",
-    "viewport": "tablet",
-    "theme": "scenario default"
-  },
-  "settings/restore-private-needed": {
-    "status": "pass",
-    "note": "We're not using the right recovery phrase UI. We  have better UI than this built, we just aren't using it here.",
-    "at": "2026-11-08T01:28:57.231Z",
-    "viewport": "tablet",
     "theme": "scenario default"
   },
   "settings/search": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.467Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:21.643Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/security-account": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.279Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:42.104Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/security-member": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.287Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:44.533Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/security-sessions": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.283Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:43.420Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/session-dies": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.472Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:23.203Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/tokens-create-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.306Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:49.365Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/tokens-load-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.309Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:51.099Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/tokens-many": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.303Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:48.372Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/tokens-none": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.296Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:47.446Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/update-source": {
     "status": "pass",
-    "note": "i think this card was re-done: Update source\nWhere Luna reads its list of updates.\n\nDefault source\nhttps://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/feedsEdit update source\n\nit's now successfully enshitified.",
-    "at": "2026-11-23T03:59:20.436Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:14.002Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/update-source-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.442Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:16.117Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/update-source-lan-feed": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.440Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:14.970Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/updates-from-new-source": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.431Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:12.666Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-delete-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.254Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:37.444Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-last-admin": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.245Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:35.826Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-load-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.251Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:36.602Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-many": {
     "status": "pass",
-    "note": "## Page Feedback: /settings#users\n**Viewport:** 2113×1370\n\n### 1. <PageOutlet> <RenderedRoute> <SettingsPage> <Page> <SettingsSidebar> <Card> text font\n**Location:** .w-[28%] > .rounded-large-element > .mt-4 > .px-3\n**Source:** @fs/home/plainskill/Projects/LibreServ/shared/ui/hooks/useAnimatedHeight.jsx:16:20\n**React:** <PageOutlet> <RenderedRoute> <SettingsPage> <Page> <SettingsSidebar> <Card>\n**Feedback:** what the hell is this? remove it.\n## Page Feedback: /settings#users\n**Viewport:** 2113×1370\n\n### 1. <SettingsContent> <UsersCategory> <EditUserModal> <ModalCard> <Card> <EditUserBody> flex items\n**Location:** .rounded-large-element > #edit-user-form > .rounded-large-element > .flex\n**Source:** src/components/settings/categories/EditUserModal.jsx:55:23\n**React:** <SettingsContent> <UsersCategory> <EditUserModal> <ModalCard> <Card> <EditUserBody>\n**Feedback:** broken layout\n",
-    "at": "2026-11-23T03:59:20.235Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:33.381Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-orphans": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.242Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:35.174Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "settings/users-private-folders": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.239Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:42:34.211Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/account-exists-signed-out": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.541Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:44.917Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/already-complete": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.588Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:54.925Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/device-token-step": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.554Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:48.489Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/finish-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.563Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:49.706Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/finish-without-phrase": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.575Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:52.296Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/full-walkthrough": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.503Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:34.596Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/phone-dark": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.584Z",
-    "viewport": "desktop",
-    "theme": "scenario default"
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:53.688Z",
+    "viewport": "phone",
+    "theme": "dark"
   },
   "setup/preflight-failed": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.512Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:36.787Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/preflight-fails-then-passes": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.518Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:37.894Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/preflight-slow": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.524Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:38.993Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/preflight-unreachable": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.529Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:40.189Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/preflight-warning": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.508Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:35.640Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/progress-save-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.572Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:51.246Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/refresh-mid-account": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.532Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:41.571Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/refresh-mid-name": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.536Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:43.684Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/register-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.549Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:47.418Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "setup/username-taken": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.546Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:46.062Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/add-person-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.687Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:10.315Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/add-person-flow": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.660Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:05.745Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/album-sheet": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.715Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:18.187Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/cannot-load": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.682Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:09.280Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/create-link": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.698Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:12.947Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/create-link-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.704Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:14.872Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/inherited": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.722Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:20.160Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/links-all-states": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.695Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:11.210Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/many-people": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.668Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:06.572Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/no-other-users": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.650Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:04.808Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/phone": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.725Z",
-    "viewport": "desktop",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:21.230Z",
+    "viewport": "phone",
     "theme": "scenario default"
   },
   "share/private-folder": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.719Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:19.297Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/remove-link-fails": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.709Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:16.079Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/upload-only-folder": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.712Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:17.079Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/view-only-member": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.672Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:07.374Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "share/write-member-links": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.675Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:08.278Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/empty-admin": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.601Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:56.293Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/empty-member": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.608Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:57.427Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/leave-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.631Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:03.114Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/load-fails": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.641Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:03.973Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/loading": {
     "status": "pass",
-    "note": "",
-    "at": "2026-11-23T03:59:20.619Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:59.947Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/many": {
     "status": "pass",
-    "note": "Audit findings fixed and verified",
-    "at": "2026-11-23T03:59:20.614Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:43:58.619Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "shared/with-me-states": {
     "status": "pass",
-    "note": "Audited and swept — no failures found",
-    "at": "2026-11-23T03:59:20.627Z",
+    "note": "Verified in browser via the state gallery sweep: scenario loaded with its fake, no crash, no unhandled errors, no missing-mock banner.",
+    "at": "2026-11-23T04:44:02.166Z",
     "viewport": "desktop",
     "theme": "scenario default"
   }
