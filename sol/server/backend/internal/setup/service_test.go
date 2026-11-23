@@ -98,7 +98,7 @@ func TestIsCompleteInvalidationContract(t *testing.T) {
 	if _, err := svc.MarkComplete(ctx); err != nil {
 		t.Fatal(err)
 	}
-	db.SetOnReplace(svc.InvalidateCompletion)
+	db.OnReplace(svc.InvalidateCompletion)
 	replacement := filepath.Join(dir, "restored.db")
 	other, err := database.Open(replacement)
 	if err != nil {

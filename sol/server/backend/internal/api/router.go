@@ -27,6 +27,9 @@ func (s *Server) setupRoutes() {
 
 	// Initialize all route handlers with required dependencies
 	healthHandler := handlerssystem.NewHealthHandler(s.db)
+	// A restore or factory reset changes the file the cached integrity verdict
+	// describes; drop it alongside the setup cache.
+	s.db.OnReplace(healthHandler.InvalidateIntegrity)
 	catalogHandler := handlersapps.NewCatalogHandler(s.appManager)
 	reposHandler := handlersapps.NewReposHandler(s.appManager, config.Get())
 	appsHandler := handlersapps.NewAppsHandler(s.appManager)

@@ -1198,3 +1198,30 @@ describe("AboutCategory fresh health snapshot", () => {
     expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
   });
 });
+
+describe("AboutCategory corruption verdict persistence", () => {
+  it("keeps a manual corrupt verdict when unrelated health fields change", async () => {
+    const user = userEvent.setup();
+    const first = {
+      checks: { database: { status: "passed", message: "Ready" }, disk: { status: "passed", message: "40% used" } },
+      summary: { passed: 2, failed: 0 },
+    };
+    healthState.data = first;
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" }, disk: { status: "passed", message: "90% used" } },
+      summary: { passed: 2, failed: 0 },
+    };
+    view.rerender(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+  });
+});

@@ -24,19 +24,26 @@ type DB struct {
 	db   *sql.DB
 	path string
 
-	// onReplace is called once the restored file is in place, before migration.
-	// Services that cache rows from this DB use it to drop stale answers
-	// immediately.
-	onReplace func()
+	// onReplace holds callbacks from services that cache rows from this DB.
+	// They run once a restored file is in place, before migration.
+	onReplace []func()
 
 	// healthWarned keeps a missing database from writing one warning per probe.
 	healthWarned atomic.Bool
 }
 
-// SetOnReplace registers a hook for database restores. It is set once during
-// startup, before any restore can run.
-func (d *DB) SetOnReplace(fn func()) {
-	d.onReplace = fn
+// OnReplace adds a cache-invalidation hook for database restores. Registration
+// is additive: setup state and the admin integrity verdict both need it.
+func (d *DB) OnReplace(fn func()) {
+	d.onReplace = append(d.onReplace, fn)
+}
+
+// InvalidateCaches runs every registered hook. Callers that replace or rewrite
+// the database outside ReplaceFile (for example a factory reset) use it.
+func (d *DB) InvalidateCaches() {
+	for _, fn := range d.onReplace {
+		fn()
+	}
 }
 
 // Open opens or creates the SQLite database at dbPath.
@@ -227,9 +234,7 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return fmt.Errorf("failed to reopen database after restore: %w", err)
 	}
 	d.db = newDB.db
-	if d.onReplace != nil {
-		d.onReplace()
-	}
+	d.InvalidateCaches()
 
 	// Ensure schema is compatible with current binary.
 	if err := d.Migrate(); err != nil {

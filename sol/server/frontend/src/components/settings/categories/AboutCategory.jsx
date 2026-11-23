@@ -22,18 +22,23 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [fileProblem, setFileProblem] = useState(false);
   const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
-  const lastHealthRef = useRef(data);
+  const dbRow = data?.checks?.database;
+  const lastDbRowRef = useRef(dbRow);
   useEffect(() => () => pollRef.current?.abort(), []);
   useEffect(() => {
-    // A newer health snapshot wins. Without this, a manual "fine" would keep
-    // overriding a failed database row on every later poll.
-    if (data !== lastHealthRef.current) {
-      lastHealthRef.current = data;
+    // Only a change in the cheap probe's database row can contradict a manual
+    // result. Unrelated health fields (disk, timestamps) must not forget a
+    // corruption finding.
+    const previous = lastDbRowRef.current;
+    lastDbRowRef.current = dbRow;
+    if (!dbRow || !previous) return;
+    const changed = previous.status !== dbRow.status || previous.message !== dbRow.message;
+    if (changed && dbRow.status === "failed") {
       setFileChecked(false);
       setFileProblem(false);
       setFileResult(null);
     }
-  }, [data]);
+  }, [dbRow]);
 
   // Always available to an admin, even when the periodic health query fails.
   const actionRow = isAdmin && (

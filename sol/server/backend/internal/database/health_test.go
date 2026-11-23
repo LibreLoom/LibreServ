@@ -103,3 +103,18 @@ func TestHealthCheckFailsForDeletedFile(t *testing.T) {
 		t.Fatal("health check should fail when the database file is gone")
 	}
 }
+
+func TestOnReplaceRunsEveryRegistrant(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "hooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	called := 0
+	db.OnReplace(func() { called++ })
+	db.OnReplace(func() { called++ })
+	db.InvalidateCaches()
+	if called != 2 {
+		t.Fatalf("expected both hooks to run, got %d", called)
+	}
+}

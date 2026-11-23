@@ -72,7 +72,10 @@ A restore checks its replacement file before the swap through
 `integrityCheckFile`, with a 10 s budget on the caller's context: the two-minute
 page walk never sits in the restore request, and a timeout refuses the restore
 while leaving the old database in place. A large database on a 3040 could
-exceed 10 s, but the old post-swap 5 s check was worse. The admin endpoint
+exceed 10 s, but the old post-swap 5 s check was worse. Decision: keep the
+pre-swap budget bounded so a restore cannot outlive the HTTP write timeout;
+a database large enough to need more than 10 s for a page walk belongs in a
+background job, which is outside this pass. The admin endpoint
 starts its check in the background (`POST /api/v1/system/database/integrity`)
 and is polled through `GET /api/v1/system/database/integrity/status`.
 The setup cache has a 30-second safety TTL and explicit invalidation on

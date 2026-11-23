@@ -187,6 +187,14 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 	JSON(w, http.StatusAccepted, map[string]any{"status": "running"})
 }
 
+// InvalidateIntegrity drops a cached verdict when the database file changes.
+func (h *HealthHandler) InvalidateIntegrity() {
+	h.integrityMu.Lock()
+	defer h.integrityMu.Unlock()
+	h.integrityResult = nil
+	h.integrityRunning = false
+}
+
 // DatabaseIntegrityStatus returns the result of the last admin integrity check.
 func (h *HealthHandler) DatabaseIntegrityStatus(w http.ResponseWriter, r *http.Request) {
 	h.integrityMu.Lock()
