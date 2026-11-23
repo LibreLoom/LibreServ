@@ -13,10 +13,12 @@ import { apiErrorMessage, postJson } from "../../lib/api.js";
  * - `deviceName`: an encrypted drive Luna hasn't added yet (the Add-drive window,
  *   Admin only). Unlocking it also adds it.
  *
- * A wrong password, a lock-out after too many tries ("wait a few minutes"; lunad
- * sends no clock, so none is shown) and a busy drive all show inline under the
- * field, and a wrong password shakes it. Success is one toast. The password
- * lives only in this component's state and is cleared as soon as it is sent.
+ * A wrong password is a field error: it shakes the field and paints its border
+ * red. A busy drive or a lock-out after too many tries ("wait a few minutes";
+ * lunad sends no clock, so none is shown) is a plain notice under the field —
+ * neither says anything about what the person typed. Success is one toast.
+ * The password lives only in this component's state and is cleared as soon as
+ * it is sent.
  *
  * @param {{
  *   driveId?: string,
@@ -31,7 +33,10 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
   const client = useQueryClient();
   const { addToast } = useToast();
   const [password, setPassword] = useState("");
+  // `error` belongs to the field (wrong password only — shake + red border).
+  // `notice` is a plain line under it for a busy drive or a lock-out.
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const adding = Boolean(deviceName);
   const key = adding ? `add-${deviceName}` : driveId;
 
@@ -51,7 +56,17 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
       onUnlocked?.(result);
     },
     onError: (err) => {
-      setError(apiErrorMessage(err, "Luna couldn't unlock this drive. Try again."));
+      const code = /** @type {any} */ (err)?.code;
+      const message = apiErrorMessage(err, "Luna couldn't unlock this drive. Try again.");
+      // Only a wrong password is a mistake in the field. A busy drive or too
+      // many wrong tries is Luna's state, so it gets a plain notice instead.
+      if (code === "wrong_password") {
+        setNotice("");
+        setError(message);
+      } else {
+        setError("");
+        setNotice(message);
+      }
     },
   });
 
@@ -59,6 +74,7 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
     e.preventDefault();
     if (!password || unlock.isPending) return;
     setError("");
+    setNotice("");
     unlock.mutate(password);
   };
 
@@ -71,12 +87,17 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
         icon="password"
         autoComplete="current-password"
         value={password}
-        onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
+        onChange={(e) => {
+          setPassword(e.target.value);
+          if (error) setError("");
+          if (notice) setNotice("");
+        }}
         error={error}
         loading={unlock.isPending}
         surface={surface}
         className="mb-0"
       />
+      {notice && <p className="text-sm">{notice}</p>}
       <div>
         <Button type="submit" size="sm" variant={surface === "primary" ? "secondary" : "primary"} surface={surface} loading={unlock.isPending} disabled={!password}>{buttonLabel}</Button>
       </div>

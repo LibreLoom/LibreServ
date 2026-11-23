@@ -28,6 +28,10 @@ import RecoveryPhraseCheck from "./RecoveryPhraseCheck.jsx";
 /** How often the card asks for status while Luna re-seals backups to the new phrase. */
 const RESEAL_POLL_MS = 5000;
 
+// A render must be pure; read the clock once at module load instead of inside
+// the component when deciding whether a removal date is still in the future.
+const RENDER_NOW_SECONDS = Date.now() / 1000;
+
 /** "About 2 hours left" from a number of seconds. Empty when there is no useful estimate. */
 function etaText(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "";
@@ -300,9 +304,11 @@ export default function RecoveryPhraseCard() {
 
   const isMember = auth?.user?.role !== undefined && auth.user.role !== "admin";
   const oldCopies = status.data?.old_phrase_copies;
+  const removedAt = Number(oldCopies?.removed_at) || 0;
   const removedOn = formatDate(oldCopies?.removed_at, false);
+  const inFuture = removedAt > RENDER_NOW_SECONDS;
   const oldCopiesLine = removedOn
-    ? `Backups made with your old phrase · removed on ${removedOn}`
+    ? `Backups made with your old phrase · ${inFuture ? "will be removed on" : "removed on"} ${removedOn}`
     : "Backups made with your old phrase";
   const checkDue = Boolean(status.data?.check_due);
 

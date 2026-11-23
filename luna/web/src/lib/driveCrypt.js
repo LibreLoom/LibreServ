@@ -2,6 +2,8 @@
 // to say about a refused password, and the line the dashboard and backups use
 // when drives are locked. Backend: crates/lunad/src/api/drive_crypt.rs.
 
+import { passwordPolicyError } from "@libreloom/ui/lib/passwordPolicy.js";
+
 /**
  * @template {{ encrypted?: boolean, locked?: boolean }} T
  * @param {T[] | null | undefined} drives
@@ -13,12 +15,15 @@ export function lockedDrives(drives) {
 
 /**
  * Why a new password can't be used yet, in one sentence, or "" when it can.
- * Any password is allowed, so long as there is one and it matches.
+ * Drive passwords follow the same policy as account passwords. lunad counts
+ * the UTF-8 bytes of the password, so a short run of multi-byte characters
+ * must be refused here too rather than failing only at the erase step.
  * @param {string} password
  * @param {string} again
  */
 export function newPasswordProblem(password, again) {
-  if (!password) return "Enter a password.";
+  const policy = passwordPolicyError(password, { lengthUnit: "utf8-bytes" });
+  if (policy) return policy;
   if (password !== again) return "The two passwords don't match.";
   return "";
 }

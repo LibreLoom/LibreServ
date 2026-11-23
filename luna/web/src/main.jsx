@@ -8,8 +8,6 @@ import "./index.css";
 async function start() {
   // Journey timing for luna/perf (devtools and the perf spec only; no UI).
   initPerf();
-  // A guest's share link: ask for its meta and listing now (W15).
-  startShareEarly();
   // Dev only: the testing gallery (/__states) and the fake Luna it drives. Both
   // sit behind import.meta.env.DEV so production builds drop them.
   if (import.meta.env.DEV) {
@@ -21,6 +19,10 @@ async function start() {
     const { bootMock } = await import("./dev/boot.js");
     bootMock();
   }
+  // A guest's share link: ask for its meta and listing now (W15). This stays
+  // before render in production, but runs after the fake is installed in dev —
+  // otherwise the mock's 404 lands on a working page.
+  startShareEarly();
   createRoot(document.getElementById("root")).render(
     <StrictMode>
       <App />

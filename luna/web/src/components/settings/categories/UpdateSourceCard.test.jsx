@@ -21,8 +21,8 @@ const SOURCE = {
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** @param {{ source?: any, onPut?: (body: any) => Response }} [opts] */
-function stub({ source = SOURCE, onPut } = {}) {
+/** @param {{ source?: any, onPut?: (body: any) => Response, connect?: any }} [opts] */
+function stub({ source = SOURCE, onPut, connect = { connect_active: false } } = {}) {
   const fetchMock = vi.fn(async (url, init) => {
     const u = String(url);
     const method = init?.method || "GET";
@@ -30,7 +30,7 @@ function stub({ source = SOURCE, onPut } = {}) {
       return onPut ? onPut(JSON.parse(init.body)) : json({ ...source, ...JSON.parse(init.body) });
     }
     if (u.endsWith("/updates/source")) return json(source);
-    if (u.includes("/connect/status")) return json({ connect_active: false });
+    if (u.includes("/connect/status")) return json(connect);
     return json({}, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -104,6 +104,16 @@ describe("UpdateSourceCard", () => {
     await user.click(within(group).getByRole("radio", { name: "Beta" }));
     await waitFor(() => expect(puts(fetchMock)).toHaveLength(1));
     expect(JSON.parse(puts(fetchMock)[0][1].body)).toEqual({ channel: "beta" });
+  });
+
+  it("shows a rejected device token without opening a section", async () => {
+    const message = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna.";
+    stub({ connect: { connect_active: false, device_token_error: message } });
+    renderCard();
+    // Nothing is expanded here: the error is on the Advanced card itself.
+    expect(await screen.findByText(message, { selector: '[data-slot="page-notice"] p' })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change device token" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Device token" })).toBeNull();
   });
 
   it("says so when the channel could not be saved", async () => {

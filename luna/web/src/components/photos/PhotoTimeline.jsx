@@ -13,7 +13,7 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** @param {number|null|undefined} ts */
 export function dayKey(ts) {
-  if (!ts) return "undated";
+  if (ts == null) return "undated";
   const d = new Date(ts * 1000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -29,7 +29,7 @@ const DAY_FORMAT = new Intl.DateTimeFormat(undefined, {
 
 /** @param {number|null|undefined} ts */
 function dayLabel(ts) {
-  if (!ts) return "Unknown date";
+  if (ts == null) return "Unknown date";
   return DAY_FORMAT.format(new Date(ts * 1000));
 }
 

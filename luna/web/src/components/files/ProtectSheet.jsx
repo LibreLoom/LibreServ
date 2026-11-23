@@ -223,6 +223,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const cloudBackup = (cloudQuery.data || []).find(
     (b) => b.source_drive === driveId && trimSlashes(b.source_path) === trimSlashes(objectPath),
   );
+  const cloudPausedByLock = cloudBackup?.paused === "locked";
   const cloudWaiting = cloudBackup?.status === "active" && !cloudBackup.covered_by
     ? cloudPrerequisite || backupWaitingReason({ ...cloudBackup, kind: "cloud" })
     : null;
@@ -230,7 +231,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const activeDriveBackups = matchingBackups.filter((b) => b.status === "active" && !b.covered_by);
   const drivesOn = driveCovers.length > 0 || matchingBackups.some((b) => b.status === "active" && b.covered_by)
     || activeDriveBackups.some((b) => b.paused !== "locked" && !driveWaiting(b));
-  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => driveWaiting(b));
+  // A locked drive still reports a waiting reason; the unlock note wins over it.
+  const drivesWaiting = !drivesOn && activeDriveBackups.some((b) => b.paused !== "locked" && driveWaiting(b));
   const drivesPaused = !drivesOn && !drivesWaiting && matchingBackups.some(
     (b) => b.status === "paused" || (b.status === "active" && b.paused === "locked"),
   );
@@ -470,7 +472,12 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
             </DestinationHeader>
 
             {tooFewDrives && !blockedCreate && !hasBackups ? (
-              <Pill variant="default" className="self-start">Needs another drive</Pill>
+              <div className="space-y-2">
+                <Pill variant="default" className="self-start">Needs another drive</Pill>
+                <p className="text-sm text-primary">
+                  This {thingLabel} has no backup yet. Add another drive to start one.
+                </p>
+              </div>
             ) : (
               <>
                 {matchingBackups.map((b) => (
@@ -485,11 +492,11 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                       </>
                     ) : b.status === "active" ? (
                       <>
-                        <LayeredPill actionLabel={b.target_drive_name}>{driveWaiting(b) ? "Waiting" : b.paused === "locked" ? "Paused" : backupHeadline(b)}</LayeredPill>
-                        {driveWaiting(b) ? (
-                          <p className="text-sm break-words">{driveWaiting(b)}</p>
-                        ) : b.paused === "locked" ? (
+                        <LayeredPill actionLabel={b.target_drive_name}>{b.paused === "locked" ? "Paused" : driveWaiting(b) ? "Waiting" : backupHeadline(b)}</LayeredPill>
+                        {b.paused === "locked" ? (
                           <PausedByLockNote backup={b} />
+                        ) : driveWaiting(b) ? (
+                          <p className="text-sm break-words">{driveWaiting(b)}</p>
                         ) : (
                           <BackupStatusNotice
                             state={b.state}
@@ -614,8 +621,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
               <DestinationHeader
                 icon={Cloud}
                 title="In the cloud"
-                on={(cloudBackup?.status === "active" || Boolean(cloudCover)) && !cloudWaiting}
-                waiting={Boolean(cloudWaiting)}
+                on={(cloudBackup?.status === "active" || Boolean(cloudCover)) && !cloudWaiting && !cloudPausedByLock}
+                paused={cloudPausedByLock}
+                waiting={Boolean(cloudWaiting) && !cloudPausedByLock}
                 hint={
                   <InfoHint
                     surface="primary"
@@ -625,9 +633,12 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                 }
               >
                 {!cloudConnected ? (
-                  <p className="text-sm">
-                    Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
-                  </p>
+                  <>
+                    <p className="text-sm">
+                      Link this Luna to Luna Connect. Then you can copy any folder or a whole drive off-site.
+                    </p>
+                    {cloudPrerequisite && <p className="text-sm">{cloudPrerequisite}</p>}
+                  </>
                 ) : (
                   <>
                     <p className="text-sm">
@@ -655,9 +666,13 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   ) : cloudBackup.status === "active" ? (
                     <>
                       <LayeredPill actionLabel="Luna Connect">
-                        {cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup, true)}
+                        {cloudPausedByLock ? "Paused" : cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup, true)}
                       </LayeredPill>
-                      {cloudWaiting && <p className="text-sm break-words">{cloudWaiting}</p>}
+                      {cloudPausedByLock ? (
+                        <PausedByLockNote backup={cloudBackup} />
+                      ) : cloudWaiting ? (
+                        <p className="text-sm break-words">{cloudWaiting}</p>
+                      ) : null}
                       {!cloudWaiting && cloudBackup.source_missing === true && (
                         <p className="text-primary text-sm">Most files are missing from the original folder.</p>
                       )}

@@ -161,7 +161,7 @@ export default [
       w.photos[3].width = 200; w.photos[3].height = 12000;
       w.photos[4].size = 9_000_000_000;
     },
-    check: ["Grid cells stay square-ish and tidy for the strip images", "Photo details give sensible megapixels and a size like 8.4 GB", "Filter 'at least 20 megapixels' keeps the first photo only (of these)"],
+    check: ["Grid cells stay square-ish and tidy for the strip images", "Photo details give sensible megapixels and a size like 9.0 GB", "Filter 'at least 20 megapixels' keeps the first photo only (of these)"],
   },
   {
     id: "gallery/broken-thumbs",

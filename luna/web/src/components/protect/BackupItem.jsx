@@ -24,7 +24,10 @@ import { backupKindLabel, backupStatus, backupWaitingReason, lastCopyLine } from
  */
 export default function BackupItem({ backup, surface = "primary", note = null, children = null, className }) {
   const status = backupStatus(backup);
-  const waiting = status.label === "Waiting" ? backupWaitingReason(backup) : null;
+  // A lock-paused backup also carries a waiting reason, but the unlock note is the
+  // useful thing to read here; never let the generic waiting line replace it.
+  const pausedByLock = backup.paused === "locked";
+  const waiting = !pausedByLock && status.label === "Waiting" ? backupWaitingReason(backup) : null;
   const DestIcon = backup.kind === "cloud" ? Cloud : HardDrive;
   const dot = surface === "primary" ? "surface-secondary" : "surface-primary";
   return (
@@ -64,7 +67,7 @@ export default function BackupItem({ backup, surface = "primary", note = null, c
         <span>{lastCopyLine(backup)}</span>
       </div>
 
-      {!waiting && backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+      {!waiting && (pausedByLock || (backup.status === "active" && !backup.covered_by)) && <PausedByLockNote backup={backup} />}
       {waiting && <p className="text-sm break-words">{waiting}</p>}
       {backup.kind === "drive" && <BackupNotes notes={backup.notes} />}
       {note && <div className="text-sm space-y-1">{note}</div>}

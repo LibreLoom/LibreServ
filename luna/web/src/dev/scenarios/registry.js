@@ -12,6 +12,7 @@ const modules = /** @type {any} */ (import.meta.glob("./*.scenarios.js", { eager
  *   faults?: Array<{ match: string, mode: string, message?: string, code?: string, once?: boolean, on?: boolean }>,
  *   now?: number,                // frozen start time (ms)
  *   offline?: boolean, latency?: number,
+ *   hostname?: string,          // pretend the tab is on this host (device-token setup steps)
  *   restart?: number,           // lunad is down for this many ms from the start (as after an update)
  *   viewport?: "phone" | "tablet" | "desktop",
  *   theme?: "light" | "dark",

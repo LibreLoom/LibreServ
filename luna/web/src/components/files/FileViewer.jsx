@@ -166,9 +166,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
   const [officeMissing, setOfficeMissing] = useState(false);
-  // Presence string is plumbed through from the editor but not rendered yet —
-  // collab presence UI will be redesigned separately.
-  const [, setEditorPresence] = useState("");
+  // The editor's presence line (who else is here, or that live editing isn't
+  // connected) is drawn by FullscreenEditorFrame's rail/topbar.
+  const [editorPresence, setEditorPresence] = useState("");
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [converting, setConverting] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -363,6 +363,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
         onShare={onShare}
+        presence={editorPresence}
         editorKind={frameView.isOffice ? "office" : frameView.isForm ? "form" : frameView.isDiagram ? "diagram" : frameView.isWhiteboard ? "whiteboard" : "text"}
         onClose={handleClose}
       >

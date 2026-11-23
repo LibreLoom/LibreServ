@@ -48,9 +48,12 @@ function SummaryLine({ parts }) {
   // The odometer draws all ten digits of every column, so its DOM text is not
   // the number. Screen readers get the plain sentence; the visible line is
   // aria-hidden, exactly as the file explorer's selection count does it.
+  // In the problems-only state the unit already says "need you". Appending
+  // the trailing clause there made screen readers hear it twice.
+  const needSpoken = need > 0 && parts.key !== "need" ? ` · ${need} need you` : "";
   const spoken = `${lead}${count ?? ""}${unit}${
     pct != null ? ` · ${Math.round(pct)}%` : ""
-  }${need > 0 ? ` · ${need} need you` : ""}`;
+  }${needSpoken}`;
   return (
     <span className="block font-mono text-xs">
       <span className="sr-only" role="status">{spoken}</span>

@@ -68,6 +68,7 @@ export const INVALIDATE_GAP_MS = 1000;
  *   indeterminate: boolean,
  *   rootFolder: boolean,
  *   cancelled: boolean,
+ *   kept?: boolean, skippedCount?: number,
  * }} Op
  */
 
@@ -179,7 +180,11 @@ export function createFileOpsStore({
     let total = 0;
     let done = 0;
     let foldersDone = 0;
+    let skippedCount = 0;
     for (const item of op.items) {
+      // Kept originals aren't progress: counting them as files would let an
+      // all-skipped operation settle as "done" with work it never did.
+      if (item.state === "skipped") skippedCount += 1;
       if (item.isDir) {
         // A folder-only drop uploads no bytes, so the card counts folders
         // instead of saying "0 of 0 files".
@@ -201,6 +206,7 @@ export function createFileOpsStore({
     op.itemsDone = done;
     op.itemsTotal = op.indeterminate ? null : total;
     op.foldersDone = foldersDone;
+    op.skippedCount = skippedCount;
   }
 
   function flush() {
@@ -400,6 +406,14 @@ export function createFileOpsStore({
     const deciding = items.some((i) => i.state === "needs-decision");
     const problems = items.some((i) => i.state === "needs-decision" || i.state === "failed");
     const wasEnded = op.endedAt != null;
+    // "Skip" on a name clash means the person kept what was already there.
+    // That is a terminal state of its own — neither a finished upload nor a
+    // stop — so the card can say so rather than claiming work it didn't do.
+    const allSkipped = items.length > 0 && items.every((i) => i.state === "skipped");
+    // One X on the last item used to settle as "done". Once every item is
+    // stopped (cancelled, or cancelled plus kept), nothing succeeded.
+    const allStopped = items.length > 0 && items.every((i) => i.state === "cancelled" || i.state === "skipped");
+    op.kept = allSkipped;
 
     if (problems) op.shown = true;
 
@@ -418,7 +432,9 @@ export function createFileOpsStore({
     } else {
       const done = items.filter((i) => i.state === "done" && !i.isDir).length;
       const failed = items.some((i) => i.state === "failed");
-      if (op.cancelled) op.state = "cancelled";
+      // A kept original is not a stop: "Kept the original notes.txt" is the
+      // truth there. A cancelled item (or a cancelled/kept mix) is.
+      if (op.cancelled || (allStopped && !allSkipped)) op.state = "cancelled";
       else if (!failed) op.state = "done";
       else op.state = done > 0 ? "partial" : "failed";
       if (op.error) op.state = "failed";
@@ -429,6 +445,9 @@ export function createFileOpsStore({
   }
 
   function finish(/** @type {Op} */ op, /** @type {number} */ done) {
+    // The last item's derived counts must be current before the toast and
+    // the auto-clear look at them, even if the final patch was throttled.
+    recompute(op);
     const r = rt(op);
     op.endedAt = now();
     op.shown = op.shown || op.state === "partial" || op.state === "failed";
@@ -443,7 +462,14 @@ export function createFileOpsStore({
     flushFolders(op);
     if (op.kind === "upload" || op.kind === "gallery") invalidate([["recents"]]);
     invalidate(r.invalidateKeys);
-    if (!r.toasted && done > 0 && op.state !== "cancelled" && op.state !== "failed") {
+    // A folder-only drop uploads no files but does make folders. Count those
+    // as work done, or its "Made 2 folders." toast never gets a chance to fire.
+    if (
+      !r.toasted &&
+      (done > 0 || op.foldersDone > 0) &&
+      op.state !== "cancelled" &&
+      op.state !== "failed"
+    ) {
       r.toasted = true;
       const message =
         typeof r.toastFn === "function"

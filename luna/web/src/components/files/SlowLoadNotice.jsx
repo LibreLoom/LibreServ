@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { fileExtension, OFFICE_FORMATS } from "../../lib/fileKinds.js";
 
-/** How long the loader runs before the card appears. */
-export const SLOW_LOAD_MS = 8000;
+/** How long the loader runs before the card appears. Well below the gallery's
+ * slow:8000 fault so the notice actually dwells while content is still coming. */
+export const SLOW_LOAD_MS = 3500;
 
 const OFFICE_NOUN = {
   word: "document",

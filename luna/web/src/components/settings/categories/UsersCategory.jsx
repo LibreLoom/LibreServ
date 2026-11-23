@@ -216,7 +216,16 @@ export default function UsersCategory() {
       <div data-slot="users-category" className={userToDelete ? "pop-out" : "pop-in"}>
         {users.isError && (
           <PageNotice variant="error" className="mb-4">
-            {String(users.error?.message || "Couldn't load users. Try again.")}
+            <p>Luna couldn&apos;t load the people on this Luna right now.</p>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              className="mt-2"
+              onClick={() => users.refetch()}
+            >
+              Try again
+            </Button>
           </PageNotice>
         )}
 
@@ -299,7 +308,7 @@ export default function UsersCategory() {
                   >
                     <div className="min-w-0">
                       <p className="text-sm text-primary">
-                        {o.display_name || o.username}
+                        <InlinePill>{o.display_name || o.username}</InlinePill>
                         {" "}(removed)
                       </p>
                       <p className="text-xs text-primary mt-0.5">
@@ -460,21 +469,23 @@ export default function UsersCategory() {
                                 <Pencil size={16} aria-hidden="true" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="iconSm"
-                              surface={surface}
-                              disabled={isSelf || deleteMutation.isPending}
-                              onClick={() =>
-                                setUserToDelete({
-                                  id: row.id,
-                                  name: row.display_name || row.username,
-                                })
-                              }
-                              aria-label={`Remove ${row.display_name || row.username}`}
-                            >
-                              <Trash2 size={16} aria-hidden="true" />
-                            </Button>
+                            {!isSelf && (
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                surface={surface}
+                                disabled={deleteMutation.isPending}
+                                onClick={() =>
+                                  setUserToDelete({
+                                    id: row.id,
+                                    name: row.display_name || row.username,
+                                  })
+                                }
+                                aria-label={`Remove ${row.display_name || row.username}`}
+                              >
+                                <Trash2 size={16} aria-hidden="true" />
+                              </Button>
+                            )}
                           </span>
                         );
                       },

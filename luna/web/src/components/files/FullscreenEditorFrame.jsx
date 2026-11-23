@@ -16,6 +16,7 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
 import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
+import { COLLAB_OFFLINE_PREFIX } from "./collabPresence.js";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
@@ -132,6 +133,7 @@ function useIsMdUp() {
  *   isClosing?: boolean,
  *   canWrite?: boolean,
  *   onShare?: (() => void) | null,
+ *   presence?: string,
  *   editorKind?: string,
  *   onClose: () => void,
  *   children: (api: {
@@ -147,6 +149,7 @@ export default function FullscreenEditorFrame({
   isClosing = false,
   canWrite = true,
   onShare = null,
+  presence = "",
   editorKind = "office",
   onClose,
   children,
@@ -159,6 +162,9 @@ export default function FullscreenEditorFrame({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const saveFnRef = useRef(/** @type {(() => Promise<unknown>) | null} */ (null));
+  // The capture-phase Ctrl+S handler reads this ref so it can call `runSave`
+  // without re-registering the window listener on every render.
+  const runSaveRef = useRef(/** @type {() => Promise<boolean>} */ (() => Promise.resolve(false)));
   // "Document Unsaved" guard modal. The ref mirrors the state so the window
   // capture-phase Escape handler can yield to the modal without re-registering.
   const [confirmClose, setConfirmClose] = useState(false);
@@ -245,6 +251,17 @@ export default function FullscreenEditorFrame({
     }
 
     const handleKeyDown = (event) => {
+      // Ctrl/Cmd+S saves this file, not the browser's Save page dialog. This
+      // has to stay in the window capture listener: CodeMirror keeps DOM
+      // focus and the app's useShortcut registry deliberately skips typing
+      // fields, so a normal shortcut would never reach the editor.
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        void runSaveRef.current();
+        return;
+      }
       if (event.key === "Escape") {
         // While the guard modal is open it owns Escape — this is a window
         // capture listener and would otherwise eat the keypress before the
@@ -382,6 +399,7 @@ export default function FullscreenEditorFrame({
       setSaving(false);
     }
   }
+  runSaveRef.current = runSave;
 
   async function saveAndClose() {
     const ok = await runSave();
@@ -422,6 +440,11 @@ export default function FullscreenEditorFrame({
         ? "Unsaved"
         : "Saved";
 
+  // An offline presence line gets a banner as well as the rail/topbar status —
+  // "live editing isn't connected" is too important to live in a tooltip only.
+  const offlinePresence =
+    typeof presence === "string" && presence.startsWith(COLLAB_OFFLINE_PREFIX);
+
   return (
     <>
       {createPortal(
@@ -460,6 +483,18 @@ export default function FullscreenEditorFrame({
                   onMouseDown={(e) => e.preventDefault()}
                   className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 surface-secondary py-3"
                 >
+                  {presence ? (
+                    <div data-slot="editor-presence" className="mb-2 flex w-full shrink-0 items-center justify-center">
+                      <TooltipTargets>
+                        <span data-tooltip={presence} className="inline-flex">
+                          <Pill variant={offlinePresence ? "warning" : "success"}>
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-pill bg-current" />
+                          </Pill>
+                        </span>
+                      </TooltipTargets>
+                      <span className="sr-only">{presence}</span>
+                    </div>
+                  ) : null}
                   <TooltipTargets className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
                     <span
                       data-tooltip={name}
@@ -538,6 +573,15 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
+                  {presence ? (
+                    <span
+                      data-slot="editor-presence"
+                      data-tooltip={presence}
+                      className="min-w-0 max-w-[30%] shrink-0 truncate font-mono text-xs text-primary"
+                    >
+                      {presence}
+                    </span>
+                  ) : null}
                   {canWrite ? (
                     /* The wrapper is the animated box: useSmoothResize pins
                        its width, so the pill fills it (w-full) and the width
@@ -582,6 +626,15 @@ export default function FullscreenEditorFrame({
                 </TooltipTargets>
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
+                {offlinePresence ? (
+                  <div
+                    role="status"
+                    data-slot="editor-presence-banner"
+                    className="relative z-[7] shrink-0 surface-primary px-3 py-1.5 text-xs text-secondary"
+                  >
+                    {presence}
+                  </div>
+                ) : null}
                 <EditorLoadingContext.Provider value={loadingApi}>
                   {editorNode}
                 </EditorLoadingContext.Provider>
@@ -662,6 +715,7 @@ FullscreenEditorFrame.propTypes = {
   isClosing: PropTypes.bool,
   canWrite: PropTypes.bool,
   onShare: PropTypes.func,
+  presence: PropTypes.string,
   editorKind: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   children: PropTypes.func.isRequired,

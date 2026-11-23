@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
@@ -23,7 +24,8 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, canSeeLinks } from "../../lib/access.js";
 import { openableKind, isFormFile } from "../../lib/fileKinds.js";
-import { joinPath } from "../../lib/paths.js";
+import { fmtSize, joinPath, parentPath } from "../../lib/paths.js";
+import { searchWhen } from "../../lib/fileSearch.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import BackupNotes from "../protect/BackupNotes.jsx";
@@ -275,6 +277,28 @@ function FileRow({
       <span className="font-mono text-sm truncate">{displayName}</span>
     </>
   );
+  // A second, compact line carries the facts the list used to leave out:
+  // where a trashed item came from, a file's size, and when it last changed.
+  const metaParts = [];
+  const originFolder = trashView && entry.original_path ? parentPath(entry.original_path) : null;
+  if (originFolder) {
+    metaParts.push(<span key="from">From <InlinePill>{originFolder}</InlinePill></span>);
+  }
+  if (!isDir && entry.size != null) {
+    metaParts.push(<span key="size">{fmtSize(entry.size)}</span>);
+  }
+  const when = searchWhen(entry.modified);
+  if (when) metaParts.push(<span key="when">{when}</span>);
+  const meta = metaParts.length ? (
+    <p className={`mt-0.5 flex flex-wrap items-center text-xs ${fg}`}>
+      {metaParts.map((part, i) => (
+        <span key={i} className="flex items-center gap-1.5">
+          {i > 0 ? <span aria-hidden="true">·</span> : null}
+          {part}
+        </span>
+      ))}
+    </p>
+  ) : null;
   // Folders warm their listing before the click; mouse hover waits a beat,
   // press/keyboard focus fetch at once.
   const prefetchProps = isDir
@@ -397,7 +421,13 @@ function FileRow({
             {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
             <BackupNotes notes={backup.notes} />
           </div>
-        ) : name}
+        ) : (
+          <div className="min-w-0 flex-1">
+            {name}
+            {meta}
+          </div>
+        )}
+        {entry.hidden ? <Pill variant="muted" className="shrink-0">Hidden</Pill> : null}
         {entry.private || entry.in_private ? (
           <PrivateBadge
             className={fg}

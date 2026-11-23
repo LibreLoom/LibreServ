@@ -250,7 +250,7 @@ export default function AddToAlbumModal({
                           <span className="font-mono text-sm">{album.name}</span>
                           <span className="font-mono text-xs">
                             {typeof album.item_count === "number"
-                              ? ` · ${album.item_count} ${album.item_count === 1 ? "item" : "items"}`
+                              ? ` · ${album.item_count} ${album.item_count === 1 ? "photo" : "photos"}`
                               : ""}
                           </span>
                         </span>

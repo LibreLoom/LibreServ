@@ -26,10 +26,11 @@ const LUNA_UNREACHABLE =
   "Couldn't reach Luna. Check this device's connection and try again.";
 
 /**
- * Thrown when the EuroOffice pack itself can't be used — missing entirely
- * or missing pieces. FileViewer swaps in its install card for this instead
- * of the open-error card, so "the pack isn't here" never reads as "the
- * file is broken".
+ * Thrown when the EuroOffice pack itself can't be used — missing entirely,
+ * missing pieces, or a desk with no office service at all (the fake Luna and
+ * a real lunad with no pack answer `office_unavailable` when the session is
+ * minted). FileViewer swaps in its install card for this instead of the
+ * open-error card, so "the pack isn't here" never reads as "the file is broken".
  */
 export class EuroOfficeUnavailableError extends Error {
   constructor(message = "The EuroOffice pack is not installed on this Luna.") {
@@ -115,7 +116,18 @@ export async function loadEuroOfficeDocsApi() {
  * @param {import("../../../lib/fileSource.jsx").FileSource} [source]
  */
 export async function createEuroOfficeSession(driveId, path, source = driveSource) {
-  return source.officeSession(driveId, path);
+  try {
+    return await source.officeSession(driveId, path);
+  } catch (err) {
+    // "No office editor here" is the same condition whether lunad answers it
+    // at the session endpoint or the DocsAPI script fails to load. Map it
+    // before the message reaches the UI, so the install card shows and the
+    // raw backend sentence never leaks into the error card.
+    if (/** @type {any} */ (err)?.code === "office_unavailable") {
+      throw new EuroOfficeUnavailableError();
+    }
+    throw err;
+  }
 }
 
 // ---------- x2t.wasm conversion (Web Worker) ----------

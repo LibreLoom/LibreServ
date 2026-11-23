@@ -166,6 +166,24 @@ describe("FileOpsDock", () => {
     expect(screen.getByText(/1 need you/)).toBeTruthy();
   });
 
+  it("does not say 'need you' twice to screen readers", () => {
+    renderWithOps(<FileOpsDock />, [
+      { id: "op2", kind: "upload", state: "waiting", destLabel: "Inbox", items: [fileClash("c1", "a.txt"), fileClash("c2", "b.txt")] },
+    ]);
+    // The unit already carries "need you"; the screen-reader sentence must
+    // not append a second copy of it.
+    expect(screen.getByRole("status").textContent).toBe("2 need you");
+    expect(screen.getByText("Some files need you")).toBeTruthy();
+  });
+
+  it("surfaces a lone task's own status when it has no percentage", () => {
+    renderWithOps(<FileOpsDock />, [
+      { id: "op5", kind: "empty-trash", state: "running", indeterminate: true, title: "Backup", destLabel: "Backup", items: [{ id: "t", name: "Backup", state: "running" }] },
+    ]);
+    expect(screen.getAllByText("Emptying Trash on Backup").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status").textContent).toBe("Emptying Trash on Backup");
+  });
+
   it("keeps its header words while the last operation leaves", async () => {
     // The reported bug: dismissing the last row emptied `dockInfo`, so the
     // card collapsed to a blank bar, then vaporized. The header must still

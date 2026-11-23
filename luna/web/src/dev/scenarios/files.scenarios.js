@@ -133,7 +133,7 @@ export default [
     title: "Plugged-in encrypted drive",
     url: "/files",
     seed: (w) => { demo(w); w.detected = [{ name: "sdb", model: "Locked USB stick", size_bytes: 16_000_000_000, fs_type: "crypto_LUKS", readable: false, encrypted: true }]; },
-    check: ["The Unrecognized drives card says Encrypted", "It says Luna can't open encrypted drives in this version yet", "Add drive is disabled, and there is no password box or Unlock button anywhere"],
+    check: ["The Unrecognized drives card says Protected with a password and Add drive is enabled", "Add drive asks for the password with an Unlock and add button, and no Add this drive button", "No sentence says Luna can't open encrypted drives"],
   },
   {
     id: "files/readonly-drive", area: A, title: "Read-only drive", url: "/files/d1",

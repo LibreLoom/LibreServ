@@ -22,7 +22,7 @@ export default function SettingsRow({
           ? "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
           : "flex items-center justify-between",
         compact ? "py-1" : "py-3",
-        "px-4",
+        "px-4 motion-safe:transition-colors",
         !hideDivider && "border-b border-primary/10",
         className,
       )}

@@ -707,8 +707,13 @@ export default function EuroOfficeHost({
       } catch (err) {
         if (cancelled) return;
         // Pack missing or incomplete (DocsAPI or the x2t converter) — the
-        // parent swaps in its install card rather than an error notice.
-        if (err instanceof EuroOfficeUnavailableError && onUnavailableRef.current) {
+        // parent swaps in its install card rather than an error notice. The
+        // code check also covers a source that reports an unavailable office
+        // service without going through createEuroOfficeSession's mapping.
+        if (
+          (err instanceof EuroOfficeUnavailableError || /** @type {any} */ (err)?.code === "office_unavailable") &&
+          onUnavailableRef.current
+        ) {
           onUnavailableRef.current();
           return;
         }

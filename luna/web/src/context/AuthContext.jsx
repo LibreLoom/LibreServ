@@ -18,6 +18,14 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   // True after a live session was found dead, so LoginPage can say why.
   const [sessionEnded, setSessionEnded] = useState(false);
+  // Bumped on each confirmed session death. LoginPage keys its "signed out"
+  // toast to this number, so a second death in one page session is announced
+  // again without a StrictMode double-effect announcing the same death twice.
+  const [sessionEndGeneration, setSessionEndGeneration] = useState(0);
+  // True when Luna answered none of the startup requests (a restart after an
+  // update). RequireAuth shows a "can't reach Luna" notice until a poll sees
+  // Luna answer again — see below.
+  const [unreachable, setUnreachable] = useState(false);
   const navigate = useNavigate();
 
   // Keep the latest navigate in a ref so the startup effect below can stay
@@ -86,22 +94,15 @@ export function AuthProvider({ children }) {
   // single time on mount — NOT on every route change.
   useEffect(() => {
     let alive = true;
+    let pollTimer = 0;
     // Read the path once instead of subscribing to the router: a hook here
     // re-rendered the provider on every ?file= / #hash change, so opening a
     // file re-rendered the whole app tree.
     const path = typeof window !== "undefined" ? window.location.pathname : "";
-    (async () => {
-      const { me, setup: setupState, hasAdmin: adminExists, unreachable } = await refresh();
-      if (!alive) return;
-      // Luna never answered (a restart after an update, or no connection). We
-      // know nothing about this Luna, so do not move the user anywhere: the
-      // page they are on shows its own "can't reach Luna" state and recovers
-      // when Luna is back. Sending them to /setup would say a working Luna
-      // had lost its setup.
-      if (unreachable) {
-        setLoading(false);
-        return;
-      }
+
+    // Shared by startup and by the recovery poll: decide where a known Luna
+    // should put this tab, without touching the URL of a set-up one.
+    function routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists }) {
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
       if (!adminExists && !me && path !== "/recover") {
         if (path !== "/setup") {
@@ -110,10 +111,41 @@ export function AuthProvider({ children }) {
       } else if (needsSetup && !ALLOWED_DURING_SETUP.includes(path)) {
         navigateRef.current("/setup", { replace: true });
       }
+    }
+
+    (async () => {
+      const result = await refresh();
+      if (!alive) return;
+      setUnreachable(result.unreachable);
+      const { me, setup: setupState, hasAdmin: adminExists, unreachable } = result;
+      // Luna never answered (a restart after an update, or no connection). We
+      // know nothing about this Luna, so do not move the user anywhere: the
+      // page they are on shows a "can't reach Luna" notice, and a short poll
+      // restores the session and the page when Luna is back. Sending them to
+      // /setup would say a working Luna had lost its setup.
+      if (unreachable) {
+        setLoading(false);
+        pollTimer = window.setInterval(async () => {
+          try {
+            await getJson("/api/v1/auth/me");
+          } catch {
+            // Still down. Any HTTP answer — even a 401 — means Luna is back.
+            return;
+          }
+          const next = await refresh();
+          if (!alive || next.unreachable) return;
+          window.clearInterval(pollTimer);
+          setUnreachable(false);
+          routeAfterRefresh(next);
+        }, 2000);
+        return;
+      }
+      routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists });
       setLoading(false);
     })();
     return () => {
       alive = false;
+      if (pollTimer) window.clearInterval(pollTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
@@ -135,6 +167,7 @@ export function AuthProvider({ children }) {
       try {
         const me = await getJson("/api/v1/auth/me");
         if (!me && userRef.current) {
+          setSessionEndGeneration((generation) => generation + 1);
           setSessionEnded(true);
           setUser(null);
         }
@@ -184,8 +217,14 @@ export function AuthProvider({ children }) {
 
   // Stable between renders so consumers only update when auth state changes.
   const value = useMemo(
-    () => ({ user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh }),
-    [user, setup, hasAdmin, loading, sessionEnded, login, register, logout, endSession, refresh],
+    () => ({
+      user, setup, hasAdmin, loading, sessionEnded, sessionEndGeneration, unreachable,
+      login, register, logout, endSession, refresh,
+    }),
+    [
+      user, setup, hasAdmin, loading, sessionEnded, sessionEndGeneration, unreachable,
+      login, register, logout, endSession, refresh,
+    ],
   );
 
   return (

@@ -106,6 +106,16 @@ describe("DriveEncryptionSheet: a protected drive", () => {
     expect(await screen.findByText(/Something is still using this drive/)).toBeInTheDocument();
   });
 
+  it("doesn't carry a refused Lock message into Change password", async () => {
+    stub("unlocked", { "/lock": reply({ error: "Something is still using this drive. Close any files open from it, then try again.", code: "drive_busy" }, 409) });
+    show(OPEN);
+    fireEvent.click(await screen.findByRole("button", { name: "Lock" }));
+    expect(await screen.findByText(/Something is still using this drive/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect(screen.queryByText(/Something is still using this drive/)).toBeNull();
+    expect(screen.getByLabelText("Current password")).toBeInTheDocument();
+  });
+
   it("shows the unlock prompt and no Lock when it is locked", async () => {
     stub("locked");
     show(LOCKED);
@@ -136,10 +146,12 @@ describe("DriveEncryptionSheet: a protected drive", () => {
     expect(calls).toEqual([]);
   });
 
-  it("turns every button off for an unplugged drive", async () => {
+  it("turns every button off for an unplugged drive, and never calls it unlocked", async () => {
     stub("unplugged");
     show(LOCKED);
     expect(await screen.findByText("Plug it in to change its protection.")).toBeInTheDocument();
+    expect(screen.getByText("Protected · Unplugged")).toBeInTheDocument();
+    expect(screen.queryByText("Protected · Unlocked")).toBeNull();
     expect(screen.getByRole("button", { name: "Change password" })).toBeDisabled();
     expect(screen.queryByLabelText("Drive password")).toBeNull();
   });

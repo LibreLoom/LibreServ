@@ -417,6 +417,33 @@ describe("UsersCategory", () => {
     expect(within(dialog).getByRole("heading", { name: /Edit Alex/i })).toBeTruthy();
   });
 
+  it("offers a friendly retry, not the raw API error, when the list cannot load", async () => {
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/auth/me")) return jsonResponse({ id: "1", username: "demouser", role: "admin", display_name: "Demo" });
+      if (u.endsWith("/api/v1/users") && (!init || !init.method || init.method === "GET")) {
+        if (fail) return jsonResponse({ error: "Injected 500" }, 500);
+        return jsonResponse([{ id: "1", username: "demouser", display_name: "Demo", role: "admin" }]);
+      }
+      return jsonResponse({}, 404);
+    }));
+    renderPage();
+    expect(await screen.findByText(/Luna couldn't load the people on this Luna right now/i)).toBeTruthy();
+    expect(screen.queryByText(/Injected 500/)).toBeNull();
+    fail = false;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("table")).toBeTruthy();
+  });
+
+  it("does not render a Remove action on your own row", async () => {
+    stubFetch();
+    renderPage();
+    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Remove Demo/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Remove Alex/i })).toBeTruthy();
+  });
+
   it("links to settings security when editing yourself instead of opening modal", async () => {
     stubFetch();
     const user = userEvent.setup();

@@ -46,11 +46,12 @@ describe("UnlockPrompt", () => {
     expect(screen.getByLabelText("Drive password")).toHaveValue("");
   });
 
-  it("shows a wrong password under the field", async () => {
+  it("shows a wrong password under the field, as a field error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => reply({ error: "That password didn't work.", code: "wrong_password", locked_out: false }, 401)));
     show();
     type("nope");
     expect(await screen.findByText("That password didn't work.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "true");
   });
 
   it("says to wait when there have been too many tries", async () => {
@@ -60,11 +61,21 @@ describe("UnlockPrompt", () => {
     expect(await screen.findByText(/Wait a few minutes/)).toBeInTheDocument();
   });
 
-  it("says when Luna is busy with the drive", async () => {
+  it("says when Luna is busy with the drive, without shaking or painting the field red", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => reply({ error: "Luna is already working on this drive. Wait until it finishes.", code: "drive_busy" }, 409)));
     show();
     type("anything");
     expect(await screen.findByText(/already working on this drive/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.querySelector("#unlock-d1-error")).toBeNull();
+  });
+
+  it("keeps a lock-out message plain too", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => reply({ error: "Too many wrong tries. Wait a few minutes, then try again.", code: "too_many_tries" }, 429)));
+    show();
+    type("anything");
+    expect(await screen.findByText(/Wait a few minutes/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "false");
   });
 
   it("adds a drive Luna hasn't added through unlock-and-add, letting go of the look first", async () => {

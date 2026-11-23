@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Globe2 } from "lucide-react";
+import { AlertCircle, ChevronRight, Globe2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
@@ -56,7 +56,10 @@ export default function RemoteCategory() {
                 className="rounded-large-element border-2 border-error/30 bg-error/20 px-3 py-3 space-y-2"
                 role="alert"
               >
-                <p className="text-sm text-error leading-relaxed">{hardError}</p>
+                <p className="flex items-start gap-2 text-sm text-primary leading-relaxed">
+                  <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
+                  <span>{hardError}</span>
+                </p>
                 {tokenError && isAdmin ? (
                   <Button variant="outline" surface="primary" size="sm" asChild>
                     <Link to="/settings#about">Change the device token in <PathTrail steps={["About", "Advanced"]} /></Link>

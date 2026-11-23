@@ -34,12 +34,30 @@ import { isFormFile } from "../../lib/fileKinds.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function expiryLabel(expiresAt) {
   if (!expiresAt) return "never expires";
   const when = new Date(expiresAt * 1000);
   if (Number.isNaN(when.getTime())) return "expires";
-  if (when.getTime() < Date.now()) return "expired";
+  const left = when.getTime() - Date.now();
+  if (left < 0) return "expired";
+  // Within a day the calendar date reads the same as "now", so say how soon
+  // instead — that's the useful detail at this point.
+  if (left < DAY_MS) {
+    const minutes = Math.ceil(left / 60000);
+    if (minutes < 60) return `expires in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+    const hours = Math.round(left / 3600000);
+    return `expires in ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
   return `expires ${when.toLocaleDateString()}`;
+}
+
+/** A parent folder's name for the "shared through" line and its button. */
+function parentLabel(p) {
+  if (p.name) return p.name;
+  const parts = String(p.path || "").split("/").filter(Boolean);
+  return parts.pop() || "a folder above";
 }
 
 function asList(data) {
@@ -158,12 +176,26 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     ]),
   );
   // Unique parents carrying grants this subject inherits — deduped across
-  // the member and link lists so one parent gets one button.
+  // the member and link lists so one parent gets one button. The same folder
+  // can appear twice (once for people, once for links); merge the rows so an
+  // inspectable source isn't lost to a non-inspectable twin, and keep a name
+  // if either row has one.
   const parentByKey = new Map();
   for (const row of [...inheritedMembers, ...inheritedLinks]) {
     const from = row.inherited_from;
     if (!from?.drive_id) continue;
-    parentByKey.set(`${from.kind}:${from.drive_id}:${from.path}`, from);
+    const key = `${from.kind}:${from.drive_id}:${from.path}`;
+    const prev = parentByKey.get(key);
+    if (!prev) {
+      parentByKey.set(key, { ...from });
+      continue;
+    }
+    parentByKey.set(key, {
+      ...prev,
+      ...from,
+      can_inspect: prev.can_inspect !== false || from.can_inspect !== false,
+      name: from.name || prev.name,
+    });
   }
   const parentSources = [...parentByKey.values()];
   const inspectableParents = parentSources.filter((p) => p.can_inspect !== false);
@@ -277,8 +309,8 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                 {inheritedMembers.length > 0 && inheritedLinks.length > 0 && " and "}
                 {inheritedLinks.length > 0 &&
                   `${inheritedLinks.length} ${inheritedLinks.length === 1 ? "link" : "links"}`}
-                {" shared through "}
-                {parentSources.map((p) => p.name).join(", ")}
+                {parentSources.length > 0 &&
+                  ` shared through ${[...new Set(parentSources.map(parentLabel))].join(", ")}`}
               </p>
               {inspectableParents.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -300,7 +332,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     >
                       {inspectableParents.length === 1
                         ? "View parent shares"
-                        : `View ${p.name} shares`}
+                        : `View ${parentLabel(p)} shares`}
                     </Button>
                   ))}
                 </div>
@@ -451,7 +483,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                     access, so you can see these links but not change them.
                   </p>
                 )}
-                {links.map((l) => {
+                {links.map((l, index) => {
                   // Server-issued `can_manage` only — a URL's presence is
                   // already gated the same way, but the flag is the
                   // contract, never inference from visible fields.
@@ -475,7 +507,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                               size="iconSm"
                               variant="ghost"
                               surface="primary"
-                              aria-label="Link settings"
+                              aria-label={`Settings for link ${index + 1}`}
                               onClick={() => {
                                 setLinkError(null);
                                 setEditingLink(l);
@@ -486,7 +518,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                             <Button
                               size="iconSm"
                               variant="danger"
-                              aria-label="Remove this link"
+                              aria-label={`Remove link ${index + 1}`}
                               onClick={() => {
                                 setLinkError(null);
                                 setRemovingLink(l);

@@ -131,8 +131,13 @@ export default function SettingsPage() {
         const reduce = typeof window.matchMedia === "function"
           && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         target.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
-        target.classList.add("ring-2", "ring-accent");
-        timers.push(window.setTimeout(() => target.classList.remove("ring-2", "ring-accent"), 1800));
+        // A background tint, not a ring: rows already have a divider border, so
+        // a ring reads as a second outline and gets clipped by the card's
+        // overflow-hidden. The descendant rule makes a card hit tint its card,
+        // which is opaque and would otherwise hide the wrapper's tint.
+        const flash = ["bg-secondary/10", "[&_[data-slot=card]]:bg-secondary/10"];
+        target.classList.add(...flash);
+        timers.push(window.setTimeout(() => target.classList.remove(...flash), 1800));
         setPendingHit(null);
       } else if (++tries < 30) {
         timers.push(window.setTimeout(look, 100));

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dockHeaderTitle, dockSummary, dockSummaryParts, moreProblems, opMeta, opMetaParts, opStatus, plain, sizePart } from "./copy.js";
+import { decisionText, dockHeaderTitle, dockSummary, dockSummaryParts, finishedText, moreProblems, opMeta, opMetaParts, opStatus, plain, sizePart } from "./copy.js";
 import { classifyError } from "./errors.js";
 import { dockInfo, inlineProblem, opProgress, problemItems, visibleOps } from "./selectors.js";
 import { createFileOpsStore } from "./store.js";
@@ -205,6 +205,41 @@ describe("copy and errors", () => {
     expect(dockSummary({ running: 0, problems: 2, finished: 0, pct: null })).toBe("2 need you");
   });
 
+  it("says an all-skipped operation kept the originals, not that it uploaded them", () => {
+    const kept = { kind: "upload", state: "done", title: "notes.txt", kept: true, skippedCount: 1, itemsTotal: 0, itemsDone: 0, items: [{ state: "skipped" }] };
+    expect(plain(opStatus(kept))).toBe("Kept the original notes.txt");
+    expect(finishedText(kept)).toBe("Kept the original notes.txt");
+    const many = { ...kept, title: "", skippedCount: 15, items: [] };
+    expect(plain(opStatus(many))).toBe("Skipped 15 files");
+    expect(finishedText(many)).toBe("Skipped 15 files");
+    const moved = { kind: "move", state: "done", title: "notes.txt", kept: true, skippedCount: 1, items: [{ state: "skipped" }] };
+    expect(plain(opStatus(moved))).toBe("Kept the original notes.txt");
+  });
+
+  it("names the real folder in a nested clash", () => {
+    const op = { destLabel: "Documents" };
+    const item = { name: "notes.txt", destPath: "Documents/Trip/Lisbon", decision: { type: "exists", existingKind: "file", options: ["keep_both", "skip"] } };
+    expect(plain(decisionText(op, item))).toBe("A file named notes.txt is already in Documents/Trip/Lisbon.");
+    expect(plain(decisionText(op, { ...item, destPath: "" }))).toBe("A file named notes.txt is already in Documents.");
+  });
+
+  it("does not claim a target name for a finished restore", () => {
+    expect(plain(opStatus({ kind: "restore-backup", state: "done", title: "Documents" })))
+      .toBe("Restored Documents from a backup");
+    expect(finishedText({ kind: "restore-backup", state: "done", title: "Documents" }))
+      .toBe("Restored Documents from a backup");
+  });
+
+  it("surfaces a lone indeterminate task's status in the collapsed summary", () => {
+    const state = stateOf([
+      { id: "e", kind: "empty-trash", state: "running", indeterminate: true, title: "Backup", destLabel: "Backup", items: [{ id: "t", name: "Backup", state: "running" }] },
+    ]);
+    const info = dockInfo(state);
+    expect(info.summary).toBe("Emptying Trash on Backup");
+    expect(info.parts.lead).toBe("Emptying Trash on Backup");
+    expect(info.parts.count).toBeNull();
+  });
+
   it("names the items a batch is moving, not just how many", () => {
     const items = (names) => names.map((name, i) => ({ id: `i${i}`, name, state: "running" }));
     // "Moving 3 items to Trash" tells you nothing about what is going.
@@ -247,6 +282,8 @@ describe("copy and errors", () => {
   it("classifies errors", () => {
     expect(classifyError({ status: 0, message: "x" }, "upload")).toMatchObject({ retryable: true, offline: true });
     expect(classifyError({ status: 401, message: "Sign in again." }, "upload")).toMatchObject({ retryable: true, message: "Sign in again." });
+    // A 500 is Luna failing the work, not a bad request: offer "Try again".
+    expect(classifyError({ status: 500, message: "Broken." }, "upload")).toMatchObject({ retryable: true, offline: false });
     expect(classifyError({ status: 503, code: "queue_full", message: "Busy." }, "copy")).toMatchObject({ queueFull: true });
     expect(classifyError({ status: 409, code: "keep_both_unsupported", message: "No." }, "copy")).toMatchObject({ retryable: false, message: "No." });
     expect(classifyError({ status: 409, code: "exists", data: { existing_kind: "dir" }, message: "x" }, "upload").decision).toMatchObject({ existingKind: "dir", options: ["keep_both", "skip"] });

@@ -327,13 +327,13 @@ FormField.propTypes = {
 // Focus is sent immediately to the visible text entry box on mount and
 // on every substep transition.
 
-function AccountStep({ hasAdmin, onContinue, connectActive }) {
+function AccountStep({ hasAdmin, onContinue, onBack, connectActive, draft, onDraftChange }) {
   const { user, register, login } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const needsDeviceToken = isPublicLunaHost() && connectActive;
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => draft?.form || {
     display_name:     "",
     username:         "",
     password:         "",
@@ -343,10 +343,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
-  const [authSubStep, setAuthSubStep] = useState(0);
+  const [authSubStep, setAuthSubStep] = useState(draft?.authSubStep || 0);
   const [authSubDir, setAuthSubDir]   = useState("right");
   // When Connect linked with ?token=, skip the device-token substep (still send it on register).
-  const [hideSetupSecretStep, setHideSetupSecretStep] = useState(false);
+  const [hideSetupSecretStep, setHideSetupSecretStep] = useState(Boolean(draft?.hideSetupSecretStep));
   // Only animate field swaps after the user moves between substeps — not on
   // the initial mount (parent SetupCard already owns that entrance).
   const authSubAnimatedRef = useRef(false);
@@ -382,6 +382,13 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     setForm((f) => ({ ...f, [name]: value }));
     if (fieldError) setFieldError(null);
   };
+
+  // Keep typed answers when stepping back to the system check and returning.
+  // The parent holds this in a ref, so it survives this step unmounting and is
+  // never sent to lunad as setup progress.
+  useEffect(() => {
+    onDraftChange?.({ form, authSubStep, hideSetupSecretStep });
+  }, [form, authSubStep, hideSetupSecretStep, onDraftChange]);
 
   const authFields = [
     {
@@ -592,7 +599,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
           <TextLink
             to="/login"
             surface="secondary"
-            state={{ from: "/setup" }}
+            state={{ from: { pathname: "/setup" } }}
             className="font-mono text-sm underline underline-offset-4"
           >
             Sign in
@@ -606,6 +613,18 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     <>
       {/* Header */}
       <div className="mb-8">
+        {onBack && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="mb-3"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Back to system check
+          </Button>
+        )}
         <h2 className="font-mono text-3xl font-normal text-primary">Create your account</h2>
         {authSubStep === 0 && (
           <div className="mt-2 space-y-2">
@@ -731,7 +750,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
         </ShakeTarget>
 
         {fieldError && fieldError !== currentAuthField.inlineError && (
-          <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 mt-6 animate-in fade-in slide-in-from-bottom-1 duration-200">
+          <div role="alert" className="flex items-start gap-2.5 p-4 rounded-card border border-error/30 bg-error/20 mt-6 animate-in fade-in slide-in-from-bottom-1 duration-200">
             <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
             <p className="text-sm text-primary">{fieldError}</p>
           </div>
@@ -775,7 +794,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 AccountStep.propTypes = {
   hasAdmin: PropTypes.bool.isRequired,
   onContinue: PropTypes.func.isRequired,
+  onBack: PropTypes.func,
   connectActive: PropTypes.bool.isRequired,
+  draft: PropTypes.object,
+  onDraftChange: PropTypes.func,
 };
 
 // ─── STEP: Name ───────────────────────────────────────────────────────────────
@@ -798,7 +820,9 @@ function NameStep({ initialName, onFinish }) {
     try {
       await onFinish(trimmed);
     } catch (err) {
-      setError(err?.message || "Luna couldn't save your name. Try again.");
+      // Keep lunad's own words, but always say what to do next.
+      const said = err?.message || "Luna couldn't save your name.";
+      setError(/try again/i.test(said) ? said : `${said} Try again.`);
       setSaving(false);
     }
   };
@@ -837,7 +861,7 @@ function NameStep({ initialName, onFinish }) {
 
           {/* Inline error */}
           {error && (
-            <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <div role="alert" className="flex items-start gap-2.5 p-4 rounded-card border border-error/30 bg-error/20 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
               <p className="text-sm text-primary">{error}</p>
             </div>
@@ -954,6 +978,10 @@ export default function SetupPage() {
   const [saveError, setSaveError] = useState(null);
   const [hydrated, setHydrated] = useState(false);
   const connectActive = useConnectActive();
+  // Typed account answers live outside setup progress: they must survive going
+  // back to the system check, but are never sent to lunad.
+  const accountDraftRef = useRef(null);
+  const saveAccountDraft = useCallback((draft) => { accountDraftRef.current = draft; }, []);
 
   // During setup, ask lunad to peel a token from the installer USB magazine when needed.
   useEffect(() => {
@@ -1117,6 +1145,9 @@ export default function SetupPage() {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true };
     advanceStep(STEP.NAME, data);
   }, [advanceStep]);
+  const handleAccountBack = useCallback(() => {
+    advanceStep(STEP.PREFLIGHT);
+  }, [advanceStep]);
 
   const handleFinish = useCallback(async (name) => {
     // Flush any in-flight progress save, then mark setup complete.
@@ -1149,7 +1180,10 @@ export default function SetupPage() {
       <AccountStep
         hasAdmin={hasAdmin}
         onContinue={handleAccountContinue}
+        onBack={handleAccountBack}
         connectActive={connectActive}
+        draft={accountDraftRef.current}
+        onDraftChange={saveAccountDraft}
       />
     );
   } else if (shownStep === STEP.NAME) {
@@ -1168,7 +1202,7 @@ export default function SetupPage() {
       <SetupShell>
         <SetupCard header={<StepDots current={shownStep} />} loading={loading}>
           {saveError && (
-            <div className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
+            <div role="alert" className="mb-6 flex items-start gap-2.5 p-4 rounded-card border border-error/30 bg-error/20">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
               <p className="text-sm text-primary">{saveError}</p>
             </div>

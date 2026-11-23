@@ -160,7 +160,7 @@ export default [
     area: "Settings: Security",
     title: "Change name and password",
     url: "/settings#security",
-    check: ["Wrong current password (type: wrong) is explained", "Weak new password is refused with the rule", "A good change signs you out with a toast", "Display name saves"],
+    check: ["Wrong current password (type: wrong) is explained under Current password, not New password", "Weak new password is refused with the rule", "A good change signs you out with a toast", "Display name saves"],
   },
   {
     id: "settings/security-sessions",
@@ -243,8 +243,8 @@ export default [
     title: "Luna Connect is off",
     url: "/settings",
     check: [
-      "Cloud backup is in the sidebar, with the recovery phrase card and the line saying it needs Luna Connect",
-      "Luna Connect is not in the sidebar",
+      "Luna Connect is in the sidebar, with the recovery phrase card and the line saying cloud backup needs it",
+      "There is no separate Cloud backup entry in the sidebar",
       "Settings opens on Appearance",
     ],
   },
@@ -270,7 +270,7 @@ export default [
     title: "Connect on but no payment card",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
-    check: ["Says a card is needed before backing up, and where to add it"],
+    check: ["One line says a card is needed before backing up and points to Luna Connect; the backup row does not repeat it with a bare address"],
   },
   {
     id: "settings/cloud-run-fails",
@@ -307,7 +307,8 @@ export default [
       w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
-      w.phrase = { ...w.phrase, check_due: true };
+      // 0 words means the length is not fixed, so both the 12 and 24 word paths can be tried.
+      w.phrase = { ...w.phrase, phrase_words: 0, check_due: true };
       w.phraseWrong = true;
     },
     check: ["Any valid-looking 12 or 24 words are refused with a plain message", "The reminder stays until a check succeeds"],
@@ -334,7 +335,8 @@ export default [
       w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
-      w.phrase = { ...w.phrase, check_due: true };
+      // 0 words leaves the 12/24 choice open so both paths can be checked.
+      w.phrase = { ...w.phrase, phrase_words: 0, check_due: true };
     },
     check: [
       "The recovery phrase card shows a 'Check due' pill",
@@ -350,7 +352,7 @@ export default [
     seed: (w) => { setPhrase(w); w.phraseWrong = true; },
     check: [
       "Change phrase asks for the current phrase first",
-      "Any 12 or 24 words are refused inline (That is not the recovery phrase set up on this Luna), and the dialog stays on the check",
+      "Any 12 or 24 words are refused inline (That isn't the recovery phrase for your account. Check each word against what you wrote down.), and the dialog stays on the check",
       "Nothing is saved and no toast appears",
     ],
   },
@@ -387,7 +389,8 @@ export default [
     title: "Lost phrase, nobody else has it",
     url: "/settings#luna_connect",
     seed: (w) => {
-      setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(-30 * DAY) } });
+      // A removal date in the past, so the card can truthfully say "removed on".
+      setPhrase(w, { old_phrase_copies: { count: 2, removed_at: at(2 * DAY) } });
       w.passwordWrong = true;
     },
     check: [
@@ -402,7 +405,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Cloud backups still moving to the new phrase",
     url: "/settings#luna_connect",
-    seed: (w) => setPhrase(w, { resealing: true }),
+    seed: (w) => setPhrase(w, { resealing: true, reseal_started_at: at(0) }),
     check: [
       "The card says 'Updating your cloud backups to the new phrase…' under the phrase row",
       "No problem pill or toast appears while it runs",
@@ -420,8 +423,8 @@ export default [
       w.cloudBackups = [cloudBackup({ moving: { percent: 40.9, paused_full: false } })];
     },
     check: [
-      "The card says 'Moving to your new phrase · 40%' under the phrase row",
-      "The cloud backup row in All backups says the same",
+      "The card says 'Updating your cloud backups to the new phrase · 40%' under the phrase row",
+      "Open All backups: the cloud backup row shows the same 'Updating your cloud backups to the new phrase' line",
       "Nothing shows a problem: no warning pill, no toast, no Needs you entry",
     ],
   },
@@ -436,26 +439,32 @@ export default [
       w.cloudBackups = [cloudBackup({ moving: { percent: 40, paused_full: true } })];
     },
     check: [
-      "The card and the backup row say Connect storage is full and the move is paused",
-      "They say nothing old was deleted and to free up space or add storage",
+      "The card says 'Connect storage is full, so the update is paused and nothing old was deleted' and what to do",
+      "Open All backups: the backup row shows the same pause line, not just a percent",
       "The message stays inline: no toast and no error pill",
     ],
   },
   // ── Remote / Connect / About ──────────────────────────────────────────────
   {
     id: "settings/remote-off",
-    area: "Settings: Luna Connect",
+    area: "Settings: About",
     title: "Remote access off",
-    url: "/settings#luna_connect",
-    check: ["Explains what turning it on does", "Entering a device token ('bad' is refused) turns it on"],
+    url: "/settings#about",
+    check: [
+      "Open Advanced → Luna Connect: it explains what the device token does",
+      "A bad device token is refused with a plain message; a good one turns Luna Connect on",
+    ],
   },
   {
     id: "settings/remote-on",
-    area: "Settings: Luna Connect",
+    area: "Settings: About",
     title: "Remote access on",
-    url: "/settings#luna_connect",
+    url: "/settings#about",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
-    check: ["Shows it is connected", "Removing the device token turns it off after confirming"],
+    check: [
+      "Open Advanced → Luna Connect: the form offers Remove device token",
+      "Removing the device token turns Luna Connect off",
+    ],
   },
   {
     id: "settings/remote-token-rejected",
@@ -471,7 +480,7 @@ export default [
     title: "About, system checks and updates",
     url: "/settings#about",
     seed: (w) => {
-      w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0" };
+      w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0", feed_is_newer: true };
       w.systemChecks = {
         overall_pass: false,
         checks: {
@@ -511,6 +520,7 @@ export default [
     check: [
       "Status says 1.4.2 available even though that is the running version",
       "A line says the update source changed and this is the version it has",
+      "It does not claim the build is older than the version Luna runs now",
       "Update now installs that build and says it comes from the source you set",
     ],
   },
@@ -566,7 +576,7 @@ export default [
     area: "Settings: About",
     title: "Reset fails",
     url: "/settings#about",
-    faults: [{ match: "POST /api/v1/system/factory-reset", mode: "500" }],
+    faults: [{ match: "POST /api/v1/system/factory-reset", mode: "500", message: "Luna couldn't reset this Luna. Nothing was erased. Try again." }],
     check: ["Says it didn't work and nothing was erased"],
   },
   // ── Luna Connect (Admin) ──────────────────────────────────────────────────
@@ -576,7 +586,7 @@ export default [
     title: "Luna Connect for an Admin",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
-    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
+    check: ["Luna Connect shows for an Admin with the address, cloud backups and the recovery phrase card in one category", "There is no separate Cloud backup entry in the sidebar"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────
   {
@@ -585,7 +595,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users or About, and no Cloud backup or Luna Connect while Connect is off", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About; Luna Connect still shows in the sidebar with the recovery phrase card", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

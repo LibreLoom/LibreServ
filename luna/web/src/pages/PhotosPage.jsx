@@ -92,6 +92,7 @@ import {
  *   cover_thumb?: string,
  *   contrib_path?: string,
  *   item_count?: number,
+ *   shared?: boolean,
  * }} PhotosAlbum
  */
 
@@ -486,6 +487,9 @@ export default function PhotosPage() {
   const [trashAlbum, setTrashAlbum] = useState(null);
   const [shareAlbum, setShareAlbum] = useState(null);
   const [albumPick, setAlbumPick] = useState(/** @type {object[]|null} */ (null));
+  // Set when someone chooses "Add photos" from an empty album: the next
+  // selection goes straight into that album instead of opening the picker.
+  const [addToAlbumTarget, setAddToAlbumTarget] = useState(/** @type {PhotosAlbum|null} */ (null));
   const [newAlbumOpen, setNewAlbumOpen] = useState(false);
   const [newAlbumName, setNewAlbumName] = useState("");
   const [newAlbumSeed, setNewAlbumSeed] = useState(/** @type {object[]|null} */ (null));
@@ -687,7 +691,7 @@ export default function PhotosPage() {
     refetchInterval: (query) => (query.state.data?.busy ? 1500 : 8000),
   });
   const drivesEmpty =
-    !drives.isLoading && Array.isArray(drives.data) && drives.data.length === 0;
+    drives.isSuccess && Array.isArray(drives.data) && drives.data.length === 0;
   // Members may have shared albums with no folder grants — probe albums before
   // treating an empty drives list as “nothing to open.”
   const albums = useQuery({
@@ -847,6 +851,9 @@ export default function PhotosPage() {
     placeholderData: keepPreviousData,
     enabled: activeSegment === "places" || filtersOpen,
   });
+  const placesError = places.isError
+    ? apiErrorMessage(places.error, "Luna couldn't load places. Try again.")
+    : null;
 
   const photoQuery = useInfiniteQuery({
     queryKey: listKey,
@@ -898,7 +905,7 @@ export default function PhotosPage() {
     let undated = false;
     for (const p of photos) {
       const ts = p.taken_at;
-      if (!ts) {
+      if (ts == null) {
         undated = true;
         continue;
       }
@@ -915,20 +922,24 @@ export default function PhotosPage() {
   // Keep multi-select items in sync with visible photos.
   const selection = useMultiSelect({ items: photos });
 
+  const pendingSelectRef = useRef(false);
   useEffect(() => {
+    if (pendingSelectRef.current) {
+      pendingSelectRef.current = false;
+      selection.enter();
+      return;
+    }
+    setAddToAlbumTarget(null);
     selection.exit();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset when the segment changes
   }, [activeSegment]);
 
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape" && selection.selectMode) {
-        selection.exit();
-      }
+  useShortcut("Escape", () => {
+    if (selection.selectMode) {
+      selection.exit();
+      setAddToAlbumTarget(null);
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selection]);
+  }, { label: "Close", group: "Photos", allowInModal: true });
 
   // Beats the all-files search on `/`: here it means "search these photos".
   useShortcut("/", () => {
@@ -1028,7 +1039,9 @@ export default function PhotosPage() {
   }, [albums.data, tryOpenAlbum]);
 
   const looking = photoQuery.isLoading || (indexing && photos.length === 0);
-  const noDrives = !drives.isLoading && driveList.length === 0;
+  // Only a successful, empty drives answer means "no drives". An error (above
+  // all status 0, offline) must never be dressed up as an empty library.
+  const noDrives = drives.isSuccess && driveList.length === 0;
   const memberAlbumsGatePending =
     !isAdmin &&
     noDrives &&
@@ -1038,6 +1051,26 @@ export default function PhotosPage() {
     photoQuery.isError && !looking
       ? apiErrorMessage(photoQuery.error, "Luna couldn't open Photos. Try again.")
       : null;
+  // A status-0 answer means Luna answered nothing at all — the device is
+  // offline or Luna is down. That is different from an empty drive list.
+  const connectionError =
+    (drives.isError && /** @type {any} */ (drives.error)?.status === 0 ? drives.error : null)
+    || (photoQuery.isError && /** @type {any} */ (photoQuery.error)?.status === 0 ? photoQuery.error : null);
+  const connectionMessage = connectionError
+    ? apiErrorMessage(connectionError, "Couldn't reach Luna. Check this device's connection and try again.")
+    : null;
+
+  // An album can be deleted (or lose its share) while it is open. Its photos
+  // request then answers 404; leave the dead view and land on the album list.
+  useEffect(() => {
+    if (!albumView || !photoQuery.isError || /** @type {any} */ (photoQuery.error)?.status !== 404) return;
+    haptic("warning");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a dead album must leave the view on the 404
+    setAlbumView(null);
+    setViewLabel(null);
+    window.location.hash = "albums";
+    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+  }, [albumView, photoQuery.isError, photoQuery.error, queryClient]);
   const noPhotos =
     !looking &&
     !indexing &&
@@ -1136,6 +1169,7 @@ export default function PhotosPage() {
         ),
       });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -1162,6 +1196,7 @@ export default function PhotosPage() {
         ),
       });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -1454,7 +1489,9 @@ export default function PhotosPage() {
       || (newest != null && target >= newest)
       || undated
       || !photoQuery.hasNextPage;
-    if (!covered && jumpPagesRef.current < 50) {
+    // A 30,000-photo library is ~375 pages at 80 per page. Keep going until
+    // the loaded span actually covers the target; 1000 is only a runaway guard.
+    if (!covered && photoQuery.hasNextPage && jumpPagesRef.current < 1000) {
       if (!photoQuery.isFetchingNextPage) {
         jumpPagesRef.current += 1;
         photoQuery.fetchNextPage();
@@ -1719,6 +1756,30 @@ export default function PhotosPage() {
     rangeFromFilters?.label ||
     "Filtered photos";
 
+  if (connectionMessage) {
+    return (
+      <Page title="Photos" titleId="photos-title">
+        <EmptyState
+          icon={PlugZap}
+          title="Couldn't reach Luna"
+          description="Check this device's connection, then try again."
+          action={
+            <Button
+              variant="primary"
+              onClick={() => {
+                haptic("light");
+                queryClient.invalidateQueries({ queryKey: ["drives"] });
+                photoQuery.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      </Page>
+    );
+  }
+
   if (noDrives && !memberAlbumOnly) {
     if (memberAlbumsGatePending) {
       return (
@@ -1780,7 +1841,7 @@ export default function PhotosPage() {
         columns={columns}
         onColumnsChange={setColumns}
         showSelect={showTimeline || duplicatesView}
-        onRescan={handleRescan}
+        onRescan={isAdmin ? handleRescan : undefined}
         rescanPending={rescan.isPending}
         onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />
@@ -1830,7 +1891,17 @@ export default function PhotosPage() {
       )}
       {showPageLevelError(photosLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
-          {photosLoadError}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{photosLoadError}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              surface="primary"
+              onClick={() => photoQuery.refetch()}
+            >
+              Try again
+            </Button>
+          </div>
         </PageNotice>
       )}
 
@@ -2029,13 +2100,15 @@ export default function PhotosPage() {
           title="No photos yet"
           description="Add pictures to a drive, or drop them onto this page, and Luna will show them here."
           action={
-            <Button
-              variant="primary"
-              loading={rescan.isPending}
-              onClick={() => rescan.mutate()}
-            >
-              Rescan drives
-            </Button>
+            isAdmin ? (
+              <Button
+                variant="primary"
+                loading={rescan.isPending}
+                onClick={() => rescan.mutate()}
+              >
+                Rescan drives
+              </Button>
+            ) : undefined
           }
         />
       )}
@@ -2064,6 +2137,8 @@ export default function PhotosPage() {
                 variant="primary"
                 onClick={() => {
                   setFilters({ ...EMPTY_FILTERS });
+                  setQ("");
+                  setSearch("");
                 }}
               >
                 Clear filters
@@ -2191,6 +2266,8 @@ export default function PhotosPage() {
             <PlacesMap
               places={places.data || NO_PLACES}
               loading={places.isLoading}
+              error={placesError}
+              onRetry={() => places.refetch()}
               filtered={filterActiveCount > 0}
               drawMode={placesDrawMode}
               onDrawModeChange={setPlacesDrawMode}
@@ -2220,6 +2297,25 @@ export default function PhotosPage() {
           icon={ImageIcon}
           title="This album is empty"
           description="Add photos from the library, or share the album so others can add photos."
+          action={
+            canManageAlbum(albumView, user) ? (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  haptic("medium");
+                  setAddToAlbumTarget(albumView);
+                  if (activeSegment === "library") {
+                    selection.enter();
+                  } else {
+                    pendingSelectRef.current = true;
+                    handleSegmentChange("library");
+                  }
+                }}
+              >
+                Add photos
+              </Button>
+            ) : undefined
+          }
         />
       )}
       {filtersEmpty && (
@@ -2334,7 +2430,17 @@ export default function PhotosPage() {
         }
         onClear={selection.clear}
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
-        onAddToAlbum={() => setAlbumPick(selection.selectedItems)}
+        onAddToAlbum={() => {
+          if (addToAlbumTarget) {
+            const target = addToAlbumTarget;
+            setAddToAlbumTarget(null);
+            applyAlbumPick.mutate({
+              changes: [{ album: target, add: selection.selectedItems }],
+            });
+          } else {
+            setAlbumPick(selection.selectedItems);
+          }
+        }}
         onNewAlbum={() => {
           setShareAfterCreate(false);
           setNewAlbumSeed(selection.selectedItems);
@@ -2557,7 +2663,11 @@ export default function PhotosPage() {
             : null
         }
         overlayClassName={ABOVE_LIGHTBOX_OVERLAY_CLASS}
-        onClose={() => setShareAlbum(null)}
+        onClose={() => {
+          setShareAlbum(null);
+          // The owner needs the card's Shared chip to reflect new grants.
+          queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+        }}
       />
 
       <DayJumpModal
@@ -2750,9 +2860,14 @@ function AlbumsPanel({
                   <div className="flex items-baseline gap-2">
                     <p className="min-w-0 flex-1 font-mono text-sm truncate">{album.name}</p>
                     <p className="shrink-0 text-xs">
-                      {album.item_count} {album.item_count === 1 ? "item" : "items"}
+                      {album.item_count} {album.item_count === 1 ? "photo" : "photos"}
                     </p>
                   </div>
+                  {manage && album.shared && (
+                    <span className="mt-1 inline-flex rounded-pill surface-primary px-2 py-0.5 text-xs">
+                      Shared
+                    </span>
+                  )}
                   {!manage && <p className="text-xs mt-1">Shared with you</p>}
                 </div>
               </button>

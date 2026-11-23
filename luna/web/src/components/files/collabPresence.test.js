@@ -22,7 +22,15 @@ describe("collabPresenceLabel", () => {
       "Opening this diagram…",
     );
     expect(collabPresenceLabel("loading", [], true)).toBe("Starting EuroOffice…");
-    expect(collabPresenceLabel("error", peers, true, "Ada", 1)).toBe("Live · Sam");
+  });
+
+  it("says plainly when live editing isn't connected", () => {
+    expect(collabPresenceLabel("error", peers, true, "Ada", 1)).toBe(
+      "Live editing isn't connected. Changes still save to this Luna.",
+    );
+    expect(collabPresenceLabel("error", peers, false, "Ada", 1)).toBe(
+      "Live editing isn't connected · view only",
+    );
   });
 
   it("marks a session that cannot edit", () => {

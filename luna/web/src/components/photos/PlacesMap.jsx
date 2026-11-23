@@ -360,12 +360,16 @@ ClusterMarkers.propTypes = {
  *   onDrawArea?: () => void,
  *   drawMode?: boolean,
  *   onDrawModeChange?: (active: boolean) => void,
+ *   error?: string | null,
+ *   onRetry?: () => void,
  * }} props
  */
 export default function PlacesMap({
   places,
   loading = false,
   filtered = false,
+  error = null,
+  onRetry = undefined,
   onSelect,
   onDrawArea = undefined,
   drawMode: drawModeProp = undefined,
@@ -430,6 +434,23 @@ export default function PlacesMap({
         <p className="text-sm font-mono">Loading places…</p>
         <Spinner size="lg" decorative className="text-secondary" />
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <EmptyState
+        noPopIn
+        className="animate-cascade-in motion-reduce:animate-none"
+        icon={MapPin}
+        title="Couldn't load places"
+        description={error}
+        action={
+          onRetry ? (
+            <Button variant="primary" onClick={onRetry}>Try again</Button>
+          ) : undefined
+        }
+      />
     );
   }
 
@@ -590,6 +611,8 @@ PlacesMap.propTypes = {
   places: PropTypes.arrayOf(PropTypes.object),
   loading: PropTypes.bool,
   filtered: PropTypes.bool,
+  error: PropTypes.string,
+  onRetry: PropTypes.func,
   onSelect: PropTypes.func,
   onDrawArea: PropTypes.func,
   drawMode: PropTypes.bool,

@@ -394,7 +394,9 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
   const actions = [
     onShare && ready && { key: "share", label: "Share", icon: Users, run: () => onShare(drive) },
     onProtect && ready && { key: "backup", label: "Back up", icon: Shield, run: () => onProtect(drive) },
-    onEncryption && (ready || locked) && { key: "encryption", label: "Encryption", icon: Lock, run: () => onEncryption(drive) },
+    // An encrypted drive keeps this action even when unplugged: the sheet
+    // explains that and disables its buttons, like lunad does.
+    onEncryption && (ready || locked || drive.encrypted) && { key: "encryption", label: "Encryption", icon: Lock, run: () => onEncryption(drive) },
     showHealth && ready && { key: "eject", label: "Eject safely", icon: Unplug, run: () => onEject(drive) },
     showHealth && { key: "remove", label: "Remove", icon: Trash2, danger: true, run: () => onRemove(drive) },
   ].filter(Boolean);
@@ -613,13 +615,19 @@ export default function FilesPage() {
       <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => {
+            const drive = (drives.data || []).find((d) => d.id === grant.drive_id);
             // A locked drive asks for its password right here; anyone with access may enter it.
-            const locked = (drives.data || []).some((d) => d.id === grant.drive_id && isLocked(d));
+            const locked = Boolean(drive && isLocked(drive));
+            // An erase makes the drive unavailable to Members too. Say so and
+            // offer no way in until it finishes, just as on the Admin's card.
+            const erasing = drive?.formatting === true;
+            const canOpen = !locked && !erasing;
             return (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
               <p className="text-primary text-sm">
                 {grant.path ? <InlinePill>{`${grant.drive_label} · ${grant.path}`}</InlinePill> : "Whole drive"}
               </p>
+              {erasing && <p className="text-primary text-sm mt-3">{ERASING_MESSAGE}</p>}
               {locked && (
                 <div className="mt-3 space-y-3">
                   <p className="text-primary text-sm">This drive is locked. Enter its password to open your files.</p>
@@ -629,12 +637,12 @@ export default function FilesPage() {
               <div className="mt-3 flex items-center justify-between gap-3">
                 <PermissionPill caps={grant.caps} file={grant.is_file === true} />
                 <div className="flex items-center gap-2">
-                  {!locked && (
+                  {canOpen && (
                   <Button size="sm" variant="primary" asChild>
                     <Link to={sharedItemHref(grant)}>{sharedItemAction(grant)}</Link>
                   </Button>
                   )}
-                  {!locked && canSeeLinks(grant.caps) && (
+                  {canOpen && canSeeLinks(grant.caps) && (
                     <ShareButton
                       label={grant.path || grant.drive_label}
                       onClick={() => setSharingDrive({ id: grant.drive_id, path: grant.path || "" })}

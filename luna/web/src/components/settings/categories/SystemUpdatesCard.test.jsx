@@ -129,6 +129,23 @@ describe("SystemUpdatesCard", () => {
     });
   });
 
+  it("does not call a same-version build from a new source older than the running one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      ...UP_TO_DATE,
+      update_available: true,
+      current_version: "1.4.2",
+      latest_version: "1.4.2",
+      feed_is_newer: false,
+      from_new_source: true,
+      release_notes: "## 1.4.2\n\nA build from this Luna's own update source.",
+    })));
+    renderCard();
+    expect(await screen.findByText("You changed where Luna gets its updates. This is the version from that source.")).toBeTruthy();
+    expect(screen.queryByText(/It is older than the version Luna runs now/i)).toBeNull();
+    expect(screen.queryByRole("heading", { name: /What's in 1\.4\.2/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /See what's new in 1\.4\.2/i })).toBeTruthy();
+  });
+
   it("says an update is installing, with a spinner and no second install button", async () => {
     vi.stubGlobal(
       "fetch",

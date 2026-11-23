@@ -1134,20 +1134,20 @@ describe("FileViewer fullscreen diagram overlay", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
-  it("does not draw a presence control in the editor frame", async () => {
+  it("draws the editor's presence line in the frame", async () => {
     const { rerender } = render(
       <FileViewer open driveId="d1" path="docs/report.docx" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
     act(() => officeMocks.editorProps.onPresenceChange("Live · Sam"));
-    expect(document.querySelector('[data-slot="editor-presence"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="editor-presence"]')).toHaveTextContent("Live · Sam");
 
     rerender(
       <FileViewer open driveId="d1" path="diagrams/flow.drawio" onClose={() => {}} />,
     );
     await findFullscreenOverlay();
-    act(() => diagramMocks.editorProps.onPresenceChange("Live · Sam"));
-    expect(document.querySelector('[data-slot="editor-presence"]')).not.toBeInTheDocument();
+    act(() => diagramMocks.editorProps.onPresenceChange("Live · only you"));
+    expect(document.querySelector('[data-slot="editor-presence"]')).toHaveTextContent("Live · only you");
   });
 });
 

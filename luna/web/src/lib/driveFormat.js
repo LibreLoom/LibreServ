@@ -81,7 +81,7 @@ export function secondsUntil(readyAt, skew, clientNowMs = Date.now()) {
 export function partitionStateLine(state) {
   switch (state) {
     case "unreadable":
-      return "Luna can't read this part. It may be damaged, so its files can't be shown.";
+      return "This part may be damaged, so Luna can't show its files.";
     case "locked":
       return "This part is locked with a password, so Luna can't show what's inside.";
     case "unknown_filesystem":
@@ -93,12 +93,14 @@ export function partitionStateLine(state) {
   }
 }
 
-const UNREADABLE_STATES = new Set(["unreadable", "locked", "unknown_filesystem"]);
+// "locked" is healthy (it just waits for a password), so it gets its own
+// headline and is not part of the unreadable branch.
+const UNREADABLE_STATES = new Set(["unreadable", "unknown_filesystem"]);
 
 /**
  * The one line at the top of the preview. The server's `empty` verdict decides
  * whether anything is at risk; this only words what Luna found.
- * @param {{ empty?: boolean, blank?: boolean, partitions?: { state: string }[] }} preview
+ * @param {{ empty?: boolean, blank?: boolean, partitions?: { state: string, files?: number, folders?: number }[] }} preview
  * @returns {{ title: string, tone: "calm" | "careful" }}
  */
 export function previewHeadline(preview) {
@@ -110,7 +112,17 @@ export function previewHeadline(preview) {
     return { title: "This looks like an installer disk.", tone: "careful" };
   }
   if (parts.length === 0) return { title: "Luna can't read this drive.", tone: "careful" };
-  if (parts.every((p) => UNREADABLE_STATES.has(p.state))) {
+  // A whole drive behind a password is healthy — it is just sealed.
+  if (parts.every((p) => p.state === "locked")) {
+    return { title: "This drive is protected with a password.", tone: "careful" };
+  }
+  // Keep the old verdict for a fully unreadable drive, and add the case where
+  // no part lists any files but at least one couldn't be looked into: saying
+  // "files on it" there would be a guess.
+  const allUnreadable = parts.every((p) => UNREADABLE_STATES.has(p.state));
+  const noFiles = parts.every((p) => !(p.files > 0 || p.folders > 0));
+  const someUnreadable = parts.some((p) => UNREADABLE_STATES.has(p.state));
+  if (allUnreadable || (noFiles && someUnreadable)) {
     return { title: "Luna can't read this drive.", tone: "careful" };
   }
   return { title: "This drive has files on it.", tone: "careful" };

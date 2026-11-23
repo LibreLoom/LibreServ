@@ -73,11 +73,11 @@ export default function InspectModal({
             <Button variant="accent" surface="primary" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase and start over</Button>
           </div>}
         </> : result.needs_setup || !result.readable ? <>
-          <p className="text-sm">Luna can't use this drive as it is. It has to be erased first, which removes everything on it.</p>
+          <p className="text-sm">Luna can't use this drive as it is. It has to be erased and set up first.</p>
           {onErase && <div className="flex flex-wrap gap-3">
             <div className="inline-flex items-center gap-1">
               <Button variant="accent" onClick={() => Promise.resolve(onErase(drive)).catch(() => {})}>Erase</Button>
-              <InfoHint label="What Erase does" content="Review and confirm before Luna erases everything and sets up the drive without a password." />
+              <InfoHint label="What Erase does" content="Review what Luna will do, then confirm to erase and set up the drive without a password." />
             </div>
             {onProtect && result.can_protect !== false && <div className="inline-flex items-center gap-1">
               <Button variant="outline" onClick={() => setView("protect")}>Erase &amp; Encrypt</Button>

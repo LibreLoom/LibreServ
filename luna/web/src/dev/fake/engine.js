@@ -136,7 +136,9 @@ export function installFake({ world, scenario, now, restored = {} }) {
       if (mode === "empty") return finish(200, "");
       if (mode === "badjson") return finish(200, "<html>oops");
       if (/^\d{3}$/.test(mode)) {
-        return finish(Number(mode), JSON.stringify({ error: fault.message || `Injected ${mode}`, ...(fault.code ? { code: fault.code } : {}) }));
+        // A fault with no message must not leak a developer string like
+        // "Injected 500" into product copy. Explicit messages still win.
+        return finish(Number(mode), JSON.stringify({ error: fault.message || "Luna couldn't do that. Try again.", ...(fault.code ? { code: fault.code } : {}) }));
       }
 
       const found = findRoute(method, path);
@@ -290,6 +292,14 @@ export function installFake({ world, scenario, now, restored = {} }) {
     expireSession() { state.world.sessionUserId = null; emit(); },
     /** Signs in as a user id, or signs out with null. The app has to reload to notice. */
     signInAs(id) { state.world.sessionUserId = id; emit(); },
+    /** Send one request through the fake as whoever is signed in. */
+    async send(method, path, body) {
+      const res = await dispatch(String(method).toUpperCase(), path, body ?? {});
+      let payload;
+      try { payload = JSON.parse(res.text); } catch { payload = res.text; }
+      emit();
+      return { status: res.status, body: payload };
+    },
     /** The server is down from `afterMs` for `forMs`, as when lunad restarts for an update. */
     restartServer(afterMs, forMs) {
       const t = realNow();

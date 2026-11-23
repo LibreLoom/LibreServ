@@ -21,6 +21,7 @@ import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { fmtSize, folderHref } from "../../lib/paths.js";
+import { fmtDuration } from "./duration.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
 /** Same layer as other dialogs stacked over PhotoLightbox (its z-[80]). */
@@ -40,14 +41,6 @@ function useIsDesktop() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
   return desktop;
-}
-
-/** @param {number} [secs] */
-function fmtDuration(secs) {
-  if (!Number.isFinite(secs) || secs <= 0) return null;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  return m > 0 ? `${m} min ${s} s` : `${s} s`;
 }
 
 /** @param {{ icon: import("react").ComponentType<any>, title: string, children: import("react").ReactNode }} props */
@@ -180,7 +173,7 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
 
       <Section icon={CalendarDays} title="Taken">
         <p className="text-sm">
-          {photo.taken_at
+          {photo.taken_at != null
             ? new Date(photo.taken_at * 1000).toLocaleString()
             : "Date unknown"}
         </p>
@@ -238,6 +231,14 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
               <dt className="text-secondary">Dimensions</dt>
               <dd>
                 <InlinePill>{photo.width} × {photo.height}</InlinePill>
+              </dd>
+            </>
+          )}
+          {photo.width > 0 && photo.height > 0 && (
+            <>
+              <dt className="text-secondary">Megapixels</dt>
+              <dd>
+                <InlinePill>{Math.round((photo.width * photo.height) / 1e6)} MP</InlinePill>
               </dd>
             </>
           )}

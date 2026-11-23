@@ -6,6 +6,7 @@
 //   world.albums        album rows; world.albumItems[id] = photo keys in it
 import { del, fail, get, patch, post, put, raw } from "../engine.js";
 import { CAP, hasCap } from "../../../lib/access.js";
+import { addFile, fsOf } from "../fsmodel.js";
 import { nextId } from "../world.js";
 import { makePhotos, photoKey } from "../photos.js";
 
@@ -45,6 +46,12 @@ function albumRow(w, a, user) {
     item_count: a.fakeCount ?? keys.length,
     cover_thumb: cover?.thumb || a.cover_thumb || "",
     created_at: a.created_at ?? Math.floor(Date.now() / 1000),
+    // Lets the owner see that an album is shared (a small chip on its card).
+    shared: (a.shared_with || []).length > 0
+      || (w.sharing?.subjects || []).some(
+        (s) => s.kind === "album" && s.drive_id === a.home_drive_id && s.album_id === a.id
+          && ((s.members?.length || 0) > 0 || (s.links?.length || 0) > 0),
+      ),
   };
 }
 
@@ -110,6 +117,18 @@ del("/api/v1/photos/albums/:drive/:id/items", ({ world, params, body }) => {
   world.albumItems[a.id] = (world.albumItems[a.id] || []).filter((k) => k !== gone);
   delete a.fakeCount;
   return {};
+});
+
+// The album editor checks which of the selected photos an album already holds.
+get("/api/v1/photos/albums/:drive/:id/items", ({ world, user, params }) => {
+  state(world);
+  const a = albumOf(world, params.drive, params.id);
+  if (!a) return fail(404, "That album no longer exists.");
+  if (!canSee(world, a, user)) return fail(403, "You don't have permission to see this album.");
+  const keys = new Set(world.albumItems[a.id] || []);
+  return world.photos
+    .filter((p) => keys.has(photoKey(p)))
+    .map((p) => ({ drive_id: p.drive_id, path: p.path }));
 });
 
 // ── Library ─────────────────────────────────────────────────────────────────
@@ -260,13 +279,28 @@ get("/api/v1/photos/filter-facets", ({ world }) => {
 });
 
 get("/api/v1/photos/duplicates", ({ world }) => {
-  const g = state(world);
-  const groups = new Map();
+  state(world);
+  // Photos are generated as rows, not filesystem nodes, so Trash would 404 on
+  // them. Give duplicate rows nodes on first view so deleting one really moves
+  // it to Trash (and demoTree still seeds the rest of drive d1).
   for (const p of world.photos) {
     if (!p.dup) continue;
+    fsOf(world, p.drive_id);
+    if (!world.fs[p.drive_id].nodes[p.path]) {
+      addFile(world, p.drive_id, p.path, { size: p.size ?? 1200 });
+    }
+  }
+  const trashed = new Set();
+  for (const driveId of Object.keys(world.fs || {})) {
+    for (const t of world.fs[driveId].trash || []) {
+      trashed.add(`${driveId}\0${t.original_path}`);
+    }
+  }
+  const groups = new Map();
+  for (const p of world.photos) {
+    if (!p.dup || trashed.has(photoKey(p))) continue;
     (groups.get(p.dup) || groups.set(p.dup, []).get(p.dup)).push(p);
   }
-  void g;
   return { groups: [...groups.entries()].map(([key, items]) => ({ key, name: items[0].name, items })) };
 });
 

@@ -5,6 +5,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
@@ -56,6 +57,15 @@ export default function UpdateSourceCard({ index = 3 }) {
     queryKey: ["updates-source"],
     queryFn: () => getJson("/api/v1/system/updates/source"),
   });
+  // The device token form lives in the closed "Luna Connect" section below.
+  // Its error must still be readable here on About, without opening anything.
+  const connect = useQuery({
+    queryKey: ["connect-status"],
+    queryFn: () => getJson("/api/v1/connect/status"),
+  });
+  const tokenError = typeof connect.data?.device_token_error === "string"
+    ? connect.data.device_token_error.trim()
+    : "";
 
   const s = source.data || {};
 
@@ -80,6 +90,20 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
+        {tokenError && (
+          <PageNotice variant="error">
+            <p>{tokenError}</p>
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              className="mt-2"
+              onClick={() => setConnectModalOpen(true)}
+            >
+              Change device token
+            </Button>
+          </PageNotice>
+        )}
         <CollapsibleSection title="Luna Connect" mono pill>
           <div className="space-y-3 mb-1">
             <p className="text-sm text-primary leading-relaxed">
@@ -282,7 +306,10 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
                 id="us-feed-url"
                 type="text"
                 value={feedUrl}
-                onChange={(e) => setFeedUrl(e.target.value)}
+                onChange={(e) => {
+                  setFeedUrl(e.target.value);
+                  setSaveError(null);
+                }}
                 placeholder={defaults.feed_url || DEFAULT_FEED_PLACEHOLDER}
                 className={INPUT_CLASS}
               />
@@ -301,7 +328,10 @@ function UpdateSourceModal({ open = true, initial, onClose, onSaved }) {
               <textarea
                 id="us-keys"
                 value={keysText}
-                onChange={(e) => setKeysText(e.target.value)}
+                onChange={(e) => {
+                  setKeysText(e.target.value);
+                  setSaveError(null);
+                }}
                 rows={3}
                 placeholder={(defaults.keys || []).join("\n") || "Luna's built-in release key"}
                 className="w-full min-w-0 rounded-large-element surface-primary px-4 py-2 font-mono text-sm"

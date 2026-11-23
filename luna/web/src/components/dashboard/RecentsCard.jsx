@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { FileText, Folder, HardDrive, History } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
+import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import {
@@ -25,7 +26,7 @@ const KIND_ICONS = {
  * one link that re-opens the item: a kind icon, its name, the location as a
  * pill (drive and containing folder are real names, not prose) and the time as
  * a quiet counter. Items come from the server-backed list the dashboard loads.
- * Renders nothing when there is nothing to resume.
+ * Shows a friendly empty state once the list has settled with nothing in it.
  *
  * The card is a surface-secondary panel and each row is a surface-primary link
  * on it, so the row's text inherits the row surface's own text color and sets
@@ -37,7 +38,15 @@ const KIND_ICONS = {
  * }} props
  */
 export default function RecentsCard({ items, drives = [] }) {
-  if (!Array.isArray(items) || items.length === 0) return null;
+  if (!Array.isArray(items) || items.length === 0) {
+    return (
+      <EmptyState
+        icon={History}
+        title="Recents"
+        description="Nothing opened recently. Files and folders you open appear here."
+      />
+    );
+  }
 
   return (
     <Card icon={History} title="Recents">

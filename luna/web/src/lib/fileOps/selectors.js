@@ -3,7 +3,7 @@
 // straight to useFileOpsState (it compares by reference); use the `select*`
 // helpers below that are memoized on the ops array.
 
-import { dockHeaderTitle, dockSummary, dockSummaryParts, finishedText } from "./copy.js";
+import { dockHeaderTitle, dockSummary, dockSummaryParts, finishedText, opStatus, plain } from "./copy.js";
 
 /** @typedef {import("./store.js").Op} Op */
 /** @typedef {import("./store.js").Item} Item */
@@ -92,6 +92,10 @@ export function dockInfo(state) {
       only && (only.kind === "upload" || only.kind === "gallery")
         ? { files: only.itemsTotal || 0 }
         : null;
+    // A lone indeterminate task (empty Trash, a restore) has no percentage,
+    // so "1 running" would hide what it is doing. Say the op's own status
+    // word in the collapsed summary instead.
+    const singleTask = only && only.indeterminate ? plain(opStatus(only)) : null;
     const info = {
       visible: shown.length > 0,
       runningCount: running.length,
@@ -114,6 +118,7 @@ export function dockInfo(state) {
       finishedLabel: finished.length === 1 ? finishedText(finished[0]) : "",
       pct,
       singleUpload,
+      singleTask,
     };
     info.summary = dockSummary(summaryInput);
     // The same summary, split so the words can swap while the number rolls.

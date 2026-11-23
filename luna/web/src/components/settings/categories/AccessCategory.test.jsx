@@ -95,7 +95,57 @@ describe("AccessCategory", () => {
     const dialog = await screen.findByRole("dialog", { name: /New access token/i });
     const input = within(dialog).getByLabelText(/Name this app/i);
     await waitFor(() => expect(input).toHaveFocus());
-    expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeDisabled();
+    // The button stays active so Luna's own rule (1-80 characters) is shown
+    // inline when the name is blank, instead of silently doing nothing.
+    expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeEnabled();
+  });
+
+  it("shows Luna's name rule when creation is submitted with a blank name", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      const method = init?.method || "GET";
+      if (u.includes("/device-tokens") && method === "POST") {
+        return new Response(JSON.stringify({ error: "Give this access token a name between 1 and 80 characters." }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/device-tokens") && method === "GET") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    const { userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    renderAccess();
+    await user.click(await screen.findByRole("button", { name: /New access token/i }));
+    const dialog = await screen.findByRole("dialog", { name: /New access token/i });
+    await user.click(within(dialog).getByRole("button", { name: /Create access token/i }));
+    expect(
+      await within(dialog).findByText("Give this access token a name between 1 and 80 characters."),
+    ).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Create access token/i })).toBeTruthy();
+  });
+
+  it("shows a friendly error with a retry when tokens cannot load", async () => {
+    let failLoad = true;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).includes("/device-tokens")) {
+        if (failLoad) return new Response(JSON.stringify({ error: "Injected 500" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    const { userEvent } = await import("@testing-library/user-event");
+    renderAccess();
+    expect(await screen.findByText(/Luna couldn't load your access tokens right now/i)).toBeTruthy();
+    expect(screen.queryByText(/No apps or access tokens are set up yet/i)).toBeNull();
+    failLoad = false;
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/No apps or access tokens are set up yet/i)).toBeTruthy();
   });
 
   it("token list items animate height on expand/collapse", async () => {

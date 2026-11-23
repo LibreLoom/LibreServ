@@ -153,6 +153,15 @@ describe("RecoveryPhraseCard", () => {
     await waitFor(() => expect(calls).toContainEqual(["/api/v1/private-backups/old-copies", "DELETE"]));
   });
 
+  it("says old backups will be removed when the date is in the future", async () => {
+    stubStatus({
+      set: true, set_at: 1_700_000_000, luna_id: "luna-1",
+      old_phrase_copies: { count: 2, removed_at: Date.now() / 1000 + 14 * 86400 },
+    });
+    renderCard();
+    expect(await screen.findByText(/^Backups made with your old phrase · will be removed on /)).toBeInTheDocument();
+  });
+
   it("keeps the confirm open and shows the error when deleting old backups fails", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (path, options = {}) => {

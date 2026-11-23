@@ -267,7 +267,7 @@ describe("ShareSheet", () => {
       }],
     }));
     renderSheet();
-    fireEvent.click(await screen.findByRole("button", { name: "Link settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Settings for link 1" }));
     const dialog = await screen.findByRole("dialog", { name: /Link settings/i });
     expect(within(dialog).getByLabelText("Link expiry").textContent).toContain("Keep current expiry");
     expect(within(dialog).getByLabelText("Link password")).toHaveValue("");
@@ -288,7 +288,7 @@ describe("ShareSheet", () => {
       }],
     }));
     renderSheet();
-    fireEvent.click(await screen.findByRole("button", { name: "Link settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Settings for link 1" }));
     const dialog = await screen.findByRole("dialog", { name: /Link settings/i });
     fireEvent.click(within(dialog).getByLabelText("What people with this link can do"));
     fireEvent.click(await screen.findByRole("option", { name: /Can view \+ upload/i }));
@@ -306,7 +306,7 @@ describe("ShareSheet", () => {
       links: [{ id: "l1", caps: "view", url: "/s/tok1", can_manage: true }],
     }));
     renderSheet();
-    fireEvent.click(await screen.findByRole("button", { name: "Remove this link" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove link 1" }));
     const confirm = await screen.findByRole("dialog", { name: /Remove link/i });
     expect(within(confirm).getByText(/Anyone using this link will lose access/i)).toBeInTheDocument();
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove link" }));
@@ -351,8 +351,8 @@ describe("ShareSheet", () => {
         const makers = [...document.querySelectorAll("[data-slot=link-maker]")].map((el) => el.textContent);
         expect(makers).toEqual(["Made by Max", "Made by Sam"]);
       });
-      expect(screen.queryByRole("button", { name: "Link settings" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Remove this link" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Settings for link/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Remove link/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "New link" })).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Share link address")).not.toBeInTheDocument();
       // One line says why, with Read explained one step in.
@@ -389,8 +389,8 @@ describe("ShareSheet", () => {
     renderSheet();
     expect(await screen.findByRole("button", { name: "New link" })).toBeInTheDocument();
     // Only the link inside their access gets controls and an address.
-    expect(screen.getAllByRole("button", { name: "Link settings" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Remove this link" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /Settings for link/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /Remove link/ })).toHaveLength(1);
     expect(screen.getAllByLabelText("Share link address")).toHaveLength(1);
     expect(document.querySelector("[data-slot=links-read-note]")).toBeNull();
     // Still no roster: that needs the share bit.
@@ -408,6 +408,41 @@ describe("ShareSheet", () => {
     renderSheet();
     expect(await screen.findByText(/1 person shared through family/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /View .* shares/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps an inspectable parent when a non-inspectable twin names the same folder", async () => {
+    stubApi((path) => subjectBody(path, {
+      my_caps: "view",
+      inherited_members: [{
+        id: "m2", user_id: "u3", name: "Alex", caps: "view",
+        inherited_from: { kind: "path", drive_id: "d1", path: "family/photos", can_inspect: true },
+      }],
+      inherited_links: [{
+        id: "l9", caps: "view",
+        inherited_from: { kind: "path", drive_id: "d1", path: "family/photos", can_inspect: false },
+      }],
+    }));
+    renderSheet();
+    // No name on the row: the folder's own name stands in for it, and the
+    // inspectable twin keeps the button.
+    expect(await screen.findByText(/1 person and 1 link shared through photos/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View parent shares" })).toBeInTheDocument();
+  });
+
+  it("says how soon a link expires within a day, and names each row's buttons", async () => {
+    const soon = Math.floor(Date.now() / 1000) + 3 * 60 * 60;
+    stubApi((path) => subjectBody(path, {
+      links: [
+        { id: "l1", caps: "view", url: "/s/tok1", can_manage: true, expires_at: soon },
+        { id: "l2", caps: "view+upload", url: "/s/tok2", can_manage: true },
+      ],
+    }));
+    renderSheet();
+    expect(await screen.findByText(/expires in 3 hours/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings for link 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings for link 2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove link 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove link 2" })).toBeInTheDocument();
   });
 
   it("never shows a cached address on a link the caller can't manage", async () => {
@@ -462,7 +497,7 @@ describe("ShareSheet", () => {
       }],
     }));
     renderSheet();
-    fireEvent.click(await screen.findByRole("button", { name: "Link settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Settings for link 1" }));
     const dialog = await screen.findByRole("dialog", { name: /Link settings/i });
     fireEvent.click(within(dialog).getByLabelText("What people with this link can do"));
     fireEvent.click(await screen.findByRole("option", { name: /Can view \+ edit/i }));
@@ -481,7 +516,7 @@ describe("ShareSheet", () => {
     }));
     renderSheet();
     expect(await screen.findByText(/Can view \+ edit/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Link settings" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Remove this link" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Settings for link/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove link/ })).not.toBeInTheDocument();
   });
 });

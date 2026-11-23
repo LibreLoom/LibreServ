@@ -48,7 +48,7 @@ export default [
     },
     check: [
       "The app opens normally: no phrase screen, no setup detour",
-      "Settings → Cloud backup shows Recovery phrase as Not set up, with a Set up button",
+      "Settings → Luna Connect shows the Recovery phrase card as Not set up, with a Set up button, and Cloud backup below it",
       "Set up opens the phrase dialog; saving it fills in the card",
     ],
     url: "/settings#luna_connect",

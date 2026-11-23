@@ -23,7 +23,9 @@ import { failedText, text } from "./copy.js";
  * }} Classified
  */
 
-const RETRYABLE_STATUS = new Set([0, 401, 408, 429, 502, 503, 504]);
+// A 500 is Luna failing to do the work, not a bad request from us. The file
+// is still here and the operation can be sent again, so offer "Try again".
+const RETRYABLE_STATUS = new Set([0, 401, 408, 429, 500, 502, 503, 504]);
 
 /** @param {unknown} err */
 export function isAbort(err) {

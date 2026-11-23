@@ -1129,7 +1129,7 @@ function QuestionField({
               Attached: {fileLabel || "your file"}
             </p>
           ) : null}
-          {uploadError && <p className="text-sm text-error">{uploadError}</p>}
+          {uploadError && <InlineError surface="secondary">{uploadError}</InlineError>}
         </div>
       ) : question.type === "long_text" ? (
         <textarea
@@ -1153,16 +1153,14 @@ function QuestionField({
       )}
       <AnimatePresence initial={false}>
         {error ? (
-          <Motion.p
+          <Motion.div
             key="error"
-            role="alert"
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="text-sm text-error"
           >
-            {error}
-          </Motion.p>
+            <InlineError surface="secondary">{error}</InlineError>
+          </Motion.div>
         ) : null}
       </AnimatePresence>
     </div>

@@ -134,7 +134,7 @@ export default function ConfirmModal({
             )}
             <div className="flex-1">
               {snap.message && (
-                <p className="font-mono text-sm mb-2">{snap.message}</p>
+                <p className="text-sm mb-2">{snap.message}</p>
               )}
               {snap.children}
             </div>

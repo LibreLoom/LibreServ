@@ -9,6 +9,7 @@ import { createWorld, DEFAULT_NOW, restoreIdState } from "./fake/world.js";
 import { clearState, loadState, saveState } from "./fake/persist.js";
 import { freezeClock } from "./fake/clock.js";
 import { scenarioById } from "./scenarios/registry.js";
+import { setMockHostname } from "../lib/publicHost.js";
 
 const KEY = "luna.mockScenario";
 const SAVE_DELAY_MS = 300;
@@ -50,6 +51,9 @@ export function bootMock() {
     url.searchParams.delete("__mock");
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
+  // A scenario can put the wizard on Luna's public name so the device-token
+  // step is reachable without a real public address.
+  setMockHostname(scenario.hostname ?? null);
   if (scenario.theme) {
     try { localStorage.setItem("theme", scenario.theme); } catch { /* storage blocked */ }
   }

@@ -108,7 +108,6 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
                     size="sm"
                     surface="secondary"
                     loading={restore.isPending && restore.variables === (v.at ?? null)}
-                    disabled={restore.isPending}
                     onClick={() => {
                       setRestoreError("");
                       restore.mutate(v.at ?? null);
@@ -122,6 +121,9 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
             );
           })}
         </ul>
+      )}
+      {list.length > 0 && list.every((v) => v.at == null) && (
+        <p className="pt-3 text-sm text-primary">No older versions saved for this file.</p>
       )}
     </ModalCard>
   );

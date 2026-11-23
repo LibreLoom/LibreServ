@@ -476,8 +476,6 @@ function PhotosFilterSheet({
     return ["jpg", "heic", "png", "mp4", "mov"];
   }, [facets]);
 
-  const showLensExposure = !!(lensOptions || facets?.iso || facets?.focal || facets?.flash);
-
   function patch(partial) {
     setDraft((prev) => ({ ...prev, ...partial }));
   }
@@ -714,81 +712,97 @@ function PhotosFilterSheet({
           </Button>
         </section>
 
-        {showLensExposure && (
-          <section className={sectionClass} aria-labelledby="filter-lens">
-            <h3 id="filter-lens" className="font-mono text-sm">
-              Lens / exposure
-            </h3>
-            {lensOptions && (
-              <Dropdown
-                options={lensOptions}
-                value={draft.lens || ""}
-                onChange={(v) => patch({ lens: v })}
-                bg="secondary"
-                fullWidth
-                aria-label="Lens"
-              />
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block text-sm">
-                <span className="block translate-x-5">ISO min</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.isoMin || ""}
-                  onChange={(e) => patch({ isoMin: e.target.value })}
-                  placeholder="No minimum"
-                  className={`mt-1 ${inputClass}`}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="block translate-x-5">ISO max</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.isoMax || ""}
-                  onChange={(e) => patch({ isoMax: e.target.value })}
-                  placeholder="No maximum"
-                  className={`mt-1 ${inputClass}`}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="block translate-x-5">Focal min (mm)</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.focalMin || ""}
-                  onChange={(e) => patch({ focalMin: e.target.value })}
-                  placeholder="No minimum"
-                  className={`mt-1 ${inputClass}`}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="block translate-x-5">Focal max (mm)</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={draft.focalMax || ""}
-                  onChange={(e) => patch({ focalMax: e.target.value })}
-                  placeholder="No maximum"
-                  className={`mt-1 ${inputClass}`}
-                />
-              </label>
-            </div>
+        {/* Always shown: the numeric filters work without facets, and a failed
+            facet request must not take the whole section away. */}
+        <section className={sectionClass} aria-labelledby="filter-lens">
+          <h3 id="filter-lens" className="font-mono text-sm">
+            Lens / exposure
+          </h3>
+          {lensOptions ? (
             <Dropdown
-              options={[
-                { value: "", label: "Flash: any" },
-                { value: "on", label: "Flash on" },
-                { value: "off", label: "Flash off" },
-              ]}
-              value={draft.flash || ""}
-              onChange={(v) => patch({ flash: v })}
+              options={lensOptions}
+              value={draft.lens || ""}
+              onChange={(v) => patch({ lens: v })}
               bg="secondary"
               fullWidth
-              aria-label="Flash"
+              aria-label="Lens"
             />
-          </section>
-        )}
+          ) : (
+            <>
+              <label className="block text-sm">
+                <span className="block translate-x-5">Lens</span>
+                <input
+                  type="text"
+                  value={draft.lens || ""}
+                  onChange={(e) => patch({ lens: e.target.value })}
+                  placeholder="Any lens"
+                  className={`mt-1 ${inputClass}`}
+                />
+              </label>
+              <p className="text-xs text-secondary">
+                Luna couldn't load the lens list. Type a lens name to filter by it, or leave this blank for any lens.
+              </p>
+            </>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm">
+              <span className="block translate-x-5">ISO min</span>
+              <input
+                type="number"
+                min="0"
+                value={draft.isoMin || ""}
+                onChange={(e) => patch({ isoMin: e.target.value })}
+                placeholder="No minimum"
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block translate-x-5">ISO max</span>
+              <input
+                type="number"
+                min="0"
+                value={draft.isoMax || ""}
+                onChange={(e) => patch({ isoMax: e.target.value })}
+                placeholder="No maximum"
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block translate-x-5">Focal min (mm)</span>
+              <input
+                type="number"
+                min="0"
+                value={draft.focalMin || ""}
+                onChange={(e) => patch({ focalMin: e.target.value })}
+                placeholder="No minimum"
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="block translate-x-5">Focal max (mm)</span>
+              <input
+                type="number"
+                min="0"
+                value={draft.focalMax || ""}
+                onChange={(e) => patch({ focalMax: e.target.value })}
+                placeholder="No maximum"
+                className={`mt-1 ${inputClass}`}
+              />
+            </label>
+          </div>
+          <Dropdown
+            options={[
+              { value: "", label: "Flash: any" },
+              { value: "on", label: "Flash on" },
+              { value: "off", label: "Flash off" },
+            ]}
+            value={draft.flash || ""}
+            onChange={(v) => patch({ flash: v })}
+            bg="secondary"
+            fullWidth
+            aria-label="Flash"
+          />
+        </section>
 
         <section className={sectionClass} aria-labelledby="filter-look-heading" id="filter-look">
           <h3 id="filter-look-heading" className="font-mono text-sm">Look</h3>

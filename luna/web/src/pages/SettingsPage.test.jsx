@@ -244,7 +244,7 @@ describe("SettingsPage", () => {
       expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeTruthy();
       expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
       const card = await screen.findByRole("heading", { level: 2, name: "Haptics" });
-      await waitFor(() => expect(card.closest("[data-settings-item]")).toHaveClass("ring-2"));
+      await waitFor(() => expect(card.closest("[data-settings-item]")).toHaveClass("bg-secondary/10"));
     });
 
     it("says so when nothing matches", async () => {

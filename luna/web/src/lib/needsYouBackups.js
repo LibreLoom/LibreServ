@@ -76,7 +76,11 @@ function backupDetail(row, now) {
   const error = row.last_error ? plainError(row.last_error) : "";
   const driveName = row.kind === "drive" ? row.destination : "";
   if (row.state === "failing" && driveName) {
-    if (/^the backup drive is full\.?$/i.test(error)) return error;
+    // lunad sometimes sends the whole sentence ("Backup drive is full. Free up some
+    // space on it and try again."), already naming the backup drive. Keep it as it is:
+    // adding the drive again would repeat it. The bare "Backup drive is full." is our
+    // own plain wording, so that case still adds the drive's real name below.
+    if (/backup drive is full/i.test(error) && error !== "Backup drive is full.") return error;
     if (error === "Backup drive is full.") return [{ name: driveName }, " (the backup drive) is full."];
     if (error) return ["Backup drive ", { name: driveName }, ": ", error];
     return ["Backing up to ", { name: driveName }, " did not finish."];

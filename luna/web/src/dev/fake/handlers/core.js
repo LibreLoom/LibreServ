@@ -41,20 +41,25 @@ post("/api/v1/auth/login", ({ world, body }) => {
 post("/api/v1/auth/logout", ({ world }) => { world.sessionUserId = null; return { ok: true }; }, { public: true });
 
 post("/api/v1/auth/register", ({ world, user, body }) => {
-  const hasUsers = world.users.length > 0;
-  if (hasUsers) {
+  // First setup is open to the browser: an Admin hasn't been created yet. Once
+  // one exists, adding people is Admin-only. `hasAdmin`, not the row count, is
+  // the gate — a seeded row can own a username while the first form is open.
+  const firstSetup = !world.hasAdmin;
+  if (!firstSetup) {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can add users.");
-  } else if (world.setupSecret && body.setup_secret !== world.setupSecret) {
+  } else if (world.setupOffLan && world.setupSecret && body.setup_secret !== world.setupSecret) {
+    // Off-LAN first registration needs the full device token, like lunad's
+    // first_user_device_token. On the LAN the token is ignored.
     return fail(403, "That device token doesn't match. Check the device token on the quick-start guide or in Luna Connect.");
   }
   const bad = badUsername(body.username) || badPassword(body.password);
   if (bad) return bad;
   const username = String(body.username).trim().toLowerCase();
   if (world.users.some((u) => u.username === username)) return fail(409, "That username is already taken.");
-  const created = makeUser({ username, display_name: body.display_name || body.username, role: hasUsers ? "user" : "admin" });
+  const created = makeUser({ username, display_name: body.display_name || body.username, role: firstSetup ? "admin" : "user" });
   world.users.push(created);
-  if (!hasUsers) { world.hasAdmin = true; world.sessionUserId = created.id; world.phrase = { ...world.phrase, set: false }; }
+  if (firstSetup) { world.hasAdmin = true; world.sessionUserId = created.id; world.phrase = { ...world.phrase, set: false }; }
   return userJson(created);
 }, { public: true });
 
@@ -85,7 +90,9 @@ post("/api/v1/auth/revoke-devices", ({ world }) => {
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 get("/api/v1/setup", ({ world, user }) => {
-  if (world.users.length > 0 && !user) return fail(401, "Sign in to Luna first.");
+  // Setup reads stay open until the first Admin exists, as in lunad. A seeded
+  // user row without an Admin is still first setup.
+  if (world.hasAdmin && !user) return fail(401, "Sign in to Luna first.");
   const sd = world.setup?.step_data ?? {};
   return { ...world.setup, step_data: { network_connected: sd.network_connected ?? true, ...(sd.preflight_passed !== undefined ? { preflight_passed: sd.preflight_passed } : {}) } };
 }, { public: true });
@@ -536,17 +543,25 @@ get("/api/v1/connect/status", ({ world, user }) => {
 }, { public: true });
 
 // ── Dashboard data: recents, backups and private items live in files.js / backups.js ──
-get("/api/v1/cloud/phrase", ({ world }) => ({
-  set: Boolean(world.phrase?.set),
-  set_at: world.phrase?.set_at ?? null,
-  luna_id: world.phrase?.luna_id || null,
-  signing_public: world.phrase?.signing_public || null,
-  check_due: Boolean(world.phrase?.check_due),
-  last_checked_at: world.phrase?.last_checked_at ?? 0,
-  phrase_words: world.phrase?.phrase_words ?? 0,
-  moving: world.phrase?.moving ?? null,
-  old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
-  resealing: Boolean(world.phrase?.resealing),
-}));
+get("/api/v1/cloud/phrase", ({ world }) => {
+  const p = world.phrase || {};
+  // The fake's reseal is a short background step: end it after ~8 s of polling.
+  if (p.resealing && p.reseal_started_at && Date.now() / 1000 - p.reseal_started_at >= 8) {
+    p.resealing = false;
+    p.reseal_started_at = null;
+  }
+  return {
+    set: Boolean(p.set),
+    set_at: p.set_at ?? null,
+    luna_id: p.luna_id || null,
+    signing_public: p.signing_public || null,
+    check_due: Boolean(p.check_due),
+    last_checked_at: p.last_checked_at ?? 0,
+    phrase_words: p.phrase_words ?? 0,
+    moving: p.moving ?? null,
+    old_phrase_copies: p.old_phrase_copies ?? { count: 0, removed_at: null },
+    resealing: Boolean(p.resealing),
+  };
+});
 
 export { DEVICE_TOKEN_REJECTED };

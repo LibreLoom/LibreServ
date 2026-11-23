@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
 import { useFileSource } from "../../../lib/fileSource.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
@@ -74,7 +75,9 @@ function AudioPlayer({ bytes, path }) {
   if (!url) return null;
   return (
     <div className="rounded-large-element surface-primary p-4">
-      <p className="text-sm mb-3 break-all">{path.split("/").pop()}</p>
+      <p className="text-sm mb-3 break-words">
+        <InlinePill className="break-words">{path.split("/").pop()}</InlinePill>
+      </p>
       <audio controls className="w-full" src={url}>
         Your browser cannot play this audio. Download it instead.
       </audio>

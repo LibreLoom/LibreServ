@@ -96,10 +96,7 @@ export default function UploadFilesPanel({
             size="sm"
             type="button"
             disabled={busy}
-            onClick={() => {
-              haptic("light");
-              fileInputRef.current?.click();
-            }}
+            onClick={() => fileInputRef.current?.click()}
           >
             Choose files
           </Button>
@@ -110,10 +107,7 @@ export default function UploadFilesPanel({
               size="sm"
               type="button"
               disabled={busy}
-              onClick={() => {
-                haptic("light");
-                folderInputRef.current?.click();
-              }}
+              onClick={() => folderInputRef.current?.click()}
             >
               <FolderUp size={14} aria-hidden="true" />
               Choose a folder

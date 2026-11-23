@@ -1,4 +1,4 @@
-import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, measureElement as measureVirtualElement, useWindowVirtualizer } from "@tanstack/react-virtual";
@@ -171,8 +171,10 @@ const ROW_OVERSCAN_BEHIND = 3;
 /** The same on a folder's first frame (see fullOverscan). */
 const FIRST_FRAME_OVERSCAN = 2;
 /** A row's height before any row is measured; the first measured row replaces it. */
-const ROW_HEIGHT_GUESS = 47;
-const DENSE_ROW_HEIGHT_GUESS = 43;
+// Rows with a size/age line are taller than the one-line guess; the first
+// measured row replaces these, but a close guess keeps the first frame still.
+const ROW_HEIGHT_GUESS = 62;
+const DENSE_ROW_HEIGHT_GUESS = 58;
 const SORT_STORAGE_KEY = "luna.files.sort";
 
 /** @type {WeakMap<object, boolean>} */
@@ -568,7 +570,7 @@ function createRowSlots() {
  *   backupsHref?: string | null,
  *   toolbarExtra?: import("react").ReactNode,
  *   folderActions?: import("react").ReactNode,
- *   emptyTitle?: string,
+ *   emptyTitle?: import("react").ReactNode,
  *   className?: string,
  *   listClassName?: string,
  *   dense?: boolean,
@@ -1012,6 +1014,23 @@ export default function FileBrowser({
       : floorSegs[floorSegs.length - 1])
     : driveLabel;
   const upPath = up !== null && (!floored || pathContains(floor, up)) ? up : null;
+
+  // Deep paths would otherwise wrap into a tall stack of crumbs. Keep the
+  // first two and last three, and put everything between them in one menu —
+  // every hidden crumb still opens its own folder through folderHref.
+  const visibleCrumbs = segments.slice(floorSegs.length).map((segment, i) => {
+    const segIndex = floorSegs.length + i;
+    return {
+      segIndex,
+      segPath: segments.slice(0, segIndex + 1).join("/"),
+      label: segmentLabel ? segmentLabel(segment, segIndex) : segment,
+    };
+  });
+  const crumbsCollapsed = visibleCrumbs.length > 5;
+  const shownCrumbs = crumbsCollapsed
+    ? [...visibleCrumbs.slice(0, 2), ...visibleCrumbs.slice(-3)]
+    : visibleCrumbs;
+  const hiddenCrumbs = crumbsCollapsed ? visibleCrumbs.slice(2, -3) : [];
 
   // Keyboard: keys act on the selected rows. Pickers only pick, and dialogs
   // (which own their keys) are skipped by the shortcut layer itself.
@@ -1633,7 +1652,9 @@ export default function FileBrowser({
     return () => window.removeEventListener("pointermove", dragOver);
   }, [lunaDragActive, clearSpringLoad]);
 
-  const showTrashEntry = Boolean(trashHref && !isPicker && path === "");
+  // A member's virtual root is the top of their world, so Trash belongs
+  // there too — not just at the drive's real root.
+  const showTrashEntry = Boolean(trashHref && !isPicker && (path === "" || (floor !== "" && path === floor)));
   const showBackupsEntry = Boolean(backupsHref && !isPicker && path === "");
 
   const folderActionButtons = hasFolderActions ? (
@@ -1830,10 +1851,10 @@ export default function FileBrowser({
                   </p>
                   <div className={`flex items-center gap-2 font-mono text-sm ${fg}`}>
                     <span>{rootCrumbLabel}</span>
-                    {segments.slice(floorSegs.length).map((segment, i) => (
-                      <span key={`probe-${segment}-${i}`} className="flex items-center gap-2">
+                    {shownCrumbs.map((crumb, i) => (
+                      <span key={`probe-${crumb.segPath}`} className="flex items-center gap-2">
                         <span aria-hidden="true">/</span>
-                        <span>{segmentLabel ? segmentLabel(segment, floorSegs.length + i) : segment}</span>
+                        <span>{crumbsCollapsed && i === 2 ? "…" : crumb.label}</span>
                       </span>
                     ))}
                     {breadcrumbExtra}
@@ -1907,9 +1928,8 @@ export default function FileBrowser({
                       </button>
                     );
                   })()}
-                  {segments.slice(floorSegs.length).map((segment, i) => {
-                    const segIndex = floorSegs.length + i;
-                    const segPath = segments.slice(0, segIndex + 1).join("/");
+                  {shownCrumbs.map((crumb, i) => {
+                    const segPath = crumb.segPath;
                     const isSegDrop = dropTarget === `::seg::${segPath}`;
                     // The current (last) segment is a valid target too —
                     // dropping moves items into the folder being browsed;
@@ -1918,35 +1938,66 @@ export default function FileBrowser({
                     const segDropProps = folderDropProps(`::seg::${segPath}`, segPath);
 
                     return (
-                      <span key={`${segment}-${i}`} className="flex items-center gap-2 min-w-0">
-                        <span className={fg} aria-hidden="true">/</span>
-                        {linkNavigation ? (
-                          <TextLink
-                            to={folderHref(driveId, segPath)}
-                            surface={surface}
-                            className={cn(
-                              `no-underline hover:underline decoration-accent hover:decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
-                              isSegDrop && "ring-2 ring-accent",
-                            )}
-                            draggable={false}
-                            {...segDropProps}
-                          >
-                            {segmentLabel ? segmentLabel(segment, segIndex) : segment}
-                          </TextLink>
-                        ) : (
-                          <button
-                            type="button"
-                            {...segDropProps}
-                            className={cn(
-                              `${fg} hover:underline decoration-accent underline-offset-4 break-all text-left rounded-pill px-1 -mx-1`,
-                              isSegDrop && "ring-2 ring-accent",
-                            )}
-                            onClick={() => openFolder(segPath)}
-                          >
-                            {segmentLabel ? segmentLabel(segment, segIndex) : segment}
-                          </button>
-                        )}
-                      </span>
+                      <Fragment key={`${segPath}-${i}`}>
+                        {crumbsCollapsed && i === 2 ? (
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className={fg} aria-hidden="true">/</span>
+                            <Dropdown
+                              menu
+                              menuLabel="Hidden folders"
+                              options={hiddenCrumbs.map((hidden) => ({ value: hidden.segPath, label: hidden.label }))}
+                              value=""
+                              align="start"
+                              onChange={(hiddenPath) => {
+                                if (linkNavigation) navigate(folderHref(driveId, hiddenPath));
+                                else openFolder(hiddenPath);
+                              }}
+                              renderTrigger={({ open: isOpen, toggle, onKeyDown }) => (
+                                <button
+                                  type="button"
+                                  className={`${fg} hover:underline decoration-accent underline-offset-4 rounded-pill px-1 -mx-1`}
+                                  aria-label="Show hidden folders"
+                                  aria-haspopup="menu"
+                                  aria-expanded={isOpen}
+                                  onClick={toggle}
+                                  onKeyDown={onKeyDown}
+                                >
+                                  …
+                                </button>
+                              )}
+                            />
+                          </span>
+                        ) : null}
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className={fg} aria-hidden="true">/</span>
+                          {linkNavigation ? (
+                            <TextLink
+                              to={folderHref(driveId, segPath)}
+                              surface={surface}
+                              className={cn(
+                                `no-underline hover:underline decoration-accent hover:decoration-accent underline-offset-4 break-all ${fg} rounded-pill px-1 -mx-1`,
+                                isSegDrop && "ring-2 ring-accent",
+                              )}
+                              draggable={false}
+                              {...segDropProps}
+                            >
+                              {crumb.label}
+                            </TextLink>
+                          ) : (
+                            <button
+                              type="button"
+                              {...segDropProps}
+                              className={cn(
+                                `${fg} hover:underline decoration-accent underline-offset-4 break-all text-left rounded-pill px-1 -mx-1`,
+                                isSegDrop && "ring-2 ring-accent",
+                              )}
+                              onClick={() => openFolder(segPath)}
+                            >
+                              {crumb.label}
+                            </button>
+                          )}
+                        </span>
+                      </Fragment>
                     );
                   })}
                   {listBusy ? (
@@ -2483,7 +2534,17 @@ export default function FileBrowser({
                     </>
                   ) : null}
                 </p>
-                {isFolderGone(listing.error) ? null : (
+                {isFolderGone(listing.error) ? (
+                  <Button
+                    variant="outline"
+                    surface={surface}
+                    size="sm"
+                    className="mt-4"
+                    asChild
+                  >
+                    <Link to="/files" draggable={false}>Back to Files</Link>
+                  </Button>
+                ) : (
                   <Button
                     variant="outline"
                     surface={surface}
@@ -2618,7 +2679,7 @@ FileBrowser.propTypes = {
   backupsHref: PropTypes.string,
   toolbarExtra: PropTypes.node,
   folderActions: PropTypes.node,
-  emptyTitle: PropTypes.string,
+  emptyTitle: PropTypes.node,
   className: PropTypes.string,
   listClassName: PropTypes.string,
   dense: PropTypes.bool,

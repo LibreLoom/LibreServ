@@ -26,9 +26,7 @@ function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSourc
   const item = {
     ...backup,
     kind: "cloud",
-    last_error: needsPayment
-      ? "Add a payment card at connect.luna.libreloom.org to store your cloud backup."
-      : backup.last_error,
+    last_error: needsPayment ? "" : backup.last_error,
     destination: "Cloud",
     source_name: backup.source_name || backup.source_path || "Whole drive",
   };
@@ -48,6 +46,9 @@ function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSourc
             {backup.source_drive_name ? `On ${backup.source_drive_name}` : "Whole drive"}
             {size ? ` · ${size} in the cloud` : ""}
           </p>
+          {backup.check_problem && (
+            <p role="status" className="text-primary text-sm">{backup.check_problem}</p>
+          )}
           {active ? (
             !backupWaitingReason(item) && !backup.covered_by && (
               <BackupStatusNotice

@@ -59,7 +59,7 @@ export default function RecoveryWizardPage() {
     setDownloaded(false);
     const deviceToken = normalizedToken(token);
     if (hasToken && !/^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{16,32}$/.test(deviceToken)) {
-      setError("Enter the 16 to 32 character device token from the quick-start guide, or turn off \"This Luna has a device token\".");
+      setError("Enter the 16 to 32 character device token from the quick-start guide, or turn off the device-token setting.");
       setErrorField("device-token");
       return;
     }
@@ -122,7 +122,6 @@ export default function RecoveryWizardPage() {
                   options={SELECTORS.map(([value, label]) => ({ value, label }))}
                   value={selectorType}
                   onChange={(value) => {
-                    haptic("selection");
                     clearFeedback();
                     setSelectorType(value);
                   }}
@@ -162,7 +161,6 @@ export default function RecoveryWizardPage() {
                   surface="secondary"
                   checked={hasToken}
                   onChange={(checked) => {
-                    haptic("selection");
                     clearFeedback();
                     setHasToken(checked);
                   }}
@@ -218,7 +216,9 @@ export default function RecoveryWizardPage() {
                 <p className="text-primary text-sm">Luna signs the selected accounts out on all devices.</p>
               </section>
 
-              {error && <InlineError>{error}</InlineError>}
+              {/* Field errors show on their field (with shake and aria-invalid);
+                  only a failure with no field to attach to uses this notice. */}
+              {error && !errorField && <InlineError>{error}</InlineError>}
               {downloaded && (
                 <Callout tone="success">
                   Your browser started to download the recovery file as <InlinePill>{filename}</InlinePill>.

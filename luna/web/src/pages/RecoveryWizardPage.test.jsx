@@ -16,6 +16,15 @@ function deviceTokenInput() {
   return screen.getByLabelText("Device token*", { exact: true });
 }
 
+// Field validation now appears once, on the field itself (shake, aria-invalid,
+// aria-describedby) instead of being repeated in a second form-level notice.
+function expectFieldError(text) {
+  const message = screen.getByText(text, { exact: true });
+  const input = document.getElementById(message.id.replace(/-error$/, ""));
+  expect(input).toHaveAttribute("aria-invalid", "true");
+  expect(input).toHaveAttribute("aria-describedby", message.id);
+}
+
 function chooseAccount(label) {
   fireEvent.click(screen.getByLabelText("Account to recover"));
   fireEvent.click(screen.getByRole("option", { name: label }));
@@ -73,7 +82,7 @@ describe("RecoveryWizardPage", () => {
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords(`${"é".repeat(4)}a1`);
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("at least 12 characters");
+    expectFieldError("Passwords need at least 12 characters.");
     expect(clicked).not.toHaveBeenCalled();
   });
 
@@ -116,7 +125,7 @@ describe("RecoveryWizardPage", () => {
     fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("3-32 letters, numbers");
+    expectFieldError("Usernames are 3-32 letters, numbers, dots, dashes, or underscores.");
     expect(clicked).not.toHaveBeenCalled();
   });
 
@@ -125,15 +134,15 @@ describe("RecoveryWizardPage", () => {
     fireEvent.change(deviceTokenInput(), { target: { value: "bad" } });
     fillPasswords("short1");
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("16 to 32 character device token");
+    expectFieldError("Enter the 16 to 32 character device token from the quick-start guide, or turn off the device-token setting.");
     fireEvent.change(deviceTokenInput(), { target: { value: "ABCDEFGHIJKLMNOP" } });
     fireEvent.change(screen.getByLabelText("New password*", { exact: true }), { target: { value: "short1" } });
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("at least 12 characters");
+    expectFieldError("Passwords need at least 12 characters.");
     fillPasswords("longpassword123");
     fireEvent.change(screen.getByLabelText("Confirm new password*", { exact: true }), { target: { value: "different123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("passwords do not match");
+    expectFieldError("The passwords do not match.");
     expect(clicked).not.toHaveBeenCalled();
   });
 

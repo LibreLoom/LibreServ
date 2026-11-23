@@ -334,11 +334,14 @@ function EditorSession({
   });
   syncRef.current = sync;
 
+  // `_offline` means the hub never answered (or gave up) and the document was
+  // seeded from the file. That is NOT a live session, even though the socket
+  // may still report "open" for a solo room — say so, rather than "Live".
   const presenceStatus =
     phase === "ready"
-      ? connStatus === "open" || sync._offline
+      ? connStatus === "open" && !sync._offline
         ? "ready"
-        : connStatus === "closed" || connStatus === "error"
+        : connStatus === "closed" || connStatus === "error" || sync._offline
           ? "error"
           : "loading"
       : phase === "error"

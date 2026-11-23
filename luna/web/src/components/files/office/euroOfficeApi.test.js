@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   euroOfficeDocumentType,
+  createEuroOfficeSession,
   canSaveOfficeExt,
   bundleUrl,
   watchEuroOfficeChanges,
@@ -781,5 +782,28 @@ describe("editor modified-flag helpers", () => {
     expect(getEuroOfficeHistoryIndex(iframe)).toBe(7);
     expect(getEuroOfficeHistoryIndex(null)).toBeNull();
     expect(() => resetEuroOfficeModified(null)).not.toThrow();
+  });
+});
+
+describe("createEuroOfficeSession", () => {
+  it("maps an unavailable office service to the install-card error, not a raw backend message", async () => {
+    const source = /** @type {any} */ ({
+      officeSession: vi.fn(async () => {
+        const err = /** @type {any} */ (new Error("The fake Luna can't run the document editor."));
+        err.code = "office_unavailable";
+        throw err;
+      }),
+    });
+
+    await expect(createEuroOfficeSession("d1", "a/Letter.docx", source)).rejects.toBeInstanceOf(
+      EuroOfficeUnavailableError,
+    );
+  });
+
+  it("leaves every other session failure alone", async () => {
+    const original = new Error("Sign in to continue.");
+    const source = /** @type {any} */ ({ officeSession: vi.fn(async () => { throw original; }) });
+
+    await expect(createEuroOfficeSession("d1", "a/Letter.docx", source)).rejects.toBe(original);
   });
 });

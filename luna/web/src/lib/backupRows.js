@@ -84,9 +84,8 @@ export function backupWaitingReason({ kind, last_error: error, waiting_reason: r
   if (error.startsWith("Cloud storage is full.")) return error;
   if (
     error === "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups." ||
-    error.startsWith("Add a payment card at connect.luna.libreloom.org") ||
-    error === "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup."
-  ) return error;
+    error.startsWith("Add a payment card at")
+  ) return "Add a payment card in Luna Connect before cloud backups can start.";
   return null;
 }
 
@@ -121,8 +120,10 @@ export function backupStatus(b, now = Date.now()) {
   if (b.status === "source_gone") return { label: "Original is gone", variant: "default" };
   if (b.status === "paused") return { label: "Paused", variant: "warning", hint: PAUSED_FROM_DRIVE_HINT };
   if (b.covered_by) return { label: "Included in a bigger backup", variant: "default" };
-  if (backupWaitingReason(b)) return { label: "Waiting", variant: "warning" };
+  // A lock-paused backup also carries a waiting reason from lunad, but the person
+  // needs the unlock instruction ("Paused until …"), not the generic "Waiting".
   if (b.paused === "locked") return { label: "Paused", variant: "warning" };
+  if (backupWaitingReason(b)) return { label: "Waiting", variant: "warning" };
   if (b.state === "in_progress") {
     return b.check_problem
       ? { label: "Check failed", variant: "warning" }
@@ -194,7 +195,9 @@ export function backupHeadline(rows) {
   if (rows.length === 0) return "No backups yet";
   const count = rows.filter((b) => needsALook(b)).length;
   if (count === 0) {
-    const paused = rows.filter((b) => b.status === "active" && !b.covered_by && b.paused === "locked" && !backupWaitingReason(b)).length;
+    // A lock-paused row keeps lunad's waiting reason; it is still a paused backup,
+    // so count it here before the generic "waiting" line below.
+    const paused = rows.filter((b) => b.status === "active" && !b.covered_by && b.paused === "locked").length;
     if (paused === 1) return "1 backup is paused";
     if (paused > 1) return `${paused} backups are paused`;
     const waiting = rows.filter((b) => b.status === "active" && !b.covered_by && backupWaitingReason(b)).length;

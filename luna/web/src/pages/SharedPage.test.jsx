@@ -143,4 +143,12 @@ describe("SharedPage", () => {
     renderPage();
     expect(await screen.findByText("family")).toBeInTheDocument();
   });
+
+  it("hides the Manage tab from a member who shares nothing", async () => {
+    stubApi({ role: "user", mine: { sharing: [], with_me: WITH_ME } });
+    renderPage();
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Shared with you" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Manage sharing" })).not.toBeInTheDocument();
+  });
 });

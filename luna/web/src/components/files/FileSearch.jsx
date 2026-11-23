@@ -1,5 +1,6 @@
 import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -30,7 +31,8 @@ import {
   saveSearchKind,
 } from "../../lib/fileSearch.js";
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
-import { parentPath, pathBasename } from "../../lib/paths";
+import { parentPath, pathBasename, searchResultHref } from "../../lib/paths";
+import { memberSearchHref } from "../../lib/shareTree.js";
 import { isImageFile } from "../../lib/fileKinds.js";
 import { perfEndAfterPaint, perfStart } from "../../lib/perf.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -181,6 +183,7 @@ const FolderPickerModal = lazy(() => import("./FolderPickerModal"));
  * share, copy, move, trash) so a match is never just a name you can't use.
  */
 export default function FileSearch() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const { user } = useAuth();
@@ -509,11 +512,16 @@ export default function FileSearch() {
 
   const handleInputKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLInputElement>} */ event) => {
     if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-      // Enter opens the best match, like most search boxes.
-      const firstLink = panelRef.current?.querySelector?.('[data-slot="file-search-link"]');
-      if (firstLink instanceof HTMLElement) {
+      // Enter opens the best match in its folder with the file highlighted —
+      // not straight into a viewer, which would lose the folder context.
+      const firstHit = search.hits[0];
+      if (firstHit) {
         event.preventDefault();
-        firstLink.click();
+        const href = memberAccess.data
+          ? memberSearchHref(memberAccess.data, firstHit)
+          : searchResultHref(firstHit);
+        navigate(href);
+        beginClose("medium");
       }
       return;
     }
@@ -525,7 +533,7 @@ export default function FileSearch() {
         firstLink.scrollIntoView?.({ block: "nearest" });
       }
     }
-  }, []);
+  }, [search.hits, memberAccess.data, navigate, beginClose]);
 
   const handleListKeyDown = useCallback((/** @type {import("react").KeyboardEvent<HTMLUListElement>} */ event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;

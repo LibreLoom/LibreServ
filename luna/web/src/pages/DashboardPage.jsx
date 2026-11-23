@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { HardDrive } from "lucide-react";
+import { HardDrive, History } from "lucide-react";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
@@ -59,6 +59,40 @@ function getGreeting() {
 }
 
 const NO_GRANTS = [];
+
+/** Placeholder rows with the same shape and height as the real Recents card. */
+function RecentsSkeleton() {
+  return (
+    <Card icon={History} title="Recents" noHeightAnim>
+      <ul className="space-y-3 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <li key={i} className="rounded-large-element surface-primary p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="mt-0.5 h-6 w-6 shrink-0 rounded-large-element surface-secondary" />
+                <div className="space-y-2 py-0.5">
+                  <div className="h-4 w-40 rounded-pill surface-secondary" />
+                  <div className="h-3 w-24 rounded-pill surface-secondary" />
+                </div>
+              </div>
+              <div className="h-3 w-10 rounded-pill surface-secondary" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** Holds the drive column's place while its list is still loading. */
+function DrivesSkeleton() {
+  return (
+    <div
+      className="h-64 rounded-large-element surface-secondary p-5 animate-pulse motion-reduce:animate-none"
+      aria-hidden="true"
+    />
+  );
+}
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
@@ -143,6 +177,7 @@ export default function DashboardPage() {
     return byDrive;
   }, [grants]);
   const memberSharesLoading = !isAdmin && access.isLoading;
+  const drivesLoading = drives.isLoading || memberSharesLoading;
   // W1/W2/W3 (luna/perf): the Dashboard is usable once its drives, files and
   // recents have answered (or failed).
   const dashboardSettled = !drives.isLoading && !recents.isLoading && !memberSharesLoading;
@@ -157,8 +192,8 @@ export default function DashboardPage() {
     grants.length === 0 &&
     albumsShared.length === 0;
 
-  // What the right-hand column holds. Its heading is always there when the column is: an Admin
-  // with no drives and nothing new plugged in gets no column at all (the Needs you "No drives yet" row covers it).
+  // The recents column is always there: rows once loaded, a friendly empty state once settled,
+  // and a placeholder while the list is still loading. An empty card stays in one column.
   const hasRecents = recentItems.length > 0;
   const showAlbums = !isAdmin && !memberSharesLoading && albumsShared.length > 0;
   const showNothingShared = !drives.isLoading && !drives.isError && memberHasNothingShared;
@@ -171,6 +206,11 @@ export default function DashboardPage() {
     (!isAdmin && grants.length > 0) ||
     showAlbums ||
     showNothingShared;
+  // Hold the drives column's place with a skeleton while its lists answer.
+  const showDrives = drivesLoading || showDrivesColumn;
+  // Two columns only when both really hold content (or both are still loading),
+  // so an empty recents card never claims half the page.
+  const twoColumns = (hasRecents && showDrivesColumn) || (recents.isLoading && drivesLoading);
   // "See all shared items" lives on the first drive card that is ready (the only cards that show
   // it). An unplugged, ejected or failed first drive must not take the link with it; with no
   // ready card at all, the fallback Card below carries the link instead.
@@ -223,80 +263,85 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {(hasRecents || showDrivesColumn) && (
-          <div
-            className={cn(
-              "grid grid-cols-1 gap-8 px-8 items-start",
-              hasRecents && showDrivesColumn && "md:grid-cols-2",
-            )}
-          >
-            {hasRecents && (
-              <div className="min-w-0">
-                <RecentsCard items={recentItems} drives={adopted} />
-              </div>
-            )}
-
-            {showDrivesColumn && (
-              <div className="min-w-0 space-y-4">
-                <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your files"}</h2>
-
-                {drivesFailed && (
-                  <PageNotice variant="error">
-                    <div className="space-y-3" role="alert">
-                      <p>
-                        {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your files."}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        surface="primary"
-                        loading={drives.isFetching}
-                        onClick={() => drives.refetch()}
-                      >
-                        Try again
-                      </Button>
-                    </div>
-                  </PageNotice>
-                )}
-
-                {adopted.length > 0 && (
-                  <div className="grid grid-cols-1 gap-6">
-                    {adopted.map((drive, index) => (
-                      <DriveHomeCard
-                        key={drive.id}
-                        drive={drive}
-                        isAdmin={isAdmin}
-                        grants={grantsByDrive.get(drive.id) ?? NO_GRANTS}
-                        showSeeAllShared={memberHasGrants && index === firstReadyIndex}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {isAdmin && <NewDriveCard drives={pluggedIn} />}
-
-                {/* Shared folders with no ready drive card to hang the link on: never a dead end. */}
-                {memberHasGrants && firstReadyIndex === -1 && (
-                  <Card>
-                    <Button size="sm" variant="outline" asChild>
-                      <Link to="/shared">See all shared items</Link>
-                    </Button>
-                  </Card>
-                )}
-
-                {showNothingShared && (
-                  <EmptyState
-                    icon={HardDrive}
-                    title="Nothing shared with you yet"
-                    description="Ask an Admin to share a folder, drive, or album with you."
-                  />
-                )}
-
-                {showAlbums && <SharedAlbumsCard albums={albumsShared} />}
-              </div>
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-8 px-8 items-start",
+            twoColumns && "md:grid-cols-2",
+          )}
+        >
+          <div className="min-w-0">
+            {recents.isLoading ? (
+              <RecentsSkeleton />
+            ) : (
+              <RecentsCard items={recentItems} drives={adopted} />
             )}
           </div>
-        )}
+
+          {showDrives && (
+            <div className="min-w-0 space-y-4">
+              <h2 className="font-mono font-normal text-lg">{isAdmin ? "Drives" : "Your files"}</h2>
+              {drivesLoading ? (
+                <DrivesSkeleton />
+              ) : (
+                <>
+                  {drivesFailed && (
+                    <PageNotice variant="error">
+                      <div className="space-y-3">
+                        <p>
+                          {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your files."}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          surface="primary"
+                          loading={drives.isFetching}
+                          onClick={() => drives.refetch()}
+                        >
+                          Try again
+                        </Button>
+                      </div>
+                    </PageNotice>
+                  )}
+
+                  {adopted.length > 0 && (
+                    <div className="grid grid-cols-1 gap-6">
+                      {adopted.map((drive, index) => (
+                        <DriveHomeCard
+                          key={drive.id}
+                          drive={drive}
+                          isAdmin={isAdmin}
+                          grants={grantsByDrive.get(drive.id) ?? NO_GRANTS}
+                          showSeeAllShared={memberHasGrants && index === firstReadyIndex}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {isAdmin && <NewDriveCard drives={pluggedIn} />}
+
+                  {/* Shared folders with no ready drive card to hang the link on: never a dead end. */}
+                  {memberHasGrants && firstReadyIndex === -1 && (
+                    <Card>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to="/shared">See all shared items</Link>
+                      </Button>
+                    </Card>
+                  )}
+
+                  {showNothingShared && (
+                    <EmptyState
+                      icon={HardDrive}
+                      title="Nothing shared with you yet"
+                      description="Ask an Admin to share a folder, drive, or album with you."
+                    />
+                  )}
+
+                  {showAlbums && <SharedAlbumsCard albums={albumsShared} />}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {sheet && (

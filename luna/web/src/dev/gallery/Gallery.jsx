@@ -271,7 +271,11 @@ export default function Gallery() {
           onRecord={record}
         />
 
-        <FaultPanel snap={snap} getControl={control} onSignedIn={() => frameRef.current?.contentWindow?.location.reload()} />
+        <FaultPanel
+          snap={snap}
+          getControl={control}
+          onSignedIn={() => frameRef.current?.contentWindow?.location.reload()}
+        />
       </aside>
     </div>
   );
@@ -393,9 +397,27 @@ export const FaultPanel = memo(/** @param {any} props */ function FaultPanel({ s
   const [match, setMatch] = useState("");
   const [mode, setMode] = useState("500");
   const [once, setOnce] = useState(false);
+  const [reqMethod, setReqMethod] = useState("POST");
+  const [reqPath, setReqPath] = useState("");
+  const [reqBody, setReqBody] = useState("");
+  const [reqResult, setReqResult] = useState(/** @type {{ status: string, body: unknown } | null} */ (null));
   const c = getControl();
   if (!snap || !c) return <p className="text-xs">The app is loading…</p>;
   const paths = [...new Set(snap.log.map((l) => `${l.method} ${l.path.split("?")[0]}`))].slice(0, 30);
+
+  // The fake's send() dispatches as the signed-in user and records the request,
+  // so the answer shows both here and in Recent requests below.
+  const sendRequest = async (e) => {
+    e.preventDefault();
+    const target = reqPath.trim();
+    if (!target) return;
+    try {
+      const res = await c.send(reqMethod, target, reqBody);
+      setReqResult({ status: res.status, body: res.body });
+    } catch (err) {
+      setReqResult({ status: "—", body: `Request failed: ${err?.message || err}` });
+    }
+  };
 
   return (
     <section className="flex flex-col gap-3 rounded-large-element p-4 surface-secondary">
@@ -455,6 +477,41 @@ export const FaultPanel = memo(/** @param {any} props */ function FaultPanel({ s
           ))}
         </ul>
       </div>
+
+      <form onSubmit={sendRequest} className="flex flex-col gap-2 border-t border-accent pt-3">
+        <p className="text-xs">Send a request as the signed-in user. The answer lands in Recent requests below.</p>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Request method"
+            className="rounded-pill border border-accent bg-transparent px-3 py-1.5 text-sm focus:border-accent"
+            value={reqMethod}
+            onChange={(e) => setReqMethod(e.target.value)}
+          >
+            {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input
+            aria-label="Request path"
+            className="min-w-0 grow rounded-pill border border-accent bg-transparent px-3 py-1.5 text-sm focus:border-accent"
+            placeholder="/api/v1/drives/d1/lock"
+            value={reqPath}
+            onChange={(e) => setReqPath(e.target.value)}
+          />
+        </div>
+        <textarea
+          aria-label="Request body"
+          rows={2}
+          className="rounded-large-element border border-accent bg-transparent p-2 text-sm focus:border-accent"
+          placeholder={'Body (JSON), e.g. {"reason":"Testing"}'}
+          value={reqBody}
+          onChange={(e) => setReqBody(e.target.value)}
+        />
+        <Button type="submit" variant="outline" size="sm" disabled={!reqPath.trim()}>Send request</Button>
+        {reqResult && (
+          <pre role="status" className="my-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-large-element p-2 font-mono text-xs surface-primary">
+            {`${reqResult.status} ${typeof reqResult.body === "string" ? reqResult.body : JSON.stringify(reqResult.body)}`}
+          </pre>
+        )}
+      </form>
 
       <details className="border-t border-accent pt-3">
         <summary className="cursor-pointer text-sm">Recent requests ({snap.log.length})</summary>

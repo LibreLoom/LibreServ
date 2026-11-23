@@ -22,6 +22,7 @@ const snapshot = (over = {}) => ({
 const fakeControl = () => ({
   setOffline: vi.fn(), setLatency: vi.fn(), expireSession: vi.fn(), addFault: vi.fn(), removeFault: vi.fn(),
   setFaultOn: vi.fn(), signInAs: vi.fn(), addMember: vi.fn(() => "u9"), saveNow: vi.fn(),
+  send: vi.fn().mockResolvedValue({ status: 200, body: { ok: true } }),
 });
 
 describe("ResultBox", () => {
@@ -83,6 +84,21 @@ describe("FaultPanel", () => {
     expect(c.signInAs).toHaveBeenCalledWith("u9");
     fireEvent.click(screen.getByText(/200 GET \/api\/v1\/drives/));
     expect(screen.getByText('[{"id":"d1"}]')).toBeInTheDocument();
+  });
+
+  it("sends an arbitrary request as the signed-in user and shows its status and body", async () => {
+    const c = fakeControl();
+    c.send = vi.fn().mockResolvedValue({
+      status: 403,
+      body: { error: "Only an Admin can lock this drive." },
+    });
+    render(<FaultPanel snap={snapshot()} getControl={() => c} onSignedIn={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Request method"), { target: { value: "POST" } });
+    fireEvent.change(screen.getByLabelText("Request path"), { target: { value: "/api/v1/drives/d1/lock" } });
+    fireEvent.change(screen.getByLabelText("Request body"), { target: { value: '{"reason":"Testing"}' } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(c.send).toHaveBeenCalledWith("POST", "/api/v1/drives/d1/lock", '{"reason":"Testing"}');
+    expect(await screen.findByText(/403 .*Only an Admin can lock this drive/)).toBeInTheDocument();
   });
 });
 

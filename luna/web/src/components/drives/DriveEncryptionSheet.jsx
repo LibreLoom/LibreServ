@@ -47,9 +47,12 @@ export default function DriveEncryptionSheet({ open = true, drive, onClose, onPr
 }
 
 /** What the drive is, in a word, from what lunad says. */
-function stateOf(drive, status) {
+function stateOf(drive, status, locked) {
   if (!drive.encrypted) return { pill: "Not protected", variant: "default" };
-  if (status === "locked" || (status == null && drive.locked)) return { pill: "Protected · Locked", variant: "info" };
+  // Unplugged is its own state: lunad has no live lock answer for a drive that
+  // isn't here, so never claim such a drive is unlocked.
+  if (status === "unplugged") return { pill: "Protected · Unplugged", variant: "warning" };
+  if (locked) return { pill: "Protected · Locked", variant: "info" };
   return { pill: "Protected · Unlocked", variant: "success" };
 }
 
@@ -72,8 +75,10 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
   const status = encryption.data?.status ?? null;
   const plugged = status !== "unplugged";
   const erasing = status === "formatting";
-  const locked = status === "locked" || (status == null && Boolean(drive.encrypted && drive.locked));
-  const state = stateOf(drive, status);
+  // The encryption route reports `locked` even for an unplugged drive; until it
+  // answers, the drive row is the best known state.
+  const locked = encryption.data?.locked ?? Boolean(drive.encrypted && drive.locked);
+  const state = stateOf(drive, status, locked);
   // Offer protection only when lunad says this drive can take a password.
   // Until it answers, keep the offer (the erase window checks again).
   const canProtect = encryption.data?.can_protect !== false;
@@ -110,6 +115,14 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
       else setError(message);
     },
   });
+
+  /** Move to another sheet without carrying an earlier error into it. */
+  function openView(next) {
+    setError("");
+    setCurrentError("");
+    setMismatch("");
+    setView(next);
+  }
 
   function goHome() {
     setView("home");
@@ -221,12 +234,12 @@ function SheetBody({ drive, close, onProtect, onRemove }) {
 
       <div className="flex flex-wrap gap-3">
         {!drive.encrypted ? (
-          canProtect && <Button disabled={actionsOff} onClick={() => setView("protect")}>Protect with a password</Button>
+          canProtect && <Button disabled={actionsOff} onClick={() => openView("protect")}>Protect with a password</Button>
         ) : (
           <>
             {!locked && <Button variant="outline" disabled={actionsOff} loading={lock.isPending} onClick={() => { setError(""); lock.mutate(); }}>Lock</Button>}
-            <Button variant="outline" disabled={actionsOff} onClick={() => setView("change")}>Change password</Button>
-            <Button variant="accent" disabled={actionsOff} onClick={() => setView("remove")}>Remove protection</Button>
+            <Button variant="outline" disabled={actionsOff} onClick={() => openView("change")}>Change password</Button>
+            <Button variant="accent" disabled={actionsOff} onClick={() => openView("remove")}>Remove protection</Button>
           </>
         )}
       </div>

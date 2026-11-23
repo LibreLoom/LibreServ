@@ -74,7 +74,7 @@ export default function SharedPage() {
     input.focus();
     input.select();
     return true;
-  }, { label: "Search shared items", group: "Search", priority: 1 });
+  }, { label: "Find a shared item", group: "Search", priority: 1 });
 
   const mine = useQuery({
     queryKey: ["access-mine"],
@@ -101,7 +101,12 @@ export default function SharedPage() {
 
   const sharing = mine.data?.sharing || [];
   const withMe = mine.data?.with_me || [];
-  const tab = chosenTab ?? (isAdmin && withMe.length === 0 ? "manage" : "with_me");
+  // A Member who shares nothing has no Manage tab to open — keep them on
+  // Shared with you instead of offering an empty, unpopulatable tab.
+  const canManage = isAdmin || sharing.length > 0;
+  const tab = canManage
+    ? (chosenTab ?? (isAdmin && withMe.length === 0 ? "manage" : "with_me"))
+    : "with_me";
   const query = search.trim().toLowerCase();
   const matches = (row) =>
     !query
@@ -136,7 +141,7 @@ export default function SharedPage() {
               aria-label="Shared items"
               options={[
                 { value: "with_me", label: "Shared with you" },
-                { value: "manage", label: "Manage sharing" },
+                ...(canManage ? [{ value: "manage", label: "Manage sharing" }] : []),
               ]}
             />
             <label className="flex min-w-48 flex-1 items-center gap-2 rounded-pill border-2 border-transparent surface-secondary px-3 py-1 focus-within:border-accent motion-safe:transition-colors">
@@ -185,7 +190,7 @@ export default function SharedPage() {
                         render: (row) => (
                           <span className="flex min-w-0 items-center gap-2.5">
                             <SubjectIcon kind={row.kind} isFile={row.is_file} />
-                            <span className="min-w-0 text-sm truncate">{row.name}</span>
+                            <span className="min-w-0 max-w-64 text-sm truncate">{row.name}</span>
                           </span>
                         ),
                       },
@@ -290,7 +295,7 @@ export default function SharedPage() {
                           <span className="flex min-w-0 items-center gap-2.5">
                             <SubjectIcon kind={s.kind} isFile={s.is_file} />
                             <span className="min-w-0">
-                              <span className="block font-mono text-sm truncate">
+                              <span className="block max-w-64 font-mono text-sm truncate">
                                 {s.name || s.path || s.drive_label}
                               </span>
                               {!s.exists && (

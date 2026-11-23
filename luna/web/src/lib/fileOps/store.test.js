@@ -244,6 +244,69 @@ describe("file ops store: emits and haptics", () => {
   });
 });
 
+describe("file ops store: skips, stops and folder-only work", () => {
+  it("keeps the original when every item is skipped, with no toast", async () => {
+    const source = fakeSource({ listDir: vi.fn(async () => [{ name: "notes.txt", kind: "file" }]) });
+    const { store, addToast } = harness();
+    const id = store.startUpload({ source, driveId: "d", destLabel: "Inbox", files: [file("notes.txt")] });
+    await tick();
+    await tick();
+    let op = store.getState().ops[0];
+    expect(op.state).toBe("waiting");
+    store.decide(id, op.items[0].id, "skip");
+    op = store.getState().ops[0];
+    expect(op.state).toBe("done");
+    expect(op.kept).toBe(true);
+    expect(op.skippedCount).toBe(1);
+    expect(op.itemsTotal).toBe(0);
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it("settles as cancelled when the last item's X is clicked", async () => {
+    const source = fakeSource({
+      uploadFile: vi.fn((_d, _f, _p, _n, opts) => new Promise((_resolve, reject) => {
+        opts.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      })),
+    });
+    const { store, addToast } = harness();
+    const id = store.startUpload({ source, driveId: "d", files: [file("a.txt")] });
+    await tick();
+    expect(store.getState().ops[0].state).toBe("running");
+    store.cancel(id, store.getState().ops[0].items[0].id);
+    await tick();
+    const op = store.getState().ops[0];
+    expect(op.items[0].state).toBe("cancelled");
+    expect(op.state).toBe("cancelled");
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it("toasts for a folder-only drop that made folders", async () => {
+    const dirEntry = (name, children) => ({
+      isFile: false,
+      isDirectory: true,
+      name,
+      createReader: () => {
+        const queue = [children, []];
+        return { readEntries: (ok) => ok(queue.shift()) };
+      },
+    });
+    const { store, addToast } = harness();
+    store.startUpload({
+      source: fakeSource(),
+      driveId: "d",
+      destFolder: "Inbox",
+      destLabel: "Inbox",
+      dropped: { entries: [dirEntry("Trip", [dirEntry("Photos", [])])], files: [] },
+    });
+    await tick();
+    await tick();
+    const op = store.getState().ops[0];
+    expect(op.foldersDone).toBe(2);
+    expect(op.state).toBe("done");
+    expect(addToast).toHaveBeenCalledWith({ type: "success", message: "Made 2 folders." });
+  });
+});
+
 describe("file ops store: requests", () => {
   it("continues past a failed item and shows one problem", async () => {
     const ran = [];

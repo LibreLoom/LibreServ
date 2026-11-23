@@ -1,8 +1,9 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Check, Play } from "lucide-react";
+import { Check, ImageOff, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
+import { fmtDurationClock } from "./duration.js";
 import { gridThumbSrcSet, isLunadThumb } from "./thumbSrc.js";
 import { canWatchNearViewport, whenNearViewport } from "./nearViewport.js";
 
@@ -78,6 +79,11 @@ function PhotoThumb({
   sizes = undefined,
 }) {
   const [loaded, setLoaded] = useState(false);
+  // Remember which src failed, so a refetched photo with a new thumb gets a
+  // fresh chance without an effect that resets state.
+  const [failedThumb, setFailedThumb] = useState(/** @type {string|null} */ (null));
+  const failed = failedThumb === photo.thumb && photo.thumb != null;
+  const duration = fmtDurationClock(photo.duration_secs);
   const srcSet = sizes && isLunadThumb(photo.thumb) ? gridThumbSrcSet(photo.thumb) : undefined;
   // The image is asked for once the cell nears the screen (nearViewport.js),
   // so a jump loads what is in view first. Its src is set on the element,
@@ -188,7 +194,7 @@ function PhotoThumb({
  }`}
       aria-label={photo.private ? `${photo.name}, private` : photo.name}
     >
-      {photo.thumb ? (
+      {photo.thumb && !failed ? (
         <img
           ref={(img) => {
             imgRef.current = img;
@@ -204,18 +210,25 @@ function PhotoThumb({
           loading={gated ? undefined : "lazy"}
           decoding="async"
           onLoad={() => setLoaded(true)}
+          onError={() => setFailedThumb(photo.thumb)}
           className={`h-full w-full object-cover motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
         />
+      ) : failed ? (
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-primary">
+          <ImageOff size={22} aria-hidden="true" />
+          <span className="font-mono text-xs">Photo unavailable</span>
+        </span>
       ) : (
         <span className="flex h-full w-full items-center justify-center font-mono text-xs">
           {photo.kind === "video" ? "Video" : "Photo"}
         </span>
       )}
       {photo.kind === "video" && (
-        <span className="absolute bottom-2 left-2 flex h-7 w-7 items-center justify-center rounded-pill surface-primary">
-          <Play size={14} fill="currentColor" aria-hidden="true" />
+        <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-pill surface-primary px-2 py-1">
+          <Play size={12} fill="currentColor" aria-hidden="true" />
+          {duration && <span className="font-mono text-xs">{duration}</span>}
         </span>
       )}
       {photo.private && (
@@ -243,6 +256,7 @@ PhotoThumb.propTypes = {
     thumb: PropTypes.string,
     kind: PropTypes.string,
     private: PropTypes.bool,
+    duration_secs: PropTypes.number,
   }).isRequired,
   onOpen: PropTypes.func,
   onToggle: PropTypes.func,

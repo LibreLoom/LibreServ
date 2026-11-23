@@ -152,6 +152,7 @@ export const CASES = {
   },
   "GET /s/:token/form-image": { skip: "image bytes, not JSON" },
   "GET /s/:token/file": { skip: "file bytes, not JSON" },
+  "GET /s/:token/zip": { skip: "zip bytes, not JSON" },
 
   // Photos
   "GET /api/v1/photos": plain("/api/v1/photos"),

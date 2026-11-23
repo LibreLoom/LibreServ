@@ -240,7 +240,8 @@ function LookStep({ preview, password, starting, error, ready, clockMs, onErase,
         {expired || error?.fresh ? (
           <Button onClick={onLookAgain}>Look at the drive again</Button>
         ) : (
-          <Button variant="danger" disabled={!canErase} loading={starting} onClick={onErase}>
+          // The outcome buzz lives in `start`; the button must not buzz again.
+          <Button variant="danger" disabled={!canErase} loading={starting} onClick={onErase} haptic={false}>
             {waiting ? `Erase drive (${seconds})` : "Erase drive"}
           </Button>
         )}

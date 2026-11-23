@@ -8,7 +8,7 @@ import {
   hasWriteOnDrive, holdsPrivateFailure, holdsUnreachablePrivate, isAdmin, isTrashPath, privateBoundary, privateHeld,
 } from "../policy.js";
 import {
-  base, clean, descendants, driveReady, driveUsable, driveRow, ensureDirs, fsOf, fsOpts, join, moveToTrash, nowS, parentOf,
+  addFile, base, clean, descendants, driveReady, driveUsable, driveRow, ensureDirs, fsOf, fsOpts, join, moveToTrash, nowS, parentOf,
   pathExists, recordMove, resolveMove, trashEntry, uniqueName, under,
 } from "../fsmodel.js";
 import { activeRun } from "./format.js";
@@ -311,8 +311,10 @@ del("/api/v1/me/recents", ({ world, user, query }) => {
 });
 
 // ── File contents ───────────────────────────────────────────────────────────
-// A 1×1 PNG, a one-page PDF, and filler for everything the browser can't really play.
-const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+// A visibly sized 64×64 PNG (four colour bands and a lighter centre), a one-page PDF,
+// and filler for everything the browser can't really play. The image is big enough
+// to judge in the viewer; `sample: "bin"` (view-garbled) stays byte filler.
+const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR42u3PMRHAMAwAsQAzksApps4FERBlkCVTMHiwJ909gNdYEaXFs0obAAAAAAAAAAAAAABtgL1PaQAAAAAAAAAAAAAAfYD5zlTVgP+LVAAAAAAAAAAAAAAAfYBs2SEAAAAAAAAAAAAAgDbABV9397Tnk1KxAAAAAElFTkSuQmCC"), (c) => c.charCodeAt(0));
 const PDF = "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 40 100 Td (Luna sample PDF) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
 
 export function bytesFor(node) {
@@ -429,8 +431,17 @@ del("/api/v1/drives/:id/files", ({ world, user, params, query }) => {
   needWritable(world, driveId);
   if (!path) throw badPath();
   const fs = fsOf(world, driveId);
+  // Photos are seeded as library rows (fake/photos.js), not as files on the
+  // drive, so a path trashed from Photos may have no fs node yet. Treat it as
+  // a file when it is in world.photos: real lunad's Trash works on the photo
+  // file too. Keep the real-fs 404 for paths that are neither a file nor a
+  // photo. Drop the library row as well, so the photo leaves the timeline and
+  // the duplicates view on the next fetch.
+  const photo = (world.photos || []).find((p) => p.drive_id === driveId && p.path === path);
+  if (!fs.nodes[path] && photo) addFile(world, driveId, path, { size: photo.size ?? 1200 });
   if (!fs.nodes[path]) throw notFound();
   const trashPath = moveToTrash(world, driveId, path);
+  if (photo) world.photos = world.photos.filter((p) => p !== photo);
   return { ok: true, trash_path: trashPath };
 });
 
@@ -685,9 +696,26 @@ get("/api/v1/search", async ({ world, user, query }) => {
   hits.push(...contentHits);
   const limit = o.limit ?? 100;
   const contents = o.contentsLeft ? { contents_reading: true, contents_left: o.contentsLeft } : { contents_reading: false, contents_left: 0 };
-  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan: o.scanning ? { scanning: true, drives_total: 2, drives_done: 1, dirs_indexed: 1200, ...contents } : { scanning: false, drives_total: 1, drives_done: 1, dirs_indexed: 100, ...contents } };
+  // The scan covers every configured drive. The loop above skips drives that
+  // aren't plugged in and mounted, so report them as failed — that is what
+  // makes the app show its "couldn't read N drive" hint.
+  const drives = world.drives || [];
+  const ids = drives.length ? drives.map((d) => d.id) : Object.keys(world.fs || {});
+  const configured = ids.length;
+  const ready = ids.filter((id) => driveReady(world, id)).length;
+  const scan = {
+    scanning: Boolean(o.scanning),
+    drives_total: configured,
+    drives_done: ready,
+    drives_failed: Math.max(0, configured - ready),
+    dirs_indexed: o.scanning ? 1200 : 100,
+    ...contents,
+  };
+  return { hits: hits.slice(0, limit), close_only: false, truncated: hits.length > limit, incomplete: false, scan };
 });
 
 // ── Office editors: the fake has no document server ─────────────────────────
-post("/api/v1/office/session", () => fail(503, "The fake Luna can't run the document editor. Open this file on a real Luna to edit it.", "office_unavailable"));
+post("/api/v1/office/session", () =>
+  fail(503, "This Luna can't open office files. Its editor isn't installed.", "office_unavailable"),
+);
 

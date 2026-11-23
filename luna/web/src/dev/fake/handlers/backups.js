@@ -64,6 +64,9 @@ function backupJson(world, row, user) {
   const parent = coveringBackup(world, row);
   const { private_owner: owner, access: _access, created_at: _c, failing_since: _f, hard: _hard, ...rest } = row;
   const locks = pausedBy(world, row);
+  // A lock-paused row still carries lunad's waiting reason below. The UI gives
+  // `paused: "locked"` precedence so it shows "Paused until <all locked drives>
+  // are unlocked" rather than this generic one-drive waiting line.
   const lockedError = locks.paused && (row.kind === "cloud"
     ? "This drive is locked. Enter its password to open its files."
     : `Waiting: ${locks.locked_drive_names.at(-1)} is locked. Unlock it to continue the backups.`);
@@ -84,7 +87,7 @@ function backupJson(world, row, user) {
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), can_resume: row.status === "paused" && canDelete(world, row, user) }),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null, check_problem: row.check_problem || "" } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), can_resume: row.status === "paused" && canDelete(world, row, user) }),
     state: waiting ? "waiting" : uploading ? "in_progress" : health,
     ...(uploading ? { source_missing: false } : {}),
     can_delete: canDelete(world, row, user),

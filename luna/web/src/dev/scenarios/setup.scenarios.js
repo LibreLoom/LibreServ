@@ -150,9 +150,10 @@ export default [
     area: "Setup",
     title: "Account step asks for a Luna Connect device token",
     url: "/setup",
+    hostname: "kitchen.luna.servers.libreloom.org",
     seed: fresh({
       setup: { current_step: "account", step_data: { preflight_passed: true } },
-      world: (w) => { w.connectActive = true; w.setupSecret = "good-token"; },
+      world: (w) => { w.connectActive = true; w.setupSecret = "good-token"; w.setupOffLan = true; },
     }),
     check: ["Only appears when Connect is on and the page is on a public address", "A wrong token (anything but good-token) gives a clear error"],
   },

@@ -17,6 +17,15 @@ const second = (w) => {
   w.summaries.d2 = summary("d2", { total_bytes: 128 * GB, free_bytes: 100 * GB, used_bytes: 28 * GB, shortcuts: [] });
   w.fs = { ...(w.fs || {}), d2: { nodes: {}, trash: [] } };
 };
+/** A Member with a grant to d1, without taking over the gallery's session —
+ * "Sign in as" can then try the same drive with their own fresh try count. */
+const addMember = (w) => {
+  w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
+  w.access = [
+    ...(w.access || []),
+    { id: "g1", user_id: "u2", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Photos", caps: "view" },
+  ];
+};
 const asMember = (w) => {
   w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
   w.sessionUserId = "u2";
@@ -64,8 +73,8 @@ export default [
   },
   {
     id: "encryption/too-many-tries", area: A, title: "Already locked out after wrong tries", url: "/files",
-    seed: (w) => { encryptDrive(w, "d1"); w.unlockTries = { "u1:d1": { count: 5, until: Math.floor(Date.now() / 1000) + 300 } }; },
-    check: ["Any password, even the right one, says Too many wrong tries. Wait a few minutes", "The message gives no clock, because Luna doesn't send one", "A Member signing in gets their own count: try Sign in as"],
+    seed: (w) => { encryptDrive(w, "d1"); addMember(w); w.unlockTries = { "u1:d1": { count: 5, until: Math.floor(Date.now() / 1000) + 300 } }; },
+    check: ["Any password, even the right one, says Too many wrong tries. Wait a few minutes, with no shake", "The message gives no clock, because Luna doesn't send one", "Sign in as Sam (Member): the same drive has a fresh try count, so the right password opens it for them"],
   },
   {
     id: "encryption/unlock-busy", area: A, title: "Unlock refused: Luna is working on the drive", url: "/files",
@@ -155,7 +164,7 @@ export default [
       encryptDrive(w, "d1", { locked: false }); encryptDrive(w, "d2", { locked: false });
       w.backups = [backup({ source_drive: "d1", source_drive_name: "Family photos", target_drive: "d2", target_drive_name: "Backup drive", last_ok_at: at(3600) })];
     },
-    check: ["Lock the Backup drive from its Encryption sheet", "Open Back up on Family photos: the backup says Paused, with Paused until Backup drive is unlocked", "Back up now says Waiting: Backup drive is locked", "Unlock the drive: the backup is back to normal"],
+    check: ["Lock the Backup drive from its Encryption sheet", "Open Back up on Family photos: the backup says Paused, with Paused until Backup drive is unlocked", "Back up now says Paused until Backup drive is unlocked", "Unlock the drive: the backup is back to normal"],
   },
   {
     id: "encryption/backup-to-plain-refused", area: A, title: "Back up a protected drive to a plain one", url: "/files",
@@ -171,6 +180,6 @@ export default [
   {
     id: "encryption/member-cannot-manage", area: A, title: "A Member can't lock or change protection", url: "/files",
     seed: (w) => { asMember(w); encryptDrive(w, "d1", { locked: false }); },
-    check: ["The Member's Files page has no Encryption, Lock or Remove", "Sign in as Admin: the card has Encryption", "In the Break things panel, send POST /api/v1/drives/d1/lock as the Member: the fake answers Only an Admin can lock this drive"],
+    check: ["The Member's Files page has no Encryption, Lock or Remove", "Sign in as Admin: the card has Encryption", "Sign in as Sam, then use Break things → Send request with POST /api/v1/drives/d1/lock: the fake answers Only an Admin can lock this drive"],
   },
 ];

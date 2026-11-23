@@ -58,6 +58,8 @@ const NAV_IMPULSE_STEPS_S = 1.6;
 const PRIME_DELAY_MS = 320;
 /** Minimum px before a touch gesture picks a horizontal/vertical axis. */
 const AXIS_LOCK_PX = 8;
+/** A downward drag past this many px releases and closes the lightbox. */
+const SWIPE_DOWN_CLOSE_PX = 90;
 /** Rubber-band tension when dragging past the first/last photo. */
 const RUBBER_BAND_C = 0.55;
 
@@ -253,10 +255,15 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!slideshow || isClosing || photos.length < 2) return undefined;
     const id = setInterval(() => {
-      onIndexChange(index >= photos.length - 1 ? 0 : index + 1);
+      if (index >= photos.length - 1) {
+        // The last photo is the end of the show — stop instead of wrapping.
+        onSlideshowChange?.(false);
+        return;
+      }
+      onIndexChange(index + 1);
     }, 4000);
     return () => clearInterval(id);
-  }, [slideshow, isClosing, index, photos.length, onIndexChange]);
+  }, [slideshow, isClosing, index, photos.length, onIndexChange, onSlideshowChange]);
 
   /** Width of one pane + gap — the distance of a full slide step. */
   const slideStep = useCallback(() => {
@@ -276,6 +283,7 @@ export default function PhotoLightbox({
     if (el) el.style.transform = `translateX(${txPx}px)`;
   }, []);
 
+
   /** Current track translate in px — covers drags and mid-spring grabs. */
   const measureTrack = useCallback(() => {
     const el = trackElRef.current;
@@ -289,6 +297,12 @@ export default function PhotoLightbox({
     const match = /translateX\((-?\d+(?:\.\d+)?)px\)/.exec(el.style.transform || "");
     return match ? Number.parseFloat(match[1]) : 0;
   }, []);
+
+  /** Vertical pull-to-dismiss keeps the current x position under the finger. */
+  const writeTrackY = useCallback((tyPx) => {
+    const el = trackElRef.current;
+    if (el) el.style.transform = `translateX(${measureTrack()}px) translateY(${tyPx}px)`;
+  }, [measureTrack]);
 
   /** Diminishing-returns drag past the first/last photo — soft, not stiff. */
   function rubberBand(dx, dim) {
@@ -408,24 +422,19 @@ export default function PhotoLightbox({
     [settleTo, setPending, paneX, slideStep, measureTrack, finishSettle],
   );
 
-  useEffect(() => {
-    if (!photo) return undefined;
-    function onKey(e) {
-      if (isClosingRef.current || e.key !== "Escape") return;
-      if (infoOpen) {
-        haptic("light");
-        setInfoOpen(false);
-      } else {
-        requestClose();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [photo, requestClose, infoOpen]);
-
-  // The rest of the lightbox keys go through the shared shortcut layer so the
-  // `?` sheet lists them. Dialog-safe: this lightbox is itself the open dialog.
+  // The lightbox keys go through the shared shortcut layer so the `?` sheet
+  // lists them. Dialog-safe: this lightbox is itself the open dialog, and the
+  // details panel stacks above it, so Escape must win over both.
   const viewing = Boolean(photo);
+  useShortcut("Escape", () => {
+    if (isClosingRef.current) return;
+    if (infoOpen) {
+      haptic("light");
+      setInfoOpen(false);
+    } else {
+      requestClose();
+    }
+  }, { label: "Close", group: "Photos", enabled: viewing, allowInModal: true });
   useShortcut("ArrowLeft", () => {
     if (isClosingRef.current) return;
     // Navigate from the committed destination, not the rendered prop —
@@ -624,7 +633,13 @@ export default function PhotoLightbox({
       if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return;
       g.axis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
     }
-    if (g.axis !== "h") return;
+    if (g.axis === "v") {
+      // Pull down to dismiss: the strip follows the finger with the same soft
+      // resistance used at the horizontal ends. Upward pulls stay put.
+      const dim = stageRef.current?.clientHeight || window.innerHeight || 1;
+      writeTrackY(dy > 0 ? rubberBand(dy, dim) : 0);
+      return;
+    }
     const now = performance.now();
     const dt = now - g.lastT;
     if (dt > 0) {
@@ -676,9 +691,20 @@ export default function PhotoLightbox({
     const { first } = windowRef.current ?? { first: 0 };
     const len = live.current.photosLength;
     const dx = (e.changedTouches?.[0]?.clientX ?? g.lastX) - g.x0;
+    const dy = (e.changedTouches?.[0]?.clientY ?? g.y0) - g.y0;
     // The DOM holds the rubber-banded truth — measure it rather than trusting
     // grab+dx, which ignores the end-of-track resistance.
     const tx = measureTrack();
+    if (g.axis === "v") {
+      // Release the vertical pull. A deliberate downward swipe closes the
+      // viewer; anything shorter springs back with the photo.
+      writeTrack(tx);
+      if (dy > SWIPE_DOWN_CLOSE_PX && !cancelled) {
+        suppressClickRef.current = true;
+        requestClose();
+        return;
+      }
+    }
     // Pane position in fractional index units — 0.0 = photo 0.
     const curFloat = first - tx / step;
     let dest;
@@ -789,7 +815,7 @@ export default function PhotoLightbox({
       <div
         ref={stageRef}
         data-slot="photo-lightbox-stage"
-        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 touch-pan-y"
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 touch-none"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={(e) => endGesture(e, false)}

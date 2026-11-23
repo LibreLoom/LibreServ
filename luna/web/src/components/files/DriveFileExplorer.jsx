@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2, Users } from "lucide-react";
@@ -45,6 +45,7 @@ import {
   hasCapOnDrive,
   memberFileHref,
   memberPathFloor,
+  memberWritableRoots,
 } from "../../lib/shareTree.js";
 import { CAP_MANAGE, canSeeLinks, capsBits } from "../../lib/access.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
@@ -187,6 +188,7 @@ export default function DriveFileExplorer({
   const [restoreWarning, setRestoreWarning] = useState(/** @type {ReturnType<typeof renameExtensionWarning>} */ (null));
   const [purgeTarget, setPurgeTarget] = useState(/** @type {null|{ paths: string[], label: string }} */ (null));
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const backupsList = useQuery({
     queryKey: ["drive-backups", driveId],
     queryFn: () => getJson(`/api/v1/drives/${driveId}/backups`),
@@ -203,12 +205,27 @@ export default function DriveFileExplorer({
     return data.filter(isPresentDrive);
   }, [guest, propDrives, drivesQuery.data]);
   const writableDrives = useMemo(() => availableDrives.filter(isWritableDrive), [availableDrives]);
+  // A read-only drive keeps its files browsable, but nobody may change them —
+  // not even an Admin, whose caps would otherwise say full access everywhere.
+  const driveRecord = availableDrives.find((d) => d.id === driveId);
+  const driveReadOnly = !!driveRecord && !isWritableDrive(driveRecord);
 
   const access = useQuery({
     queryKey: ["my-access"],
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !guest && !isAdmin,
   });
+  // Copy needs somewhere the member can actually put the files. A view-only
+  // member has no writable root, so the picker would offer no destination.
+  const memberCanCopy = useMemo(() => {
+    if (guest) return false;
+    if (isAdmin) return true;
+    return memberWritableRoots(
+      access.data,
+      (d) => availableDrives.some((drive) => drive.id === d),
+      (d) => availableDrives.find((drive) => drive.id === d)?.label,
+    ).length > 0;
+  }, [guest, isAdmin, access.data, availableDrives]);
   const protectAvailable = useCanProtect(!guest);
   // Read on a folder is enough to back it up; a whole drive needs Admin.
   const showProtect = !guest && protectAvailable;
@@ -222,10 +239,12 @@ export default function DriveFileExplorer({
     ? guestCaps
     : inBackups
       ? CAP.VIEW
+    : driveReadOnly
+      ? CAP.VIEW
     : isAdmin
       ? CAP_MANAGE
       : capsForPath(path);
-  const trashVisible = !guest && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
+  const trashVisible = !guest && !driveReadOnly && (isAdmin || hasCapOnDrive(access.data, driveId, CAP.EDIT));
   const folderCanUpload = !inTrash && (myFolderCaps & CAP.UPLOAD) !== 0;
   const folderCanEdit = inTrash ? trashVisible : (myFolderCaps & CAP.EDIT) !== 0;
   // Read opens the share sheet (it shows the item's links); the sheet gates changes.
@@ -560,17 +579,32 @@ export default function DriveFileExplorer({
 
   /** Purge the whole trash. The API removes every entry the caller can see. */
   function emptyTrash() {
+    setEmptyingTrash(true);
     fileOps.startRequest({
       kind: "empty-trash",
       source,
       driveId,
       title: driveLabel,
       destLabel: driveLabel,
-      run: () => postJson(`/api/v1/drives/${driveId}/files/purge`, { path: TRASH_PATH }),
+      run: async () => {
+        try {
+          await postJson(`/api/v1/drives/${driveId}/files/purge`, { path: TRASH_PATH });
+        } finally {
+          setEmptyingTrash(false);
+        }
+      },
       successToast: "Trash emptied.",
       invalidateKeys: staleKeys([TRASH_PATH]),
     });
   }
+
+  // The request card owns the work; the dialog stays put with its spinner
+  // until it finishes, then closes itself.
+  const wasEmptyingRef = useRef(false);
+  useEffect(() => {
+    if (wasEmptyingRef.current && !emptyingTrash) setEmptyTrashOpen(false);
+    wasEmptyingRef.current = emptyingTrash;
+  }, [emptyingTrash]);
 
   const restoreDestFolder = restoreTarget
     ? parentPath(restoreTarget.originalPath) || ""
@@ -623,11 +657,13 @@ export default function DriveFileExplorer({
     const capPath = trashChild ? (ctx.entry.original_path || ctx.fullPath) : ctx.fullPath;
     // The server stamps each entry's caps — fall back to the grant
     // union for rows that arrive without them (guest listings).
-    const rowCaps = ctx.entry.caps != null
-      ? capsBits(ctx.entry.caps)
-      : isAdmin
-        ? CAP_MANAGE
-        : capsOnPath(access.data, driveId, capPath);
+    const rowCaps = driveReadOnly
+      ? CAP.VIEW
+      : ctx.entry.caps != null
+        ? capsBits(ctx.entry.caps)
+        : isAdmin
+          ? CAP_MANAGE
+          : capsOnPath(access.data, driveId, capPath);
     const rowCanEdit = guest
       ? (guestCaps & CAP.EDIT) !== 0 && !source.isFile
       : (rowCaps & CAP.EDIT) !== 0;
@@ -690,7 +726,7 @@ export default function DriveFileExplorer({
         },
       });
     }
-    if (!guest) {
+    if (memberCanCopy) {
       actions.push({
         key: "copy",
         label: "Copy",
@@ -734,7 +770,7 @@ export default function DriveFileExplorer({
       });
     }
     return actions;
-  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
+  }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups, driveReadOnly, memberCanCopy]);
 
   const renderRowActions = useCallback((ctx, extraActions = []) => {
     // Keyed by file: long folders recycle row elements, and a restore error
@@ -800,7 +836,11 @@ export default function DriveFileExplorer({
               : undefined
           }
           error={actionError}
-        />
+        >
+          <p className="mt-3 text-sm text-primary">
+            This is a drop box. Files already shared with you aren&apos;t shown here.
+          </p>
+        </UploadFilesPanel>
       ) : (
       <FileSourceProvider source={inBackups ? bSource : source}>
       <FileBrowser
@@ -840,7 +880,7 @@ export default function DriveFileExplorer({
         onShare={guest || inTrash ? undefined : (ctx) => setAccessTarget({
           path: ctx.fullPath,
         })}
-        onCopy={guest ? undefined : (paths) => setTransfer({ kind: "copy", paths })}
+        onCopy={memberCanCopy ? (paths) => setTransfer({ kind: "copy", paths }) : undefined}
         onMove={folderCanEdit && !source.isFile ? (paths) => setTransfer({ kind: "move", paths }) : undefined}
         onRename={folderCanEdit && !source.isFile ? (ctx) => {
           setActionError(null);
@@ -857,7 +897,22 @@ export default function DriveFileExplorer({
         trashHref={showTrashLink && trashVisible && !inTrash ? folderHref(driveId, TRASH_PATH) : null}
         segmentLabel={inBackups ? backupSegmentLabel(backupsList.data || [], path) : segmentLabel}
         folderActions={folderCanUpload && !source.isFile ? <NewItemMenu onPick={openCreate} allowPrivate={allowPrivate} /> : null}
-        emptyTitle={inTrash ? "Trash is empty" : inBackups ? "No backups on this drive" : undefined}
+        emptyTitle={inTrash
+          ? "Trash is empty"
+          : inBackups
+            ? "No backups on this drive"
+            : !guest
+              ? (
+                <>
+                  {path === "" ? "This drive is empty." : "This folder is empty."}
+                  {folderCanUpload && (
+                    <span className="mt-2 block text-sm font-sans">
+                      Use <InlinePill>New</InlinePill> to make a folder, or <InlinePill>Upload</InlinePill> to add files.
+                    </span>
+                  )}
+                </>
+              )
+              : undefined}
         breadcrumbExtra={inBackups ? null : (() => {
           // Same buttons a folder's breadcrumb row gets — the label just
           // reads "Trash" / the item's original name instead of the
@@ -964,7 +1019,9 @@ export default function DriveFileExplorer({
         name={viewerPath === "" && source.isFile ? driveLabel : undefined}
         canWrite={!inTrash && (guest
           ? (guestCaps & CAP.EDIT) !== 0
-          : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
+          : driveReadOnly
+            ? false
+            : isAdmin || (capsForPath(viewerPath || "") & CAP.EDIT) !== 0)}
         onShare={!guest && !inTrash && viewerPath && (isAdmin || canSeeLinks(capsForPath(viewerPath)))
           ? () => setAccessTarget({ path: viewerPath })
           : undefined}
@@ -1179,6 +1236,7 @@ export default function DriveFileExplorer({
         open={emptyTrashOpen}
         title="Empty trash?"
         onClose={() => {
+          if (emptyingTrash) return;
           setActionError(null);
           setEmptyTrashOpen(false);
         }}
@@ -1186,20 +1244,19 @@ export default function DriveFileExplorer({
         {({ close }) => (
           <>
             <p className="text-primary text-sm">
-              Everything in Trash will be deleted permanently. Luna cannot get
-              any of it back after this.
+              All <InlinePill>{trashListing.data?.length || 0}</InlinePill> items in Trash will be deleted permanently.
+              Luna cannot get any of them back.
             </p>
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"
-                onClick={() => {
-                  emptyTrash();
-                  close();
-                }}
+                loading={emptyingTrash}
+                disabled={emptyingTrash}
+                onClick={() => emptyTrash()}
               >
                 Empty trash
               </Button>
-              <Button variant="outline" onClick={close}>Keep it all</Button>
+              <Button variant="outline" disabled={emptyingTrash} onClick={close}>Keep it all</Button>
             </div>
           </>
         )}

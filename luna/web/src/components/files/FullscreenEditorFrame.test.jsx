@@ -30,7 +30,7 @@ function stubPhoneViewport() {
  * the frame hands its child, so a test can report dirty state and register a
  * save thunk.
  */
-function renderFrame({ canWrite = true, onClose = vi.fn() } = {}) {
+function renderFrame({ canWrite = true, onClose = vi.fn(), presence = "" } = {}) {
   /** @type {Record<string, any>} */
   const api = {};
   const view = render(
@@ -39,6 +39,7 @@ function renderFrame({ canWrite = true, onClose = vi.fn() } = {}) {
         name="Letter.docx"
         sessionKey="session-1"
         canWrite={canWrite}
+        presence={presence}
         onClose={onClose}
       >
         {(editorApi) => {
@@ -243,5 +244,62 @@ describe("FullscreenEditorFrame desktop rail", () => {
     fireEvent.keyDown(document, { key: "Tab" });
     act(() => saveButton.focus());
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Unsaved");
+  });
+});
+
+describe("FullscreenEditorFrame Ctrl+S", () => {
+  it("saves instead of opening the browser's Save page dialog, even from a typing field", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+    act(() => api.onSaveStateChange(true));
+
+    // Dispatch from a text field: CodeMirror's keymap is not allowed to win
+    // this key, so the frame's capture listener has to catch it first.
+    const field = document.createElement("textarea");
+    document.body.appendChild(field);
+    const event = new KeyboardEvent("keydown", {
+      key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => field.dispatchEvent(event));
+    field.remove();
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  });
+
+  it("does the same for Cmd+S", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+
+    const event = new KeyboardEvent("keydown", {
+      key: "S", metaKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => window.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("FullscreenEditorFrame presence", () => {
+  it("draws the presence line in the desktop rail", () => {
+    renderFrame({ presence: "Live · Sam" });
+    const rail = /** @type {HTMLElement} */ (document.querySelector('[data-slot="editor-rail"]'));
+    expect(within(rail).getByText("Live · Sam")).toBeInTheDocument();
+  });
+
+  it("draws the presence line in the mobile topbar", () => {
+    stubPhoneViewport();
+    renderFrame({ presence: "Live · only you" });
+    expect(within(topbar()).getByText("Live · only you")).toBeInTheDocument();
+  });
+
+  it("banners an offline presence line instead of hiding it in a tooltip", () => {
+    const offline = "Live editing isn't connected. Changes still save to this Luna.";
+    renderFrame({ presence: offline });
+    const banner = document.querySelector('[data-slot="editor-presence-banner"]');
+    expect(banner).toHaveTextContent(offline);
   });
 });

@@ -44,21 +44,21 @@ afterEach(() => {
 
 describe("RecentsCard", () => {
   describe("empty", () => {
-    it("renders nothing for an empty list", () => {
-      const { container } = renderCard({ items: [] });
-      expect(container).toBeEmptyDOMElement();
-      expect(screen.queryByText("Recents")).not.toBeInTheDocument();
+    it("shows a friendly empty state for an empty list", () => {
+      renderCard({ items: [] });
+      expect(screen.getByText("Recents")).toBeInTheDocument();
+      expect(screen.getByText(/Nothing opened recently/)).toBeInTheDocument();
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
     });
 
-    it("renders nothing when items are missing", () => {
-      const { container } = renderCard({ items: undefined });
-      expect(container).toBeEmptyDOMElement();
-      expect(screen.queryByText("Recents")).not.toBeInTheDocument();
+    it("shows the empty state when items are missing", () => {
+      renderCard({ items: undefined });
+      expect(screen.getByText(/Nothing opened recently/)).toBeInTheDocument();
     });
 
-    it("renders nothing when items are null", () => {
-      const { container } = renderCard({ items: null });
-      expect(container).toBeEmptyDOMElement();
+    it("shows the empty state when items are null", () => {
+      renderCard({ items: null });
+      expect(screen.getByText(/Nothing opened recently/)).toBeInTheDocument();
     });
   });
 

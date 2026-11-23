@@ -5,6 +5,7 @@ import { Globe2, History, Shield, Smartphone, Trash2, User, UserRound } from "lu
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
@@ -57,7 +58,7 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
       <div ref={innerRef}>
         <div className="flex items-center gap-2 px-4 py-1.5">
           <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="text-sm font-mono truncate">{token.name}</p>
+            <p className="text-sm"><InlinePill>{token.name || "Unnamed token"}</InlinePill></p>
             <Pill>{token.last_used_at ? `Last used ${formatWhen(token.last_used_at)}` : "Never used"}</Pill>
             {token.expires_at != null && (
               <Pill variant={expired ? "warning" : "default"}>
@@ -111,10 +112,10 @@ function AccessTokenItem({ token, nowUnix, usageFor, usageRows, usagePending, re
                         <span className="text-[11px] shrink-0">{formatWhen(row.used_at)}</span>
                       </div>
                       {row.client || row.origin ? (
-                        <div className="text-[11px] flex items-center gap-1.5 truncate">
-                          {row.client && <span>{row.client}</span>}
+                        <div className="text-[11px] flex flex-wrap items-center gap-1.5">
+                          {row.client && <InlinePill>{row.client}</InlinePill>}
                           {row.client && row.origin && <span>·</span>}
-                          {row.origin && <span>{row.origin}</span>}
+                          {row.origin && <InlinePill>{row.origin}</InlinePill>}
                         </div>
                       ) : (
                         <div className="text-[11px] truncate">
@@ -166,7 +167,9 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) onSubmit({ name: name.trim(), days });
+          // Let Luna check the name. A blank or over-long one comes back with
+          // the rule in plain words next to the field, instead of a dead button.
+          onSubmit({ name: name.trim(), days });
         }}
       >
         <ShakeTarget shake={error}>
@@ -178,7 +181,7 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
             className="mt-2 w-full rounded-pill surface-primary border-2 border-secondary/30 px-4 py-2 text-sm outline-none focus:border-accent"
             placeholder="Kitchen Mac, photo backup, script"
             value={name}
-            maxLength={100}
+            maxLength={80}
             ref={nameRef}
             onChange={(e) => setName(e.target.value)}
           />
@@ -193,7 +196,7 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
         />
         {error && <PageNotice variant="error">{error}</PageNotice>}
         <div className="flex gap-3">
-          <Button variant="primary" type="submit" fullWidth loading={busy} disabled={!name.trim()}>
+          <Button variant="primary" type="submit" fullWidth loading={busy}>
             Create access token
           </Button>
           <Button variant="outline" type="button" onClick={onClose} disabled={busy}>
@@ -226,13 +229,19 @@ function ProfileCard() {
   const [nameError, setNameError] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [passwordError, setPasswordError] = useState(null);
+  // The error names the field it belongs to: Luna refuses a wrong Current
+  // password and a bad New password differently, and each must show on its own.
+  const [passwordError, setPasswordError] = useState(
+    /** @type {null | { field: "current" | "new", message: string }} */ (null),
+  );
 
   const nameClean = name.trim();
   const nameDirty = nameClean !== (user?.display_name || "");
   const passwordProblem = newPassword && !meetsPasswordPolicy(newPassword)
     ? passwordPolicyError(newPassword) || "Choose a stronger password."
     : null;
+  const currentPasswordError = passwordError?.field === "current" ? passwordError.message : null;
+  const newPasswordFieldError = passwordError?.field === "new" ? passwordError.message : passwordProblem;
 
   const saveName = useMutation({
     mutationFn: () => patchJson("/api/v1/auth/me", { display_name: nameClean }),
@@ -261,7 +270,14 @@ function ProfileCard() {
       // Sign-in replaces this page in place, so the URL stays on Settings.
       endSession?.();
     },
-    onError: (err) => setPasswordError(apiErrorMessage(err, "Couldn't change your password. Try again.")),
+    onError: (err) => {
+      const message = apiErrorMessage(err, "Couldn't change your password. Try again.");
+      // A 403 from this request (or any message naming the current password)
+      // points at the Current field; everything else points at New.
+      const aboutCurrent = /** @type {any} */ (err)?.status === 403
+        || /current password/i.test(message);
+      setPasswordError({ field: aboutCurrent ? "current" : "new", message });
+    },
   });
 
   const isAdmin = user?.role === "admin";
@@ -359,6 +375,7 @@ function ProfileCard() {
             }}
             autoComplete="current-password"
             placeholder="Enter current password"
+            error={currentPasswordError}
           />
           <FormInput
             label="New password"
@@ -373,7 +390,7 @@ function ProfileCard() {
             }}
             autoComplete="new-password"
             placeholder="Pick a new password"
-            error={passwordError}
+            error={newPasswordFieldError}
           />
         </div>
         {newPassword ? (
@@ -570,7 +587,22 @@ export default function AccessCategory() {
               New access token
             </Button>
           </div>
-          {tokenList.length === 0 ? (
+          {tokens.isError ? (
+            <div className="px-4 pb-4">
+              <PageNotice variant="error">
+                <p>Luna couldn&apos;t load your access tokens right now.</p>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => tokens.refetch()}
+                >
+                  Try again
+                </Button>
+              </PageNotice>
+            </div>
+          ) : tokenList.length === 0 ? (
             <div className="px-4 pb-4">
               <Pill>No apps or access tokens are set up yet.</Pill>
             </div>

@@ -117,7 +117,7 @@ export default [
       asMember(w);
       w.sharing = { subjects: [], withMe: [{ id: "a", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "Photos", album_id: "", name: "Photos", is_file: false, caps: "full", shared_by: "Max", exists: true }] };
     },
-    faults: [{ match: "DELETE /api/v1/access/members/*", mode: "500" }],
+    faults: [{ match: "DELETE /api/v1/access/members/*", mode: "500", message: "Luna couldn't remove you from that share. Try again." }],
     check: ["Leave → confirm: the error shows inside the dialog in plain words", "The row is still there"],
   },
   {
@@ -125,7 +125,7 @@ export default [
     area: "Shared",
     title: "Shared page cannot load",
     url: "/shared",
-    faults: [{ match: "GET /api/v1/access/mine", mode: "500" }],
+    faults: [{ match: "GET /api/v1/access/mine", mode: "500", message: "Couldn't load sharing. Refresh and try again." }],
     check: ["Plain error: 'Couldn't load sharing…'", "No blank page"],
   },
 
@@ -280,7 +280,12 @@ export default [
     area: "Sharing sheet",
     title: "Private folder sheet",
     url: "/shared",
-    seed: (w) => { people(w, 2); subject(w, { private: true, private_folder: true, name: "Diary", path: "Diary" }); },
+    seed: (w) => {
+      people(w, 2);
+      // A second Admin shows up in the people list for a private item.
+      w.users.push(user({ id: "pAdmin", username: "alex", display_name: "Alex", role: "admin" }));
+      subject(w, { private: true, private_folder: true, name: "Diary", path: "Diary" });
+    },
     check: ["Lock note explains only added people can open it", "Admins appear in the people list for private items"],
   },
   {

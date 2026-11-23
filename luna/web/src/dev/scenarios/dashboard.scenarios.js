@@ -169,8 +169,22 @@ export default [
     id: "dashboard/no-internet",
     area: "Dashboard",
     title: "Needs you: Luna can't reach the internet",
-    seed: (w) => { w.network = { ethernet_connected: false, has_default_route: false }; },
-    check: [NEEDS, "Says to check the router or modem"],
+    seed: (w) => {
+      w.network = { ethernet_connected: false, has_default_route: false };
+      // The network status and the system checks are two different answers. A
+      // no-internet Luna also warns in its checks, so the header pill agrees with
+      // the Needs you row instead of saying everything passed.
+      w.systemChecks.checks.network = {
+        category: "Network",
+        message: "Luna can't reach the internet.",
+        more: "Luna couldn't find a path to the internet. Check that your router or modem is online, then check again in a minute.",
+        status: "warning",
+      };
+      w.systemChecks.summary = { total_checks: 17, passed: 16, warnings: 1, failed: 0 };
+      w.systemChecks.status = "warning";
+      w.systemChecks.overall_pass = true;
+    },
+    check: [NEEDS, "Says to check the router or modem", "The header pill lists the network warning too"],
   },
   {
     id: "dashboard/connect-token-error",
@@ -193,7 +207,7 @@ export default [
         },
       };
     },
-    check: ["No Needs you row: there is no row-level fix to offer", "The header pill says 1 problem and lists Luna's own storage plus both warnings", "Its link goes to Settings → About → System checks, where the storage breakdown is"],
+    check: ["No Needs you row: there is no row-level fix to offer", "The header pill says 1 problem and lists Luna's own storage plus both warnings", "Its link opens Settings → About, where the storage breakdown is"],
   },
   {
     id: "dashboard/everything-wrong",
@@ -265,8 +279,24 @@ export default [
     area: "Dashboard",
     title: "Shared albums: none, then many",
     seed: (w) => {
-      w.users.push(user({ id: "u2", username: "sam", display_name: "Sam" }));
+      // A Member sees the albums shared with them; an Admin's dashboard has no
+      // "Albums shared with you" card at all, so sign in as the member here.
+      member(w);
       w.albums = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, home_drive_id: "d1", name: `Album ${i + 1}`, owner_user_id: i % 2 ? "u1" : "u2", fakeCount: i * 7, shared_with: ["u1", "u2"], created_at: at(i * DAY) }));
+      // /api/v1/me/access is what the dashboard reads. These are the extra
+      // "shared with you" rows that have no share sheet subject behind them.
+      w.sharing = {
+        subjects: [],
+        withMe: Array.from({ length: 9 }, (_, i) => ({
+          id: `share-a${i}`,
+          kind: "album",
+          drive_id: "d1",
+          album_id: `a${i}`,
+          name: `Album ${i + 1}`,
+          caps: "view",
+          exists: true,
+        })),
+      };
     },
     check: ["Albums card handles nine albums", "Open one to see it work"],
   },

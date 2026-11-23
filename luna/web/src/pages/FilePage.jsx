@@ -209,6 +209,14 @@ export default function FilePage() {
         />
       )}
 
+      {drive && browsable && drive.state === "readonly" && (
+        <PageNotice variant="info" className="mb-4">
+          <p>
+            <InlinePill>{drive.label}</InlinePill> is read-only. You can open its files, but Luna can&apos;t change anything on it.
+          </p>
+        </PageNotice>
+      )}
+
       {drive && browsable && healthNotice && (
         <PageNotice variant={healthNotice.tone === "problem" ? "error" : "warning"} className="mb-4">
           <p>

@@ -38,7 +38,7 @@ export function nearestDayKey(photos, ymd) {
   let best = null;
   let bestDiff = Infinity;
   for (const photo of photos || []) {
-    if (!photo?.taken_at) continue;
+    if (photo?.taken_at == null) continue;
     const key = dayKey(photo.taken_at);
     const diff = Math.abs(Date.parse(`${key}T00:00:00Z`) - target);
     if (diff < bestDiff) {

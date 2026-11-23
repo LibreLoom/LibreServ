@@ -9,6 +9,7 @@ import { FileOpsProvider, useFileOpsState } from "./context/FileOpsContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import FileSearch from "./components/files/FileSearch";
 import { visibleOps } from "./lib/fileOps/selectors.js";
 import Navbar from "./components/ui/Navbar";
@@ -43,12 +44,38 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Shown while Luna answers none of the startup requests (e.g. after an update). */
+function LunaUnreachableNotice() {
+  return (
+    <main
+      data-slot="luna-unreachable"
+      className="fixed inset-0 grid place-items-center surface-primary px-4"
+      id="main-content"
+      tabIndex={-1}
+    >
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+      <div className="w-full max-w-lg">
+        <PageNotice variant="info" surface="secondary">
+          <p className="text-primary font-mono text-xl font-normal text-center mb-2">Luna</p>
+          <p className="text-primary text-sm text-center">
+            Can't reach Luna right now. It may be restarting after an update. Trying again…
+          </p>
+        </PageNotice>
+      </div>
+    </main>
+  );
+}
+
 function RequireAuth({ children }) {
-  const { user, setup, hasAdmin, loading } = useAuth();
+  const { user, setup, hasAdmin, loading, unreachable } = useAuth();
   if (loading) return null;
   if (setup?.setup_completed === false || (!user && hasAdmin === false)) {
     return <Navigate to="/setup" replace />;
   }
+  // Luna is restarting after an update: say so instead of showing a sign-in
+  // form that cannot work yet. AuthContext polls quietly and swaps the real
+  // page back in once Luna answers, keeping the URL and session intact.
+  if (!user && unreachable) return <LunaUnreachableNotice />;
   // Sign-in shows up in place, keeping the URL on the page you were on. When a
   // session dies mid-use (password changed, signed out elsewhere) every open
   // tab lands on the sign-in form together, and each returns to its own page
@@ -175,11 +202,12 @@ function AppShell() {
  * page: the rest would be decoding on a slow box right as sign-in finishes.
  */
 function LoginRoute() {
+  const { unreachable } = useAuth();
   useEffect(() => {
     if (/** @type {any} */ (navigator).connection?.saveData) return;
     DashboardPage.preload().catch(() => {});
   }, []);
-  return <LoginPage />;
+  return <LoginPage unreachable={unreachable} />;
 }
 
 function GalleryToPhotosRedirect() {

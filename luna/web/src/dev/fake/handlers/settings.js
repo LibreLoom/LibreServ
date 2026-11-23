@@ -92,8 +92,18 @@ put("/api/v1/cloud/phrase", ({ world, body }) => {
   }
   if (body?.words !== undefined && body.words !== null && body.words !== 12 && body.words !== 24) return fail(400, "A recovery phrase has 12 or 24 words.");
   // A replacement leaves Luna moving the cloud backups to the new phrase in the background;
-  // the very first save has nothing to move.
+  // the very first save has nothing to move. Record when the move started so the
+  // status handler can end it after a bounded time instead of showing it forever.
   const replacing = Boolean(world.phrase?.set);
-  world.phrase = { ...world.phrase, set: true, set_at: nowSec(), phrase_words: body?.words || 0, last_checked_at: 0, ...(replacing ? { resealing: true } : {}) };
+  const previous = world.phrase || {};
+  const { resealing: _oldResealing, reseal_started_at: _oldStarted, ...rest } = previous;
+  world.phrase = {
+    ...rest,
+    set: true,
+    set_at: nowSec(),
+    phrase_words: body?.words || 0,
+    last_checked_at: 0,
+    ...(replacing ? { resealing: true, reseal_started_at: nowSec() } : {}),
+  };
   return { set: true, set_at: world.phrase.set_at, rescope_failed: 0 };
 });

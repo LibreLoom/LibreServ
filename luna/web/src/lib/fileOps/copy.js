@@ -161,7 +161,7 @@ export function dockHeaderTitle(s) {
  * from the numbers that actually count: the words swap (a real state change),
  * the numbers roll like the file explorer's selection count.
  *
- * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null }} s
+ * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null, singleTask?: string|null }} s
  * @returns {{ key: string, lead: string, count: number|null, unit: string, pct: number|null, need: number }}
  *   `key` changes only when the words change, never when a number does.
  */
@@ -191,12 +191,17 @@ export function dockSummaryParts(s) {
       need,
     };
   }
+  // A lone indeterminate task has no bytes or file count to report, so
+  // "1 running" would hide what is actually happening. Name the task.
+  if (s.singleTask) {
+    return { key: `task:${s.singleTask}`, lead: s.singleTask, count: null, unit: "", pct: s.pct, need };
+  }
   return { key: "running", lead: "", count: s.running, unit: " running", pct: s.pct, need };
 }
 
 /**
  * Collapsed summary (mono). A lone upload operation reads `Uploading {n} files · {pct}%`.
- * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null }} s
+ * @param {{ running: number, problems: number, finished: number, finishedLabel?: string, pct: number|null, singleUpload?: { files: number }|null, singleTask?: string|null }} s
  */
 export function dockSummary(s) {
   const pct = s.pct == null ? "" : ` · ${Math.round(s.pct)}%`;
@@ -211,6 +216,7 @@ export function dockSummary(s) {
   if (s.singleUpload) {
     return `Uploading ${s.singleUpload.files} ${n(s.singleUpload.files, "file", "files")}${pct}${need}`;
   }
+  if (s.singleTask) return `${s.singleTask}${pct}${need}`;
   return `${s.running} running${pct}${need}`;
 }
 
@@ -232,6 +238,15 @@ export function opStatus(op) {
   const folder = op.destLabel || "";
   const running = state === "preparing" || state === "running" || state === "waiting";
   const partial = state === "partial";
+
+  // Every item was answered "Skip": the person kept what was already there.
+  // No files moved, so "Uploaded"/"Copied" would claim work that didn't happen.
+  if (op.kept && state === "done") {
+    const skipped = op.skippedCount ?? (op.items || []).filter((i) => i.state === "skipped").length;
+    if (skipped === 1 && name) return ["Kept the original ", pill(name)];
+    const noun = op.kind === "gallery" ? "photo" : op.kind === "copy" || op.kind === "move" ? "item" : "file";
+    return [`Skipped ${skipped} ${n(skipped, noun, `${noun}s`)}`];
+  }
 
   switch (op.kind) {
     case "upload":
@@ -311,7 +326,10 @@ export function opStatus(op) {
       return ["Couldn't empty Trash"];
     case "restore-backup":
       if (running) return ["Restoring ", pill(name), " from a backup"];
-      if (state === "done") return ["Restored as ", pill(name)];
+      // The restore may land under a new name when the original name is
+      // taken. The card only knows the name that was requested, so don't
+      // present that as the result.
+      if (state === "done") return name ? ["Restored ", pill(name), " from a backup"] : ["Restored from a backup"];
       return ["Couldn't restore ", pill(name)];
     case "zip":
       if (running) return ["Getting ", pill(`${name}.zip`), " ready"];
@@ -454,7 +472,10 @@ export function decisionText(op, item) {
   if (!d) return [];
   if (d.type === "broadens") return [d.message];
   const what = d.existingKind === "dir" ? "folder" : "file";
-  return [`A ${what} named `, pill(item.name), " is already in ", pill(op.destLabel || ""), "."];
+  // A nested folder upload lands in Documents/Trip/Lisbon, not in the drop
+  // target (Documents). The item knows its real destination; the op doesn't.
+  const where = item.destPath || op.destLabel || "";
+  return [`A ${what} named `, pill(item.name), " is already in ", pill(where), "."];
 }
 
 /**
@@ -527,6 +548,12 @@ export function finishedText(op) {
   const done = op.itemsDone ?? 0;
   const total = op.itemsTotal ?? 0;
   const folders = op.foldersDone ?? 0;
+  if (op.kept && op.state === "done") {
+    const skipped = op.skippedCount ?? 0;
+    if (skipped === 1 && op.title) return `Kept the original ${op.title}`;
+    const noun = op.kind === "gallery" ? "photo" : op.kind === "copy" || op.kind === "move" ? "item" : "file";
+    return `Skipped ${skipped} ${n(skipped, noun, `${noun}s`)}`;
+  }
   switch (op.kind) {
     case "upload":
       if (done === 0 && folders > 0) return `${folders} ${n(folders, "folder", "folders")} made`;
@@ -547,7 +574,9 @@ export function finishedText(op) {
     case "empty-trash":
       return "Trash emptied";
     case "restore-backup":
-      return `Restored ${op.title || "the backup"}`;
+      // The restore can land under a different name if the original is taken.
+      // Never claim a target name the card never learned.
+      return op.title ? `Restored ${op.title} from a backup` : "Restored from a backup";
     case "zip":
       return `${op.title || "The folder"}.zip ready`;
     default:

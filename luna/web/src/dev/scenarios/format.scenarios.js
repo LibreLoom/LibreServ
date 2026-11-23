@@ -6,6 +6,7 @@
 // Every erase runs a phase every 1.5 s unless a scenario says otherwise, so a whole
 // run takes about ten seconds; the refresh scenarios stretch it so there is time to reload.
 import { seedRun } from "../fake/handlers/format.js";
+import { user } from "../fake/world.js";
 
 const A = "Drive erase";
 const photos = [
@@ -83,7 +84,13 @@ export default [
   },
   {
     id: "format/refresh-mid-erase", area: A, title: "Reload while a drive Luna has is being erased", url: "/files",
-    seed: (w) => { seedRun(w, { device: "sdd1", driveId: "d1", label: "Family photos", agoMs: 3000, phaseMs: 8000 }); },
+    seed: (w) => {
+      seedRun(w, { device: "sdd1", driveId: "d1", label: "Family photos", agoMs: 3000, phaseMs: 8000 });
+      // Sam holds the whole drive, so the Member view has a card on which the
+      // erase is visible (Members get `formatting`, but no progress id).
+      w.users.push(user({ id: "u2", username: "sam", display_name: "Sam", role: "user" }));
+      w.access = [{ id: "g1", user_id: "u2", kind: "path", drive_id: "d1", drive_label: "Family photos", path: "", caps: "view" }];
+    },
     check: ["The Family photos card says it is being erased and offers Show progress, and no Open", "As a Member (Sign in as) the card says so but has no button", "Browse files comes back after it finishes, empty"],
   },
 ];

@@ -19,7 +19,7 @@
 // Links follow lunad's rule (api/access/access_admin.rs): they belong to the item. Read
 // (my_caps has view, or the share bit) sees them all; Write (view plus upload or edit, or the
 // share bit) makes them and manages any link within its own caps, whoever made it.
-import { del, fail, get, json, patch, post, put } from "../engine.js";
+import { del, fail, get, json, patch, post, put, raw } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
 import { CAP, CAP_MANAGE, canMakeLinks, canSeeLinks, capsBits, capsCover } from "../../../lib/access.js";
@@ -310,8 +310,10 @@ get("/api/v1/access/mine", ({ world, user }) => {
 get("/api/v1/me/access", ({ world, user }) => [
   // Grants made straight on the world apply to the person named in `user_id`, or to any Member when none is named.
   ...(world.access || []).filter((r) => !r.user_id || r.user_id === user.id).map(({ user_id: _who, ...row }) => ({
-    id: row.id ?? "", kind: row.kind ?? "path", album_id: row.album_id ?? "", drive_id: row.drive_id ?? "", drive_label: row.drive_label ?? "",
-    path: row.path ?? "", name: row.name ?? "", is_file: row.is_file ?? false, caps: row.caps,
+    // Seeds often name only the drive and path; lunad fills these in too, and
+    // the Files card needs them for its title and breadcrumb.
+    id: row.id ?? "", kind: row.kind ?? "path", album_id: row.album_id ?? "", drive_id: row.drive_id ?? "", drive_label: row.drive_label ?? driveLabel(world, row.drive_id),
+    path: row.path ?? "", name: row.name ?? pathName(row.path), is_file: row.is_file ?? false, caps: row.caps,
     created_by: row.created_by ?? "", shared_by: row.shared_by ?? "", exists: row.exists !== false,
   })),
   // Rows from shares: the full "shared with you" row shape.
@@ -405,7 +407,7 @@ const header = (h, name) => {
 };
 
 /** Runs every check a real link goes through; returns an error answer or the link. */
-function open(w, token, headers, { download = false } = {}) {
+function open(w, token, headers) {
   const hit = lookup(w, token);
   if (!hit) return { err: fail(404, "Not found.") };
   const { s, l } = hit;
@@ -421,7 +423,9 @@ function open(w, token, headers, { download = false } = {}) {
     }
   }
   if (l.password && supplied !== l.password) return { err: fail(401, "This link needs its password.") };
-  if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
+  // Checked on every open, including the first meta request, so the page says
+  // so up front instead of offering downloads that would fail.
+  if (l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }
   return { s, l };
@@ -454,7 +458,7 @@ publicGet("/s/:token", ({ world, params, headers }) => {
           { id: "q2", type: "choice", label: "Can you come?", required: true, config: { options: ["Yes", "No", "Maybe"] } },
           { id: "q3", type: "long_text", label: "Anything we should know?" },
         ],
-        settings: { allowEdits: false, collecting: true },
+        settings: { allowEdits: true, collecting: true },
       },
       accepting: l.accepting !== false,
       full: Boolean(l.full),
@@ -479,7 +483,7 @@ publicGet("/s/:token/items", ({ world, params, query, headers }) => {
 });
 
 publicGet("/s/:token/list", ({ world, params, headers }) => {
-  const r = open(world, params.token, headers, { download: true });
+  const r = open(world, params.token, headers);
   if (r.err) return r.err;
   return { entries: treeOf(world, params.token, r.s) };
 });
@@ -525,5 +529,26 @@ post("/s/:token/respond", ({ world, params, headers, body }) => {
 }, { public: true });
 post("/s/:token/respond-file", () => ({ name: "attachment.png" }), { public: true });
 get("/s/:token/form-image", () => json({}), { public: true });
-get("/s/:token/file", () => json({}), { public: true });
+
+// A shared file's bytes. A plain open reads them as text; `download=1` is the
+// browser's Save path and needs a filename, not a JSON envelope.
+get("/s/:token/file", ({ world, params, headers, query }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  const name = pathName(query.path) || r.s.name || "download";
+  const bytes = new TextEncoder().encode(`${r.s.name || "File"} — shared from Luna.\n`);
+  return raw(bytes, "text/plain; charset=utf-8", 200, query.download === "1"
+    ? { "Content-Disposition": `attachment; filename="${name}"` }
+    : {});
+}, { public: true });
+
+// Album downloads point here; a small zip payload is all the fake needs.
+get("/s/:token/zip", ({ world, params, headers }) => {
+  const r = open(world, params.token, headers);
+  if (r.err) return r.err;
+  const name = r.s.name || "album";
+  return raw(new Uint8Array(22), "application/zip", 200, {
+    "Content-Disposition": `attachment; filename="${name}.zip"`,
+  });
+}, { public: true });
 

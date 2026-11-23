@@ -29,6 +29,7 @@ function drive(overrides = {}) {
     last_ok_at: 0,
     hard: false,
     created_by: "u1",
+    waiting_reason: null,
     ...overrides,
   };
 }
@@ -84,9 +85,10 @@ describe("buildBackupRows", () => {
 });
 
 describe("needsALook", () => {
-  it("counts a recorded lock wait at 24 hours and keeps its waiting status", () => {
+  it("counts a recorded lock wait at 24 hours, but still labels it Paused", () => {
     const row = cloud({
       paused: "locked",
+      locked_drive_names: ["Family photos"],
       state: "waiting",
       waiting_reason: "Unlock the original drive with its password.",
       waiting_since: (NOW - DAY) / 1000,
@@ -94,7 +96,7 @@ describe("needsALook", () => {
     expect(needsALook(row, NOW - 1)).toBe(false);
     expect(needsALook(row, NOW)).toBe(true);
     expect(needsALook({ ...row, waiting_since: null }, NOW)).toBe(false);
-    expect(backupStatus(row)).toEqual({ label: "Waiting", variant: "warning" });
+    expect(backupStatus(row)).toEqual({ label: "Paused", variant: "warning" });
   });
 
   it("flags a failing or stale active drive backup", () => {
@@ -236,14 +238,23 @@ describe("privateGroups", () => {
 });
 
 describe("backups paused by a locked drive", () => {
-  const paused = () => drive({ status: "active", state: "failing", paused: "locked", locked_drive_names: ["Photos"] });
+  // lunad sends the unlock reason alongside `paused: "locked"` and every locked
+  // drive's name. The generic waiting reason must not win over the pause.
+  const paused = () => drive({
+    status: "active",
+    state: "waiting",
+    paused: "locked",
+    locked_drive_names: ["Family photos", "Backup drive"],
+    waiting_reason: "Backup drive is locked. Unlock it to continue the backups.",
+    waiting_since: null,
+  });
 
-  it("is Paused, not a failure, and needs no look", () => {
+  it("is Paused, not Waiting or a failure, and needs no look", () => {
     expect(backupStatus(paused())).toEqual({ label: "Paused", variant: "warning" });
     expect(needsALook(paused())).toBe(false);
   });
 
-  it("is said in the headline instead of All backed up", () => {
+  it("is said in the headline instead of All backed up or Waiting", () => {
     expect(backupHeadline([paused()])).toBe("1 backup is paused");
     expect(backupHeadline([paused(), paused()])).toBe("2 backups are paused");
   });

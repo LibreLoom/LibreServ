@@ -27,6 +27,25 @@ const HEALTH_POLL_MS = 2000;
 const HEALTH_GIVE_UP_DOWN_MS = 20_000;
 
 /**
+ * Compare two version strings piece by piece (1.4.10 is newer than 1.4.2).
+ * @param {string|undefined|null} a
+ * @param {string|undefined|null} b
+ * @returns {-1|0|1} -1 when a is older than b, 1 when newer, 0 when equal.
+ */
+function compareVersions(a, b) {
+  const left = String(a ?? "").split(/[.-]/);
+  const right = String(b ?? "").split(/[.-]/);
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const rawLeft = Number.parseInt(left[i] ?? "0", 10);
+    const rawRight = Number.parseInt(right[i] ?? "0", 10);
+    const l = Number.isNaN(rawLeft) ? 0 : rawLeft;
+    const r = Number.isNaN(rawRight) ? 0 : rawRight;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
  * Waits for Luna to restart: reloads the page once /health answers again after a gap.
  * @param {boolean} active
  * @param {{ giveUp?: boolean }} [options] giveUp: reload even if Luna never looked down (false while an install is still running)
@@ -179,9 +198,15 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
   const hasUpdate = updateInfo?.update_available;
   // The offer may be the build of a source the Admin just switched Luna to, in
-  // which case it is the first thing to install, not an upgrade.
+  // which case it is the first thing to install, not an upgrade. `feed_is_newer`
+  // only says whether the feed had a release Luna has not offered before — it
+  // does not say whether the offered build is older than the one running.
   const fromNewSource = updateInfo?.from_new_source === true;
-  const olderThanRunning = updateInfo?.feed_is_newer === false;
+  const olderThanRunning = Boolean(
+    updateInfo?.latest_version
+    && updateInfo?.current_version
+    && compareVersions(updateInfo.latest_version, updateInfo.current_version) < 0,
+  );
   const isUpToDate = updateInfo && !hasUpdate;
   // A failed check shows its own error; "Not checked yet" would be untrue.
   const notChecked = !updateInfo && !updates.isLoading && !updates.isError;
