@@ -21,8 +21,11 @@ export function useModalClose() {
   return close;
 }
 
-/** Longest modal exit animation (dialog pop-out + overlay fade). */
-export const EXIT_ANIMATION_MS = 300;
+/** Close to unmount in ms: the exit animation plus slack for a late frame. */
+export const EXIT_ANIMATION_MS = 200;
+
+/** How long the dialog, dim and blur take to leave. */
+const EXIT_DURATION_MS = 160;
 
 /** Dialog `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
 export const POP_IN_ANIMATION_MS = 300;
@@ -306,6 +309,9 @@ export default function ModalCard({
   // scaled, because Chrome re-blurs the whole page for every frame that a
   // backdrop-filter layer changes shape.
   const backdropMotion = isClosing ? "animate-out fade-out" : "animate-in fade-in";
+  // Closing is one quick beat: the shared pop-out / animate-out timings are
+  // too leisurely for a modal that the person has already dismissed.
+  const exitTiming = isClosing ? { animationDuration: `${EXIT_DURATION_MS}ms` } : undefined;
 
   return createPortal(
     <div
@@ -327,11 +333,13 @@ export default function ModalCard({
         data-slot="dialog-blur"
         aria-hidden="true"
         className={cn("absolute inset-0 -z-10 backdrop-blur-sm", backdropMotion)}
+        style={exitTiming}
       />
       <div
         data-slot="dialog-scrim"
         aria-hidden="true"
         className={cn("absolute inset-0 -z-10 bg-primary/60", backdropMotion)}
+        style={exitTiming}
       />
       <div
         ref={setRefs}
@@ -351,7 +359,7 @@ export default function ModalCard({
           widthClasses,
           maxHeightClasses
         )}
-        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+        style={{ transitionDuration: "var(--motion-duration-medium2)", ...exitTiming }}
         onClick={(event) => event.stopPropagation()}
         onAnimationEnd={handlePopInEnd}
       >
