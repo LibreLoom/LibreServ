@@ -247,10 +247,20 @@ func (d *DB) HealthCheck() error {
 // part of HealthCheck: probes hit that on a short interval and a full scan on
 // every request added disk IO proportional to database size. Callers that
 // need on-disk verification (restore, admin diagnostic) use this explicitly.
+// IntegrityCheck uses a generous budget: a page walk on a small eMMC disk can
+// take longer than a request timeout and still be healthy. An admin diagnostic
+// can use IntegrityCheckContext to carry its own limit.
 func (d *DB) IntegrityCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	return d.integrityCheck(ctx)
+}
 
+func (d *DB) IntegrityCheckContext(ctx context.Context) error {
+	return d.integrityCheck(ctx)
+}
+
+func (d *DB) integrityCheck(ctx context.Context) error {
 	var count int
 	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
 	if err != nil {

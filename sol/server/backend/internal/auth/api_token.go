@@ -141,8 +141,6 @@ func (s *Service) touchAPITokenLastUsed(ctx context.Context, tokenID, hash strin
 	if err != nil {
 		return
 	}
-	s.apiTokenWrites.Add(1)
-
 	s.apiTokenLastUsedMu.Lock()
 	// Keep the map bounded without a separate sweeper. A revoked token is
 	// never validated again, so its entry can go as soon as the map grows.
@@ -158,10 +156,10 @@ func (s *Service) touchAPITokenLastUsed(ctx context.Context, tokenID, hash strin
 }
 
 // forgetAPITokenLastUsed drops the throttle entry for a token that no longer
-// exists or can no longer be used.
-func (s *Service) forgetAPITokenLastUsed(hash string) {
+// exists or can no longer be used. Entries are keyed by token ID.
+func (s *Service) forgetAPITokenLastUsed(tokenID string) {
 	s.apiTokenLastUsedMu.Lock()
-	delete(s.apiTokenLastUsed, hash)
+	delete(s.apiTokenLastUsed, tokenID)
 	s.apiTokenLastUsedMu.Unlock()
 }
 

@@ -11,7 +11,7 @@ export function useApps(refreshInterval) {
       const data = await res.json();
       return data.apps || [];
     },
-    refetchInterval: refreshInterval ?? 60_000,
+    refetchInterval: refreshInterval ?? 30_000,
     refetchOnWindowFocus: false,
   });
 }

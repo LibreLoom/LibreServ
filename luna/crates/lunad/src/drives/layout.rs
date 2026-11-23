@@ -39,29 +39,58 @@ impl Layout {
     /// Detect this drive's prefix from its `.luna-<uuid>.sqlite3` marker.
     /// `None` when the drive is not adopted.
     pub fn detect(root: &Path) -> Option<Self> {
-        let cache = DETECT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let cache_mutex = DETECT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
         // Read and release before touching the filesystem. A USB drive may be
         // slow or may vanish mid-scan; holding a global lock across read_dir
-        // would stall every other drive's detect behind it.
-        {
-            let cache = cache.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some((at, prefix, marker)) = cache.get(root) {
-                if at.elapsed() < DETECT_TTL && marker.is_file() {
-                    return Some(Self::from_prefix(prefix.clone()));
-                }
+        // (or even a stat) would stall every other drive's detect behind it.
+        let cached = {
+            let guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+            guard
+                .get(root)
+                .filter(|(at, _, _)| at.elapsed() < DETECT_TTL)
+                .map(|(_, prefix, marker)| (prefix.clone(), marker.clone()))
+        };
+        if let Some((prefix, marker)) = cached {
+            if marker.is_file() {
+                return Some(Self::from_prefix(prefix));
             }
         }
 
         let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);
         if let Some(layout) = &found {
             let marker = root.join(format!("{}.sqlite3", layout.prefix));
-            let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
-            // Ejected drives must not leave entries behind forever.
-            if cache.len() > 64 {
-                cache.retain(|_, (_, _, marker)| marker.is_file());
+            // Ejected drives must not leave entries behind forever. Collect
+            // the candidates under the lock, stat them outside it, then
+            // re-lock to remove the ones that vanished.
+            let sweep = {
+                let guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+                if guard.len() > 64 {
+                    Some(
+                        guard
+                            .iter()
+                            .map(|(key, (_, _, marker))| (key.clone(), marker.clone()))
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            };
+            if let Some(entries) = sweep {
+                let gone = entries
+                    .into_iter()
+                    .filter_map(|(key, marker)| (!marker.is_file()).then_some(key))
+                    .collect::<Vec<_>>();
+                if !gone.is_empty() {
+                    let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+                    for key in gone {
+                        guard.remove(&key);
+                    }
+                }
             }
-            cache.insert(
+
+            let mut guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
+            guard.insert(
                 root.to_path_buf(),
                 (Instant::now(), layout.prefix.clone(), marker),
             );
@@ -125,5 +154,40 @@ impl Layout {
     /// is never needed to hide or reject Luna's own files.
     pub fn is_luna_name(name: &str) -> bool {
         luna_core::marker::is_namespace_name(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_hit_miss_and_vanished_marker() {
+        let dir = std::env::temp_dir().join(format!(
+            "luna-layout-detect-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let prefix = ".luna-00000000-0000-0000-0000-000000000001";
+        let marker = dir.join(format!("{prefix}.sqlite3"));
+
+        // Not adopted yet.
+        assert!(Layout::detect(&dir).is_none());
+        std::fs::write(&marker, b"").unwrap();
+        let found = Layout::detect(&dir).expect("marker should be detected");
+        assert_eq!(found.prefix(), prefix);
+
+        // The cached answer is used while the marker is still present.
+        assert_eq!(Layout::detect(&dir).unwrap().prefix(), prefix);
+
+        // A marker that disappears invalidates the cache immediately, even
+        // inside the TTL, so an ejected drive is not treated as adopted.
+        std::fs::remove_file(&marker).unwrap();
+        assert!(Layout::detect(&dir).is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

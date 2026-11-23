@@ -84,6 +84,7 @@ function PhotoThumb({
   const [gated] = useState(canWatchNearViewport);
   const imgRef = useRef(/** @type {HTMLImageElement|null} */ (null));
   const started = useRef(false);
+  const shownThumb = useRef(photo.thumb);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!gated || !img || !photo.thumb) return undefined;
@@ -193,7 +194,15 @@ function PhotoThumb({
         <img
           ref={(img) => {
             imgRef.current = img;
-            if (img?.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
+            if (!img) return;
+            // A recycled cell keeps the same <img>. Clear the previous
+            // photo's loaded flag on both paths: the gated one sets src
+            // imperatively, the ungated one gets it from React below.
+            if (shownThumb.current !== photo.thumb) {
+              delete img.dataset.thumbLoaded;
+              shownThumb.current = photo.thumb;
+            }
+            if (img.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}

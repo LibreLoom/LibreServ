@@ -345,8 +345,13 @@ fonts are lazy assets and are not part of W1.
 |---|---|---|---|
 | W1 first-load asset bytes (upper bound, all faces) | 1054.2 KiB | 596.4 KiB | 1.77x |
 
-Raw reports are `perf/results/bundle-<time>.json` from the two builds. The
-regular face is now preloaded in `luna/web/index.html`. The two bold mono
+Both sides used the current font-aware `bundle-report.js`: the before build
+had the font edits reverted, the after build is this branch. Each was measured
+with `npm run build` then `npm run perf:bundle`. The figure is
+`totals.initial.gzip`: JS/CSS at their prebuilt `.gz` size, fonts at raw bytes.
+Before = 208.9 KiB JS/CSS + 845.2 KiB TTF; after = 208.4 KiB JS/CSS + 388.0 KiB
+WOFF2. Raw reports are `perf/results/bundle-<time>.json`. The regular face is
+now preloaded in `luna/web/index.html`. The two bold mono
 faces are not used at any weight by the design; they keep Latin and common
 symbols in ~30 KiB WOFF2 subsets. Regular and oblique retain every codepoint
 in the original TTF `cmap`.
@@ -355,7 +360,7 @@ Daemon changes in this round: `Layout::detect` caches the drive marker prefix
 for 60 s and validates it with one stat per hit, instead of a full `read_dir`
 of the drive root per photo and per thumbnail request. The cache lock is
 released before filesystem I/O so a slow or ejected USB drive cannot stall
-other drives. A proposed `/proc/meminfo` cache was removed after review: a
+other drives. A `/proc/meminfo` cache was tried and removed before merge: a
 stale `MemAvailable` could keep handing out large decode caps during a scan on
 the 2 GiB target.
 

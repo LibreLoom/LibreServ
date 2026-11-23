@@ -159,7 +159,16 @@ func (s *Service) MarkComplete(ctx context.Context) (*State, error) {
 // authenticated request used to read and JSON-decode the whole setup_state
 // row under the service mutex; only the status column is needed here.
 func (s *Service) IsComplete(ctx context.Context) bool {
-	if checked := s.completeChecked.Load(); checked != 0 && time.Since(time.Unix(0, checked)) < completionCacheTTL {
+	if completionFresh(&s.completeChecked) {
+		return s.complete.Load()
+	}
+
+	// Hold the same mutex as the state-changing methods across the read and
+	// the store. Without it, a read that began before a factory reset could
+	// repopulate the cache with the old answer after the reset cleared it.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if completionFresh(&s.completeChecked) {
 		return s.complete.Load()
 	}
 
@@ -173,10 +182,17 @@ func (s *Service) IsComplete(ctx context.Context) bool {
 	return status == StatusComplete
 }
 
+func completionFresh(checked *atomic.Int64) bool {
+	at := checked.Load()
+	return at != 0 && time.Since(time.Unix(0, at)) < completionCacheTTL
+}
+
 // InvalidateCompletion drops the cached answer. Call this when setup_state is
 // changed outside MarkComplete/MarkInProgress, for example during a factory
-// reset.
+// reset or a database restore.
 func (s *Service) InvalidateCompletion() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.completeChecked.Store(0)
 }
 

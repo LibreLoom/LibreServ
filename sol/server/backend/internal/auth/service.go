@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,10 +57,6 @@ type Service struct {
 	// tokens are never validated again.
 	apiTokenLastUsedMu sync.Mutex
 	apiTokenLastUsed   map[string]time.Time
-
-	// Number of successful bookkeeping writes, used by tests to check that a
-	// burst of validations does not write on every request.
-	apiTokenWrites atomic.Int64
 }
 
 // NewService creates a new auth service

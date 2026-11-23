@@ -135,18 +135,32 @@ func TestAPITokenLastUsedIsThrottled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plaintext, _, err := svc.CreateAPIToken(ctx, user.ID, "ci")
+	plaintext, rec, err := svc.CreateAPIToken(ctx, user.ID, "ci")
 	if err != nil {
 		t.Fatal(err)
 	}
+	lastUsed := func() string {
+		var value string
+		if err := db.QueryRowContext(ctx, `SELECT COALESCE(last_used_at, '') FROM api_tokens WHERE id = ?`, rec.ID).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
 
+	if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+		t.Fatal(err)
+	}
+	first := lastUsed()
+	if first == "" {
+		t.Fatal("first validation should write last_used_at")
+	}
 	for i := 0; i < 3; i++ {
 		if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
 			t.Fatalf("validate %d: %v", i, err)
 		}
 	}
-	if got := svc.apiTokenWrites.Load(); got != 1 {
-		t.Fatalf("three validations should write last_used_at once, wrote %d times", got)
+	if got := lastUsed(); got != first {
+		t.Fatalf("validations inside the window should not rewrite last_used_at: %q then %q", first, got)
 	}
 
 	// Revoking drops the throttle entry, so a recreated token is not held back.

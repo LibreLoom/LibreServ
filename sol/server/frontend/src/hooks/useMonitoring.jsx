@@ -12,7 +12,7 @@ export function useMonitoring(refreshInterval) {
       }
       return data.resources;
     },
-    refetchInterval: refreshInterval ?? 60_000,
+    refetchInterval: refreshInterval ?? 30_000,
     // This query polls; a tab focus should not add a second request burst.
     refetchOnWindowFocus: false,
   });

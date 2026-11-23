@@ -22,6 +22,23 @@ original TTF `cmap`. The conversion commands are in `sol/perf/README.md`.
 | Luna first-load asset bytes (all shipped faces) | 1054.2 KiB | 596.4 KiB | 1.77x |
 | Shared font faces | 1530 KiB | 388 KiB | 3.94x |
 
+How each side was produced, so the numbers can be reproduced:
+
+- Both sides use the **current** `bundle-report.js` (font-aware). The "before"
+  build is the parent commit with the font edits reverted; the "after" build is
+  this branch. Each build was made with `npm run build` and then
+  `npm run perf:bundle` against that build's `dist`.
+- The figure is the report's `totals.initial.gzip`: JS and CSS use their
+  prebuilt `.gz` sizes (what the servers send), fonts use their raw bytes
+  (servers do not gzip fonts). The raw JSON is in the gitignored
+  `*/perf/results/bundle-*.json` files.
+- Luna breakdown: before = 208.9 KiB JS+CSS + 845.2 KiB TTF; after = 208.4 KiB
+  JS+CSS + 388.0 KiB WOFF2. The JS/CSS total is unchanged, as the diff implies.
+- A browser check against Luna's dev server with an 80 ms emulated RTT saw the
+  actually fetched regular face fall from 584,724 bytes (TTF) to 189,768 bytes
+  (WOFF2), 3.08x. The same check's W1 timings were dominated by dev-mode and
+  fake-backend overhead, so they are not used as a journey result.
+
 Sol's dashboard ticker is a leaf component, so its once-a-second update no
 longer reconciles the health card and app list with it. The polling hooks opt
 out of refetching on tab focus; the app-wide React Query default is unchanged.
@@ -42,15 +59,17 @@ completion, factory reset, and state changes.
 
 API-token validation now uses one JOIN instead of three round-trips and
 throttles the visible `last_used_at` write to once a minute per token. Sol
-Connect's `last_seen_at` write is debounced to 90 seconds, matching Luna
-Connect, and the admin usage query gained a timestamp index.
+Connect's `last_seen_at` UPDATE is conditional, so it still round-trips on
+every device poll but writes the row at most once per 90 seconds; the admin
+usage query gained a timestamp index.
 
 ## Luna daemon
 
 Drive marker detection is cached for 60 seconds and validated by the marker
 file on each hit. Photo work used to rescan the drive root for every image and
-every thumbnail request. `/proc/meminfo` parsing is cached for 30 seconds in
-the memory-budget path, which photo scans call per image.
+every thumbnail request. A proposed `/proc/meminfo` cache was removed after
+review: a stale `MemAvailable` could keep handing out large decode caps during
+a scan on the 2 GiB target.
 
 ## Verification
 
