@@ -57,6 +57,8 @@ export class CollabSocket {
     this._attempts = 0;
     /** @type {ReturnType<typeof setTimeout> | null} */
     this._retryTimer = null;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._connectTimer = null;
   }
 
   connect() {
@@ -66,8 +68,27 @@ export class CollabSocket {
     this.ws = ws;
     this.onStatus?.(this._attempts === 0 ? "connecting" : "reconnecting");
 
+    // A hub that never answers — a black-holed route, a proxy that eats the
+    // upgrade — reports neither `error` nor `close`, so the editor would sit
+    // on "Connecting…" forever with an empty document. Give the handshake a
+    // few seconds, then treat it as a dropped socket: the sync layer works
+    // offline from the file on the drive and this retries on its backoff.
+    this._connectTimer = setTimeout(() => {
+      this._connectTimer = null;
+      if (this.ws !== ws || ws.readyState === WebSocket.OPEN) return;
+      this.ws = null;
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      this.onStatus?.("closed");
+      this._scheduleReconnect();
+    }, CollabSocket.CONNECT_TIMEOUT_MS);
+
     ws.addEventListener("open", () => {
       this._attempts = 0;
+      this._clearConnectTimer();
       this.onStatus?.("open");
       ws.send(
         JSON.stringify({
@@ -89,6 +110,7 @@ export class CollabSocket {
     });
 
     ws.addEventListener("close", () => {
+      this._clearConnectTimer();
       if (this.ws === ws) this.ws = null;
       this.onStatus?.("closed");
       this._scheduleReconnect();
@@ -97,6 +119,13 @@ export class CollabSocket {
     ws.addEventListener("error", () => {
       this.onStatus?.("error");
     });
+  }
+
+  _clearConnectTimer() {
+    if (this._connectTimer != null) {
+      clearTimeout(this._connectTimer);
+      this._connectTimer = null;
+    }
   }
 
   /**
@@ -163,6 +192,7 @@ export class CollabSocket {
 
   close() {
     this._closed = true;
+    this._clearConnectTimer();
     if (this._retryTimer != null) {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
@@ -175,6 +205,9 @@ export class CollabSocket {
     this.ws = null;
   }
 }
+
+/** How long the upgrade may take before the hub counts as unreachable. */
+CollabSocket.CONNECT_TIMEOUT_MS = 3000;
 
 /** Cap retries so a permanently rejected upgrade does not spam the server. */
 CollabSocket.MAX_RECONNECT_ATTEMPTS = 8;
