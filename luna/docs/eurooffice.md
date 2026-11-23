@@ -94,7 +94,8 @@ fonts-manifest.json                  TTF list the worker fetches
 serves). The x2t download also drops its unused `.br` variants. Generated font
 files whose body matches a core TTF are replaced by `fonts/aliases.json`;
 lunad rebuilds them from the core font at request time. Every core font and
-all 50 dictionaries ship.
+all 50 dictionaries ship. Building the pack needs `python3` for the font
+dedupe step (the release image installs it).
 
 The pack is a program file, so it lives in the OS image, not on the data
 partition. The release tool builds it before the rootfs and mounts it in;

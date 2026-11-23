@@ -7,5 +7,5 @@ FROM ghcr.io/euro-office/documentserver@sha256:889e681923d2dcc8bdfb92fe128d10e18
 ENTRYPOINT []
 CMD []
 RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip python3 \
  && rm -rf /var/lib/apt/lists/*

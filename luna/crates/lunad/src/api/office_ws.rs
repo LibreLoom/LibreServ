@@ -200,13 +200,6 @@ fn parse_byte_range(value: &str, total: usize) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
-/// The sdkjs font loader resolves `../../../../fonts/` against the site root
-/// (Document Server's nginx layout) — serve the pack's generated fonts.
-/// The route shadows the web app's own /fonts/* brand fonts, so a miss falls
-/// through to the embedded dist handler — but only for real dist assets: its
-/// SPA fallback would hand index.html back with a 200, which sdkjs consumes
-/// as corrupt font data (or a poisoned service-worker cache entry), so an
-/// HTML answer must surface as a real 404.
 /// Build the response for a synthesized font. Kept separate from the handler
 /// so the conditional, HEAD and range paths can be tested without a pack.
 fn aliased_font_response(
@@ -274,6 +267,13 @@ fn aliased_font_response(
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+/// The sdkjs font loader resolves `../../../../fonts/` against the site root
+/// (Document Server's nginx layout) — serve the pack's generated fonts.
+/// The route shadows the web app's own /fonts/* brand fonts, so a miss falls
+/// through to the embedded dist handler — but only for real dist assets: its
+/// SPA fallback would hand index.html back with a 200, which sdkjs consumes
+/// as corrupt font data (or a poisoned service-worker cache entry), so an
+/// HTML answer must surface as a real 404.
 pub async fn fonts_dispatch(
     State(state): State<AppState>,
     Path(tail): Path<String>,
@@ -285,6 +285,10 @@ pub async fn fonts_dispatch(
     // here. The manifest carries the hash of those exact bytes: a revalidation
     // can answer 304 without reading the TTF from the eMMC.
     let is_head = req.method() == axum::http::Method::HEAD;
+    // The route is registered with `any`; only the read verbs may take the
+    // synthesized path. Other methods fall through to ServeDir, which answers
+    // 405 as it did before this route existed.
+    let is_read = is_head || req.method() == axum::http::Method::GET;
     let if_none_match = req
         .headers()
         .get(axum::http::header::IF_NONE_MATCH)
@@ -295,25 +299,27 @@ pub async fn fonts_dispatch(
         .get(axum::http::header::RANGE)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    if let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
-        // A matching validator returns 304 before the font is read at all.
-        if if_none_match.as_deref() == Some(etag.as_str()) {
-            return aliased_font_response(
-                etag,
-                is_head,
-                if_none_match.as_deref(),
-                None,
-                Vec::new(),
-            );
-        }
-        if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
-            return aliased_font_response(
-                etag,
-                is_head,
-                if_none_match.as_deref(),
-                range_header.as_deref(),
-                body,
-            );
+    if is_read {
+        if let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
+            // A matching validator returns 304 before the font is read at all.
+            if if_none_match.as_deref() == Some(etag.as_str()) {
+                return aliased_font_response(
+                    etag,
+                    is_head,
+                    if_none_match.as_deref(),
+                    None,
+                    Vec::new(),
+                );
+            }
+            if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+                return aliased_font_response(
+                    etag,
+                    is_head,
+                    if_none_match.as_deref(),
+                    range_header.as_deref(),
+                    body,
+                );
+            }
         }
     }
     let dir = pack.join("fonts");

@@ -159,6 +159,10 @@ fi
 
 # allfontsgen copies each source TTF into fonts/ and masks its first <=32 bytes.
 # Keep only the masked bytes: lunad rebuilds the original file from core-fonts.
+command -v python3 >/dev/null 2>&1 || {
+  echo "ERROR: python3 is required to dedupe the generated office fonts." >&2
+  exit 1
+}
 python3 "$ROOT/scripts/dedupe-office-fonts.py" "$DEST"
 
 echo "Fetching x2t.wasm $X2T_VERSION …"

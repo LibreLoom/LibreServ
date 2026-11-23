@@ -173,6 +173,32 @@ class DedupeTest(unittest.TestCase):
             names = set(json.loads((fonts / "aliases.json").read_text())["fonts"])
             self.assertEqual(names, {"001", "002"})
 
+    def test_partial_rerun_rejects_a_restored_manifest_font(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / "core-fonts"
+            fonts = root / "fonts"
+            core.mkdir()
+            fonts.mkdir()
+            source = bytes(range(96))
+            generated = bytearray(source)
+            for i in range(32):
+                generated[i] ^= 0xA5
+            (core / "real1.ttf").write_bytes(source)
+            (fonts / "001").write_bytes(generated)
+            subprocess.run([sys.executable, str(SCRIPT), str(root)], check=True, capture_output=True)
+
+            # 001 is back on disk as a real file with no core twin, plus a new
+            # duplicate 002. The run must not silently keep a stale 001 entry.
+            (fonts / "001").write_bytes(b"real file" * 12)
+            (core / "real2.ttf").write_bytes(source)
+            (fonts / "002").write_bytes(generated)
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("stale", proc.stderr)
+
     def test_malformed_manifest_fails_cleanly(self):
         for bad in ("[]", '{"fonts": null}', "{}"):
             with self.subTest(bad=bad), tempfile.TemporaryDirectory() as tmp:

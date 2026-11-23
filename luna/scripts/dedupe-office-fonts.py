@@ -89,7 +89,16 @@ def main():
 
     if aliases:
         # A partial rerun must not forget aliases written by an earlier run:
-        # their generated files are already gone from fonts/.
+        # their generated files are already gone from fonts/. But a font the
+        # old manifest lists that is back on disk and NOT aliased this run is
+        # stale: keeping it would shadow a real file with old bytes.
+        leftover = [p.name for p in fonts.iterdir() if p.is_file() and p.name.isdigit()]
+        stale = [name for name in leftover if name in recorded and name not in aliases]
+        if stale:
+            raise SystemExit(
+                f"font dedup: {manifest.name} still lists fonts that are present "
+                f"({', '.join(sorted(stale)[:5])}); the manifest is stale."
+            )
         merged = dict(recorded)
         merged.update(aliases)
         manifest.write_text(
