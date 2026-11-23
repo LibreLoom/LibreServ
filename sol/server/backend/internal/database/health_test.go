@@ -45,3 +45,28 @@ func TestIntegrityEndpointDiagnosticStillRuns(t *testing.T) {
 		t.Fatalf("healthy database failed integrity check: corrupt=%v err=%v", corrupt, err)
 	}
 }
+
+func TestIntegrityCheckDoesNotInventMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gone.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	corrupt, err := db.IntegrityCheck()
+	if err == nil {
+		t.Fatalf("missing database should not pass: corrupt=%v", corrupt)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("integrity check recreated the missing database file")
+	}
+}

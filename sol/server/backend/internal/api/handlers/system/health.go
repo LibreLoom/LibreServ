@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
@@ -23,6 +24,10 @@ var (
 type HealthHandler struct {
 	db        *database.DB
 	startTime time.Time
+
+	integrityMu      sync.Mutex
+	integrityRunning bool
+	integrityResult  map[string]any
 }
 
 // NewHealthHandler creates a new HealthHandler
@@ -103,37 +108,57 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 // A full PRAGMA integrity_check walks every page, so it is an explicit
 // diagnostic instead of part of the short-interval health probes.
 func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request) {
-	// Keep this under the server's 15 s write timeout: a slow disk should give
-	// the admin a verdict in Settings, not a dropped browser connection.
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
-	defer cancel()
-	corrupt, err := h.db.IntegrityCheckContext(ctx)
-	if err != nil {
-		// Driver errors contain paths and page numbers. Log the detail for
-		// support; tell the person only what they need to know. A timeout is
-		// retryable; so is a locked or unreadable file.
-		slog.Warn("database integrity check could not run", "error", err)
-		status := http.StatusInternalServerError
-		if ctx.Err() != nil {
-			status = http.StatusGatewayTimeout
+	// A full page walk can outlive the server's 15 s write timeout, so the
+	// request only starts the check. The card polls DatabaseIntegrityStatus.
+	h.integrityMu.Lock()
+	if h.integrityRunning {
+		h.integrityMu.Unlock()
+		JSON(w, http.StatusAccepted, map[string]any{"status": "running"})
+		return
+	}
+	h.integrityRunning = true
+	h.integrityResult = nil
+	h.integrityMu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		corrupt, err := h.db.IntegrityCheckContext(ctx)
+		var result map[string]any
+		if err != nil {
+			// Driver errors contain paths and page numbers: log the detail,
+			// show the person only what they need to know.
+			slog.Warn("database integrity check could not run", "error", err)
+			result = map[string]any{
+				"status": "unavailable", "corrupt": false,
+				"message": "Sol couldn't finish checking the database file. Please try again.",
+			}
+		} else if corrupt {
+			result = map[string]any{
+				"status": "corrupt", "corrupt": true,
+				"message": "Sol found a problem with the database file. Restore a database backup in Settings → Backups.",
+			}
+		} else {
+			result = map[string]any{"status": "ok", "corrupt": false}
 		}
-		JSON(w, status, map[string]any{
-			"status": "unavailable", "corrupt": false,
-			"message": "Sol couldn't finish checking the database file. Please try again.",
-		})
+		h.integrityMu.Lock()
+		h.integrityResult = result
+		h.integrityRunning = false
+		h.integrityMu.Unlock()
+	}()
+
+	JSON(w, http.StatusAccepted, map[string]any{"status": "running"})
+}
+
+// DatabaseIntegrityStatus returns the result of the last admin integrity check.
+func (h *HealthHandler) DatabaseIntegrityStatus(w http.ResponseWriter, r *http.Request) {
+	h.integrityMu.Lock()
+	defer h.integrityMu.Unlock()
+	if h.integrityRunning || h.integrityResult == nil {
+		JSON(w, http.StatusOK, map[string]any{"status": "running"})
 		return
 	}
-	if corrupt {
-		// The check ran to completion and found damage. This is permanent, so
-		// a 200 with a corrupt flag reaches the card instead of being caught
-		// as a failed request and reported as "try again".
-		JSON(w, http.StatusOK, map[string]any{
-			"status": "corrupt", "corrupt": true,
-			"message": "Sol found a problem with the database file.",
-		})
-		return
-	}
-	JSON(w, http.StatusOK, map[string]any{"status": "ok", "corrupt": false})
+	JSON(w, http.StatusOK, h.integrityResult)
 }
 
 // LivenessCheck handles GET /health/live

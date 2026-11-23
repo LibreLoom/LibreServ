@@ -22,22 +22,35 @@ function SystemChecksCard({ index = 2 }) {
   const isAdmin = user?.role === "admin";
   const [checkingFile, setCheckingFile] = useState(false);
   const [fileResult, setFileResult] = useState(null);
+  const [fileCorrupt, setFileCorrupt] = useState(false);
 
   async function checkDatabaseFile() {
     setCheckingFile(true);
     setFileResult(null);
-    // The server's write timeout is 15 s; stay under it so a slow disk gives
-    // a verdict in the card instead of a network error in the browser.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    setFileCorrupt(false);
     try {
-      const res = await api("/system/database/integrity", { signal: controller.signal });
-      const result = await res.json();
-      setFileResult(result.message || "The database file is fine.");
+      // The page walk runs in the background: the request only starts it,
+      // then this card polls for the verdict. A big database can take its
+      // full two minutes without hitting the 15 s HTTP write timeout.
+      await api("/system/database/integrity");
+      const deadline = Date.now() + 3 * 60_000;
+      for (;;) {
+        const res = await api("/system/database/integrity/status");
+        const result = await res.json();
+        if (result.status !== "running") {
+          setFileCorrupt(Boolean(result.corrupt));
+          setFileResult(result.message || "The database file is fine.");
+          break;
+        }
+        if (Date.now() > deadline) {
+          setFileResult("Sol couldn't finish checking the database file. Please try again.");
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
     } catch {
       setFileResult("Sol couldn't finish checking the database file. Please try again.");
     } finally {
-      clearTimeout(timer);
       setCheckingFile(false);
     }
   }
@@ -71,7 +84,7 @@ function SystemChecksCard({ index = 2 }) {
   const summary = data?.summary;
   const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
   const failed = summary?.failed ?? checks.length - passed;
-  const allOk = failed === 0 && checks.length > 0;
+  const allOk = failed === 0 && checks.length > 0 && !fileCorrupt;
 
   // Failed checks first, then alphabetical, so problems are the first thing seen.
   const ordered = [...checks].sort((a, b) => {
@@ -85,11 +98,13 @@ function SystemChecksCard({ index = 2 }) {
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-sm">
-            {checks.length === 0
-              ? "No checks recorded yet."
-              : allOk
-                ? `${passed} of ${checks.length} checks passed — everything looks good.`
-                : `${failed} of ${checks.length} checks need attention.`}
+            {fileCorrupt
+              ? "The database file needs attention."
+              : checks.length === 0
+                ? "No checks recorded yet."
+                : allOk
+                  ? `${passed} of ${checks.length} checks passed — everything looks good.`
+                  : `${failed} of ${checks.length} checks need attention.`}
           </p>
           <span
             className={cn(
@@ -111,7 +126,14 @@ function SystemChecksCard({ index = 2 }) {
             >
               Check the database file
             </Button>
-            {fileResult && <p className="text-sm" role="status">{fileResult}</p>}
+            {fileResult && (
+              <p
+                className={`text-sm ${fileCorrupt ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`}
+                role="status"
+              >
+                {fileResult}
+              </p>
+            )}
           </div>
         )}
 

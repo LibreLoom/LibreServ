@@ -3,7 +3,9 @@ package system
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
@@ -70,9 +72,23 @@ func TestDatabaseIntegrityEndpoint(t *testing.T) {
 	}
 	h := NewHealthHandler(db)
 
-	rr := httptest.NewRecorder()
-	h.DatabaseIntegrity(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("integrity expected 200, got %d: %s", rr.Code, rr.Body.String())
+	start := httptest.NewRecorder()
+	h.DatabaseIntegrity(start, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
+	if start.Code != http.StatusAccepted {
+		t.Fatalf("start expected 202, got %d: %s", start.Code, start.Body.String())
 	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rr := httptest.NewRecorder()
+		h.DatabaseIntegrityStatus(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity/status", nil))
+		if !strings.Contains(rr.Body.String(), `"status":"running"`) {
+			if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"status":"ok"`) {
+				t.Fatalf("integrity expected ok, got %d: %s", rr.Code, rr.Body.String())
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("integrity check did not finish")
 }

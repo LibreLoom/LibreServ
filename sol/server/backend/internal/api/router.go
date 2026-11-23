@@ -537,6 +537,7 @@ func (s *Server) setupRoutes() {
 			r.Route("/system", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/database/integrity", healthHandler.DatabaseIntegrity)
+				r.Get("/database/integrity/status", healthHandler.DatabaseIntegrityStatus)
 				r.Get("/updates/check", systemHandler.CheckUpdates)
 				r.Post("/updates/apply", systemHandler.ApplyUpdate)
 				r.Post("/restart", systemHandler.RestartNow)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,6 +168,19 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return errors.New("db target path is empty")
 	}
 
+	// Check the replacement before the swap, on its own handle with
+	// the caller's context. Doing this after the rename would hold the request
+	// open for the whole page walk, past the server's write timeout.
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	corrupt, err := integrityCheckFile(checkCtx, replacementPath)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if corrupt {
+		return errors.New("restored database failed its integrity check")
+	}
+
 	// Close the current DB handle first to release file locks.
 	if d.db != nil {
 		_ = d.db.Close()
@@ -212,16 +226,9 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		d.onReplace()
 	}
 
-	// Ensure schema is compatible with current binary and verify integrity.
+	// Ensure schema is compatible with current binary.
 	if err := d.Migrate(); err != nil {
 		return err
-	}
-	corrupt, err := d.IntegrityCheck()
-	if err != nil {
-		return err
-	}
-	if corrupt {
-		return errors.New("restored database failed its integrity check")
 	}
 
 	// Clean up the rollback safety net on success.
@@ -235,8 +242,9 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 
 // HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
 // and on the dashboard's monitoring poll, so it must not walk every page.
-// It reads the schema, which catches a missing or unreadable database. Page-level
-// corruption past the schema pages is only caught by IntegrityCheck.
+// It reads the schema through the already-open pool, which catches an
+// unreadable database but not a deleted file (the open handle still works) or
+// page-level corruption; those need IntegrityCheck.
 func (d *DB) HealthCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -260,25 +268,43 @@ func (d *DB) IntegrityCheck() (bool, error) {
 }
 
 func (d *DB) IntegrityCheckContext(ctx context.Context) (bool, error) {
+	// A new handle to an in-memory path would be a different, empty database.
+	// Use the real pool for that rare case; the page walk is serialized there.
+	if d.path == ":memory:" {
+		return integrityCheckOn(ctx, d.db)
+	}
 	// The main pool has a single connection. A page walk on it would block
 	// every other query and make the 2 s health probe report the database as
-	// unhealthy, whether this is a restore or an admin diagnostic. Use a
-	// separate handle for both.
-	tmp, err := sql.Open("sqlite", d.path)
+	// unhealthy, so diagnostics on a real file use their own handle.
+	return integrityCheckFile(ctx, d.path)
+}
+
+func integrityCheckFile(ctx context.Context, path string) (bool, error) {
+	// mode=rw never creates a file; the stat below also gives a clear error
+	// when the database has been deleted or unmounted. Plain sql.Open would
+	// create a fresh empty database that passes integrity_check.
+	if _, err := os.Stat(path); err != nil {
+		return false, fmt.Errorf("database integrity check failed: %w", err)
+	}
+	dsn := "file:" + url.PathEscape(path) + "?mode=rw"
+	tmp, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
 	defer tmp.Close()
 	tmp.SetMaxOpenConns(1)
 	_, _ = tmp.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+	return integrityCheckOn(ctx, tmp)
+}
 
+func integrityCheckOn(ctx context.Context, conn *sql.DB) (bool, error) {
 	var count int
-	if err := tmp.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
 		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	var integrityOk string
-	if err := tmp.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
+	if err := conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
 		return false, fmt.Errorf("database integrity check failed: %w", err)
 	}
 	return integrityOk != "ok", nil
