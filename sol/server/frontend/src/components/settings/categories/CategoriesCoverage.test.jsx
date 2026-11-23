@@ -1107,7 +1107,7 @@ describe("AboutCategory integrity gate and successful check", () => {
     expect(screen.queryByRole("button", { name: "Check the database file" })).not.toBeInTheDocument();
   });
 
-  it("merges a successful manual check into the database row", async () => {
+  it("shows a successful file check without upgrading the live database row", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation(async (path) => ({
       json: async () => (path.endsWith("/status")
@@ -1117,7 +1117,7 @@ describe("AboutCategory integrity gate and successful check", () => {
     render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
     expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
-    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeVisible();
   });
 
   it("keeps the action when the periodic health query failed", () => {
@@ -1134,7 +1134,7 @@ describe("AboutCategory integrity gate and successful check", () => {
 });
 
 describe("AboutCategory manual check recount", () => {
-  it("recounts the summary when a manual check clears a failed database row", async () => {
+  it("keeps the live failure visible when a manual file check succeeds", async () => {
     const user = userEvent.setup();
     healthState.data = {
       checks: {
@@ -1151,8 +1151,8 @@ describe("AboutCategory manual check recount", () => {
     render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
     expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
-    expect(screen.getByText("2 of 2 checks passed — everything looks good.")).toBeVisible();
-    expect(screen.getByText("Healthy")).toBeVisible();
+    expect(screen.getByText("1 of 2 checks need attention.")).toBeVisible();
+    expect(screen.getByText("Issues found")).toBeVisible();
   });
 });
 

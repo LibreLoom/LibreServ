@@ -282,6 +282,10 @@ func (d *DB) HealthCheck() error {
 	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
 		return fmt.Errorf("database health check failed: %w", err)
 	}
+	if count == 0 {
+		// An empty file is a valid SQLite database but not a usable Sol one.
+		return ErrDatabaseUnreadable
+	}
 	return nil
 }
 
@@ -312,8 +316,14 @@ func integrityCheckFile(ctx context.Context, path string) (bool, error) {
 	// mode=rw never creates a file; the stat below also gives a clear error
 	// when the database has been deleted or unmounted. Plain sql.Open would
 	// create a fresh empty database that passes integrity_check.
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		return false, fmt.Errorf("database integrity check failed: %w", err)
+	}
+	// SQLite treats a zero-byte file as a valid empty database. Swapping one
+	// in would pass integrity_check, then Migrate would rebuild an empty box.
+	if info.Size() == 0 {
+		return false, fmt.Errorf("%w: the database file is empty", ErrDatabaseCorrupt)
 	}
 	dsn := "file:" + url.PathEscape(path) + "?mode=rw"
 	tmp, err := sql.Open("sqlite", dsn)
@@ -323,6 +333,16 @@ func integrityCheckFile(ctx context.Context, path string) (bool, error) {
 	defer tmp.Close()
 	tmp.SetMaxOpenConns(1)
 	_, _ = tmp.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+
+	// A valid but unrelated SQLite file must not replace the live database.
+	var tables int
+	if err := tmp.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'setup_state')`).Scan(&tables); err != nil {
+		return false, integrityQueryError(err)
+	}
+	if tables < 2 {
+		return false, fmt.Errorf("%w: the database is missing its core tables", ErrDatabaseCorrupt)
+	}
 	return integrityCheckOn(ctx, tmp)
 }
 

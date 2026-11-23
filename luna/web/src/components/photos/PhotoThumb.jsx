@@ -225,7 +225,11 @@ function PhotoThumb({
           loading={gated ? undefined : "lazy"}
           decoding="async"
           onLoad={(e) => {
-            e.currentTarget.dataset.thumbLoaded = "1";
+            // A queued load event from the previous photo must not mark the
+            // new one loaded.
+            if (e.currentTarget.getAttribute("src") === photo.thumb) {
+              e.currentTarget.dataset.thumbLoaded = "1";
+            }
           }}
           className="h-full w-full object-cover opacity-0 data-[thumb-loaded]:opacity-100 motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100"
         />

@@ -22,6 +22,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [fileProblem, setFileProblem] = useState(false);
   const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
+  const manualStartedRef = useRef(false);
   const lastHealthRef = useRef(data);
   useEffect(() => () => pollRef.current?.abort(), []);
 
@@ -44,7 +45,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     api("/system/database/integrity/status")
       .then((res) => res.json())
       .then((result) => {
-        if (cancelled || !result.status || result.status === "running" || result.status === "idle") return;
+        if (cancelled || manualStartedRef.current || !result.status || result.status === "running" || result.status === "idle") return;
         setFileResult(result.message || null);
         setFileProblem(result.status === "corrupt" || result.reason === "missing");
         setFileChecked(result.status === "ok");
@@ -73,6 +74,8 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   );
 
   async function checkDatabaseFile() {
+    // Ignore a slow mount-time status fetch that resolves after this run.
+    manualStartedRef.current = true;
     // Leaving Settings must stop the poll, even if a status request hangs.
     pollRef.current?.abort();
     const controller = new AbortController();
@@ -193,17 +196,17 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   // The cheap probe still reports the database connection as healthy when the
   // manual file check found damage. Replace that row so the card cannot argue
   // with itself.
-  const checks = fileProblem || fileChecked
+  // A file-only check says nothing about the connection pool serving
+  // requests, so it may flag a row but never upgrade a failed one to passed.
+  const checks = fileProblem
     ? rawChecks.map(([name, check]) => name === "database"
-      ? [name, fileProblem
-        ? { ...check, status: "failed", message: fileResult || "The database file needs attention." }
-        : { ...check, status: "passed", message: "The database file is fine." }]
+      ? [name, { ...check, status: "failed", message: fileResult || "The database file needs attention." }]
       : [name, check])
     : rawChecks;
   const summary = data?.summary;
   // A manual check can change the database row, so the old summary would
   // contradict it. Recount from the merged rows in that case.
-  const recount = fileChecked || fileProblem;
+  const recount = fileProblem;
   const passed = recount
     ? checks.filter(([, c]) => c.status === "passed").length
     : summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;

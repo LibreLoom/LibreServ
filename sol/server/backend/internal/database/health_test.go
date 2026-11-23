@@ -118,3 +118,14 @@ func TestOnReplaceRunsEveryRegistrant(t *testing.T) {
 		t.Fatalf("expected both hooks to run, got %d", called)
 	}
 }
+
+func TestIntegrityCheckRejectsEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.db")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := integrityCheckFile(context.Background(), path)
+	if !errors.Is(err, ErrDatabaseCorrupt) {
+		t.Fatalf("empty file should be classed as corrupt, got %v", err)
+	}
+}

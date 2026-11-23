@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
@@ -31,6 +32,7 @@ type HealthHandler struct {
 	integrityRunning bool
 	integrityResult  map[string]any
 	integrityGen     uint64
+	healthWarned     atomic.Bool
 }
 
 // NewHealthHandler creates a new HealthHandler
@@ -58,8 +60,18 @@ type VersionResponse struct {
 	GoVersion string `json:"go_version"`
 }
 
+// logHealthFailure writes one warning per outage; later failures go to debug
+// so a persistent missing database does not flood the log.
+func (h *HealthHandler) logHealthFailure(message string, err error) {
+	if h.healthWarned.Swap(true) {
+		slog.Debug(message, "error", err)
+		return
+	}
+	slog.Warn(message, "error", err)
+}
+
 // databaseHealthMessage keeps filesystem paths out of the public health
-// endpoints. The caller logs the full error for support.
+// endpoints. The caller logs the full error once through logHealthFailure.
 func databaseHealthMessage(err error) string {
 	if errors.Is(err, database.ErrDatabaseFileMissing) {
 		return "unhealthy: the database file is missing"
@@ -79,7 +91,7 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	// Check database health. These endpoints are public, so only a short
 	// verdict goes out; driver paths stay in the log.
 	if err := h.db.HealthCheck(); err != nil {
-		slog.Debug("database health check failed", "error", err)
+		h.logHealthFailure("database health check failed", err)
 		checks["database"] = databaseHealthMessage(err)
 		overallStatus = "unhealthy"
 	} else {
@@ -107,7 +119,7 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	// Check if database is accessible
 	if err := h.db.HealthCheck(); err != nil {
-		slog.Debug("database readiness check failed", "error", err)
+		h.logHealthFailure("database readiness check failed", err)
 		JSON(w, http.StatusServiceUnavailable, HealthResponse{
 			Status:    "not ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
