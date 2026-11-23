@@ -982,7 +982,6 @@ export function SqliteEditorSession({
                         table.columns.length === 1 ? "column" : "columns"
                       }`}
                       aria-current={active ? "true" : undefined}
-                      title={table.name}
                       onClick={() => {
                         if (active) {
                           setPanel("table");
