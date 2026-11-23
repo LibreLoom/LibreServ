@@ -333,7 +333,10 @@ export default function SqliteGrid({
                   ) : total > 0 ? (
                     "No rows on this page."
                   ) : canWrite ? (
-                    addRowButton("outline")
+                    <span className="inline-flex flex-col items-center gap-3">
+                      <span className="font-mono text-xs">No rows yet.</span>
+                      {addRowButton("outline")}
+                    </span>
                   ) : (
                     "No rows."
                   )}

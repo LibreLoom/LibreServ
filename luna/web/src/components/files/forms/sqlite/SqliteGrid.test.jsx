@@ -68,12 +68,16 @@ describe("SqliteGrid", () => {
     expect(props.onAddColumn).toHaveBeenCalledTimes(1);
   });
 
-  it("outlines Add row when the table has no rows", () => {
+  it("outlines Add row under a mono No rows yet note", () => {
     const { props } = mount({ rows: [], total: 0 });
-    expect(screen.queryByText("No rows yet.")).not.toBeInTheDocument();
+    const note = screen.getByText("No rows yet.");
+    expect(note).toHaveClass("font-mono");
     const add = screen.getByRole("button", { name: "Add row" });
     expect(add).toHaveAttribute("data-variant", "outline");
     expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+    expect(
+      note.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.click(add);
     expect(props.onAddRow).toHaveBeenCalledTimes(1);
   });
