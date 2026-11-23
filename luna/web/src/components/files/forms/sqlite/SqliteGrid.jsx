@@ -299,7 +299,7 @@ export default function SqliteGrid({
                   className="sticky top-0 right-0 z-20 w-12 border-b border-primary/20 surface-secondary px-2 py-2 text-right align-middle"
                 >
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     surface="secondary"
                     size="iconSm"
                     smoothResize={false}
@@ -333,10 +333,10 @@ export default function SqliteGrid({
                   ) : total > 0 ? (
                     "No rows on this page."
                   ) : canWrite ? (
-                    <span className="inline-flex flex-col items-center gap-3">
-                      <span className="font-mono text-xs">No rows yet.</span>
+                    <div className="flex flex-col items-center gap-3">
+                      <h3 className="font-mono text-base">No rows yet.</h3>
                       {addRowButton("outline")}
-                    </span>
+                    </div>
                   ) : (
                     "No rows."
                   )}

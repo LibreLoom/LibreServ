@@ -64,13 +64,15 @@ describe("SqliteGrid", () => {
     expect(addRow).toHaveAttribute("data-variant", "ghost");
     fireEvent.click(addRow);
     expect(props.onAddRow).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    const addColumn = screen.getByRole("button", { name: "Add column" });
+    expect(addColumn).toHaveAttribute("data-variant", "outline");
+    fireEvent.click(addColumn);
     expect(props.onAddColumn).toHaveBeenCalledTimes(1);
   });
 
-  it("outlines Add row under a mono No rows yet note", () => {
+  it("outlines Add row under a No rows yet heading", () => {
     const { props } = mount({ rows: [], total: 0 });
-    const note = screen.getByText("No rows yet.");
+    const note = screen.getByRole("heading", { name: "No rows yet." });
     expect(note).toHaveClass("font-mono");
     const add = screen.getByRole("button", { name: "Add row" });
     expect(add).toHaveAttribute("data-variant", "outline");
