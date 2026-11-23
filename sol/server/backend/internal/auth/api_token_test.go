@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -173,5 +174,56 @@ func TestAPITokenLastUsedIsThrottled(t *testing.T) {
 	}
 	if len(svc.apiTokenLastUsed) != 0 {
 		t.Fatalf("revoke should forget the throttle entry, got %v", svc.apiTokenLastUsed)
+	}
+}
+
+func TestAPITokenLastUsedThrottleUnderConcurrency(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	svc := NewService(db, "testsecret", slog.Default())
+	user, err := svc.Register(ctx, &RegisterRequest{
+		Username: "dave", Password: "SuperSecret123", Email: "dave@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, _, err := svc.CreateAPIToken(ctx, user.ID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Count real UPDATEs in the database instead of adding a test hook to the
+	// service. Without the slot reservation a burst can issue one write per
+	// goroutine before any of them records the timestamp.
+	if _, err := db.Exec(`CREATE TABLE token_touch_count (n INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO token_touch_count VALUES (0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		CREATE TRIGGER api_token_touch AFTER UPDATE OF last_used_at ON api_tokens
+		BEGIN UPDATE token_touch_count SET n = n + 1; END`); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+				t.Errorf("validate: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	var writes int
+	if err := db.QueryRowContext(ctx, `SELECT n FROM token_touch_count`).Scan(&writes); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 {
+		t.Fatalf("eight concurrent validations should write last_used_at once, wrote %d times", writes)
 	}
 }
