@@ -332,3 +332,33 @@ roughly twice the LAN one.
 - Left to try for W8 remote: fewer bytes per screen (a ~200 px variant
   for 1x screens, or one batched request per screen), or HTTP-level
   priority so the strip's requests overtake the ahead tier.
+
+## Round 15 (2026-11-23, draft PR #254)
+
+First-load asset size measured with `npm run perf:bundle` from `luna/web`,
+before and after the shared FreeMono faces were converted to WOFF2. The report
+counts the entry script, its preloads, the CSS and all shipped font faces;
+a TTF beside a WOFF2 is a fallback and is not counted. Excalidraw's canvas
+fonts are lazy assets and are not part of W1.
+
+| Journey | Before | After | Ratio |
+|---|---|---|---|
+| W1 first-load asset bytes (upper bound, all faces) | 1054.2 KiB | 596.4 KiB | 1.77x |
+
+Raw reports are `perf/results/bundle-<time>.json` from the two builds. The
+regular face is now preloaded in `luna/web/index.html`. The two bold mono
+faces are not used at any weight by the design; they keep Latin and common
+symbols in ~30 KiB WOFF2 subsets. Regular and oblique retain every codepoint
+in the original TTF `cmap`.
+
+Daemon changes in this round: `Layout::detect` caches the drive marker prefix
+for 60 s and validates it with one stat per hit, instead of a full `read_dir`
+of the drive root per photo and per thumbnail request. The cache lock is
+released before filesystem I/O so a slow or ejected USB drive cannot stall
+other drives. A proposed `/proc/meminfo` cache was removed after review: a
+stale `MemAvailable` could keep handing out large decode caps during a scan on
+the 2 GiB target.
+
+Not measured here: W/D/K/C journey times. The bundle figure is an asset-size
+measurement, not a browser timing, and the full 3040 stand-in run was not done.
+See `sol/perf/RESULTS.md` for the Sol side and the conversion commands.
