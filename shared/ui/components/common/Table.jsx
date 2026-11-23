@@ -14,19 +14,23 @@ const CELL_FIRST = "rounded-l-large-element";
 const CELL_LAST = "rounded-r-large-element";
 
 /**
- * Horizontal insets for one column. The first and last cells round the row
- * pill, so only they carry the 12px outer padding; the cells between stay at
- * 4px. Header labels use the same insets as their cells — otherwise every
- * label sits 12px in while its values sit 4px in, and nothing lines up.
+ * Horizontal insets for one column. Header labels use the same insets as
+ * their cells — otherwise every label sits 12px in while its values sit 4px
+ * in, and nothing lines up.
+ *
+ * Phones get a full 12px gutter on both sides, because a dense result grid is
+ * the one table that cannot switch to phone cards. From `md` up — where the
+ * first and last cells round the row pill — only those outer ends keep the
+ * 12px and the cells between tighten to 4px.
  *
  * @param {number} index
  * @param {number} count
  */
 function columnInsets(index, count) {
   if (count <= 1) return "px-3";
-  if (index === 0) return "pl-3";
-  if (index === count - 1) return "pr-3";
-  return "px-1";
+  if (index === 0) return "pl-3 pr-3 md:pr-0";
+  if (index === count - 1) return "pl-3 pr-3 md:pl-0";
+  return "px-3 md:px-1";
 }
 
 const ALIGN = {
