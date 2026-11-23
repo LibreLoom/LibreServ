@@ -297,6 +297,12 @@ export function SqliteEditorSession({
     onSaveStateChange(true);
   }, [onSaveStateChange]);
 
+  /** Change the selected table synchronously for in-flight loads. */
+  const selectTable = useCallback((name) => {
+    selectedTableRef.current = name;
+    setSelectedTable(name);
+  }, []);
+
   const markSaved = useCallback(() => {
     dirtyRef.current = false;
     setDirty(false);
@@ -306,9 +312,6 @@ export function SqliteEditorSession({
   const loadTable = useCallback(
     async (table, page, client = clientRef.current) => {
       if (!client || !table) return;
-      if (selectedTableRef.current && selectedTableRef.current !== table.name) {
-        return;
-      }
       const token = (gridTokenRef.current += 1);
       setGrid((current) => ({ ...current, loading: true, error: "" }));
       const started = performance.now();
@@ -325,6 +328,7 @@ export function SqliteEditorSession({
           client.exec(countQuery.sql),
         ]);
         if (token !== gridTokenRef.current) return;
+        if (selectedTableRef.current !== table.name) return;
         const total = Number(countResult.rows?.[0]?.[0] ?? 0);
         setGrid({
           rows: rowsResult.rows,
@@ -337,6 +341,7 @@ export function SqliteEditorSession({
         });
       } catch (error) {
         if (token !== gridTokenRef.current) return;
+        if (selectedTableRef.current !== table.name) return;
         const message = apiErrorMessage(error, "Luna couldn't load this table.");
         setGrid((current) => ({
           ...current,
@@ -371,7 +376,7 @@ export function SqliteEditorSession({
         (tableName ? null : nextTables[0] || null);
       if (!table) {
         gridTokenRef.current += 1;
-        setSelectedTable("");
+        selectTable("");
         setGrid({ ...EMPTY_GRID });
         return null;
       }
@@ -380,11 +385,11 @@ export function SqliteEditorSession({
         targetPage === "last"
           ? lastPage
           : Math.min(Math.max(1, Number(targetPage) || 1), lastPage);
-      setSelectedTable(table.name);
+      selectTable(table.name);
       await loadTable(table, page, client);
       return table;
     },
-    [loadTable, refreshSchema],
+    [loadTable, refreshSchema, selectTable],
   );
 
   const refreshAfterWrite = useCallback(
@@ -429,7 +434,7 @@ export function SqliteEditorSession({
         setLoading(false);
         const first = opened.tables[0] || null;
         if (first) {
-          setSelectedTable(first.name);
+          selectTable(first.name);
           void loadTable(first, 1, created);
         }
       } catch (error) {
@@ -456,7 +461,7 @@ export function SqliteEditorSession({
       clientRef.current = null;
       client?.dispose();
     };
-  }, [tooLarge, sourceBytes, loadTable, canWrite]);
+  }, [tooLarge, sourceBytes, loadTable, canWrite, selectTable]);
 
   const save = useCallback(async () => {
     const client = clientRef.current;
@@ -638,7 +643,12 @@ export function SqliteEditorSession({
         setQuery(null);
         // Reload rather than patching the one cell: defaults, triggers, and
         // generated columns may have changed other cells in the same row.
-        await loadTable(table, pageRef.current, client);
+        // If the person moved to another table while this write ran, that
+        // table's own load is authoritative — starting this one would
+        // supersede it and leave the grid on "Loading rows…".
+        if (selectedTableRef.current === table.name) {
+          await loadTable(table, pageRef.current, client);
+        }
       } catch (error) {
         setGridError(
           apiErrorMessage(error, "Luna couldn't change that cell."),
@@ -874,10 +884,14 @@ export function SqliteEditorSession({
         ) ||
         opened.tables[0] ||
         null;
-      setSelectedTable(first?.name ?? "");
       setConflict(false);
       setConflictError("");
-      if (first) void loadTable(first, 1, created);
+      if (first) {
+        selectTable(first.name);
+        void loadTable(first, 1, created);
+      } else {
+        selectTable("");
+      }
       previous?.dispose();
       addToast({ type: "success", message: "Reloaded from Luna" });
     } catch (error) {
@@ -889,7 +903,7 @@ export function SqliteEditorSession({
       reloadingRef.current = false;
       setReloading(false);
     }
-  }, [addToast, canWrite, loadTable, markSaved, onReload]);
+  }, [addToast, canWrite, loadTable, markSaved, onReload, selectTable]);
 
   const statusText = running
     ? "Running query…"
@@ -1003,7 +1017,7 @@ export function SqliteEditorSession({
                               setPanel("table");
                               return;
                             }
-                            setSelectedTable(table.name);
+                            selectTable(table.name);
                             setPanel("table");
                             setGridError("");
                             setGrid({ ...EMPTY_GRID, loading: true });
