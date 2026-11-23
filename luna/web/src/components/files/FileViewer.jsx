@@ -29,12 +29,14 @@ const loadFormBuilder = () => import("./forms/FormBuilder.jsx");
 const loadOfficeEditor = () => import("./office/OfficeEditor.jsx");
 const loadDiagramEditor = () => import("./diagram/DiagramEditor.jsx");
 const loadWhiteboardEditor = () => import("./whiteboard/WhiteboardEditor.jsx");
+const loadSqliteFileEditor = () => import("./SqliteFileEditor.jsx");
 const TextFileEditor = lazy(loadTextFileEditor);
 const FormBuilder = lazy(loadFormBuilder);
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
 const OfficeEditor = lazy(loadOfficeEditor);
 const DiagramEditor = lazy(loadDiagramEditor);
 const WhiteboardEditor = lazy(loadWhiteboardEditor);
+const SqliteFileEditor = lazy(loadSqliteFileEditor);
 
 // The frame holds back the editor until its opening fade is over, so the
 // editor's code is fetched the moment a file is opened instead of when the
@@ -44,7 +46,8 @@ const loadEditorFor = (kind) =>
     : kind === "form" ? loadFormBuilder
       : kind === "diagram" ? loadDiagramEditor
         : kind === "whiteboard" ? loadWhiteboardEditor
-          : loadTextFileEditor;
+          : kind === "sqlite" ? loadSqliteFileEditor
+            : loadTextFileEditor;
 
 // Text and Markdown are the commonest files to open. Fetch their editor while
 // the browser is idle so the first open doesn't wait on the download, but not
@@ -149,6 +152,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const isForm = kind === "form";
   const isDiagram = kind === "diagram";
   const isWhiteboard = kind === "whiteboard";
+  const isSqlite = kind === "sqlite";
   const isMarkdown = kind === "markdown";
   const isTextLike = kind === "text" || isMarkdown;
   // Text/markdown always get the fullscreen editor; without write permission
@@ -157,7 +161,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // a useful read-only view when the opener can't write, and link guests
   // reach all three through the scoped /s endpoints. Whiteboards too.
   const fullscreenEditor =
-    isOffice || isForm || isDiagram || isWhiteboard || isTextLike;
+    isOffice || isForm || isDiagram || isWhiteboard || isSqlite || isTextLike;
   // Set when EuroOfficeHost reports the DocsAPI script failed to load —
   // OfficeEditor swaps to its "can't open office files" card inside the
   // same fullscreen frame.
@@ -180,7 +184,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // open→false reset clears `path` to "", which would otherwise swap the
   // office editor for a TextFileEditor on an empty path — a bogus content
   // fetch and an error flash for the last 250ms.
-  const frameViewRef = useRef({ path, name, isOffice, isForm, isDiagram, isWhiteboard, isMarkdown });
+  const frameViewRef = useRef({
+    path,
+    name,
+    isOffice,
+    isForm,
+    isDiagram,
+    isWhiteboard,
+    isSqlite,
+    isMarkdown,
+  });
 
   if (expandedScope !== previewKey) {
     setExpandedScope(previewKey);
@@ -301,7 +314,17 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
   const editorActive = open && fullscreenEditor && !dismissed;
   // Start the editor's download as soon as the file opens (see loadEditorFor).
-  const editorKindKey = isOffice ? "office" : isForm ? "form" : isDiagram ? "diagram" : isWhiteboard ? "whiteboard" : "text";
+  const editorKindKey = isOffice
+    ? "office"
+    : isForm
+      ? "form"
+      : isDiagram
+        ? "diagram"
+        : isWhiteboard
+          ? "whiteboard"
+          : isSqlite
+            ? "sqlite"
+            : "text";
   useEffect(() => {
     if (editorActive) void loadEditorFor(editorKindKey)().catch(() => {});
   }, [editorActive, editorKindKey]);
@@ -316,7 +339,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // which would trade the mounted editor for a fresh one on an empty path.
   if (!editorOverlay.isClosing) {
     officeMissingViewRef.current = officeMissing;
-    frameViewRef.current = { path, name, isOffice, isForm, isDiagram, isWhiteboard, isMarkdown };
+    frameViewRef.current = {
+      path,
+      name,
+      isOffice,
+      isForm,
+      isDiagram,
+      isWhiteboard,
+      isSqlite,
+      isMarkdown,
+    };
   }
   const officeMissingView = editorOverlay.isClosing
     ? officeMissingViewRef.current
@@ -373,6 +405,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               onSaveStateChange={onSaveStateChange}
               onRegisterSave={onRegisterSave}
               requestClose={requestClose}
+            />
+          ) : frameView.isSqlite ? (
+            <SqliteFileEditor
+              driveId={driveId}
+              path={frameView.path}
+              name={frameView.name}
+              canWrite={canWrite}
+              onSaved={onSaved}
+              onRegisterSave={onRegisterSave}
+              onSaveStateChange={onSaveStateChange}
             />
           ) : frameView.isForm ? (
             <FormBuilder

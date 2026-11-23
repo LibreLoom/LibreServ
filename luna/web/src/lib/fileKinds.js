@@ -102,6 +102,10 @@ export const OFFICE_SAVE_EXT = new Set([
 // converter error screen.
 const CSV_EXT = new Set(["csv", "tsv"]);
 
+// SQLite databases open in the in-browser editor. A form's hidden answers
+// sidecar stays the form builder's business, not a generic file.
+const SQLITE_EXT = new Set(["sqlite", "sqlite3", "db"]);
+
 // Luna Forms documents — they open in the fullscreen builder, not a viewer.
 const FORM_EXT = new Set(["lunaform"]);
 
@@ -231,6 +235,13 @@ export function isFormFile(name) {
 }
 
 /** @param {string} name */
+export function isSqliteFile(name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.endsWith(".lunaform.responses.sqlite")) return false;
+  return SQLITE_EXT.has(fileExtension(name));
+}
+
+/** @param {string} name */
 export function isDiagramFile(name) {
   const base = (String(name || "").split("/").pop() || "").toLowerCase();
   return (
@@ -263,7 +274,7 @@ export function viewerNeedsSession(name) {
 }
 
 /**
- * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"|"form"|"diagram"|"whiteboard"} OpenableKind
+ * @typedef {"image"|"video"|"text"|"markdown"|"pdf"|"audio"|"archive"|"ebook"|"comic"|"font"|"notebook"|"geo"|"calendar"|"contact"|"office"|"csv"|"form"|"diagram"|"whiteboard"|"sqlite"} OpenableKind
  */
 
 /**
@@ -279,6 +290,7 @@ export function openableKind(name) {
   if (isDiagramFile(name)) return "diagram";
   // Before text: `.excalidraw` is JSON — the editor, not the text surface.
   if (isWhiteboardFile(name)) return "whiteboard";
+  if (isSqliteFile(name)) return "sqlite";
   if (isImageFile(name)) return "image";
   if (isVideoFile(name)) return "video";
   if (isOfficeFile(name)) return "office";

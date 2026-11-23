@@ -10,6 +10,7 @@ import {
   isMarkdownFile,
   isOfficeFile,
   isPdfFile,
+  isSqliteFile,
   isTextFile,
   isWhiteboardFile,
   isVideoFile,
@@ -56,6 +57,18 @@ describe("fileKinds", () => {
     expect(openableKind("font.woff2")).toBe("font");
     expect(openableKind("map.geojson")).toBe("geo");
     expect(openableKind("mystery.bin")).toBe(null);
+  });
+
+  it("opens SQLite databases in the database editor", () => {
+    expect(isSqliteFile("luna-demo.sqlite")).toBe(true);
+    expect(isSqliteFile("archive.SQLITE3")).toBe(true);
+    expect(isSqliteFile("data.db")).toBe(true);
+    expect(isSqliteFile("notes.sqlite.bak")).toBe(false);
+    expect(openableKind("luna-demo.sqlite")).toBe("sqlite");
+    expect(openableKind("luna-demo.db")).toBe("sqlite");
+    // A form's hidden answers sidecar belongs to the form builder.
+    expect(isSqliteFile(".rsvp.lunaform.responses.sqlite")).toBe(false);
+    expect(openableKind(".rsvp.lunaform.responses.sqlite")).toBeNull();
   });
 
   it("classifies .lunaform files as forms, never text", () => {

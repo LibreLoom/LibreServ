@@ -1,9 +1,10 @@
 /**
- * In-browser SQLite editor for a Luna form's answers database.
+ * In-browser SQLite editor.
  *
  * All database work happens in a Web Worker through sql.js; the file on Luna
  * is only touched by an explicit Save. Manual grid edits and free-form SQL
- * share one in-memory database, so there is one dirty flag.
+ * share one in-memory database, so there is one dirty flag. The same session
+ * backs a form's answers database and an ordinary `.sqlite` file.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -181,22 +182,35 @@ SqliteEditor.propTypes = {
  * @param {{
  *   canWrite: boolean,
  *   initialBytes: Uint8Array,
- *   revision: number,
- *   onSave: (bytes: Uint8Array, revision: number) => Promise<{ revision: number }>,
- *   onReload: (() => Promise<{ bytes: Uint8Array, revision: number }>) | null,
+ *   revision: number | string,
+ *   onSave: (
+ *     bytes: Uint8Array,
+ *     revision: number | string,
+ *   ) => Promise<{ revision: number | string }>,
+ *   onReload:
+ *     | (() => Promise<{ bytes: Uint8Array, revision: number | string }>)
+ *     | null,
  *   frame: {
  *     onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
  *     onSaveStateChange: (hasUnsaved: boolean) => void,
  *   },
+ *   conflictTitle?: string,
+ *   conflictMessage?: string,
+ *   conflictNoReloadMessage?: string,
+ *   oversizedHint?: string,
  * }} props
  */
-function SqliteEditorSession({
+export function SqliteEditorSession({
   canWrite,
   initialBytes,
   revision,
   onSave,
   onReload,
   frame,
+  conflictTitle = "New answers arrived",
+  conflictMessage = "Someone answered this form after you opened the database. Saving now would replace the newer answers.",
+  conflictNoReloadMessage = "Close the editor and open the form again to load the new answers.",
+  oversizedHint = "Use the Responses view to read answers page by page.",
 }) {
   const { onRegisterSave, onSaveStateChange } = frame;
   const { addToast } = useToast();
@@ -825,7 +839,7 @@ function SqliteEditorSession({
       const next = await onReload();
       if (!next || !next.bytes) {
         throw new Error(
-          "Luna didn't return the newer file. Close the editor and open the form again.",
+          "Luna didn't return the newer file. Close the editor and open it again.",
         );
       }
       const nextBytes = asBytes(next.bytes);
@@ -835,7 +849,7 @@ function SqliteEditorSession({
         );
       }
       created = createSqliteClient();
-      const opened = await created.open(nextBytes);
+      const opened = await created.open(nextBytes, { readOnly: !canWrite });
       if (!mountedRef.current) {
         created.dispose();
         return;
@@ -873,7 +887,7 @@ function SqliteEditorSession({
       reloadingRef.current = false;
       setReloading(false);
     }
-  }, [addToast, loadTable, markSaved, onReload]);
+  }, [addToast, canWrite, loadTable, markSaved, onReload]);
 
   const statusText = running
     ? "Running query…"
@@ -908,8 +922,7 @@ function SqliteEditorSession({
             <p className="font-mono text-sm">Too large to edit here</p>
             <p className="mt-2 text-sm">
               This database is larger than the editor's{" "}
-              {formatBytes(MAX_DATABASE_BYTES)} limit. Use the Responses view
-              to read answers page by page.
+              {formatBytes(MAX_DATABASE_BYTES)} limit. {oversizedHint}
             </p>
           </PageNotice>
         </div>
@@ -1007,7 +1020,7 @@ function SqliteEditorSession({
                   surface="primary"
                   content={
                     canWrite
-                      ? "Changes stay in this browser until you save. Reloading the form without saving discards them."
+                      ? "Changes stay in this browser until you save. Reloading without saving discards them."
                       : "This database is open read-only, so changes cannot be saved."
                   }
                   label="About saving"
@@ -1289,25 +1302,20 @@ function SqliteEditorSession({
       <ModalCard
         open={conflict}
         onClose={keepEditing}
-        title="New answers arrived"
+        title={conflictTitle}
         showCloseButton={false}
         overlayClassName={NESTED_OVERLAY_CLASS}
         initialFocusRef={keepFocusRef}
         openHaptic={false}
       >
         <div className="space-y-4">
-          <p className="text-sm text-primary">
-            Someone answered this form after you opened the database. Saving
-            now would replace the newer answers.
-          </p>
+          <p className="text-sm text-primary">{conflictMessage}</p>
           {onReload ? (
             <p className="text-sm text-primary">
               Reloading discards the changes you made here.
             </p>
           ) : (
-            <p className="text-sm text-primary">
-              Close the editor and open the form again to load the new answers.
-            </p>
+            <p className="text-sm text-primary">{conflictNoReloadMessage}</p>
           )}
           {conflictError ? <InlineError>{conflictError}</InlineError> : null}
           <div className="flex flex-col gap-3">
