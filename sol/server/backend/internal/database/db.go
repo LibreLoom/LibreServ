@@ -251,10 +251,13 @@ func (d *DB) HealthCheck() error {
 	// probe is cheap and makes /health/ready stop lying when the file is gone.
 	if d.path != ":memory:" {
 		if _, err := os.Stat(d.path); err != nil {
+			// These errors travel through public health endpoints. Log the
+			// path here; callers only get the sentinel.
+			slog.Warn("database file stat failed", "path", d.path, "error", err)
 			if errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("%w: %v", ErrDatabaseFileMissing, err)
+				return ErrDatabaseFileMissing
 			}
-			return fmt.Errorf("%w: %v", ErrDatabaseUnreadable, err)
+			return ErrDatabaseUnreadable
 		}
 	}
 

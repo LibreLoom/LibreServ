@@ -1141,3 +1141,26 @@ describe("AboutCategory integrity gate and successful check", () => {
     }
   });
 });
+
+describe("AboutCategory manual check recount", () => {
+  it("recounts the summary when a manual check clears a failed database row", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: {
+        database: { status: "failed", message: "Could not reach the database" },
+        runtime: { status: "passed", message: "Ready" },
+      },
+      summary: { passed: 1, failed: 1 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+    expect(screen.getByText("2 of 2 checks passed — everything looks good.")).toBeVisible();
+    expect(screen.getByText("Healthy")).toBeVisible();
+  });
+});

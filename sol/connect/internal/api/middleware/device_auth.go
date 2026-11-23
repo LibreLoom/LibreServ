@@ -55,12 +55,13 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Conditional last_seen update. The statement still round-trips on
-			// every device poll, but the row is only written once per window,
-			// which removes the per-poll row lock and table bloat.
+			// Conditional last_seen update. Bind one Go time for both the value
+			// and the window: other writers store time.Now(), and a TIMESTAMP
+			// without time zone would otherwise drift with the session zone.
+			seenAt := time.Now()
 			_, _ = db.ExecContext(r.Context(), `
-				UPDATE devices SET last_seen_at = NOW() WHERE id = $1
-				AND (last_seen_at IS NULL OR last_seen_at < NOW() - interval '90 seconds')`, deviceID)
+				UPDATE devices SET last_seen_at = $2 WHERE id = $1
+				AND (last_seen_at IS NULL OR last_seen_at < $2 - interval '90 seconds')`, deviceID, seenAt)
 
 			ctx := context.WithValue(r.Context(), deviceContext{}, deviceID)
 			next.ServeHTTP(w, r.WithContext(ctx))

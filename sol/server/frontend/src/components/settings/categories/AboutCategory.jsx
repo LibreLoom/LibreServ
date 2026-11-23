@@ -164,8 +164,13 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       : [name, check])
     : rawChecks;
   const summary = data?.summary;
-  const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
-  const failed = summary?.failed ?? checks.length - passed;
+  // A manual check can change the database row, so the old summary would
+  // contradict it. Recount from the merged rows in that case.
+  const recount = fileChecked || fileProblem;
+  const passed = recount
+    ? checks.filter(([, c]) => c.status === "passed").length
+    : summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
+  const failed = recount ? checks.length - passed : summary?.failed ?? checks.length - passed;
   const allOk = failed === 0 && checks.length > 0 && !fileProblem;
 
   // Failed checks first, then alphabetical, so problems are the first thing seen.
