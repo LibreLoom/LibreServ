@@ -4,8 +4,9 @@
 //! its first min(32, size) bytes in place. Both files are the same length;
 //! only those first bytes differ. The image used to ship both copies. The pack
 //! build now keeps only the masked bytes in `fonts/aliases.json` and drops the
-//! generated copy; this module rebuilds the exact original bytes on the way
-//! out, so an editor request for `/fonts/NNN` is unchanged.
+//! generated copy; this module rebuilds the generated web font on the way out
+//! (masked prefix followed by the core-font tail), so an editor request for
+//! `/fonts/NNN` is byte-for-byte unchanged.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -114,7 +115,7 @@ pub fn etag_for(pack_dir: &Path, name: &str) -> Option<String> {
     alias_for(pack_dir, name).map(|entry| entry.etag)
 }
 
-/// Return the original bytes for an aliased font, or `None` when the name is a
+/// Return the generated web font for an alias, or `None` when the name is a
 /// real file in `fonts/` (or no manifest exists). Callers fall back to the
 /// normal static-file handler in that case.
 pub async fn synth(pack_dir: &Path, name: &str) -> Option<Vec<u8>> {

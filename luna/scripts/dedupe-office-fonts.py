@@ -78,10 +78,12 @@ def main():
             + "\n",
             encoding="utf-8",
         )
+    elif manifest.is_file():
+        # Already deduped: the generated copies are gone and the manifest is
+        # the record of them. A second run must not delete it.
+        print("font dedup: already deduped, keeping existing aliases.json")
+        return
     else:
-        manifest.unlink(missing_ok=True)
-
-    if not aliases:
         raise SystemExit(
             "font dedup found no aliases: the pack would ship the duplicate "
             "font bodies again. Check the generated fonts/ and core-fonts/ trees."

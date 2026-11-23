@@ -53,6 +53,32 @@ class DedupeTest(unittest.TestCase):
             self.assertEqual(rebuilt, bytes(generated))
             self.assertEqual(hashlib.sha256(rebuilt).digest(), hashlib.sha256(bytes(generated)).digest())
 
+    def test_second_run_keeps_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / "core-fonts"
+            fonts = root / "fonts"
+            core.mkdir()
+            fonts.mkdir()
+            source = bytes(range(96))
+            generated = bytearray(source)
+            for i in range(32):
+                generated[i] ^= 0xA5
+            (core / "real.ttf").write_bytes(source)
+            (fonts / "024").write_bytes(generated)
+
+            first = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            manifest = (fonts / "aliases.json").read_bytes()
+            second = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("already deduped", second.stdout)
+            self.assertEqual((fonts / "aliases.json").read_bytes(), manifest)
+
     def test_no_aliases_fails_the_pack_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

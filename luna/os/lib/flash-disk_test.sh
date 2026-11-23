@@ -196,10 +196,19 @@ assert_false _write_slot "$_tmp/cut.img.zst" "$_tmp/slot.out" 2>/dev/null
 # would veto at the mount guard and let these asserts pass for the wrong reason.
 LUNA_PROC_MOUNTS="$_mnt_dir/mounts3"
 export LUNA_PROC_MOUNTS
-if command -v grub-install >/dev/null 2>&1; then
-	assert_true _flash_guards /dev/sda "$_tmp/luna-os-x86_64.img.zst"
-	assert_true _flash_guards /dev/sda "$_tmp/archive.img.xz"
-fi
+# The guard also asks for grub-install. luna-ci has no GRUB, so stub it here:
+# these asserts must run in the gate lane, not only on a developer's machine.
+_stub_bin="$_tmp/fake-bin"
+mkdir -p "$_stub_bin"
+printf '#!/bin/sh\nexit 0\n' >"$_stub_bin/grub-install"
+chmod +x "$_stub_bin/grub-install"
+_saved_path="$PATH"
+PATH="$_stub_bin:$PATH"
+export PATH
+assert_true _flash_guards /dev/sda "$_tmp/luna-os-x86_64.img.zst"
+assert_true _flash_guards /dev/sda "$_tmp/archive.img.xz"
+PATH="$_saved_path"
+export PATH
 # An old xz asset still streams, so the pre-flight guard must accept its magic
 # too (it checks for xz instead of zstd in that case).
 printf 'old xz image\n' | xz -c >"$_tmp/luna-os-x86_64.img.xz"
