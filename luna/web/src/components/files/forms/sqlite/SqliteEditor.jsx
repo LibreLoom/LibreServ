@@ -966,10 +966,17 @@ export function SqliteEditorSession({
               className="flex min-h-0 flex-col gap-2 p-2 md:m-2 md:flex-1"
             >
               <div className="flex items-center justify-between px-2 pt-1">
-                <h2 className="font-mono text-xs text-primary">Tables</h2>
-                <span className="text-xs tabular-nums text-primary">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Table2
+                    size={ICON_SIZE.sm}
+                    className="shrink-0"
+                    aria-hidden="true"
+                  />
+                  <h2 className="font-mono text-xs text-primary">Tables</h2>
+                </div>
+                <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-primary">
                   {formatCount(tables.length)}
-                </span>
+                </Pill>
               </div>
               {tables.length > 0 ? (
                 <ul className="flex flex-col gap-1 md:min-h-0 md:flex-1 md:overflow-y-auto">
@@ -981,7 +988,6 @@ export function SqliteEditorSession({
                           variant="nav"
                           active={active}
                           align="between"
-                          icon={Table2}
                           actionLabel={`${table.name}, ${table.columns.length} ${
                             table.columns.length === 1 ? "column" : "columns"
                           }`}
