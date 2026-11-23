@@ -1312,6 +1312,7 @@ function QuestionCard({
         {canWrite && (
           <button
             type="button"
+            data-no-press-scale=""
             onPointerDown={(e) => {
               e.preventDefault();
               dragControls.start(e);

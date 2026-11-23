@@ -66,7 +66,7 @@ function Slot({ children, ...props }) {
 }
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all enabled:active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
       variant: {
@@ -201,6 +201,12 @@ export default function Button({
   // buttons that never load, and the idle layer was most of their DOM.
   const [spinnerStaged, setSpinnerStaged] = useState(loading);
   if ((size === "icon" || size === "iconSm") && loading && !spinnerStaged) setSpinnerStaged(true);
+  // Labeled buttons stage the overlay too, so the label fades back in while
+  // the spinner fades out instead of flashing an empty control between.
+  const [labelSpinnerStaged, setLabelSpinnerStaged] = useState(loading);
+  if (!(size === "icon" || size === "iconSm") && loading && !labelSpinnerStaged) {
+    setLabelSpinnerStaged(true);
+  }
 
   // asChild: style the child element (e.g. a router Link or anchor) as a
   // Button. Button-only attributes (type, disabled) don't apply to links.
@@ -283,11 +289,37 @@ export default function Button({
           {loading && <span className="sr-only">Loading</span>}
         </span>
       ) : (
-        <>
-          {loading && <Spinner decorative size={spinnerSize} className="pointer-events-none" />}
-          {loading && <span className="sr-only">Loading</span>}
-          {children}
-        </>
+        /* Labeled buttons keep their exact size while loading. A spinner
+           that sits in the flow widens the button by its own width, which
+           shoved the label — and every neighbour in the row — sideways on
+           click. Instead the label fades where it is and a centered spinner
+           fades in over it, so only the paint changes. */
+        <span className="relative inline-flex items-center justify-center">
+          <span
+            className={cn(
+              "inline-flex items-center justify-center gap-2",
+              "motion-safe:transition-opacity motion-safe:ease-[var(--motion-easing-emphasized)]",
+              loading && "opacity-0",
+            )}
+            style={{ transitionDuration: "var(--motion-duration-short3)" }}
+          >
+            {children}
+          </span>
+          {labelSpinnerStaged ? (
+            <span
+              aria-hidden={!loading}
+              className={cn(
+                "pointer-events-none absolute inset-0 inline-flex items-center justify-center",
+                "motion-safe:transition-opacity motion-safe:ease-[var(--motion-easing-emphasized)]",
+                loading ? "opacity-100" : "opacity-0",
+              )}
+              style={{ transitionDuration: "var(--motion-duration-short3)" }}
+            >
+              <Spinner decorative paused={!loading} size={spinnerSize} />
+            </span>
+          ) : null}
+          {loading ? <span className="sr-only">Loading</span> : null}
+        </span>
       )}
     </button>
   );

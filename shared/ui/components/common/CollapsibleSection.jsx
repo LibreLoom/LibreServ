@@ -40,7 +40,7 @@ export default function CollapsibleSection({
           setOpen(!open);
         }}
         className={cn(
-          "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer",
+          "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer active:motion-safe:scale-[0.99]",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
           sizeClass,
           pill ? cn(onPage ? "text-secondary" : "text-primary", "font-medium py-2 px-3") : "text-inherit py-1",

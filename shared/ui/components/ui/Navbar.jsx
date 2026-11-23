@@ -614,6 +614,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
       <button
         ref={menuButtonRef}
         type="button"
+        data-no-press-scale=""
         className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "surface-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
         style={getHamburgerStyle()}
         onClick={() => {
@@ -635,6 +636,7 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
 
       <button
         type="button"
+        data-no-press-scale=""
         className={cn("fixed", "inset-0", TRANSITION.base, "bg-secondary/60", "backdrop-blur-sm", "z-999", isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
         onClick={() => {
           haptic("light");
