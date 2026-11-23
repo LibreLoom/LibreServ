@@ -30,6 +30,7 @@ type HealthHandler struct {
 	integrityMu      sync.Mutex
 	integrityRunning bool
 	integrityResult  map[string]any
+	integrityGen     uint64
 }
 
 // NewHealthHandler creates a new HealthHandler
@@ -78,7 +79,7 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	// Check database health. These endpoints are public, so only a short
 	// verdict goes out; driver paths stay in the log.
 	if err := h.db.HealthCheck(); err != nil {
-		slog.Warn("database health check failed", "error", err)
+		slog.Debug("database health check failed", "error", err)
 		checks["database"] = databaseHealthMessage(err)
 		overallStatus = "unhealthy"
 	} else {
@@ -106,7 +107,7 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	// Check if database is accessible
 	if err := h.db.HealthCheck(); err != nil {
-		slog.Warn("database readiness check failed", "error", err)
+		slog.Debug("database readiness check failed", "error", err)
 		JSON(w, http.StatusServiceUnavailable, HealthResponse{
 			Status:    "not ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -135,6 +136,7 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 	}
 	h.integrityRunning = true
 	h.integrityResult = nil
+	gen := h.integrityGen
 	h.integrityMu.Unlock()
 
 	go func() {
@@ -179,8 +181,12 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 			result = map[string]any{"status": "ok", "reason": "ok", "corrupt": false}
 		}
 		h.integrityMu.Lock()
-		h.integrityResult = result
-		h.integrityRunning = false
+		// A restore/reset during the walk invalidated this generation. Its
+		// verdict describes the old file and must not overwrite the new run.
+		if gen == h.integrityGen {
+			h.integrityResult = result
+			h.integrityRunning = false
+		}
 		h.integrityMu.Unlock()
 	}()
 
@@ -191,6 +197,7 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 func (h *HealthHandler) InvalidateIntegrity() {
 	h.integrityMu.Lock()
 	defer h.integrityMu.Unlock()
+	h.integrityGen++
 	h.integrityResult = nil
 	h.integrityRunning = false
 }

@@ -52,7 +52,7 @@ string ever needs characters outside that range.
 
 ```sh
 SRC=shared/ui/fonts
-UNICODES='U+0020-007E,U+00A0-024F,U+2000-206F,U+2190-21FF,U+2200-22FF,U+2500-257F,U+2600-26FF'
+UNICODES='U+0020-007E,U+00A0-024F,U+2000-206F,U+20A0-20CF,U+2190-21FF,U+2200-22FF,U+2500-257F,U+2580-25FF,U+2600-26FF'
 for f in FreeMono FreeMonoOblique; do
   pyftsubset "$SRC/$f.ttf" --unicodes='*' --flavor=woff2 --output-file="$SRC/$f.woff2"
 done

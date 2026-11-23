@@ -343,14 +343,14 @@ fonts are lazy assets and are not part of W1.
 
 | Journey | Before | After | Ratio |
 |---|---|---|---|
-| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1151.6 KiB | 1.96x |
+| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1160.6 KiB | 1.95x |
 
 Both sides used the current `bundle-report.js`: the before build had the font
 edits reverted, the after build is this branch. Each was rebuilt with a clean
 output directory, then measured with `npm run perf:bundle`. Lunad embeds
 `web/dist` and serves files verbatim, with no `.gz` lookup and no compression
 layer, so `totals.initial.wire` is raw bytes throughout. Before = 728.2 KiB
-JS/CSS + 1530.0 KiB TTF; after = 727.4 KiB JS/CSS + 424.2 KiB WOFF2. An
+JS/CSS + 1530.0 KiB TTF; after = 727.4 KiB JS/CSS + 433.2 KiB WOFF2. An
 earlier draft used gzip sizes for JS/CSS, which lunad never sends. Raw reports
 are `perf/results/bundle-<time>.json`.
 

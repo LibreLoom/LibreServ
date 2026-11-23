@@ -20,9 +20,9 @@ codepoint in the original TTF `cmap`. Conversion commands are in
 
 | Product | Before | After | Ratio |
 |---|---|---|---|
-| Sol first-load bytes on the wire | 1668.3 KiB | 562.7 KiB | 2.96x |
-| Luna first-load bytes (lunad serves files raw) | 2258.2 KiB | 1151.6 KiB | 1.96x |
-| Shared font faces (raw) | 1530 KiB | 424 KiB | 3.61x |
+| Sol first-load bytes on the wire | 1668.3 KiB | 571.8 KiB | 2.92x |
+| Luna first-load bytes (lunad serves files raw) | 2258.2 KiB | 1160.6 KiB | 1.95x |
+| Shared font faces (raw) | 1530 KiB | 433 KiB | 3.53x |
 
 How each side was produced, so the numbers can be reproduced:
 
@@ -33,10 +33,10 @@ How each side was produced, so the numbers can be reproduced:
   (what the servers send), fonts at raw bytes (servers do not gzip fonts). The
   raw JSON is in the gitignored `*/perf/results/bundle-*.json` files.
 - Sol serves the `.gz` sibling for JS/CSS, so its wire total uses those bytes:
-  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.56 + 424.18 = 562.74 KiB (138.56 KiB JS/CSS + 424.18 KiB WOFF2).
+  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.56 + 433.2 = 571.8 KiB (138.6 KiB JS/CSS + 433.2 KiB WOFF2).
   Lunad embeds `web/dist` and serves every file verbatim with no compression
   layer, so Luna's total is raw bytes throughout: before = 728.2 KiB JS/CSS +
-  1530.0 KiB TTF; after = 727.4 + 424.2 = 1151.6 KiB WOFF2. Both sides were rebuilt with
+  1530.0 KiB TTF; after = 727.4 + 433.2 = 1160.6 KiB WOFF2. Both sides were rebuilt with
   a clean output directory. An earlier draft measured Luna against a server
   that does not exist; the report now uses each server's real transfer basis.
 - A browser check against the built Luna app with the luna/perf "remote"

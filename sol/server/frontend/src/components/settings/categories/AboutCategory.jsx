@@ -22,23 +22,36 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [fileProblem, setFileProblem] = useState(false);
   const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
-  const dbRow = data?.checks?.database;
-  const lastDbRowRef = useRef(dbRow);
+  const lastHealthRef = useRef(data);
   useEffect(() => () => pollRef.current?.abort(), []);
+
+  // Two different lifetimes: a manual "fine" describes the health snapshot it
+  // was taken against and expires with the next one, while a corruption or
+  // missing-file finding survives unrelated polls until a new manual check.
   useEffect(() => {
-    // Only a change in the cheap probe's database row can contradict a manual
-    // result. Unrelated health fields (disk, timestamps) must not forget a
-    // corruption finding.
-    const previous = lastDbRowRef.current;
-    lastDbRowRef.current = dbRow;
-    if (!dbRow || !previous) return;
-    const changed = previous.status !== dbRow.status || previous.message !== dbRow.message;
-    if (changed && dbRow.status === "failed") {
+    if (data === lastHealthRef.current) return;
+    lastHealthRef.current = data;
+    if (fileChecked && !fileProblem) {
       setFileChecked(false);
-      setFileProblem(false);
       setFileResult(null);
     }
-  }, [dbRow]);
+  }, [data, fileChecked, fileProblem]);
+
+  // Bring back the last verdict after a trip to another settings tab.
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    api("/system/database/integrity/status")
+      .then((res) => res.json())
+      .then((result) => {
+        if (cancelled || !result.status || result.status === "running" || result.status === "idle") return;
+        setFileResult(result.message || null);
+        setFileProblem(result.status === "corrupt" || result.reason === "missing");
+        setFileChecked(result.status === "ok");
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAdmin]);
 
   // Always available to an admin, even when the periodic health query fails.
   const actionRow = isAdmin && (
