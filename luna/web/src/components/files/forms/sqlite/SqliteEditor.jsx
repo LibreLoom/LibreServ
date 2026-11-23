@@ -19,12 +19,15 @@ import ModalCard, {
   NESTED_OVERLAY_CLASS,
 } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
+import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { cn } from "@libreloom/ui/lib/utils.js";
+import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
 import FullscreenEditorFrame from "../../FullscreenEditorFrame.jsx";
 import EditorLoadingScreen, {
@@ -958,31 +961,27 @@ export function SqliteEditorSession({
           <aside className="flex shrink-0 flex-col border-b border-secondary/15 md:w-60 md:border-b-0 md:border-r">
             <div className="flex h-11 shrink-0 items-center justify-between px-4">
               <h2 className="font-mono text-xs text-secondary">Tables</h2>
-              <span className="text-xs tabular-nums text-secondary">
+              <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-secondary">
                 {formatCount(tables.length)}
-              </span>
+              </Pill>
             </div>
             {tables.length > 0 ? (
               <nav
                 aria-label="Tables"
-                className="flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-1 md:flex-col md:overflow-x-visible md:overflow-y-auto"
+                className="flex flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
               >
                 {tables.map((table) => {
                   const active = table.name === selectedTable;
                   return (
-                    <Button
+                    <button
                       key={table.name}
-                      variant={active ? "secondary" : "ghost"}
-                      surface="primary"
-                      size="sm"
-                      smoothResize={false}
-                      haptic={active ? "selection" : "light"}
-                      className="w-auto shrink-0 justify-start gap-2 px-3 md:w-full"
+                      type="button"
                       aria-label={`${table.name}, ${table.columns.length} ${
                         table.columns.length === 1 ? "column" : "columns"
                       }`}
                       aria-current={active ? "true" : undefined}
                       onClick={() => {
+                        haptic(active ? "selection" : "light");
                         if (active) {
                           setPanel("table");
                           return;
@@ -993,14 +992,29 @@ export function SqliteEditorSession({
                         setGrid({ ...EMPTY_GRID, loading: true });
                         void loadTable(table, 1);
                       }}
+                      className={cn(
+                        "group w-full rounded-large-element text-left outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                        active && "surface-secondary",
+                      )}
                     >
-                      <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
-                        {table.name}
-                      </span>
-                      <span className="shrink-0 text-[11px] tabular-nums">
-                        {table.columns.length}
-                      </span>
-                    </Button>
+                      <ValueDisplay
+                        surface={active ? "secondary" : "primary"}
+                        className={cn(
+                          "transition-colors",
+                          !active && "group-hover:bg-secondary/10",
+                        )}
+                        label={
+                          <span className="font-mono text-xs font-normal">
+                            {table.name}
+                          </span>
+                        }
+                        value={
+                          <span className="tabular-nums">
+                            {table.columns.length}
+                          </span>
+                        }
+                      />
+                    </button>
                   );
                 })}
               </nav>
