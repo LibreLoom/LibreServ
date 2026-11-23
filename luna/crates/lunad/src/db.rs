@@ -2809,13 +2809,18 @@ pub fn rate_limit_allow(
 
 pub fn share_auth_locked(conn: &Connection, key: &str) -> anyhow::Result<bool> {
     let now = now_unix();
-    let locked: i64 = conn
-        .query_row(
-            "SELECT locked_until FROM rate_limit_buckets WHERE key = ?1",
-            params![key],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+    // No row means the bucket has never been used, which is unlocked. Any
+    // other query failure must reach the caller so the lockout check fails
+    // closed instead of treating a poisoned database as unlimited guesses.
+    let locked: i64 = match conn.query_row(
+        "SELECT locked_until FROM rate_limit_buckets WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(rusqlite::Error::QueryReturnedNoRows) => 0,
+        Err(e) => return Err(e.into()),
+    };
     Ok(locked > now)
 }
 

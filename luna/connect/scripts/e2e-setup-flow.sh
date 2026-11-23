@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONNECT_URL="${LUNACONNECT_E2E_URL:-http://127.0.0.1:8092}"
 LUNA_DATA="${LUNA_DATA_DIR:-/agent/repos/sol/luna/dev}"
-ADMIN_TOKEN="${LUNACONNECT_ADMIN_TOKEN:-e2e-live-admin}"
+ADMIN_EMAIL="${LUNACONNECT_E2E_ADMIN_EMAIL:-e2e-admin@test.luna}"
+ADMIN_PASSWORD="${LUNACONNECT_E2E_ADMIN_PASSWORD:-e2e-admin-password}"
 SUBDOMAIN="live$(date +%s | tail -c 5)"
 
 log() { echo "[e2e] $*"; }
@@ -23,6 +24,19 @@ csrf_post() {
     -H "Content-Type: application/json" \
     -H "X-CSRF-Token: $CSRF" \
     -X POST "$CONNECT_URL$path" -d "$body"
+}
+
+# Admin access is a real signed-in staff session, never a static Bearer token.
+admin_login() {
+  csrf_get
+  # Seed the first staff account on a fresh instance. On an instance that
+  # already has an admin this is refused; signing in below still works.
+  curl -s -b /tmp/lc-cookies.txt -c /tmp/lc-cookies.txt \
+    -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" \
+    -X POST "$CONNECT_URL/admin/seed" \
+    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\",\"name\":\"E2E Admin\"}" >/dev/null 2>&1 || true
+  LOGIN=$(csrf_post "/admin/login" "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")
+  echo "$LOGIN" | grep -q '"id"' || fail "admin login: $LOGIN"
 }
 
 wait_for_connect() {
@@ -61,9 +75,11 @@ wait_for_lunad_claim() {
 log "Checking luna-connect at $CONNECT_URL"
 wait_for_connect
 
-# --- Step 1: mint official device token ---
+# --- Step 1: sign in as staff, then mint official device token ---
+log "Signing in as staff admin"
+admin_login
 log "Minting official device token"
-MINT=$(curl -s -X POST "$CONNECT_URL/admin/device-codes" -H "Authorization: Bearer $ADMIN_TOKEN")
+MINT=$(csrf_post "/admin/device-codes" "{}")
 TOKEN=$(echo "$MINT" | python3 -c "import sys,json; print(json.load(sys.stdin)['code'])" 2>/dev/null) \
   || fail "mint failed: $MINT"
 log "Official device token minted"

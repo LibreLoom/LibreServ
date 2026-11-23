@@ -171,18 +171,23 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int) (map[string]an
 		return nil, status, msg
 	}
 
-	// Claim the name in the DB before any Cloudflare call: devices.subdomain
-	// is UNIQUE, so a racing request fails here instead of deleting the
-	// winner's tunnel/DNS record in the cleanup paths below. If a later step
-	// fails we release the claim back to the previous value.
-	if _, err := deps.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ?`, sub, deviceID); err != nil {
+	// Claim the name with a compare-and-set on the subdomain read at request
+	// start. devices.subdomain is UNIQUE, and a concurrent change makes this
+	// UPDATE affect no row, so neither request silently rolls the other back.
+	res, err := deps.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ? AND COALESCE(subdomain, '') = ?`, sub, deviceID, d.Subdomain)
+	if err != nil {
 		if database.IsUniqueViolation(err) {
 			return nil, 409, "That name is already in use. Pick another."
 		}
 		return nil, 500, "Could not save the address. Try again."
 	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return nil, 409, "The address changed while it was being set up. Try again."
+	}
 	releaseClaim := func() {
-		_, _ = deps.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ?`, d.Subdomain, deviceID)
+		// Only release our own claim; never write the request-start value back
+		// over a newer one from a concurrent request.
+		_, _ = deps.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ? AND subdomain = ?`, d.Subdomain, deviceID, sub)
 	}
 
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)

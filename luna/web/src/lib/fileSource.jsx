@@ -445,7 +445,16 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
   const canView = (capsNum & CAP.VIEW) !== 0;
   const canEdit = (capsNum & CAP.EDIT) !== 0;
   const isFile = kind === "file";
-  const headers = () => (password ? { "X-Share-Password": password } : {});
+  // Header values cannot carry non-Latin-1 text, so an emoji or em dash in a
+  // share password would otherwise fail before the request left the browser.
+  const headers = () =>
+    password
+      ? {
+          "X-Share-Password-Utf8": btoa(
+            String.fromCharCode(...new TextEncoder().encode(password)),
+          ),
+        }
+      : {};
   const fetchWithAuth = (url, options = {}) =>
     apiFetch(url, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
   // A file link has exactly one target — the shared file itself. The guest

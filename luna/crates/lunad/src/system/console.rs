@@ -135,6 +135,14 @@ pub fn issue_path(data_dir: &Path) -> PathBuf {
     data_dir.join(ISSUE_FILE)
 }
 
+/// Admin-set names, drive labels and remote hostnames reach the HDMI console
+/// through the issue file, which `luna-console` writes to the terminal as-is.
+/// Drop control characters so nobody can plant a cursor move, clear-screen or
+/// other escape sequence in a label.
+fn console_safe(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
+}
+
 pub fn help_text(snap: &ConsoleSnapshot) -> String {
     help_lines(snap).join("\n")
 }
@@ -156,7 +164,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     if !snap.problems.is_empty() {
         lines.push("  What's wrong:".into());
         for problem in &snap.problems {
-            lines.extend(wrap_indent(problem, "  • ", 60));
+            lines.extend(wrap_indent(&console_safe(problem), "  • ", 60));
         }
         lines.push(String::new());
     }
@@ -183,7 +191,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     let show_home = !snap.ipv4.is_empty() || show_remote;
     if show_remote && let Some(host) = &snap.connect_hostname {
         lines.push("  Links that work from anywhere:".into());
-        lines.push(format!("    {host}"));
+        lines.push(format!("    {}", console_safe(host)));
         lines.push(String::new());
     }
     if show_home {
@@ -199,7 +207,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     if !token_problem && let Some(code) = &snap.device_code {
         lines.push(String::new());
         lines.push("  Device token (for Luna Connect):".into());
-        lines.push(format!("    {code}"));
+        lines.push(format!("    {}", console_safe(code)));
         lines.push("  Type it at connect.luna.libreloom.org".into());
     }
 

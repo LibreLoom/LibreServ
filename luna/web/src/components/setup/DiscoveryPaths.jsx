@@ -44,6 +44,11 @@ export default function DiscoveryPaths({ name = "" }) {
     retry: false,
   });
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
+  // With a device token set, local links are only real when root has turned
+  // the LAN override on. Do not show addresses the browser cannot reach.
+  const lanBlocked = Boolean(
+    connectStatus.data?.connect_active && !connectStatus.data?.lan_override,
+  );
   const remoteHost = (() => {
     const s = connectStatus.data;
     if (!s || s.device_token_error) return "";
@@ -69,33 +74,40 @@ export default function DiscoveryPaths({ name = "" }) {
           </a>
         </div>
       ) : null}
-      <div>
-        <p className="text-xs text-secondary mb-2">On your local network:</p>
-        <ul className="space-y-1.5 text-xs font-mono text-secondary">
-          <li>
-            <a
-              href={asHttpUrl("luna.local")}
-              target="_blank"
-              rel="noreferrer"
-              className={addressLinkClass}
-            >
-              luna.local
-            </a>
-          </li>
-          {ipv4.map((ip) => (
-            <li key={ip}>
+      {!lanBlocked ? (
+        <div>
+          <p className="text-xs text-secondary mb-2">On your local network:</p>
+          <ul className="space-y-1.5 text-xs font-mono text-secondary">
+            <li>
               <a
-                href={asHttpUrl(ip)}
+                href={asHttpUrl("luna.local")}
                 target="_blank"
                 rel="noreferrer"
                 className={addressLinkClass}
               >
-                {ip}
+                luna.local
               </a>
             </li>
-          ))}
-        </ul>
-      </div>
+            {ipv4.map((ip) => (
+              <li key={ip}>
+                <a
+                  href={asHttpUrl(ip)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={addressLinkClass}
+                >
+                  {ip}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {lanBlocked && !remoteHost ? (
+        <p className="text-xs text-secondary">
+          No way to open Luna is ready right now. Wait a moment and try again.
+        </p>
+      ) : null}
     </div>
   );
 }

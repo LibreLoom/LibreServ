@@ -411,7 +411,16 @@ function open(w, token, headers, { download = false } = {}) {
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired or been removed.") };
-  if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
+  let supplied = header(headers, "x-share-password");
+  const encoded = header(headers, "x-share-password-utf8");
+  if (encoded) {
+    try {
+      supplied = new TextDecoder().decode(Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)));
+    } catch {
+      supplied = null;
+    }
+  }
+  if (l.password && supplied !== l.password) return { err: fail(401, "This link needs its password.") };
   if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }

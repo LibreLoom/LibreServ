@@ -57,12 +57,6 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait an hour, then try again.")
 		return
 	}
-	var n int
-	_ = h.DB.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, acct.ID).Scan(&n)
-	if n >= MaxDevicesPerAccount {
-		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
-		return
-	}
 	hash := security.HashToken(norm)
 	var id string
 	var account sql.NullString
@@ -86,6 +80,10 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	claimed, err := claimDevice(h.DB, id, acct.ID)
+	if errors.Is(err, errAccountFull) {
+		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
+		return
+	}
 	if errors.Is(err, errDeviceTakenByOther) {
 		JSONError(w, http.StatusConflict, "That Luna is already linked to another account. The owner must unbind it first.")
 		return
@@ -106,27 +104,73 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 // errDeviceTakenByOther means another account linked the device first.
 var errDeviceTakenByOther = errors.New("device is linked to another account")
 
-// claimDevice links an unlinked device to accountID. The UPDATE only lands on
-// a row that is still unlinked, so when two accounts race, exactly one wins.
-// It reports claimed=true when this call made the link, claimed=false when the
-// device was already this account's, and errDeviceTakenByOther when another
-// account holds it.
+// errAccountFull means this account already holds its one Luna.
+var errAccountFull = errors.New("account already has a Luna")
+
+// claimDevice links an unlinked device to accountID. The account row is locked
+// for the whole transaction so two concurrent binds for one account cannot both
+// count zero devices and then link two different Lunas. The device UPDATE is
+// still fenced to an unlinked row, so when two accounts race for one device
+// exactly one wins. It reports claimed=true when this call made the link,
+// claimed=false when the device was already this account's,
+// errAccountFull when the account already has its Luna, and
+// errDeviceTakenByOther when another account holds the device.
 func claimDevice(db *database.DB, deviceID, accountID string) (bool, error) {
-	res, err := db.Exec(`UPDATE devices SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = '')`, accountID, deviceID)
+	tx, err := db.Begin()
 	if err != nil {
 		return false, err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := database.LockStorageAccount(tx, accountID); err != nil {
 		return false, err
-	}
-	if n == 1 {
-		return true, nil
 	}
 	var owner sql.NullString
-	if err := db.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
+	if err := tx.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
 		return false, err
 	}
+	if owner.Valid && owner.String != "" {
+		if owner.String == accountID {
+			return false, nil
+		}
+		return false, errDeviceTakenByOther
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, accountID).Scan(&n); err != nil {
+		return false, err
+	}
+	if n >= MaxDevicesPerAccount {
+		return false, errAccountFull
+	}
+
+	res, err := tx.Exec(`UPDATE devices SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = '')`, accountID, deviceID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if rows == 1 {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		committed = true
+		return true, nil
+	}
+	// Another account claimed the device between the read and the write.
+	if err := tx.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	committed = true
 	if owner.Valid && owner.String == accountID {
 		return false, nil
 	}
@@ -359,10 +403,11 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusConflict, "Pick a name on the Luna Connect website first.")
 		return
 	}
-	// Claim the name in the DB before touching DNS: devices.subdomain is
-	// UNIQUE, so a racing request fails here instead of deleting the winner's
-	// DNS record below. A failed later step releases the claim.
-	if _, err := h.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ?`, sub, dev.ID); err != nil {
+	// Claim the name with a compare-and-set on the subdomain read at request
+	// start. devices.subdomain is UNIQUE, and a concurrent change makes this
+	// UPDATE affect no row, so neither request silently rolls the other back.
+	res, err := h.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ? AND COALESCE(subdomain, '') = ?`, sub, dev.ID, dev.Subdomain)
+	if err != nil {
 		if database.IsUniqueViolation(err) {
 			JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 			return
@@ -370,8 +415,14 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not save the address. Try again.")
 		return
 	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		JSONError(w, http.StatusConflict, "The address changed while it was being set up. Try again.")
+		return
+	}
 	releaseClaim := func() {
-		_, _ = h.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ?`, dev.Subdomain, dev.ID)
+		// Only release our own claim; never write the request-start value back
+		// over a newer one from a concurrent request.
+		_, _ = h.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ? AND subdomain = ?`, dev.Subdomain, dev.ID, sub)
 	}
 	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)
 	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
