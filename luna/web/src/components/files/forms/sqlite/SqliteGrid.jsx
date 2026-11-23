@@ -277,7 +277,7 @@ export default function SqliteGrid({
               {canWrite ? (
                 <th
                   scope="col"
-                  className="sticky top-0 right-0 z-20 w-12 border-b border-primary/20 surface-secondary px-2 py-2 text-center align-middle"
+                  className="sticky top-0 right-0 z-20 w-12 border-b border-primary/20 surface-secondary px-2 py-2 text-right align-middle"
                 >
                   <Button
                     variant="ghost"
@@ -361,55 +361,44 @@ export default function SqliteGrid({
                             "cursor-text focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent",
                         )}
                       >
-                        <div className="flex items-center gap-1">
-                          <div className="min-w-0 flex-1">
-                            {isEditing ? (
-                              <CellEditor
-                                initial={formatEditableValue(row[colIndex])}
-                                numeric={numeric}
-                                label={`Edit ${column.name}, row ${absolute}`}
-                                onCommit={commitEdit}
-                                onCancel={() => {
-                                  setEditing(null);
-                                  onEditingChange?.(false);
-                                }}
-                              />
-                            ) : (
-                              <GridValue value={row[colIndex]} numeric={numeric} />
-                            )}
-                          </div>
-                          {canEditRows &&
-                          colIndex === table.columns.length - 1 &&
-                          !isEditing ? (
-                            <span
-                              className="shrink-0"
-                              onClick={(event) => event.stopPropagation()}
-                              onDoubleClick={(event) => event.stopPropagation()}
-                            >
-                              <Button
-                                variant="ghost"
-                                surface="primary"
-                                size="iconSm"
-                                smoothResize={false}
-                                haptic="light"
-                                disabled={busy}
-                                aria-label={`Delete row ${absolute}`}
-                                tooltip="Delete row"
-                                onClick={() => onDeleteRow(row, rowIndex)}
-                              >
-                                <Trash2 size={ICON_SIZE.sm} aria-hidden="true" />
-                              </Button>
-                            </span>
-                          ) : null}
-                        </div>
+                        {isEditing ? (
+                          <CellEditor
+                            initial={formatEditableValue(row[colIndex])}
+                            numeric={numeric}
+                            label={`Edit ${column.name}, row ${absolute}`}
+                            onCommit={commitEdit}
+                            onCancel={() => {
+                              setEditing(null);
+                              onEditingChange?.(false);
+                            }}
+                          />
+                        ) : (
+                          <GridValue value={row[colIndex]} numeric={numeric} />
+                        )}
                       </td>
                     );
                   })}
                   {canWrite ? (
-                    <td
-                      className="border-b border-secondary/10"
-                      aria-hidden="true"
-                    />
+                    <td className="sticky right-0 z-10 h-10 w-12 border-b border-secondary/10 surface-primary px-2 py-1 text-right align-middle">
+                      {canEditRows ? (
+                        <Button
+                          variant="ghost"
+                          surface="primary"
+                          size="iconSm"
+                          smoothResize={false}
+                          haptic="light"
+                          disabled={busy}
+                          aria-label={`Delete row ${(page - 1) * pageSize + rowIndex + 1}`}
+                          tooltip="Delete row"
+                          onClick={() => onDeleteRow(row, rowIndex)}
+                        >
+                          <Trash2
+                            size={ICON_SIZE.sm}
+                            aria-hidden="true"
+                          />
+                        </Button>
+                      ) : null}
+                    </td>
                   ) : null}
                 </tr>
               ))
