@@ -60,16 +60,19 @@ describe("SqliteGrid", () => {
 
   it("adds rows and columns from inside the grid", () => {
     const { props } = mount();
-    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    const addRow = screen.getByRole("button", { name: "Add row" });
+    expect(addRow).toHaveAttribute("data-variant", "ghost");
+    fireEvent.click(addRow);
     expect(props.onAddRow).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Add column" }));
     expect(props.onAddColumn).toHaveBeenCalledTimes(1);
   });
 
-  it("puts Add row in an empty table instead of an empty message", () => {
+  it("outlines Add row when the table has no rows", () => {
     const { props } = mount({ rows: [], total: 0 });
     expect(screen.queryByText("No rows yet.")).not.toBeInTheDocument();
     const add = screen.getByRole("button", { name: "Add row" });
+    expect(add).toHaveAttribute("data-variant", "outline");
     expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
     fireEvent.click(add);
     expect(props.onAddRow).toHaveBeenCalledTimes(1);
@@ -86,7 +89,9 @@ describe("SqliteGrid", () => {
   it("keeps Add row below an empty page of a table that has rows", () => {
     mount({ rows: [], total: 5, page: 2 });
     expect(screen.getByText("No rows on this page.")).toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add row" });
     expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+    expect(add).toHaveAttribute("data-variant", "ghost");
   });
 
   it("shows no row or column actions when the table is read-only", () => {

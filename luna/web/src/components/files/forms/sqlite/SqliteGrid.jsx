@@ -177,9 +177,10 @@ export default function SqliteGrid({
   // An empty table has no rows to show, so its one action moves into the
   // empty state instead of leaving a "No rows yet" line above an Add row.
   const emptyTable = !loading && total === 0 && rows.length === 0;
-  const addRowButton = (
+  /** @param {"ghost" | "outline"} variant */
+  const addRowButton = (variant) => (
     <Button
-      variant="ghost"
+      variant={variant}
       surface="primary"
       size="sm"
       smoothResize={false}
@@ -332,7 +333,7 @@ export default function SqliteGrid({
                   ) : total > 0 ? (
                     "No rows on this page."
                   ) : canWrite ? (
-                    addRowButton
+                    addRowButton("outline")
                   ) : (
                     "No rows."
                   )}
@@ -427,7 +428,7 @@ export default function SqliteGrid({
                   colSpan={columnCount + 1}
                   className="border-b border-secondary/10 px-2 py-1"
                 >
-                  {addRowButton}
+                  {addRowButton("ghost")}
                 </td>
               </tr>
             ) : null}
