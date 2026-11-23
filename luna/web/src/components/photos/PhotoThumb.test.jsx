@@ -104,3 +104,18 @@ describe("PhotoThumb waits until it nears the screen", () => {
     }
   });
 });
+
+describe("PhotoThumb loaded flag on the ungated path", () => {
+  it("clears the previous photo's flag when src changes", () => {
+    const first = { ...photo, thumb: "/a.jpg" };
+    const second = { ...photo, name: "b.jpg", thumb: "/b.jpg" };
+    const view = render(<PhotoThumb photo={first} />);
+    const img = view.container.querySelector("img");
+    fireEvent.load(img);
+    expect(img.dataset.thumbLoaded).toBe("1");
+
+    view.rerender(<PhotoThumb photo={second} />);
+    expect(img.getAttribute("src")).toBe("/b.jpg");
+    expect(img.dataset.thumbLoaded).toBeUndefined();
+  });
+});

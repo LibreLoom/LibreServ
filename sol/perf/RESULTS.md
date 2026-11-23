@@ -67,8 +67,11 @@ Go benchmarks from `sol/server/backend`, `GOMAXPROCS=3`, three runs each:
 | Database health probe | 21.4–45.4 ms (full `integrity_check`) | 22.3–23.3 us | ~1000x |
 | `IsComplete` per authenticated request | 15.8–69.8 us | 40–84 ns | ~1000x |
 
-The integrity scan still exists as `DB.IntegrityCheck()`, runs after a database
-restore, and is exposed at `GET /api/v1/system/database/integrity` for admins.
+The integrity scan still exists as `DB.IntegrityCheck()` for the admin endpoint.
+A restore checks its replacement file before the swap through
+`integrityCheckFile`, so the two-minute page walk never sits in the restore
+request. The endpoint starts the check in the background and is polled through
+`GET /api/v1/system/database/integrity/status`.
 The setup cache has a 30-second safety TTL and explicit invalidation on
 completion, factory reset, and state changes.
 

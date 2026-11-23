@@ -19,7 +19,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const { data, isLoading, error } = useSystemHealthCheck();
   const [checkingFile, setCheckingFile] = useState(false);
   const [fileResult, setFileResult] = useState(null);
-  const [fileCorrupt, setFileCorrupt] = useState(false);
+  const [fileProblem, setFileProblem] = useState(false);
   const pollRef = useRef(null);
   useEffect(() => () => pollRef.current?.abort(), []);
 
@@ -30,7 +30,8 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     pollRef.current = controller;
     setCheckingFile(true);
     setFileResult(null);
-    setFileCorrupt(false);
+    setFileProblem(false);
+    let restartedIdle = false;
     try {
       // The page walk runs in the background: the request only starts it,
       // then this card polls for the verdict. A big database can take its
@@ -40,8 +41,19 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       while (!controller.signal.aborted) {
         const res = await api("/system/database/integrity/status", { signal: controller.signal });
         const result = await res.json();
+        if (result.status === "idle") {
+          // A restart between starting and polling loses the job. Try once
+          // more, then say it never started rather than claiming success.
+          if (!restartedIdle) {
+            restartedIdle = true;
+            await api("/system/database/integrity", { signal: controller.signal });
+            continue;
+          }
+          setFileResult("The database check hasn't started yet. Please try again.");
+          break;
+        }
         if (result.status !== "running") {
-          setFileCorrupt(Boolean(result.corrupt));
+          setFileProblem(result.status === "corrupt" || result.status === "unavailable");
           setFileResult(result.message || "The database file is fine.");
           break;
         }
@@ -95,7 +107,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const summary = data?.summary;
   const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
   const failed = summary?.failed ?? checks.length - passed;
-  const allOk = failed === 0 && checks.length > 0 && !fileCorrupt;
+  const allOk = failed === 0 && checks.length > 0 && !fileProblem;
 
   // Failed checks first, then alphabetical, so problems are the first thing seen.
   const ordered = [...checks].sort((a, b) => {
@@ -109,7 +121,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-sm">
-            {fileCorrupt
+            {fileProblem
               ? "The database file needs attention."
               : checks.length === 0
                 ? "No checks recorded yet."
@@ -139,7 +151,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
             </Button>
             {fileResult && (
               <p
-                className={`text-sm ${fileCorrupt ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`}
+                className={`text-sm ${fileProblem ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`}
                 role="status"
               >
                 {fileResult}

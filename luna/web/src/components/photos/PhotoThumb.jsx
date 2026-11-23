@@ -84,6 +84,7 @@ function PhotoThumb({
   const [gated] = useState(canWatchNearViewport);
   const imgRef = useRef(/** @type {HTMLImageElement|null} */ (null));
   const started = useRef(false);
+  const shownThumb = useRef(photo.thumb);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!gated || !img || !photo.thumb) return undefined;
@@ -91,8 +92,6 @@ function PhotoThumb({
       started.current = true;
       if (srcSet) img.srcset = srcSet;
       else img.removeAttribute("srcset");
-      // A recycled cell may still carry the previous photo's loaded flag.
-      delete img.dataset.thumbLoaded;
       img.src = photo.thumb || "";
       img.removeAttribute("data-thumb-pending");
     };
@@ -193,7 +192,15 @@ function PhotoThumb({
         <img
           ref={(img) => {
             imgRef.current = img;
-            if (img?.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
+            if (!img) return;
+            // A recycled cell keeps the same <img>. Clear the previous
+            // photo's flag on both the gated and ungated paths, then let the
+            // cached-image check below set it again when appropriate.
+            if (shownThumb.current !== photo.thumb) {
+              delete img.dataset.thumbLoaded;
+              shownThumb.current = photo.thumb;
+            }
+            if (img.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}
