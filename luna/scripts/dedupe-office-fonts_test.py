@@ -79,6 +79,38 @@ class DedupeTest(unittest.TestCase):
             self.assertIn("already deduped", second.stdout)
             self.assertEqual((fonts / "aliases.json").read_bytes(), manifest)
 
+    def test_manifest_with_unmatched_font_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / "core-fonts"
+            fonts = root / "fonts"
+            core.mkdir()
+            fonts.mkdir()
+            (core / "real.ttf").write_bytes(b"core" * 24)
+            (fonts / "025").write_bytes(b"unmatched" * 12)
+            (fonts / "aliases.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "fonts": {
+                            "024": {
+                                "src": "core-fonts/real.ttf",
+                                "head": base64.b64encode(b"x" * 32).decode(),
+                                "sha256": hashlib.sha256(b"stale").hexdigest(),
+                            }
+                        },
+                    }
+                )
+            )
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("remain", proc.stderr)
+            self.assertTrue((fonts / "aliases.json").exists())
+
     def test_no_aliases_fails_the_pack_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

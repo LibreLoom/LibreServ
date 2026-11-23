@@ -79,8 +79,16 @@ def main():
             encoding="utf-8",
         )
     elif manifest.is_file():
-        # Already deduped: the generated copies are gone and the manifest is
-        # the record of them. A second run must not delete it.
+        # Already deduped means the generated copies are gone and the manifest
+        # is the record of them. A leftover digit-named font means this run
+        # simply failed to match, so keep the hard failure instead of silently
+        # shipping the duplicates with a manifest that may be stale.
+        leftover = [p.name for p in fonts.iterdir() if p.is_file() and p.name.isdigit()]
+        if leftover:
+            raise SystemExit(
+                f"font dedup found no aliases but {len(leftover)} generated fonts "
+                f"remain (for example {leftover[0]}): check fonts/ and core-fonts/."
+            )
         print("font dedup: already deduped, keeping existing aliases.json")
         return
     else:
