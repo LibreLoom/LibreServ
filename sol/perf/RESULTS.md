@@ -11,10 +11,12 @@ downloads the faces the page uses. The main lever was the four FreeMono faces:
 TTF replaced with WOFF2, TTF kept as a fallback for older browsers. The
 regular face is preloaded in both products.
 
-The two bold faces are not used by the design: no code combines `font-mono`
-with a bold weight. They keep Latin and common symbols in a ~30 KiB WOFF2
-subset each. The regular and italic faces retain every codepoint in the
-original TTF `cmap`. The conversion commands are in `sol/perf/README.md`.
+A few places use a 500 weight or bold text inside a mono container, so the two
+bold faces still exist. They keep Latin and common symbols in a ~30 KiB WOFF2
+subset each; today's strings are covered, but a future non-Latin bold-mono
+string would need the subset widened. The regular and italic faces retain every
+codepoint in the original TTF `cmap`. Conversion commands are in
+`sol/perf/README.md`.
 
 | Product | Before | After | Ratio |
 |---|---|---|---|

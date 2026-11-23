@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Heart, Coffee, Globe, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -8,7 +8,6 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
-import { useUser } from "../../../hooks/useUser";
 import api from "../../../lib/api";
 import { labelFor } from "../../../lib/healthChecks";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -16,15 +15,19 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 const inputClass =
   "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary outline-none focus:border-accent";
 
-function SystemChecksCard({ index = 2 }) {
+function SystemChecksCard({ index = 2, isAdmin = false }) {
   const { data, isLoading, error } = useSystemHealthCheck();
-  const { data: user } = useUser();
-  const isAdmin = user?.role === "admin";
   const [checkingFile, setCheckingFile] = useState(false);
   const [fileResult, setFileResult] = useState(null);
   const [fileCorrupt, setFileCorrupt] = useState(false);
+  const pollRef = useRef(null);
+  useEffect(() => () => pollRef.current?.abort(), []);
 
   async function checkDatabaseFile() {
+    // Leaving Settings must stop the poll, even if a status request hangs.
+    pollRef.current?.abort();
+    const controller = new AbortController();
+    pollRef.current = controller;
     setCheckingFile(true);
     setFileResult(null);
     setFileCorrupt(false);
@@ -32,10 +35,10 @@ function SystemChecksCard({ index = 2 }) {
       // The page walk runs in the background: the request only starts it,
       // then this card polls for the verdict. A big database can take its
       // full two minutes without hitting the 15 s HTTP write timeout.
-      await api("/system/database/integrity");
+      await api("/system/database/integrity", { signal: controller.signal });
       const deadline = Date.now() + 3 * 60_000;
-      for (;;) {
-        const res = await api("/system/database/integrity/status");
+      while (!controller.signal.aborted) {
+        const res = await api("/system/database/integrity/status", { signal: controller.signal });
         const result = await res.json();
         if (result.status !== "running") {
           setFileCorrupt(Boolean(result.corrupt));
@@ -46,12 +49,20 @@ function SystemChecksCard({ index = 2 }) {
           setFileResult("Sol couldn't finish checking the database file. Please try again.");
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 1500);
+          controller.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        });
       }
     } catch {
-      setFileResult("Sol couldn't finish checking the database file. Please try again.");
+      if (!controller.signal.aborted) {
+        setFileResult("Sol couldn't finish checking the database file. Please try again.");
+      }
     } finally {
-      setCheckingFile(false);
+      if (!controller.signal.aborted) setCheckingFile(false);
     }
   }
 
@@ -175,7 +186,7 @@ function SystemChecksCard({ index = 2 }) {
   );
 }
 
-export default function AboutCategory({ settings, onUpdateSourceSave }) {
+export default function AboutCategory({ settings, onUpdateSourceSave, isAdmin = false }) {
   const updates = settings?.updates;
   const [modalOpen, setModalOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -265,7 +276,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         </div>
       </SettingsCard>
 
-      <SystemChecksCard index={2} />
+      <SystemChecksCard index={2} isAdmin={isAdmin} />
 
       {/* Advanced — only rendered for admins, whose settings actually loaded. */}
       {updates != null && (

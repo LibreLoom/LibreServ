@@ -168,9 +168,9 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return errors.New("db target path is empty")
 	}
 
-	// Check the replacement before the swap, on its own handle with
-	// the caller's context. Doing this after the rename would hold the request
-	// open for the whole page walk, past the server's write timeout.
+	// Check the replacement before the swap, on its own handle with the
+	// caller's context and a short budget, so the page walk does not consume
+	// the restore request's whole write timeout alongside the migration.
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	corrupt, err := integrityCheckFile(checkCtx, replacementPath)
 	cancel()

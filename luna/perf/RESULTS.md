@@ -358,10 +358,11 @@ A browser run against the built app with this harness's remote profile
 (80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop
 from 584,724 B to 189,768 B (3.08x), while W1 p50 moved from 1394 ms to 1286 ms
 (1.08x). The remaining time is JS parse, layout and round trips; the byte win
-does not become a 1.5x wall-clock win in that setup. The two bold mono
-faces are not used at any weight by the design; they keep Latin and common
-symbols in ~30 KiB WOFF2 subsets. Regular and oblique retain every codepoint
-in the original TTF `cmap`.
+does not become a 1.5x wall-clock win in that setup. A few mono labels use a
+500 weight or bold text inside a mono container, so the two bold faces remain:
+they keep Latin and common symbols in ~30 KiB WOFF2 subsets and would need
+widening for a non-Latin bold-mono string. Regular and oblique retain every
+codepoint in the original TTF `cmap`.
 
 Daemon changes in this round: `Layout::detect` caches the drive marker prefix
 for 60 s and validates it with one stat per hit, instead of a full `read_dir`

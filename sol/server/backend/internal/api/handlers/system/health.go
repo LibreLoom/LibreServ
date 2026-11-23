@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"runtime"
@@ -127,11 +129,15 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 		var result map[string]any
 		if err != nil {
 			// Driver errors contain paths and page numbers: log the detail,
-			// show the person only what they need to know.
+			// show the person only what they need to know. A missing file will
+			// never pass on retry, so it gets the same next step as corruption.
 			slog.Warn("database integrity check could not run", "error", err)
+			message := "Sol couldn't finish checking the database file. Please try again."
+			if errors.Is(err, fs.ErrNotExist) {
+				message = "The database file is missing. Restore a database backup in Settings → Backups."
+			}
 			result = map[string]any{
-				"status": "unavailable", "corrupt": false,
-				"message": "Sol couldn't finish checking the database file. Please try again.",
+				"status": "unavailable", "corrupt": false, "message": message,
 			}
 		} else if corrupt {
 			result = map[string]any{
@@ -154,8 +160,12 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 func (h *HealthHandler) DatabaseIntegrityStatus(w http.ResponseWriter, r *http.Request) {
 	h.integrityMu.Lock()
 	defer h.integrityMu.Unlock()
-	if h.integrityRunning || h.integrityResult == nil {
+	if h.integrityRunning {
 		JSON(w, http.StatusOK, map[string]any{"status": "running"})
+		return
+	}
+	if h.integrityResult == nil {
+		JSON(w, http.StatusOK, map[string]any{"status": "idle"})
 		return
 	}
 	JSON(w, http.StatusOK, h.integrityResult)

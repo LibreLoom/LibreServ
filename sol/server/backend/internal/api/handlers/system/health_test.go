@@ -3,6 +3,7 @@ package system
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,41 @@ func TestDatabaseIntegrityEndpoint(t *testing.T) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("integrity check did not finish")
+}
+
+func TestDatabaseIntegrityMissingFileMessage(t *testing.T) {
+	path := t.TempDir() + "/gone.db"
+	db, err := database.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHealthHandler(db)
+	h.DatabaseIntegrity(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rr := httptest.NewRecorder()
+		h.DatabaseIntegrityStatus(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity/status", nil))
+		body := rr.Body.String()
+		if strings.Contains(body, `"status":"running"`) {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		if !strings.Contains(body, "database file is missing") || !strings.Contains(body, "Settings → Backups") {
+			t.Fatalf("missing file should name the problem and next step, got: %s", body)
+		}
+		return
 	}
 	t.Fatal("integrity check did not finish")
 }

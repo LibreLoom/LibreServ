@@ -46,8 +46,9 @@ journey budgets yet.
 
 The WOFF2 files are generated from the committed TTFs with `fonttools`. Every
 codepoint in the TTF `cmap` is kept in the regular and oblique faces. The two
-bold faces are not used at any weight by the design, so they cover Latin and
-common symbols only.
+bold faces cover Latin and common symbols only; a few mono labels use a 500
+weight or bold text inside a mono container, so widen those subsets if such a
+string ever needs characters outside that range.
 
 ```sh
 SRC=shared/ui/fonts
