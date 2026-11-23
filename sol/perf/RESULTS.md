@@ -69,9 +69,12 @@ Go benchmarks from `sol/server/backend`, `GOMAXPROCS=3`, three runs each:
 
 The integrity scan still exists as `DB.IntegrityCheck()` for the admin endpoint.
 A restore checks its replacement file before the swap through
-`integrityCheckFile`, so the two-minute page walk never sits in the restore
-request. The endpoint starts the check in the background and is polled through
-`GET /api/v1/system/database/integrity/status`.
+`integrityCheckFile`, with a 10 s budget on the caller's context: the two-minute
+page walk never sits in the restore request, and a timeout refuses the restore
+while leaving the old database in place. A large database on a 3040 could
+exceed 10 s, but the old post-swap 5 s check was worse. The admin endpoint
+starts its check in the background (`POST /api/v1/system/database/integrity`)
+and is polled through `GET /api/v1/system/database/integrity/status`.
 The setup cache has a 30-second safety TTL and explicit invalidation on
 completion, factory reset, and state changes.
 

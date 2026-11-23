@@ -106,7 +106,7 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DatabaseIntegrity handles GET /api/v1/system/database/integrity (admin only).
+// DatabaseIntegrity handles POST /api/v1/system/database/integrity (admin only).
 // A full PRAGMA integrity_check walks every page, so it is an explicit
 // diagnostic instead of part of the short-interval health probes.
 func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request) {

@@ -92,6 +92,9 @@ function PhotoThumb({
       started.current = true;
       if (srcSet) img.srcset = srcSet;
       else img.removeAttribute("srcset");
+      // React owns no src on this path, so clear the old photo's flag here
+      // before assigning the new one.
+      delete img.dataset.thumbLoaded;
       img.src = photo.thumb || "";
       img.removeAttribute("data-thumb-pending");
     };
@@ -200,7 +203,12 @@ function PhotoThumb({
               delete img.dataset.thumbLoaded;
               shownThumb.current = photo.thumb;
             }
-            if (img.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
+            // On the gated path React leaves src undefined and `show()` still
+            // holds the previous photo's URL. Only mark loaded when the DOM
+            // src matches the photo for this render.
+            if (img.getAttribute("src") === photo.thumb && img.complete && img.currentSrc) {
+              img.dataset.thumbLoaded = "1";
+            }
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}

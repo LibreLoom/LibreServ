@@ -956,3 +956,75 @@ describe("settings category coverage", () => {
     expect(logoutMock).toHaveBeenCalled();
   });
 });
+
+describe("AboutCategory database integrity action", () => {
+  function renderAbout() {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    return render(
+      <AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />,
+    );
+  }
+
+  beforeEach(() => {
+    apiMock.mockImplementation(async () => ({
+      json: async () => ({ status: "ok" }),
+    }));
+  });
+
+  it("reports corruption, names the next step and updates the header", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/Restore a database backup in Settings/)).toBeVisible();
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect(apiMock.mock.calls[0][1].method).toBe("POST");
+  });
+
+  it("treats an unavailable file as a problem, not a clean result", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", corrupt: false, message: "The database file is missing. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/database file is missing/)).toBeVisible();
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+
+  it("restarts once when the status is idle before reporting a verdict", async () => {
+    const user = userEvent.setup();
+    let statuses = 0;
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => {
+        if (path.endsWith("/status")) return { status: statuses++ === 0 ? "idle" : "ok" };
+        return { status: "running" };
+      },
+    }));
+    renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText("The database file is fine.")).toBeVisible();
+    expect(apiMock.mock.calls.filter(([path]) => !path.endsWith("/status")).length).toBe(2);
+  });
+
+  it("aborts the poll when the card unmounts", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status") ? { status: "running" } : { status: "running" }),
+    }));
+    const view = renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    const signal = apiMock.mock.calls[0][1].signal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+  });
+});

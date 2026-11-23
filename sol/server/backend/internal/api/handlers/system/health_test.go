@@ -74,7 +74,7 @@ func TestDatabaseIntegrityEndpoint(t *testing.T) {
 	h := NewHealthHandler(db)
 
 	start := httptest.NewRecorder()
-	h.DatabaseIntegrity(start, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
+	h.DatabaseIntegrity(start, httptest.NewRequest(http.MethodPost, "/api/v1/system/database/integrity", nil))
 	if start.Code != http.StatusAccepted {
 		t.Fatalf("start expected 202, got %d: %s", start.Code, start.Body.String())
 	}
@@ -110,7 +110,7 @@ func TestDatabaseIntegrityMissingFileMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := NewHealthHandler(db)
-	h.DatabaseIntegrity(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity", nil))
+	h.DatabaseIntegrity(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/system/database/integrity", nil))
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

@@ -36,7 +36,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       // The page walk runs in the background: the request only starts it,
       // then this card polls for the verdict. A big database can take its
       // full two minutes without hitting the 15 s HTTP write timeout.
-      await api("/system/database/integrity", { signal: controller.signal });
+      await api("/system/database/integrity", { method: "POST", signal: controller.signal });
       const deadline = Date.now() + 3 * 60_000;
       while (!controller.signal.aborted) {
         const res = await api("/system/database/integrity/status", { signal: controller.signal });
@@ -46,7 +46,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           // more, then say it never started rather than claiming success.
           if (!restartedIdle) {
             restartedIdle = true;
-            await api("/system/database/integrity", { signal: controller.signal });
+            await api("/system/database/integrity", { method: "POST", signal: controller.signal });
             continue;
           }
           setFileResult("The database check hasn't started yet. Please try again.");
@@ -420,4 +420,5 @@ export default function AboutCategory({ settings, onUpdateSourceSave, isAdmin = 
 AboutCategory.propTypes = {
   settings: PropTypes.object,
   onUpdateSourceSave: PropTypes.func,
+  isAdmin: PropTypes.bool,
 };

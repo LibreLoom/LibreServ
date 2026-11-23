@@ -22,9 +22,9 @@ type DB struct {
 	db   *sql.DB
 	path string
 
-	// onReplace is called once the restored file is in place, before migration
-	// and integrity verification. Services that cache rows from this DB use it
-	// to drop stale answers immediately.
+	// onReplace is called once the restored file is in place, before migration.
+	// Services that cache rows from this DB use it to drop stale answers
+	// immediately.
 	onReplace func()
 }
 
