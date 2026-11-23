@@ -24,7 +24,6 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
@@ -107,6 +106,14 @@ function keyProblem(table, row) {
   }
   return "";
 }
+
+// Autosave mirrors the text/form editors: fire once editing pauses, never
+// let unsaved work age past the maximum during continuous changes, and back
+// off after a failed save.
+const AUTOSAVE_IDLE_MS = 2_000;
+const AUTOSAVE_MAX_MS = 15_000;
+const AUTOSAVE_RETRY_MS = 5_000;
+const AUTOSAVE_TICK_MS = 250;
 
 /** What the run shortcut is called on this machine. */
 const RUN_SHORTCUT =
@@ -260,6 +267,10 @@ export function SqliteEditorSession({
   const dirtyRef = useRef(false);
   const mutationVersionRef = useRef(0);
   const savingRef = useRef(false);
+  const lastEditRef = useRef(0);
+  const dirtySinceRef = useRef(0);
+  const lastSaveAttemptRef = useRef(0);
+  const autoSavePausedRef = useRef(false);
   const workingRef = useRef(false);
   const runningRef = useRef(false);
   const reloadingRef = useRef(false);
@@ -294,6 +305,9 @@ export function SqliteEditorSession({
     // Count every mutation, even while already dirty: a save that started
     // before this change must not report the newer state as saved.
     mutationVersionRef.current += 1;
+    const now = Date.now();
+    lastEditRef.current = now;
+    if (!dirtySinceRef.current) dirtySinceRef.current = now;
     if (dirtyRef.current) return;
     dirtyRef.current = true;
     setDirty(true);
@@ -308,6 +322,9 @@ export function SqliteEditorSession({
 
   const markSaved = useCallback(() => {
     dirtyRef.current = false;
+    dirtySinceRef.current = 0;
+    lastEditRef.current = 0;
+    autoSavePausedRef.current = false;
     setDirty(false);
     onSaveStateChange(false);
   }, [onSaveStateChange]);
@@ -515,6 +532,8 @@ export function SqliteEditorSession({
       return true;
     } catch (error) {
       if (isConflictError(error)) {
+        // Autosave must not keep retrying against newer answers.
+        autoSavePausedRef.current = true;
         setConflictError("");
         setConflict(true);
       }
@@ -536,6 +555,40 @@ export function SqliteEditorSession({
     onRegisterSave(save);
     return () => onRegisterSave(null);
   }, [canWrite, ready, save, onRegisterSave]);
+
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  useEffect(() => {
+    if (!canWrite || !ready || tooLarge) return undefined;
+    const id = setInterval(() => {
+      if (!dirtyRef.current) {
+        dirtySinceRef.current = 0;
+        return;
+      }
+      const now = Date.now();
+      if (!dirtySinceRef.current) dirtySinceRef.current = now;
+      if (
+        savingRef.current ||
+        workingRef.current ||
+        runningRef.current ||
+        reloadingRef.current ||
+        autoSavePausedRef.current
+      ) {
+        return;
+      }
+      if (now - lastSaveAttemptRef.current < AUTOSAVE_RETRY_MS) return;
+      const idle = now - lastEditRef.current;
+      const stale = now - dirtySinceRef.current;
+      if (idle >= AUTOSAVE_IDLE_MS || stale >= AUTOSAVE_MAX_MS) {
+        lastSaveAttemptRef.current = now;
+        void saveRef.current?.().catch(() => {
+          // The frame and conflict modal own the visible error.
+        });
+      }
+    }, AUTOSAVE_TICK_MS);
+    return () => clearInterval(id);
+  }, [canWrite, ready, tooLarge]);
 
   // An open cell editor is unsaved work even before its value reaches the
   // worker. Closing the frame must ask instead of discarding what was typed.
@@ -1088,17 +1141,12 @@ export function SqliteEditorSession({
             >
               <div className="flex h-11 shrink-0 items-center gap-2 px-4">
                 <h2 className="font-mono text-xs text-secondary">SQL</h2>
-                {!canWrite ? <Pill variant="accent">Read-only</Pill> : null}
-                <InfoHint
-                  surface="primary"
-                  content={
-                    canWrite
-                      ? "Changes stay in this browser until you save. Reloading without saving discards them."
-                      : "This database is open read-only, so changes cannot be saved."
-                  }
-                  label="About saving"
-                />
-                <span className="min-w-0 flex-1" />
+                {!canWrite ? <Pill variant="muted">Read-only</Pill> : null}
+                <span className="min-w-0 flex-1 truncate text-xs text-secondary">
+                  {canWrite
+                    ? "Write SQL here to query the database or change its structure."
+                    : "Query this database read-only. Changes can't be saved."}
+                </span>
                 <span className="hidden text-xs text-secondary sm:inline">
                   {RUN_SHORTCUT}
                 </span>
