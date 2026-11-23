@@ -31,9 +31,9 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [restoreError, setRestoreError] = useState("");
-  // One flag per version row. A shared `restore.isPending` disabled every row in
-  // the list; dropping it altogether let the same row be clicked twice and run
-  // two restores at once. Tracking the target version keeps other rows usable.
+  // One flag per version row drives that row's spinner. Every row is disabled
+  // while any restore runs: lunad holds the backup id for the whole restore,
+  // so a second POST during the first one is a guaranteed 409.
   const [pendingRestores, setPendingRestores] = useState(() => new Set());
   const markRestore = (at, pending) =>
     setPendingRestores((prev) => {
@@ -42,6 +42,7 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
       else next.delete(at);
       return next;
     });
+  const anyRestorePending = pendingRestores.size > 0;
   const versions = useQuery({
     queryKey: ["drive-backup-versions", driveId, backup.id, file.rel],
     queryFn: () => getJson(`${base(driveId, backup.id)}/versions?path=${encodeURIComponent(file.rel)}`),
@@ -123,9 +124,9 @@ export function VersionsModal({ driveId, backup, file, onClose }) {
                     size="sm"
                     surface="secondary"
                     loading={restorePending}
-                    disabled={restorePending}
+                    disabled={anyRestorePending}
                     onClick={() => {
-                      if (restorePending) return;
+                      if (anyRestorePending) return;
                       setRestoreError("");
                       markRestore(target, true);
                       restore.mutate(target);

@@ -219,6 +219,22 @@ export default [
 
   // ── Albums ───────────────────────────────────────────────────────────────
   {
+    id: "gallery/album-add-target-clear",
+    area: "Photos",
+    title: "Add photos, clear the selection, then add again",
+    url: "/photos#albums",
+    seed: (w) => {
+      lib(w, 30);
+      album(w, "al-empty", "Empty album");
+      album(w, "al-other", "Other album");
+    },
+    check: [
+      "Open 'Empty album' and press Add photos: select mode opens in the library",
+      "Press Clear, select a photo, then press Add to album: the album picker opens, it must not silently add to 'Empty album'",
+      "Pick 'Other album' and Apply: that photo is in 'Other album', and 'Empty album' is still empty",
+    ],
+  },
+  {
     id: "gallery/albums-none",
     area: "Photos",
     title: "Albums tab with no albums",

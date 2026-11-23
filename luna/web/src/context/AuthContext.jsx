@@ -11,6 +11,12 @@ const AuthContext = createContext(undefined);
 // exists so a recovery file can create a new Admin account at boot.
 const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
+// A recovery probe can be blackholed (a firewall drops the packet instead of
+// refusing it). Without a bound, browser fetch keeps the in-flight guard shut
+// for minutes and recovery stalls. Abort a probe that has not answered by now;
+// the next interval tick then retries.
+const RECOVERY_PROBE_TIMEOUT_MS = 5000;
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [setup, setSetup] = useState(null);
@@ -95,6 +101,21 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let alive = true;
     let pollTimer = 0;
+    // The current probe's deadline timer and abort handle. Hoisted to effect
+    // scope so unmount can cancel a hung probe as well as the poll interval.
+    let probeTimer = 0;
+    /** @type {AbortController | null} */
+    let probeController = null;
+    function cancelProbe() {
+      if (probeTimer) {
+        window.clearTimeout(probeTimer);
+        probeTimer = 0;
+      }
+      if (probeController) {
+        probeController.abort();
+        probeController = null;
+      }
+    }
     // Read the path once instead of subscribing to the router: a hook here
     // re-rendered the provider on every ?file= / #hash change, so opening a
     // file re-rendered the whole app tree.
@@ -131,21 +152,42 @@ export function AuthProvider({ children }) {
         pollTimer = window.setInterval(() => {
           if (polling) return;
           polling = true;
+          const controller = new AbortController();
+          probeController = controller;
+          // Race the whole attempt against a deadline. A blackholed fetch does
+          // not reject on its own, so aborting its socket is backed by a timer
+          // that frees the guard no matter what fetch decides to do.
+          const timedOut = new Promise((_, reject) => {
+            probeTimer = window.setTimeout(() => {
+              controller.abort();
+              reject(new Error("Luna recovery probe timed out"));
+            }, RECOVERY_PROBE_TIMEOUT_MS);
+          });
           (async () => {
             try {
-              // apiFetch resolves on any HTTP answer — 401, 403 and 500 all
-              // mean Luna is back. It throws only when no answer arrived,
-              // which is the one case where Luna is still restarting.
-              await apiFetch("/api/v1/auth/me", { cache: "no-store" });
-              const next = await refresh();
+              const attempt = (async () => {
+                // apiFetch resolves on any HTTP answer — 401, 403 and 500 all
+                // mean Luna is back. It throws only when no answer arrived,
+                // which is the one case where Luna is still restarting.
+                await apiFetch("/api/v1/auth/me", { cache: "no-store", signal: controller.signal });
+                return refresh();
+              })();
+              const next = await Promise.race([attempt, timedOut]);
               if (!alive || next.unreachable) return;
               if (pollTimer) window.clearInterval(pollTimer);
               pollTimer = 0;
+              cancelProbe();
               setUnreachable(false);
               routeAfterRefresh(next);
             } catch {
-              // No HTTP answer at all: Luna is still down. Keep polling.
+              // No HTTP answer (a failed request or a timed-out blackhole):
+              // Luna is still down. The next tick tries again.
             } finally {
+              if (probeTimer) {
+                window.clearTimeout(probeTimer);
+                probeTimer = 0;
+              }
+              if (probeController === controller) probeController = null;
               polling = false;
             }
           })();
@@ -159,6 +201,7 @@ export function AuthProvider({ children }) {
       alive = false;
       if (pollTimer) window.clearInterval(pollTimer);
       pollTimer = 0;
+      cancelProbe();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);

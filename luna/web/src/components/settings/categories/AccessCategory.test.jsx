@@ -318,4 +318,36 @@ describe("AccessCategory password-change errors", () => {
     expect(document.getElementById("profile-current-password-error")).toBeNull();
     expect(document.querySelector('[data-slot="page-notice"]')).toBeTruthy();
   });
+
+  it("puts a 400 password-policy refusal under New password, not in a form notice", async () => {
+    renderWithPatch(jsonError({ error: "Passwords need at least one letter and one number." }, 400));
+    await changePassword();
+    expect(await screen.findByText("Passwords need at least one letter and one number.")).toBeTruthy();
+    expect(document.getElementById("profile-new-password-error")).toBeTruthy();
+    expect(screen.getByLabelText("New password")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Current password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeNull();
+  });
+
+  it("puts a 400 breach-service refusal under New password", async () => {
+    renderWithPatch(jsonError({
+      error: "That password is in known data breaches, so it is not safe. Choose a different password.",
+    }, 400));
+    await changePassword();
+    expect(await screen.findByText(/That password is in known data breaches/)).toBeTruthy();
+    expect(document.getElementById("profile-new-password-error")).toBeTruthy();
+    expect(screen.getByLabelText("New password")).toHaveAttribute("aria-invalid", "true");
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeNull();
+  });
+
+  it("keeps an unrelated 400 in a form notice, not on New password", async () => {
+    // Only lunad's policy/breach 400s belong on the field. A generic 400 must
+    // not go back to the old behaviour where every error hit New password.
+    renderWithPatch(jsonError({ error: "Names are 1-80 characters." }, 400));
+    await changePassword();
+    expect(await screen.findByText("Names are 1-80 characters.")).toBeTruthy();
+    expect(document.getElementById("profile-new-password-error")).toBeNull();
+    expect(screen.getByLabelText("New password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.querySelector('[data-slot="page-notice"]')).toBeTruthy();
+  });
 });

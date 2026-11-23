@@ -55,6 +55,21 @@ function isWrongCurrentPassword(err) {
 }
 
 /**
+ * lunad answers 400 when the NEW password breaks its policy or appears in a
+ * known data breach. That is a mistake in the field the person just filled,
+ * not a form-wide failure. Match lunad's exact refusal messages so an
+ * unrelated 400 from this endpoint still goes to the whole-form notice.
+ * @param {any} err
+ */
+function isNewPasswordRefusal(err) {
+  if (isRequestGuardError(err)) return false;
+  if (err?.status !== 400) return false;
+  const message = apiErrorMessage(err, "");
+  return /^passwords need at least/i.test(message)
+    || /^that password is in known data breaches/i.test(message);
+}
+
+/**
  * Token row with measured-height animation so Usage log expand/collapse
  * resizes smoothly (CSS cannot transition height: auto).
  */
@@ -243,10 +258,11 @@ function ProfileCard() {
   const [nameError, setNameError] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  // Only a wrong Current password is a field error. Every other failed change
-  // (network, 401, 429, an expired page) is one plain notice for the whole form.
+  // Only lunad's own refusals of a password field become field errors. Every
+  // other failed change (network, 401, 429, an expired page) is one plain
+  // notice for the whole form.
   const [passwordError, setPasswordError] = useState(
-    /** @type {null | { field: "current", message: string }} */ (null),
+    /** @type {null | { field: "current" | "new", message: string }} */ (null),
   );
   const [formError, setFormError] = useState(null);
 
@@ -256,7 +272,10 @@ function ProfileCard() {
     ? passwordPolicyError(newPassword) || "Choose a stronger password."
     : null;
   const currentPasswordError = passwordError?.field === "current" ? passwordError.message : null;
-  const newPasswordFieldError = passwordProblem;
+  // The local checklist catches a weak password while it is typed; lunad's 400
+  // (policy or breach) lands on the same field when only the server can know.
+  const serverNewPasswordError = passwordError?.field === "new" ? passwordError.message : null;
+  const newPasswordFieldError = passwordProblem || serverNewPasswordError;
 
   const saveName = useMutation({
     mutationFn: () => patchJson("/api/v1/auth/me", { display_name: nameClean }),
@@ -294,8 +313,14 @@ function ProfileCard() {
         setPasswordError({ field: "current", message });
         return;
       }
-      // A network error, 401, 429, or a guard/permission 403 is not a field
-      // mistake. Say it once for the form, with no shake or red field border.
+      if (isNewPasswordRefusal(err)) {
+        setFormError(null);
+        setPasswordError({ field: "new", message });
+        return;
+      }
+      // A network error, 401, 429, a guard/permission 403, or an unrelated 400
+      // is not a field mistake. Say it once for the form, with no shake or red
+      // field border.
       setPasswordError(null);
       setFormError(message);
     },

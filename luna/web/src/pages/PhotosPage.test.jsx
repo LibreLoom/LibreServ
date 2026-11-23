@@ -1020,10 +1020,13 @@ describe("PhotosPage", () => {
     const emptyState = /** @type {HTMLElement} */ (card.closest("[data-slot=empty-state]"));
     expect(within(emptyState).getByRole("button", { name: /^Clear search$/i })).toBeInTheDocument();
 
-    // Clearing the filters falls back to the search-only empty state.
+    // Clearing the filters also clears the search, so the combined empty
+    // state goes away and the normal grid (with its own empty state) returns.
     fireEvent.click(within(emptyState).getByRole("button", { name: /^Clear filters$/i }));
-    expect(await screen.findByText(/Try another word or clear the search/i)).toBeInTheDocument();
-    await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
+    await waitFor(() => {
+      expect(screen.queryByText(/with these filters on/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Try another word or clear the search/i)).not.toBeInTheDocument();
+    });
   });
 
   it("keeps a smart album inside Albums, can save it as an album, and Back returns to the grid", async () => {
@@ -1147,6 +1150,18 @@ describe("PhotosPage", () => {
     const fetchMock = vi.fn(async (url, init = {}) => {
       const u = String(url);
       const method = (init.method || "GET").toUpperCase();
+      if (u.includes("/auth/me") || u.endsWith("/auth/status")) {
+        return new Response(JSON.stringify({ id: "1", username: "max", role: "admin", has_admin: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.includes("/setup")) {
+        return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (u.endsWith("/drives")) {
         return new Response(JSON.stringify([{ id: "a", label: "Family" }]), {
           status: 200,

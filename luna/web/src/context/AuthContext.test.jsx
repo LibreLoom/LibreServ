@@ -485,4 +485,61 @@ describe("AuthProvider recovery poll", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(screen.getByText("REACHABLE")).toBeTruthy();
   });
+
+  it("retries recovery after a blackholed probe times out", async () => {
+    vi.useFakeTimers();
+    let online = false;
+    let probeCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) {
+        // Only the recovery probe passes a signal; refresh()'s getJson does
+        // not. Blackhole the first probe and ignore its abort, so only the
+        // deadline (not fetch) can free the in-flight guard.
+        if (options?.signal) {
+          probeCalls += 1;
+          if (probeCalls === 1) return new Promise(() => {});
+        }
+        return new Response("null", { status: 401 });
+      }
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, unreachable } = useAuth();
+      return <div>{loading ? "LOADING" : unreachable ? "UNREACHABLE" : "REACHABLE"}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    online = true;
+    // First tick starts a probe that never answers. The guard keeps later
+    // ticks from stacking on top of it.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(probeCalls).toBe(1);
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    // The deadline fires 5 s into the probe: it aborts the socket and frees
+    // the guard even though the stubbed fetch ignores the abort.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(probeCalls).toBe(1);
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    // The next interval tick retries. Without the timeout this never happens.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(probeCalls).toBe(2);
+    expect(screen.getByText("REACHABLE")).toBeTruthy();
+
+    // Recovery cleared the interval and deadline: no further probes.
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(probeCalls).toBe(2);
+  });
 });

@@ -1552,10 +1552,20 @@ export default function PhotosPage() {
   }, [q]);
 
   // Stable handlers so the memoized toolbar skips re-rendering on page updates.
-  const { enter: enterSelect, exit: exitSelect } = selection;
+  const { enter: enterSelect, exit: exitSelect, clear: clearSelect } = selection;
+  // Selection and the "Add photos" album target are one session. Clear both
+  // together so a later selection can't land in a stale album.
+  const clearSelection = useCallback(() => {
+    clearSelect();
+    setAddToAlbumTarget(null);
+  }, [clearSelect]);
+  const exitSelection = useCallback(() => {
+    exitSelect();
+    setAddToAlbumTarget(null);
+  }, [exitSelect]);
   const handleSelectModeChange = useCallback(
-    (on) => (on ? enterSelect() : exitSelect()),
-    [enterSelect, exitSelect],
+    (on) => (on ? enterSelect() : exitSelection()),
+    [enterSelect, exitSelection],
   );
   const handleOpenDates = useCallback(() => setJumpOpen(true), []);
   const handleCloseFilters = useCallback(() => {
@@ -2470,7 +2480,7 @@ export default function PhotosPage() {
           removeFromAlbum.isPending ||
           applyAlbumPick.isPending
         }
-        onClear={selection.clear}
+        onClear={clearSelection}
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
         onAddToAlbum={() => {
           if (addToAlbumTarget) {
