@@ -29,6 +29,8 @@ function mount(overrides = {}) {
     onRenameColumn: vi.fn(),
     onDropColumn: vi.fn(),
     onDeleteRow: vi.fn(),
+    onAddRow: vi.fn(),
+    onAddColumn: vi.fn(),
     ...overrides,
   };
   const view = render(<SqliteGrid {...props} />);
@@ -54,6 +56,24 @@ describe("SqliteGrid", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "Primary key. Use SQL to change it.",
     );
+  });
+
+  it("adds rows and columns from inside the grid", () => {
+    const { props } = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    expect(props.onAddRow).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    expect(props.onAddColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no row or column actions when the table is read-only", () => {
+    mount({ canWrite: false });
+    expect(
+      screen.queryByRole("button", { name: "Add row" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add column" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens a cell on double click and cancels with Escape", async () => {

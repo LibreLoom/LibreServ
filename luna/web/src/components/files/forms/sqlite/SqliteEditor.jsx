@@ -12,7 +12,6 @@ import PropTypes from "prop-types";
 import {
   ChevronDown,
   ChevronUp,
-  Columns3,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -1373,36 +1372,6 @@ export function SqliteEditorSession({
                     >
                       <RefreshCw size={ICON_SIZE.sm} aria-hidden="true" />
                     </Button>
-                    {canWrite ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          surface="primary"
-                          size="sm"
-                          smoothResize={false}
-                          haptic="light"
-                          disabled={busy || grid.loading}
-                          onClick={() => void addRow()}
-                        >
-                          <Plus size={ICON_SIZE.sm} aria-hidden="true" />
-                          Add row
-                        </Button>
-                        <Button
-                          variant="outline"
-                          surface="primary"
-                          size="sm"
-                          smoothResize={false}
-                          haptic="light"
-                          disabled={busy || grid.loading}
-                          onClick={() =>
-                            setColumnDialog({ mode: "add", column: null })
-                          }
-                        >
-                          <Columns3 size={ICON_SIZE.sm} aria-hidden="true" />
-                          Add column
-                        </Button>
-                      </>
-                    ) : null}
                   </>
                 ) : null}
               </TooltipTargets>
@@ -1474,6 +1443,10 @@ export function SqliteEditorSession({
                           }
                           onDeleteRow={(row) =>
                             setDeleteTarget({ table: selected, row })
+                          }
+                          onAddRow={() => void addRow()}
+                          onAddColumn={() =>
+                            setColumnDialog({ mode: "add", column: null })
                           }
                           onEditingChange={handleCellEditing}
                         />

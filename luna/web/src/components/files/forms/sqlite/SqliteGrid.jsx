@@ -14,6 +14,7 @@ import {
   KeyRound,
   MoreHorizontal,
   Pencil,
+  Plus,
   Trash2,
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -133,6 +134,8 @@ GridValue.propTypes = {
  *   onRenameColumn: (column: any) => void,
  *   onDropColumn: (column: any) => void,
  *   onDeleteRow: (row: any[], rowIndex: number) => void,
+ *   onAddRow: () => void,
+ *   onAddColumn: () => void,
  *   onEditingChange?: (editing: boolean) => void,
  * }} props
  */
@@ -151,6 +154,8 @@ export default function SqliteGrid({
   onRenameColumn,
   onDropColumn,
   onDeleteRow,
+  onAddRow,
+  onAddColumn,
   onEditingChange,
 }) {
   const [editing, setEditing] = useState(
@@ -269,13 +274,34 @@ export default function SqliteGrid({
                   </span>
                 </th>
               ))}
+              {canWrite ? (
+                <th
+                  scope="col"
+                  className="sticky top-0 right-0 z-20 w-12 border-b border-primary/20 surface-secondary px-2 py-2 text-center align-middle"
+                >
+                  <Button
+                    variant="ghost"
+                    surface="secondary"
+                    size="iconSm"
+                    smoothResize={false}
+                    haptic="light"
+                    type="button"
+                    aria-label="Add column"
+                    tooltip="Add column"
+                    disabled={busy}
+                    onClick={onAddColumn}
+                  >
+                    <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+                  </Button>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columnCount}
+                  colSpan={columnCount + (canWrite ? 1 : 0)}
                   className="px-4 py-10 text-center text-sm text-secondary"
                 >
                   {loading ? (
@@ -288,7 +314,7 @@ export default function SqliteGrid({
                   ) : total > 0 ? (
                     "No rows on this page."
                   ) : canWrite ? (
-                    "No rows yet. Use Add row above to add one."
+                    "No rows yet."
                   ) : (
                     "No rows."
                   )}
@@ -379,9 +405,37 @@ export default function SqliteGrid({
                       </td>
                     );
                   })}
+                  {canWrite ? (
+                    <td
+                      className="border-b border-secondary/10"
+                      aria-hidden="true"
+                    />
+                  ) : null}
                 </tr>
               ))
             )}
+            {canWrite ? (
+              <tr>
+                <td
+                  colSpan={columnCount + 1}
+                  className="border-b border-secondary/10 px-2 py-1"
+                >
+                  <Button
+                    variant="ghost"
+                    surface="primary"
+                    size="sm"
+                    smoothResize={false}
+                    haptic="light"
+                    type="button"
+                    disabled={busy}
+                    onClick={onAddRow}
+                  >
+                    <Plus size={ICON_SIZE.sm} aria-hidden="true" />
+                    Add row
+                  </Button>
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -445,4 +499,6 @@ SqliteGrid.propTypes = {
   onRenameColumn: PropTypes.func.isRequired,
   onDropColumn: PropTypes.func.isRequired,
   onDeleteRow: PropTypes.func.isRequired,
+  onAddRow: PropTypes.func.isRequired,
+  onAddColumn: PropTypes.func.isRequired,
 };
