@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
 /** A scan that ends this fast never needs a notice. */
@@ -83,7 +82,7 @@ export default function FileSearchStatus({ scan, className }) {
           reading ? "motion-safe:animate-pulse" : "surface-secondary",
         )}
       />
-      <Typewriter text={reading ? readingText(scan) : "Finished reading your drives"} cursor={false} />
+      <span>{reading ? readingText(scan) : "Finished reading your drives"}</span>
     </p>
   );
 }

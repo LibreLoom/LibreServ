@@ -14,7 +14,6 @@ import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Typewriter from "@libreloom/ui/components/ui/Typewriter.jsx";
 import FileSearchRow from "./FileSearchRow.jsx";
 import { useIsSmUp } from "./fileRowUtils.js";
 import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
@@ -682,12 +681,9 @@ export default function FileSearch() {
               {search.hits.length > 0 && (
                 <>
                   {search.closeOnly && (
-                    <Typewriter
-                      as="p"
-                      className="px-1 pb-2 text-sm font-mono text-primary"
-                      text="Nothing matched exactly. These names are close."
-                      cursor={false}
-                    />
+                    <p className="px-1 pb-2 text-sm font-mono text-primary">
+                      Nothing matched exactly. These names are close.
+                    </p>
                   )}
                   <ul
                     data-slot="file-search-list"
@@ -743,12 +739,7 @@ export default function FileSearch() {
               {trimmed.length === 0 && (
                 <div className="py-6 text-center font-mono text-primary">
                   {openSettled && (
-                    <Typewriter
-                      as="p"
-                      className="block text-sm"
-                      text="Search every file and folder you can open."
-                      cursor={false}
-                    />
+                    <p className="block text-sm">Search every file and folder you can open.</p>
                   )}
                   <p className="mt-2 text-xs">Press / on any page to open search.</p>
                 </div>
