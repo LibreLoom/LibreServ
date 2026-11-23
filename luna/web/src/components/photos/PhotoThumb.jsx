@@ -92,10 +92,13 @@ function PhotoThumb({
       started.current = true;
       if (srcSet) img.srcset = srcSet;
       else img.removeAttribute("srcset");
-      // React owns no src on this path, so clear the old photo's flag here
-      // before assigning the new one.
-      delete img.dataset.thumbLoaded;
-      img.src = photo.thumb || "";
+      // React owns no src on this path. Only clear when the URL actually
+      // changes: a column resize changes srcSet for the same photo, and
+      // hiding an image that is already loaded would flash it.
+      if (img.getAttribute("src") !== photo.thumb) {
+        delete img.dataset.thumbLoaded;
+        img.src = photo.thumb || "";
+      }
       img.removeAttribute("data-thumb-pending");
     };
     if (started.current) {
@@ -206,7 +209,9 @@ function PhotoThumb({
             // On the gated path React leaves src undefined and `show()` still
             // holds the previous photo's URL. Only mark loaded when the DOM
             // src matches the photo for this render.
-            if (img.getAttribute("src") === photo.thumb && img.complete && img.currentSrc) {
+            // `complete` is also true after a failed load; naturalWidth tells
+            // a decoded image from a broken one.
+            if (img.getAttribute("src") === photo.thumb && img.complete && img.naturalWidth > 0) {
               img.dataset.thumbLoaded = "1";
             }
           }}

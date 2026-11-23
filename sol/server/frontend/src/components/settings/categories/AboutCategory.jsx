@@ -32,28 +32,44 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     setFileResult(null);
     setFileProblem(false);
     let restartedIdle = false;
+    // A single hung request must not disable the button forever. Bound every
+    // call separately; the deadline below bounds the whole poll.
+    const request = async (path, options = {}) => {
+      let timer;
+      try {
+        return await Promise.race([
+          api(path, { ...options, signal: controller.signal }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error("request-timeout")), 10_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     try {
       // The page walk runs in the background: the request only starts it,
       // then this card polls for the verdict. A big database can take its
       // full two minutes without hitting the 15 s HTTP write timeout.
-      await api("/system/database/integrity", { method: "POST", signal: controller.signal });
+      await request("/system/database/integrity", { method: "POST" });
       const deadline = Date.now() + 3 * 60_000;
       while (!controller.signal.aborted) {
-        const res = await api("/system/database/integrity/status", { signal: controller.signal });
+        const res = await request("/system/database/integrity/status");
         const result = await res.json();
         if (result.status === "idle") {
           // A restart between starting and polling loses the job. Try once
           // more, then say it never started rather than claiming success.
           if (!restartedIdle) {
             restartedIdle = true;
-            await api("/system/database/integrity", { method: "POST", signal: controller.signal });
+            await request("/system/database/integrity", { method: "POST" });
             continue;
           }
           setFileResult("The database check hasn't started yet. Please try again.");
           break;
         }
         if (result.status !== "running") {
-          setFileProblem(result.status === "corrupt" || result.status === "unavailable");
+          // A timeout or a locked database is not a problem with the file.
+          setFileProblem(result.status === "corrupt" || result.reason === "missing");
           setFileResult(result.message || "The database file is fine.");
           break;
         }
@@ -69,9 +85,13 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           }, { once: true });
         });
       }
-    } catch {
+    } catch (err) {
       if (!controller.signal.aborted) {
-        setFileResult("Sol couldn't finish checking the database file. Please try again.");
+        setFileProblem(false);
+        setFileResult(err?.message === "request-timeout"
+          ? "The database check took too long. Please try again."
+          : "Sol couldn't check the database file right now. Please try again.");
+        setCheckingFile(false);
       }
     } finally {
       if (!controller.signal.aborted) setCheckingFile(false);
@@ -103,7 +123,15 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     );
   }
 
-  const checks = data?.checks ? Object.entries(data.checks) : [];
+  const rawChecks = data?.checks ? Object.entries(data.checks) : [];
+  // The cheap probe still reports the database connection as healthy when the
+  // manual file check found damage. Replace that row so the card cannot argue
+  // with itself.
+  const checks = fileProblem
+    ? rawChecks.map(([name, check]) => name === "database"
+      ? [name, { ...check, status: "failed", message: fileResult || "The database file needs attention." }]
+      : [name, check])
+    : rawChecks;
   const summary = data?.summary;
   const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
   const failed = summary?.failed ?? checks.length - passed;

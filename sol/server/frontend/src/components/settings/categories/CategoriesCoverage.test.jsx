@@ -983,7 +983,7 @@ describe("AboutCategory database integrity action", () => {
     }));
     renderAbout();
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
-    expect(await screen.findByText(/Restore a database backup in Settings/)).toBeVisible();
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
     expect(screen.getByText("The database file needs attention.")).toBeVisible();
     expect(apiMock.mock.calls[0][1].method).toBe("POST");
   });
@@ -992,12 +992,12 @@ describe("AboutCategory database integrity action", () => {
     const user = userEvent.setup();
     apiMock.mockImplementation(async (path) => ({
       json: async () => (path.endsWith("/status")
-        ? { status: "unavailable", corrupt: false, message: "The database file is missing. Restore a database backup in Settings → Backups." }
+        ? { status: "unavailable", reason: "missing", corrupt: false, message: "The database file is missing. Restore a database backup in Settings → Backups." }
         : { status: "running" }),
     }));
     renderAbout();
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
-    expect(await screen.findByText(/database file is missing/)).toBeVisible();
+    expect((await screen.findAllByText(/database file is missing/)).length).toBeGreaterThan(0);
     expect(screen.getByText("The database file needs attention.")).toBeVisible();
   });
 
@@ -1026,5 +1026,41 @@ describe("AboutCategory database integrity action", () => {
     const signal = apiMock.mock.calls[0][1].signal;
     view.unmount();
     expect(signal.aborted).toBe(true);
+  });
+});
+
+describe("AboutCategory integrity failure kinds", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("keeps the header healthy when the check merely timed out", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", reason: "timeout", corrupt: false, message: "The database check took too long. Please try again." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/took too long/)).toBeVisible();
+    expect(screen.getByText("1 of 1 checks passed — everything looks good.")).toBeVisible();
+  });
+
+  it("shows the manual verdict in the database row when corruption is found", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/found a problem/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Sol found a problem with the database file.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 });

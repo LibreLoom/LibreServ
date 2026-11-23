@@ -128,24 +128,29 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 		corrupt, err := h.db.IntegrityCheckContext(ctx)
 		var result map[string]any
 		if err != nil {
-			// Driver errors contain paths and page numbers: log the detail,
-			// show the person only what they need to know. A missing file will
-			// never pass on retry, so it gets the same next step as corruption.
+			// Driver errors contain paths and page numbers: log the detail and
+			// tell the card which kind of failure this was, so a timeout is
+			// not reported as a damaged file.
 			slog.Warn("database integrity check could not run", "error", err)
-			message := "Sol couldn't finish checking the database file. Please try again."
+			reason := "error"
+			message := "Sol couldn't check the database file right now. Please try again."
 			if errors.Is(err, fs.ErrNotExist) {
+				reason = "missing"
 				message = "The database file is missing. Restore a database backup in Settings → Backups."
+			} else if ctx.Err() != nil {
+				reason = "timeout"
+				message = "The database check took too long. Please try again."
 			}
 			result = map[string]any{
-				"status": "unavailable", "corrupt": false, "message": message,
+				"status": "unavailable", "reason": reason, "corrupt": false, "message": message,
 			}
 		} else if corrupt {
 			result = map[string]any{
-				"status": "corrupt", "corrupt": true,
+				"status": "corrupt", "reason": "corrupt", "corrupt": true,
 				"message": "Sol found a problem with the database file. Restore a database backup in Settings → Backups.",
 			}
 		} else {
-			result = map[string]any{"status": "ok", "corrupt": false}
+			result = map[string]any{"status": "ok", "reason": "ok", "corrupt": false}
 		}
 		h.integrityMu.Lock()
 		h.integrityResult = result
