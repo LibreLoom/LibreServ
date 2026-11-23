@@ -1112,6 +1112,7 @@ export function SqliteEditorSession({
               <Card
                 as="nav"
                 noHeightAnim
+                noPopIn
                 padding={false}
                 aria-label="Tables"
                 className="flex min-h-0 flex-col gap-2 p-2 md:m-2 md:min-w-[14rem] md:flex-1"

@@ -85,6 +85,15 @@ describe("SqliteEditorSession table switching", () => {
     expect(await screen.findByText("Table created")).toBeInTheDocument();
   });
 
+  it("does not pop the tables card in when the editor opens", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    expect(
+      screen.getByRole("navigation", { name: "Tables" }).className,
+    ).not.toContain("pop-in");
+  });
+
   it("explains what SQL is from the SQL header", async () => {
     mountSession();
     await screen.findByText("Party");
