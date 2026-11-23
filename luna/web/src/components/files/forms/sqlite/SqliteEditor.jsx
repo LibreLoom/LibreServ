@@ -1250,7 +1250,7 @@ export function SqliteEditorSession({
                     aria-hidden="true"
                   />
                 </Button>
-                <span className="hidden font-mono text-[11px] text-secondary md:block [writing-mode:vertical-rl]">
+                <span className="hidden font-mono text-sm text-secondary md:block [writing-mode:vertical-rl]">
                   Tables
                 </span>
               </div>
