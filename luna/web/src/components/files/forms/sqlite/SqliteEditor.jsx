@@ -33,7 +33,10 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
-import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import {
+  InfoHint,
+  TooltipTargets,
+} from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -325,6 +328,15 @@ export function SqliteEditorSession({
 
   const selected =
     tables.find((table) => table.name === selectedTable) || null;
+  const hasEditableColumn = Boolean(
+    selected?.columns?.some(
+      (column) =>
+        column.pk === 0 &&
+        !column.generated &&
+        !column.hidden &&
+        !/BLOB/i.test(column.type || ""),
+    ),
+  );
   const schemaCompletions = useMemo(() => completionsFor(tables), [tables]);
   const pageCount = Math.max(1, Math.ceil(grid.total / GRID_PAGE_SIZE));
   const busy = saving || working || running;
@@ -1252,11 +1264,16 @@ export function SqliteEditorSession({
               <div className="flex h-11 shrink-0 items-center gap-2 px-4">
                 <h2 className="font-mono text-xs text-secondary">SQL</h2>
                 {!canWrite ? <Pill variant="muted">Read-only</Pill> : null}
-                <span className="min-w-0 flex-1 truncate text-xs text-secondary">
-                  {canWrite
-                    ? "Write SQL here to query the database or change its structure."
-                    : "Query this database read-only. Changes can't be saved."}
-                </span>
+                <InfoHint
+                  surface="primary"
+                  content={
+                    canWrite
+                      ? "SQL is the language for reading and changing a database. Type it below, then press Run."
+                      : "SQL is the language for reading and changing a database. This file is read-only, so changes can't be saved."
+                  }
+                  label="About SQL"
+                />
+                <span className="min-w-0 flex-1" />
                 <span className="hidden text-xs text-secondary sm:inline">
                   {RUN_SHORTCUT}
                 </span>
@@ -1315,10 +1332,13 @@ export function SqliteEditorSession({
                 {panel === "table" &&
                 selected &&
                 canWrite &&
-                selected.primaryKey.length > 0 ? (
-                  <span className="hidden text-xs text-secondary lg:inline">
-                    Double-click a cell to edit
-                  </span>
+                selected.primaryKey.length > 0 &&
+                hasEditableColumn ? (
+                  <InfoHint
+                    surface="primary"
+                    content="Double-click a cell to edit it. Cells in the primary key can't be changed here."
+                    label="About editing cells"
+                  />
                 ) : null}
 
                 {query && selected ? (

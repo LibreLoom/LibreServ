@@ -85,6 +85,28 @@ describe("SqliteEditorSession table switching", () => {
     expect(await screen.findByText("Table created")).toBeInTheDocument();
   });
 
+  it("explains what SQL is from the SQL header", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(screen.getByRole("button", { name: "About SQL" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      /language for reading and changing a database/i,
+    );
+  });
+
+  it("explains cell editing from the table header", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "About editing cells" }),
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      /Double-click a cell to edit it/i,
+    );
+  });
+
   it("collapses the table list and gives focus to the way back", async () => {
     mountSession();
     expect(await screen.findByText("Party")).toBeInTheDocument();
