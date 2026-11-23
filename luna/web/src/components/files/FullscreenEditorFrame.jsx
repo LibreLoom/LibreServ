@@ -9,6 +9,7 @@ import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -459,14 +460,14 @@ export default function FullscreenEditorFrame({
                   onMouseDown={(e) => e.preventDefault()}
                   className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 surface-secondary py-3"
                 >
-                  <div className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
+                  <TooltipTargets className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
                     <span
+                      data-tooltip={name}
                       className="max-h-full truncate font-mono text-xs text-primary [writing-mode:vertical-rl]"
-                      title={name}
                     >
                       {name}
                     </span>
-                  </div>
+                  </TooltipTargets>
                   <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
                     {onShare ? (
                       <Button
@@ -524,7 +525,7 @@ export default function FullscreenEditorFrame({
                    so the editor keeps ~95% of the viewport height. There is
                    no menu: the status pill already says whether the file is
                    saved, and closing is one tap. */
-                <div
+                <TooltipTargets
                   data-slot="editor-topbar"
                   // Same rule as the rail — a chrome click must not pull
                   // DOM focus out of the editor frame.
@@ -532,8 +533,8 @@ export default function FullscreenEditorFrame({
                   className="flex h-10 shrink-0 items-center gap-2 border-b border-primary/20 surface-secondary pl-4 pr-1.5"
                 >
                   <span
+                    data-tooltip={name}
                     className="min-w-0 flex-1 truncate font-mono text-xs text-primary"
-                    title={name}
                   >
                     {name}
                   </span>
@@ -578,7 +579,7 @@ export default function FullscreenEditorFrame({
                   >
                     <X size={ICON_SIZE.lg} aria-hidden="true" />
                   </Button>
-                </div>
+                </TooltipTargets>
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
                 <EditorLoadingContext.Provider value={loadingApi}>

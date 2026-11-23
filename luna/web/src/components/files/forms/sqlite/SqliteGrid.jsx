@@ -19,6 +19,7 @@ import {
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -99,7 +100,7 @@ function GridValue({ value, numeric }) {
   const isNullish = formatted.kind === "null" || formatted.kind === "empty";
   return (
     <span
-      title={formatted.title || undefined}
+      data-tooltip={formatted.title || undefined}
       className={cn(
         "block max-w-[20rem] truncate",
         numeric && "tabular-nums",
@@ -199,7 +200,7 @@ export default function SqliteGrid({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-large-element border border-secondary/20 surface-primary">
+    <TooltipTargets className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-large-element border border-secondary/20 surface-primary">
       <div className="min-h-0 flex-1 overflow-auto">
         <table
           aria-label={`${table.name} rows`}
@@ -221,7 +222,7 @@ export default function SqliteGrid({
                       <span
                         role="img"
                         aria-label="Primary key"
-                        title="Primary key. Use SQL to change it."
+                        data-tooltip="Primary key. Use SQL to change it."
                         className="shrink-0"
                       >
                         <KeyRound
@@ -335,10 +336,7 @@ export default function SqliteGrid({
                         )}
                       >
                         <div className="flex items-center gap-1">
-                          <div
-                            className="min-w-0 flex-1"
-                            title={editable ? "Double-click to edit" : undefined}
-                          >
+                          <div className="min-w-0 flex-1">
                             {isEditing ? (
                               <CellEditor
                                 initial={formatEditableValue(row[colIndex])}
@@ -424,7 +422,7 @@ export default function SqliteGrid({
           </Button>
         </span>
       </div>
-    </div>
+    </TooltipTargets>
   );
 }
 

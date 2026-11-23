@@ -7,6 +7,7 @@ import { Table2 } from "lucide-react";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Table from "@libreloom/ui/components/common/Table.jsx";
+import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { formatCellValue, formatCount } from "./sqliteModel.js";
 
 /**
@@ -17,7 +18,7 @@ function ResultValue({ value }) {
   const muted = formatted.kind === "null" || formatted.kind === "empty";
   return (
     <span
-      title={formatted.title || undefined}
+      data-tooltip={formatted.title || undefined}
       className={
         formatted.kind === "number" || formatted.kind === "blob"
           ? "block max-w-[24rem] truncate tabular-nums"
@@ -62,7 +63,7 @@ export default function QueryResultTable({ result }) {
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <TooltipTargets className="flex min-h-0 flex-1 flex-col gap-2">
       {result.truncated ? (
         <PageNotice variant="info" className="shrink-0">
           {result.rows.length === 0
@@ -90,7 +91,7 @@ export default function QueryResultTable({ result }) {
           />
         </div>
       )}
-    </div>
+    </TooltipTargets>
   );
 }
 

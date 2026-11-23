@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import QueryResultTable from "./QueryResultTable.jsx";
 
 describe("QueryResultTable", () => {
@@ -18,6 +19,24 @@ describe("QueryResultTable", () => {
     expect(screen.getByText("name")).toBeInTheDocument();
     expect(screen.getByText("Ada")).toBeInTheDocument();
     expect(screen.queryByText("No rows")).not.toBeInTheDocument();
+  });
+
+  it("shows a cell's full text in the shared tooltip", async () => {
+    const user = userEvent.setup();
+    const note = `${"a".repeat(239)}b`;
+    render(
+      <QueryResultTable
+        result={{
+          columns: ["note"],
+          rows: [[note]],
+          rowCount: 1,
+          truncated: false,
+        }}
+      />,
+    );
+    expect(document.querySelector("[title]")).toBeNull();
+    await user.hover(screen.getByText(note));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(note);
   });
 
   it("shows a blob as hex instead of hiding it behind a byte count", () => {

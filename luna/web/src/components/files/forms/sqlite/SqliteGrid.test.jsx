@@ -46,6 +46,16 @@ describe("SqliteGrid", () => {
     expect(screen.getByText(/1–1 of 1/)).toBeInTheDocument();
   });
 
+  it("uses the shared tooltip for the primary key, not a native title", async () => {
+    const user = userEvent.setup();
+    mount();
+    expect(document.querySelector("[title]")).toBeNull();
+    await user.hover(screen.getByLabelText("Primary key"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Primary key. Use SQL to change it.",
+    );
+  });
+
   it("opens a cell on double click and cancels with Escape", async () => {
     mount();
     fireEvent.doubleClick(screen.getByText("Ada"));
