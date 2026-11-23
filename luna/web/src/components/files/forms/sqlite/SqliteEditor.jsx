@@ -12,8 +12,10 @@ import PropTypes from "prop-types";
 import {
   ChevronDown,
   ChevronUp,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Table2,
@@ -22,6 +24,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -48,6 +51,7 @@ import QueryResultTable from "./QueryResultTable.jsx";
 import SqliteDataViewStack from "./SqliteDataViewStack.jsx";
 import SqlEditor from "./SqlEditor.jsx";
 import SqliteColumnDialog from "./SqliteColumnDialog.jsx";
+import SqliteRenameTableDialog from "./SqliteRenameTableDialog.jsx";
 import SqliteTableDialog from "./SqliteTableDialog.jsx";
 import SqliteGrid from "./SqliteGrid.jsx";
 import { createSqliteClient } from "./sqliteClient.js";
@@ -70,8 +74,10 @@ import {
   buildDropColumnSql,
   buildInsertRowSql,
   buildRenameColumnSql,
+  buildRenameTableSql,
   buildRowsQuery,
   buildUpdateCellSql,
+  cleanTableName,
   pageOrder,
 } from "./sqliteSql.js";
 
@@ -251,7 +257,7 @@ export function SqliteEditorSession({
     /** @type {"table" | "query"} */ ("table"),
   );
   const [tablesOpen, setTablesOpen] = useState(true);
-  const [sqlOpen, setSqlOpen] = useState(true);
+  const [sqlOpen, setSqlOpen] = useState(false);
   const collapseTablesRef = useRef(
     /** @type {HTMLButtonElement | null} */ (null),
   );
@@ -281,6 +287,9 @@ export function SqliteEditorSession({
     /** @type {{ mode: "add"|"rename", column: any|null } | null} */ (null),
   );
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(
+    /** @type {any | null} */ (null),
+  );
   const [dropTarget, setDropTarget] = useState(
     /** @type {{ table: any, column: any } | null} */ (null),
   );
@@ -475,6 +484,52 @@ export function SqliteEditorSession({
       }
     },
     [addToast, markDirty, reloadTable],
+  );
+
+  const renameTable = useCallback(
+    async (nextName) => {
+      const client = clientRef.current;
+      const target = renameTarget;
+      if (!client || !target) throw new Error("Choose a table first.");
+      const cleanName = cleanTableName(nextName);
+      const built = buildRenameTableSql({
+        table: target.name,
+        newName: cleanName,
+      });
+      workingRef.current = true;
+      setWorking(true);
+      try {
+        await client.exec(built.sql);
+      } catch (error) {
+        workingRef.current = false;
+        setWorking(false);
+        throw new Error(
+          apiErrorMessage(error, "Luna couldn't rename that table."),
+        );
+      }
+      markDirty();
+      setQuery(null);
+      addToast({ type: "success", message: "Table renamed" });
+      try {
+        await reloadTable(
+          cleanName,
+          target.name === selectedTableRef.current ? pageRef.current : 1,
+          client,
+        );
+        setPanel("table");
+      } catch (error) {
+        setGridError(
+          apiErrorMessage(
+            error,
+            "The table was renamed, but the list didn't refresh. Use Reload table.",
+          ),
+        );
+      } finally {
+        workingRef.current = false;
+        setWorking(false);
+      }
+    },
+    [addToast, markDirty, reloadTable, renameTarget],
   );
 
   const refreshAfterWrite = useCallback(
@@ -1178,7 +1233,10 @@ export function SqliteEditorSession({
                     {tables.map((table) => {
                       const active = table.name === selectedTable;
                       return (
-                        <li key={table.name}>
+                        <li
+                          key={table.name}
+                          className="flex min-w-0 items-center gap-1"
+                        >
                           <CardButton
                             variant="nav"
                             active={active}
@@ -1187,7 +1245,7 @@ export function SqliteEditorSession({
                               table.columns.length === 1 ? "column" : "columns"
                             }`}
                             ariaCurrent={active ? "page" : undefined}
-                            className="gap-2 px-3 py-2"
+                            className="min-w-0 flex-1 gap-2 px-3 py-2"
                             trailing={
                               <span className="shrink-0 text-xs tabular-nums">
                                 {table.columns.length}
@@ -1209,6 +1267,30 @@ export function SqliteEditorSession({
                               {table.name}
                             </span>
                           </CardButton>
+                          {canWrite ? (
+                            <Dropdown
+                              options={[
+                                {
+                                  value: "rename",
+                                  label: "Rename table",
+                                  icon: Pencil,
+                                },
+                              ]}
+                              value=""
+                              onChange={(action) => {
+                                if (action === "rename") {
+                                  setRenameTarget(table);
+                                }
+                              }}
+                              menu
+                              menuLabel={`${table.name} table actions`}
+                              icon={MoreHorizontal}
+                              bg="secondary"
+                              ghost
+                              align="end"
+                              aria-label={`Actions for table ${table.name}`}
+                            />
+                          ) : null}
                         </li>
                       );
                     })}
@@ -1518,6 +1600,14 @@ export function SqliteEditorSession({
         open={tableDialogOpen}
         onClose={() => setTableDialogOpen(false)}
         onSubmit={createTable}
+      />
+
+      <SqliteRenameTableDialog
+        open={Boolean(renameTarget)}
+        tableName={renameTarget?.name || ""}
+        existingNames={tables.map((table) => table.name)}
+        onSubmit={renameTable}
+        onClose={() => setRenameTarget(null)}
       />
 
       <SqliteColumnDialog

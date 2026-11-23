@@ -173,6 +173,16 @@ export function buildAddColumnSql({ table, column, type }) {
 }
 
 /**
+ * @param {{ table: string, newName: string }} options
+ */
+export function buildRenameTableSql({ table, newName }) {
+  return {
+    sql: `ALTER TABLE ${quoteIdent(table)} RENAME TO ${quoteIdent(cleanTableName(newName))}`,
+    params: [],
+  };
+}
+
+/**
  * @param {{ table: string, column: string, newName: string }} options
  */
 export function buildRenameColumnSql({ table, column, newName }) {
