@@ -70,9 +70,10 @@ impl Layout {
 
         let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);
 
-        // Sweep on every detect, including a miss: an ejected drive makes
-        // prefix_for return None, so its own entry would otherwise survive.
-        // Collect under the lock, stat outside it, then re-lock to remove.
+        // A fresh cache hit returns above; this is a size-capped backstop on
+        // the miss path. The per-root removal below is what evicts an ejected
+        // drive when prefix_for returns None. Collect under the lock, stat
+        // outside it, then re-lock to remove.
         let sweep = {
             let guard = cache_mutex.lock().unwrap_or_else(|p| p.into_inner());
             if guard.len() > 64 {
