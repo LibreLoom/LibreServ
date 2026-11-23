@@ -728,14 +728,25 @@ export default function DriveFileExplorer({
     return actions;
   }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
 
-  const renderRowActions = useCallback((ctx) => {
+  const renderRowActions = useCallback((ctx, extraActions = []) => {
     // Keyed by file: long folders recycle row elements, and a restore error
     // must not carry over to the next file that takes the row.
-    if (inBackups) return <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    if (inBackups) {
+      return (
+        <>
+          <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />
+          {extraActions.length ? (
+            <IconActions key={`${ctx.fullPath}-extra`} actions={extraActions} surface="secondary" iconSize={ICON_SIZE.sm} />
+          ) : null}
+        </>
+      );
+    }
     const actions = rowActionsFor(ctx);
     if (!actions) return null;
     // One shared tooltip and plain buttons: every row carries these (W4/W6).
-    return <IconActions actions={actions} surface="secondary" iconSize={ICON_SIZE.sm} />;
+    // `extraActions` is the row's own Properties button, kept in the same
+    // group so a row mounts one IconActions, not two.
+    return <IconActions actions={[...actions, ...extraActions]} surface="secondary" iconSize={ICON_SIZE.sm} />;
   }, [rowActionsFor, inBackups, driveId, openVersions]);
 
   // The phone sheet: the same actions as labeled rows, in the shared shape.

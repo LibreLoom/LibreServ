@@ -551,7 +551,7 @@ function createRowSlots() {
  *   onOpenFile?: (ctx: FileBrowserRowContext) => void,
  *   onUploadFiles?: (input: { dropped: import("../../lib/collectUploadFiles.js").DroppedItems } | { files: File[] }, destPath: string) => void,
  *   onInternalMove?: (paths: string[], destFolder: string, destDriveId?: string, sourceDriveId?: string) => void | Promise<void>,
- *   renderRowActions?: (ctx: FileBrowserRowContext) => import("react").ReactNode,
+ *   renderRowActions?: (ctx: FileBrowserRowContext, extraActions?: Array<{ key: string, label: string, aria: string, icon: any, run: () => void }>) => import("react").ReactNode,
  *   renderRowSheetActions?: (ctx: FileBrowserRowContext, close: () => void) => import("react").ReactNode,
  *   renderSelectionActions?: (paths: string[], rows: FileBrowserRowContext[]) => import("react").ReactNode,
  *   enableDownload?: boolean,
