@@ -2189,17 +2189,19 @@ export default function PhotosPage() {
               <Button
                 variant="primary"
                 onClick={() => {
-                  // A smart album or detail view owns the filters; clearing
-                  // them without leaving the view leaves a blank page behind.
-                  // Reuse the same path as Back so the grid really returns.
-                  if (window.history.state?.lunaPhotosDetail) {
-                    window.history.back();
-                    return;
+                  // A real album keeps its filters cleared in place: the empty
+                  // state says "in this album", matching the filter-only Clear
+                  // filters button. A smart album/detail view owns the filters,
+                  // so leave it the way Back does and let the grid return.
+                  if (!albumView && (viewLabel || duplicatesView)) {
+                    if (window.history.state?.lunaPhotosDetail) {
+                      window.history.back();
+                      return;
+                    }
+                    pendingAlbumRef.current = null;
+                    setViewLabel(null);
+                    setDuplicatesView(false);
                   }
-                  pendingAlbumRef.current = null;
-                  setAlbumView(null);
-                  setViewLabel(null);
-                  setDuplicatesView(false);
                   setFilters({ ...EMPTY_FILTERS });
                   setQ("");
                   setSearch("");

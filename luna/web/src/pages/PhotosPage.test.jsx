@@ -1118,6 +1118,48 @@ describe("PhotosPage", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-slot=empty-state]")).toHaveLength(1));
   });
 
+  it("stays inside a real album when Clear filters is pressed on a no-match", async () => {
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch({
+      photosItems: [
+        { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1_700_000_000, thumb: "/t1", kind: "image" },
+      ],
+      albums: [
+        { id: "al1", home_drive_id: "a", name: "Trips", item_count: 1, shared: false, cover_thumb: null },
+      ],
+    });
+    // The shared stub ignores query params; make "fuji" genuinely match
+    // nothing so the album's no-results state can be exercised.
+    const baseFetch = /** @type {typeof fetch} */ (globalThis.fetch);
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/photos?") && u.includes("q=fuji")) {
+        return new Response(JSON.stringify({ items: [], next_offset: 0, has_more: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return baseFetch(url, init);
+    }));
+    renderPhotos();
+    fireEvent.click(await screen.findByRole("button", { name: /^Trips\b/i }));
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Filters$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Undated$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Apply$/i }));
+    fireEvent.change(screen.getByLabelText(/Search photos/i), { target: { value: "fuji" } });
+    const noMatch = await screen.findByText(/in this album/i);
+    const emptyState = /** @type {HTMLElement} */ (noMatch.closest("[data-slot=empty-state]"));
+    fireEvent.click(within(emptyState).getByRole("button", { name: /^Clear filters$/i }));
+
+    // The real album stays open with its photo; only filters and search clear.
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/one\.jpg/i)).toBeInTheDocument();
+    expect(document.querySelector("[data-slot=photos-detail-chrome]")).toBeTruthy();
+    expect(screen.queryByText(/in this album/i)).not.toBeInTheDocument();
+  });
+
   it("shows an empty Favorites state even while photos indexing is busy", async () => {
     vi.stubGlobal(
       "fetch",
