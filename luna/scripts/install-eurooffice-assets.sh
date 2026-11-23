@@ -157,6 +157,10 @@ if [[ ! -f "$DEST/sdkjs/common/Images/fonts_thumbnail.png.bin" ]]; then
   exit 1
 fi
 
+# allfontsgen copies each source TTF into fonts/ and masks its first <=32 bytes.
+# Keep only the masked bytes: lunad rebuilds the original file from core-fonts.
+python3 "$ROOT/scripts/dedupe-office-fonts.py" "$DEST"
+
 echo "Fetching x2t.wasm $X2T_VERSION …"
 tmp_zip="$(mktemp)"; tmp_sum="$(mktemp)"
 trap 'rm -f "$tmp_zip" "$tmp_sum"; cleanup' EXIT
@@ -176,6 +180,9 @@ mkdir -p "$DEST/x2t"
 unzip -o "$tmp_zip" -d "$DEST/x2t" >/dev/null
 # The zip ships x2t.js + x2t.wasm (+ .br variants). Flatten if nested.
 if [[ -d "$DEST/x2t/x2t" ]]; then mv "$DEST/x2t/x2t"/* "$DEST/x2t/"; rmdir "$DEST/x2t/x2t"; fi
+# lunad serves this pack with ServeDir, which never negotiates Content-Encoding:
+# the .br files are never requested, so shipping them only inflates the OS image.
+rm -f "$DEST"/x2t/*.br
 if [[ ! -f "$DEST/x2t/x2t.js" || ! -f "$DEST/x2t/x2t.wasm" ]]; then
   echo "ERROR: x2t.js/x2t.wasm missing after unzip" >&2
   exit 1

@@ -25,7 +25,7 @@ if ! is_whole_disk "$DEV"; then
 fi
 
 ARCH="${ARCH:-x86_64}"
-SLOT_IMG="$ROOT/os/dist/luna-os-$ARCH.img.xz"
+SLOT_IMG="$ROOT/os/dist/luna-os-$ARCH.img.zst"
 [ -f "$SLOT_IMG" ] || {
 	echo "missing $SLOT_IMG — run os/build-rootfs.sh and os/make-image.sh first" >&2
 	exit 2

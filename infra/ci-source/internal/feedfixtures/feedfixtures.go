@@ -154,7 +154,7 @@ func Generate(dir string) error {
 
 	// --- luna 0.4.0 stable ---
 	lunad := g.part("luna", "0.4.0", "lunad", "linux", "amd64", "lunad-linux-amd64-musl", 320)
-	osimg := g.part("luna", "0.4.0", "os", "linux", "amd64", "luna-os-x86_64.img.xz", 400)
+	osimg := g.part("luna", "0.4.0", "os", "linux", "amd64", "luna-os-x86_64.img.zst", 400)
 	luna := base("luna", "stable", "0.4.0", lunad, osimg)
 	luna.API = &feed.API{Version: 3, OldestSupported: 2}
 	lunaB := g.feedFile("luna-stable.json", luna)
@@ -258,13 +258,13 @@ func Generate(dir string) error {
 	// --- SHA256SUMS.txt exact-name matching ---
 	lunadSum, osSum := lunad.SHA256, osimg.SHA256
 	decoy := sum([]byte("decoy"))
-	sums := fmt.Sprintf("%s  lunad-linux-amd64-musl.sig\n%s  old-lunad-linux-amd64-musl\n%s  lunad-linux-amd64-musl\n%s  luna-os-x86_64.img.xz\n",
+	sums := fmt.Sprintf("%s  lunad-linux-amd64-musl.sig\n%s  old-lunad-linux-amd64-musl\n%s  lunad-linux-amd64-musl\n%s  luna-os-x86_64.img.zst\n",
 		decoy, decoy, lunadSum, osSum)
 	g.write("files/generic/luna/0.4.0/SHA256SUMS.txt", []byte(sums))
 	g.write("files/generic/luna/0.4.0/SHA256SUMS.txt.minisig", g.sign(priv, []byte(sums)))
 	sumsCases := []map[string]any{
 		{"name": "exact-name-found", "file": "lunad-linux-amd64-musl", "expect": lunadSum},
-		{"name": "exact-name-other-file", "file": "luna-os-x86_64.img.xz", "expect": osSum},
+		{"name": "exact-name-other-file", "file": "luna-os-x86_64.img.zst", "expect": osSum},
 		{"name": "substring-is-not-a-match", "file": "linux-amd64-musl", "expect": "not-found"},
 		{"name": "prefix-is-not-a-match", "file": "lunad-linux-amd64", "expect": "not-found"},
 		{"name": "unknown-file", "file": "nope.bin", "expect": "not-found"},

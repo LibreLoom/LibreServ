@@ -75,7 +75,9 @@ web-apps/            DocsAPI + editor apps (from the image)
 sdkjs/               document engine (from the image)
 dictionaries/        spellcheck (client-side, no server needed)
 core-fonts/          TTFs the wasm converter loads into its filesystem
-fonts/               generated font metrics (allfontsgen, one-shot container)
+fonts/               generated web fonts (allfontsgen) — duplicates of core-fonts
+                     are replaced by aliases.json and rebuilt by lunad on request
+fonts/aliases.json   masked first <=32 bytes + source path + sha256 per alias
 sdkjs/common/AllFonts.js + Images/   generated font index + font-list sprite
                                       (fonts_thumbnail* — the font dropdown
                                       crashes the editor hard on a 404)
@@ -88,8 +90,11 @@ fonts-manifest.json                  TTF list the worker fetches
 `make eurooffice-pack` (or `scripts/build-eurooffice-pack.sh`) produces
 `os/dist/eurooffice-pack.tar.zst` — the pack minus `web-apps/*/resources/help`
 (~500MB of offline-help PNGs; the Help menu is already hidden via
-`customization.help: false`). Everything else ships: every font, all 50
-dictionaries.
+`customization.help: false`) and `*.js.map` (debug-only source maps lunad never
+serves). The x2t download also drops its unused `.br` variants. Generated font
+files whose body matches a core TTF are replaced by `fonts/aliases.json`;
+lunad rebuilds them from the core font at request time. Every core font and
+all 50 dictionaries ship.
 
 The pack is a program file, so it lives in the OS image, not on the data
 partition. The release tool builds it before the rootfs and mounts it in;

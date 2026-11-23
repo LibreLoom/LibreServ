@@ -159,6 +159,7 @@ lane_os() {
 	sh os/rapidinstall_wait_test.sh
 	sh os/rootfs_test.sh
 	sh os/lib/musl-binaries_test.sh
+	python3 scripts/dedupe-office-fonts_test.py
 	# Build steps run in containers (os/build/*.sh); the os/*.sh wrappers only call
 	# podman. The pinned Alpine image comes from lib/alpine-image.sh.
 	for f in os/make-image.sh os/build-rootfs.sh os/build/input-hash.sh; do

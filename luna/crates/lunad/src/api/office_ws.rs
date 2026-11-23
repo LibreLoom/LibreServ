@@ -174,6 +174,32 @@ pub async fn sdkjs_dispatch(
     }
 }
 
+/// Parse the single-range form a browser sends for a font file. Returns the
+/// half-open slice. An unparsable range is ignored and the whole file is
+/// served; a static server would answer 416, but the editor never sends one.
+fn parse_byte_range(value: &str, total: usize) -> Option<(usize, usize)> {
+    let spec = value.strip_prefix("bytes=")?;
+    let (first, last) = spec.split_once('-')?;
+    if first.is_empty() {
+        // Suffix range: the last N bytes.
+        let n: usize = last.parse().ok()?;
+        if n == 0 || n > total {
+            return None;
+        }
+        return Some((total - n, total));
+    }
+    let start: usize = first.parse().ok()?;
+    if start >= total {
+        return None;
+    }
+    let end = if last.is_empty() {
+        total
+    } else {
+        last.parse::<usize>().ok()?.saturating_add(1).min(total)
+    };
+    (start < end).then_some((start, end))
+}
+
 /// The sdkjs font loader resolves `../../../../fonts/` against the site root
 /// (Document Server's nginx layout) — serve the pack's generated fonts.
 /// The route shadows the web app's own /fonts/* brand fonts, so a miss falls
@@ -186,7 +212,86 @@ pub async fn fonts_dispatch(
     Path(tail): Path<String>,
     mut req: axum::extract::Request,
 ) -> Response {
-    let dir = crate::packs::dir(&state.data_dir, "eurooffice").join("fonts");
+    let pack = crate::packs::dir(&state.data_dir, "eurooffice");
+    // allfontsgen copies a core font and masks its first <=32 bytes in place.
+    // The image ships only those masked bytes, so rebuild the original file
+    // here. The manifest carries the hash of those exact bytes: a revalidation
+    // can answer 304 without reading the TTF from the eMMC.
+    let manifest_etag = crate::api::font_aliases::etag_for(&pack, &tail);
+    let is_head = req.method() == axum::http::Method::HEAD;
+    let if_none_match = req
+        .headers()
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    if let Some(etag) = manifest_etag.as_deref() {
+        if if_none_match.as_deref() == Some(etag) {
+            return axum::response::Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(axum::http::header::ETAG, etag)
+                .header(
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=0, must-revalidate",
+                )
+                .body(axum::body::Body::empty())
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
+    }
+    if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+        let etag = manifest_etag.unwrap_or_else(|| format!("\"{}\"", blake3::hash(&body).to_hex()));
+        let total = body.len();
+        // A HEAD only needs the would-be length, so skip the range work and
+        // the body copy. A 304 returned earlier, with no length headers.
+        let range = if is_head {
+            None
+        } else {
+            req.headers()
+                .get(axum::http::header::RANGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| parse_byte_range(v, total))
+        };
+        let (status, length, content_range) = if let Some((start, end)) = range {
+            (
+                StatusCode::PARTIAL_CONTENT,
+                Some(end - start),
+                Some(format!(
+                    "bytes {}-{}/{}",
+                    start,
+                    end.saturating_sub(1),
+                    total
+                )),
+            )
+        } else {
+            (StatusCode::OK, Some(total), None)
+        };
+        let mut res = axum::response::Response::builder()
+            .status(status)
+            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .header(axum::http::header::ETAG, etag)
+            .header(
+                axum::http::header::CACHE_CONTROL,
+                "public, max-age=0, must-revalidate",
+            )
+            .header(axum::http::header::ACCEPT_RANGES, "bytes");
+        if let Some(len) = length {
+            res = res.header(axum::http::header::CONTENT_LENGTH, len);
+        }
+        if let Some(value) = content_range {
+            res = res.header(axum::http::header::CONTENT_RANGE, value);
+        }
+        let payload = if is_head {
+            Vec::new()
+        } else {
+            match range {
+                Some((start, end)) => body[start..end].to_vec(),
+                None => body,
+            }
+        };
+        return res
+            .body(axum::body::Body::from(payload))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let dir = pack.join("fonts");
     let orig_path = req.uri().path().to_string();
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
@@ -1020,6 +1125,18 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn font_byte_ranges_are_clamped_to_the_file() {
+        assert_eq!(parse_byte_range("bytes=0-9", 100), Some((0, 10)));
+        assert_eq!(parse_byte_range("bytes=40-", 100), Some((40, 100)));
+        assert_eq!(parse_byte_range("bytes=90-200", 100), Some((90, 100)));
+        assert_eq!(parse_byte_range("bytes=-10", 100), Some((90, 100)));
+        assert_eq!(parse_byte_range("bytes=-200", 100), None);
+        assert_eq!(parse_byte_range("bytes=100-120", 100), None);
+        assert_eq!(parse_byte_range("bytes=abc", 100), None);
+        assert_eq!(parse_byte_range("items=0-1", 100), None);
     }
 
     #[test]

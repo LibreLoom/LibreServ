@@ -16,6 +16,7 @@ pub mod drives;
 /// declaration is what includes it.
 #[path = "forms/limits.rs"]
 pub mod form_limits;
+pub mod font_aliases;
 pub mod forms;
 pub mod health;
 pub mod network;

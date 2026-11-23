@@ -24,7 +24,7 @@ func TestLunaReleaseShipsImageAndInstaller(t *testing.T) {
 	for _, s := range specs {
 		files = append(files, s.File)
 	}
-	if len(files) != 2 || files[0] != "luna-os-x86_64.img.xz" || files[1] != "luna-rapidinstall-x86_64.iso.xz" {
+	if len(files) != 2 || files[0] != "luna-os-x86_64.img.zst" || files[1] != "luna-rapidinstall-x86_64.iso.xz" {
 		t.Fatalf("luna parts %v", files)
 	}
 	for _, f := range files {
@@ -42,15 +42,15 @@ func TestLunaReleaseShipsImageAndInstaller(t *testing.T) {
 	// the .sha256 scratch file image.sh leaves beside the image.
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "os"), 0o755))
-	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.xz"), []byte("i"), 0o644))
-	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.xz.sha256"), []byte("s\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.zst"), []byte("i"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "os", "luna-os-x86_64.img.zst.sha256"), []byte("s\n"), 0o644))
 	if _, err := flatten(root, specs); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.xz")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.zst")); err != nil {
 		t.Fatalf("the image did not reach the release dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.xz.sha256")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, "luna-os-x86_64.img.zst.sha256")); err == nil {
 		t.Fatal("the .sha256 scratch file was published")
 	}
 }
@@ -69,8 +69,8 @@ func TestReleasedPicksNewestAcrossFeeds(t *testing.T) {
 	defer srv.Close()
 	feedFor := func(channel, ver string) {
 		rel := publish.Release{Unit: "luna", Version: ver, Channel: channel, Published: "2026-10-01T00:00:00Z",
-			Parts: []publish.PartSpec{{Name: "os", OS: "linux", Arch: "amd64", File: "luna-os-x86_64.img.xz", Version: ver, Size: 7, SHA256: "ab" + ver}}}
-		files := map[string]publish.FileInfo{"luna-os-x86_64.img.xz": {Size: 7, SHA256: "ab" + ver}}
+			Parts: []publish.PartSpec{{Name: "os", OS: "linux", Arch: "amd64", File: "luna-os-x86_64.img.zst", Version: ver, Size: 7, SHA256: "ab" + ver}}}
+		files := map[string]publish.FileInfo{"luna-os-x86_64.img.zst": {Size: 7, SHA256: "ab" + ver}}
 		f, err := publish.BuildFeed(rel, channel, files, func(v, file string) string { return srv.URL + "/api/packages/LibreLoom/generic/luna/" + v + "/" + file })
 		must(t, err)
 		out, err := publish.SignFeeds([]publish.FeedOut{{Channel: channel, Feed: f}}, publish.MinisignSigner{Key: priv})
@@ -88,7 +88,7 @@ func TestReleasedPicksNewestAcrossFeeds(t *testing.T) {
 	lookup := a.newLookup("luna").released(t.Context())
 	r, ok := lookup("os")
 	if !ok || r.Version != "0.4.0-beta.2" || r.SHA256 != "ab0.4.0-beta.2" || r.Size != 7 ||
-		r.URL != srv.URL+"/api/packages/LibreLoom/generic/luna/0.4.0-beta.2/luna-os-x86_64.img.xz" {
+		r.URL != srv.URL+"/api/packages/LibreLoom/generic/luna/0.4.0-beta.2/luna-os-x86_64.img.zst" {
 		t.Fatalf("released %+v %v", r, ok)
 	}
 	if _, ok := lookup("installer"); ok {

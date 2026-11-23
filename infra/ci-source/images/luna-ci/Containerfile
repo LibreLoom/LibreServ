@@ -24,7 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       build-essential pkg-config curl ca-certificates git bash \
       libgtk-4-dev libadwaita-1-dev \
-      musl-tools binutils file xz-utils unzip \
+      musl-tools binutils file xz-utils zstd python3 unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Node for the web, connect/web and quick-start lanes. 26 is the current LTS.
