@@ -198,6 +198,9 @@ class DedupeTest(unittest.TestCase):
             )
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("stale", proc.stderr)
+            # The refused run must not have eaten the new font: the pack can
+            # be rebuilt once the stale manifest entry is resolved.
+            self.assertTrue((fonts / "002").exists())
 
     def test_malformed_manifest_fails_cleanly(self):
         for bad in ("[]", '{"fonts": null}', "{}"):

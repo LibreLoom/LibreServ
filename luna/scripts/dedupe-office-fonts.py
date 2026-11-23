@@ -46,6 +46,7 @@ def main():
         bodies.setdefault((len(data), digest), path.relative_to(root).as_posix())
 
     aliases = {}
+    to_remove = []
     removed = 0
     for path in sorted(fonts.iterdir()):
         if not path.is_file() or not path.name.isdigit():
@@ -64,7 +65,9 @@ def main():
             # without reading the core font on every editor open.
             "sha256": hashlib.sha256(data).hexdigest(),
         }
-        path.unlink()
+        # Do not delete yet: a stale-manifest check below can refuse the run,
+        # and a refused run must leave the font tree rebuildable.
+        to_remove.append(path)
         removed += len(data)
 
     manifest = fonts / "aliases.json"
@@ -110,6 +113,10 @@ def main():
             + "\n",
             encoding="utf-8",
         )
+        # Only now that the manifest is safely on disk, drop the generated
+        # copies. A refused run above leaves them in place so it can be retried.
+        for path in to_remove:
+            path.unlink()
     elif recorded:
         # Already deduped: a digit-named font the manifest still lists is stale
         # and must fail. One it does not list is legitimately unique (no core
