@@ -89,13 +89,13 @@ caches) except W2 (a reload) and W16 (one session clicking the navbar).
 
 **Bundle size.** `npm run perf:bundle` reads the last build
 (`crates/lunad/web/dist`), or `LUNA_BUNDLE_REPORT=1 npm run build` writes it
-right after building. It prints the bytes the browser downloads for the
-initial load (what W1 fetches), per-page chunks and the largest lazy chunks,
-and writes `perf/results/bundle-latest.json`. Lunad serves embedded `dist`
-files verbatim, so JS/CSS and fonts are both counted at raw size. The
-initial-load figure includes the `fonts/` faces the CSS fetches; a TTF beside a
-WOFF2 is a fallback and is not counted. Excalidraw's canvas fonts are lazy
-assets and are not part of W1.
+right after building. It prints the bytes for the initial load, per-page chunks
+and the largest lazy chunks, and writes `perf/results/bundle-latest.json`.
+Lunad serves embedded `dist` files verbatim, so JS/CSS and fonts are both
+counted at raw size. The initial-load figure includes **every shipped font face
+under `fonts/` (an upper bound)**, not only the faces W1 actually fetches; a TTF
+beside a WOFF2 is a fallback and is not counted. Excalidraw's canvas fonts are
+lazy assets and are not part of W1.
 
 ## lunad (crates/lunad)
 

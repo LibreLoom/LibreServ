@@ -18,8 +18,6 @@ string would need the subset widened. The regular and italic faces retain every
 codepoint in the original TTF `cmap`. Conversion commands are in
 `sol/perf/README.md`.
 
-| Product | Before | After | Ratio |
-|---|---|---|---|
 | Product, basis | Before | After | Ratio |
 |---|---|---|---|
 | Sol, regular face actually fetched by the dashboard | 709.0 KiB | 323.6 KiB | 2.19x |

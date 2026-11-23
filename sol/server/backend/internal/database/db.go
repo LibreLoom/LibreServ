@@ -286,6 +286,8 @@ func (d *DB) HealthCheck() error {
 		// An empty file is a valid SQLite database but not a usable Sol one.
 		return ErrDatabaseUnreadable
 	}
+	// A new outage after recovery deserves a new warning.
+	d.healthWarned.Store(false)
 	return nil
 }
 

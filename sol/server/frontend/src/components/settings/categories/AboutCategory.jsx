@@ -177,6 +177,8 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
             </div>
           ))}
         </div>
+        {/* The deep file check does not depend on the comprehensive query. */}
+        <div className="px-5">{actionRow}</div>
       </SettingsCard>
     );
   }

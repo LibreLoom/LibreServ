@@ -96,6 +96,7 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		overallStatus = "unhealthy"
 	} else {
 		checks["database"] = "healthy"
+		h.healthWarned.Store(false)
 	}
 
 	response := HealthResponse{
@@ -127,6 +128,7 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	h.healthWarned.Store(false)
 
 	JSON(w, http.StatusOK, HealthResponse{
 		Status:    "ready",
