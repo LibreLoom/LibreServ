@@ -14,7 +14,7 @@ export default function LorePage() {
   useEffect(() => {
     // Load markdown content lazily so the main bundle stays lean.
     // @ts-ignore - dynamic import for lore markdown
-    import("../../../../../.lore/lore.md?raw")
+    import("../../../../.lore/lore.md?raw")
       .then((module) => {
         setLoreContent(module.default);
         setLoading(false);
