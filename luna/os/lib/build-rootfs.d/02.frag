@@ -40,10 +40,12 @@ for iface_path in /sys/class/net/*; do
 
     ip link set "$iface" up 2>/dev/null || continue
 
-    # Short budget so OpenRC is not stuck for ~15s on an unplugged cable.
-    # lunad's link watcher retries DHCP after carrier comes up.
+    # Bound the wait so OpenRC is not stuck on an unplugged cable: busybox
+    # udhcpc waits several seconds between discover packets, so "-t 3" alone
+    # can cost ~6s per idle NIC. One second is ample on a LAN. lunad's
+    # watch_link_up retries DHCP when carrier comes up, so no lease is lost.
     if ! ip -4 addr show dev "$iface" | grep -q 'inet '; then
-        udhcpc -i "$iface" -q -n -t 3 2>/dev/null || true
+        udhcpc -i "$iface" -q -n -t 3 -T 1 2>/dev/null || true
     fi
 done
 
