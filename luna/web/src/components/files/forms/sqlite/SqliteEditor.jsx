@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Columns3, Plus, RefreshCw, Table2 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
@@ -955,56 +957,63 @@ export function SqliteEditorSession({
       <EditorMountedSignal />
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="flex shrink-0 flex-col border-b border-secondary/15 md:w-60 md:border-b-0 md:border-r">
-            <div className="flex h-11 shrink-0 items-center justify-between px-4">
-              <h2 className="font-mono text-xs text-secondary">Tables</h2>
-              <Pill className="px-2 py-0.5 text-[11px] tabular-nums text-secondary">
-                {formatCount(tables.length)}
-              </Pill>
-            </div>
-            {tables.length > 0 ? (
-              <nav
-                aria-label="Tables"
-                className="flex flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
-              >
-                {tables.map((table) => {
-                  const active = table.name === selectedTable;
-                  return (
-                    <Button
-                      key={table.name}
-                      variant={active ? "secondary" : "outline"}
-                      surface="primary"
-                      size="sm"
-                      smoothResize={false}
-                      haptic={active ? "selection" : "light"}
-                      className="w-full gap-2"
-                      aria-label={`${table.name}, ${table.columns.length} ${
-                        table.columns.length === 1 ? "column" : "columns"
-                      }`}
-                      aria-current={active ? "true" : undefined}
-                      onClick={() => {
-                        if (active) {
-                          setPanel("table");
-                          return;
-                        }
-                        setSelectedTable(table.name);
-                        setPanel("table");
-                        setGridError("");
-                        setGrid({ ...EMPTY_GRID, loading: true });
-                        void loadTable(table, 1);
-                      }}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
-                        {table.name}
-                      </span>
-                      <Pill className="shrink-0 px-1.5 py-0 text-xs tabular-nums">
-                        {table.columns.length}
-                      </Pill>
-                    </Button>
-                  );
-                })}
-              </nav>
-            ) : null}
+          <aside className="flex shrink-0 flex-col border-b border-secondary/15 p-2 md:w-60 md:border-b-0 md:border-r md:p-0">
+            <Card
+              as="nav"
+              noHeightAnim
+              padding={false}
+              aria-label="Tables"
+              className="flex min-h-0 flex-col gap-2 p-2 md:m-2 md:flex-1"
+            >
+              <div className="flex items-center justify-between px-2 pt-1">
+                <h2 className="font-mono text-xs text-primary">Tables</h2>
+                <span className="text-xs tabular-nums text-primary">
+                  {formatCount(tables.length)}
+                </span>
+              </div>
+              {tables.length > 0 ? (
+                <ul className="flex flex-col gap-1 md:min-h-0 md:flex-1 md:overflow-y-auto">
+                  {tables.map((table) => {
+                    const active = table.name === selectedTable;
+                    return (
+                      <li key={table.name}>
+                        <CardButton
+                          variant="nav"
+                          active={active}
+                          align="between"
+                          icon={Table2}
+                          actionLabel={`${table.name}, ${table.columns.length} ${
+                            table.columns.length === 1 ? "column" : "columns"
+                          }`}
+                          ariaCurrent={active ? "page" : undefined}
+                          className="gap-2 px-3 py-2"
+                          trailing={
+                            <span className="shrink-0 text-xs tabular-nums">
+                              {table.columns.length}
+                            </span>
+                          }
+                          onClick={() => {
+                            if (active) {
+                              setPanel("table");
+                              return;
+                            }
+                            setSelectedTable(table.name);
+                            setPanel("table");
+                            setGridError("");
+                            setGrid({ ...EMPTY_GRID, loading: true });
+                            void loadTable(table, 1);
+                          }}
+                        >
+                          <span className="min-w-0 truncate font-mono text-xs font-normal">
+                            {table.name}
+                          </span>
+                        </CardButton>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </Card>
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
