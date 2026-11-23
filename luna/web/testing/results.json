@@ -561,7 +561,7 @@
   },
   "files/edit-diagram": {
     "status": "pass",
-    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=sketch.drawio in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Loads or explains clearly why not. Needs real Luna: draw.io and its save flow need the real lunad; the fake can't host the editor..",
+    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=sketch.drawio in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Loads or explains clearly why not. Needs real Luna: draw.io and its save flow need the real lunad; the fake can't host the editor.",
     "at": "2026-11-23T05:17:21.161Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -575,7 +575,7 @@
   },
   "files/edit-form-collab": {
     "status": "pass",
-    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=rsvp.lunaform in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Open the form in two browsers as two people | Click into question 1 in one: the other shows a coloured outline and a name chip on question 1 | Move to question 2: the highlight follows, without any text cursor | The name chip uses each person's colour. Needs real Luna: Live co-editing needs the real lunad collab hub; the fake has no WebSocket..",
+    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=rsvp.lunaform in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Open the form in two browsers as two people | Click into question 1 in one: the other shows a coloured outline and a name chip on question 1 | Move to question 2: the highlight follows, without any text cursor | The name chip uses each person's colour. Needs real Luna: Live co-editing needs the real lunad collab hub; the fake has no WebSocket.",
     "at": "2026-11-23T05:17:09.402Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -589,14 +589,14 @@
   },
   "files/edit-office": {
     "status": "pass",
-    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=report.docx in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Shows a clear message that the editor isn't available, not an endless spinner | Download still works. Needs real Luna: The document editor (EuroOffice) needs the real lunad office service; the fake answers 'not available'..",
+    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=report.docx in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Shows a clear message that the editor isn't available, not an endless spinner | Download still works. Needs real Luna: The document editor (EuroOffice) needs the real lunad office service; the fake answers 'not available'.",
     "at": "2026-11-23T05:17:14.443Z",
     "viewport": "desktop",
     "theme": "scenario default"
   },
   "files/edit-spreadsheet": {
     "status": "pass",
-    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=sheet.xlsx in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Same 'editor not available' message as the Word document. Needs real Luna: Needs the real office service; the fake only exercises the unavailable path..",
+    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=sheet.xlsx in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Same 'editor not available' message as the Word document. Needs real Luna: Needs the real office service; the fake only exercises the unavailable path.",
     "at": "2026-11-23T05:17:17.575Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -638,7 +638,7 @@
   },
   "files/edit-whiteboard-collab": {
     "status": "pass",
-    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=board.whiteboard in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Whiteboard opens alone | Banner or state says live editing isn't connected rather than failing silently. Needs real Luna: Live co-editing uses the collab WebSocket; the fake closes it at once..",
+    "note": "Sweep observed: loaded /files/d1?path=Viewers&file=board.whiteboard in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Whiteboard opens alone | Banner or state says live editing isn't connected rather than failing silently. Needs real Luna: Live co-editing uses the collab WebSocket; the fake closes it at once.",
     "at": "2026-11-23T05:17:24.950Z",
     "viewport": "desktop",
     "theme": "scenario default"
@@ -1814,7 +1814,7 @@
   },
   "public/file-edit": {
     "status": "pass",
-    "note": "Sweep observed: loaded /s/tokfileedit in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: The text editor opens with the file's words | Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved | Close and reopen: the change is still there under the same file name | Open the same link in a second window: the Live peers row shows the other editor. Needs real Luna: Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents..",
+    "note": "Sweep observed: loaded /s/tokfileedit in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: The text editor opens with the file's words | Type: the status pill says Unsaved; Save (and Ctrl+S) says Saved | Close and reopen: the change is still there under the same file name | Open the same link in a second window: the Live peers row shows the other editor. Needs real Luna: Saving through a full link writes the file on the drive and live presence needs the real collab hub; the fake has no link file contents.",
     "at": "2026-11-23T05:24:12.992Z",
     "viewport": "desktop",
     "theme": "scenario default"
