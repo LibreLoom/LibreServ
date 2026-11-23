@@ -19,15 +19,12 @@ import ModalCard, {
   NESTED_OVERLAY_CLASS,
 } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
-import ValueDisplay from "@libreloom/ui/components/common/ValueDisplay.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { cn } from "@libreloom/ui/lib/utils.js";
-import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
 import FullscreenEditorFrame from "../../FullscreenEditorFrame.jsx";
 import EditorLoadingScreen, {
@@ -973,15 +970,19 @@ export function SqliteEditorSession({
                 {tables.map((table) => {
                   const active = table.name === selectedTable;
                   return (
-                    <button
+                    <Button
                       key={table.name}
-                      type="button"
+                      variant={active ? "secondary" : "outline"}
+                      surface="primary"
+                      size="sm"
+                      smoothResize={false}
+                      haptic={active ? "selection" : "light"}
+                      className="w-full gap-2"
                       aria-label={`${table.name}, ${table.columns.length} ${
                         table.columns.length === 1 ? "column" : "columns"
                       }`}
                       aria-current={active ? "true" : undefined}
                       onClick={() => {
-                        haptic(active ? "selection" : "light");
                         if (active) {
                           setPanel("table");
                           return;
@@ -992,29 +993,14 @@ export function SqliteEditorSession({
                         setGrid({ ...EMPTY_GRID, loading: true });
                         void loadTable(table, 1);
                       }}
-                      className={cn(
-                        "group w-full rounded-large-element text-left outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        active && "surface-secondary",
-                      )}
                     >
-                      <ValueDisplay
-                        surface={active ? "secondary" : "primary"}
-                        className={cn(
-                          "transition-colors",
-                          !active && "group-hover:bg-secondary/10",
-                        )}
-                        label={
-                          <span className="font-mono text-xs font-normal">
-                            {table.name}
-                          </span>
-                        }
-                        value={
-                          <span className="tabular-nums">
-                            {table.columns.length}
-                          </span>
-                        }
-                      />
-                    </button>
+                      <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+                        {table.name}
+                      </span>
+                      <Pill className="shrink-0 px-1.5 py-0 text-xs tabular-nums">
+                        {table.columns.length}
+                      </Pill>
+                    </Button>
                   );
                 })}
               </nav>
