@@ -240,7 +240,8 @@ mod tests {
         fs::write(sys.join("sda/size"), "1000\n").unwrap();
         fs::write(sys.join("sda/removable"), "1\n").unwrap();
 
-        let mut drives = crate::drives::detect::scan(&sys, "proc /proc proc rw 0 0\n");
+        let mut drives =
+            crate::drives::detect::scan_with_live_root(&sys, "proc /proc proc rw 0 0\n", None);
         for mock in scan_mock_drives_at(&mock_root, true) {
             drives.retain(|d| d.name != mock.name);
             drives.push(mock);

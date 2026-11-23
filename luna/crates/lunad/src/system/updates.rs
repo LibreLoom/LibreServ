@@ -639,9 +639,9 @@ fn pinned_uuid_from_grub_cfg(cfg: &str, slot: char) -> Option<String> {
             .collect();
         (id.len() == 36).then_some(id)
     };
-    cfg.lines().filter(|l| l.contains(&marker)).find_map(|l| {
-        id_after(l, "luna.fsuuid=").or_else(|| id_after(l, "root=UUID="))
-    })
+    cfg.lines()
+        .filter(|l| l.contains(&marker))
+        .find_map(|l| id_after(l, "luna.fsuuid=").or_else(|| id_after(l, "root=UUID=")))
 }
 
 /// Read the filesystem UUID from an ext4 superblock (1024 bytes in; magic at
@@ -804,7 +804,17 @@ pub(crate) fn device_has_partlabel(dev: &str, partlabel: &str) -> bool {
 }
 
 /// The device backing `/`, canonicalized (mounts may name a by-uuid link).
+///
+/// sysfs answers first: a root mounted by PARTLABEL has no device name in
+/// the mounts table (`/dev/root`), and the updater could otherwise not tell
+/// which disk Luna runs from at all.
 fn root_mount_device() -> Option<PathBuf> {
+    if let Some(name) = crate::drives::detect::root_block_device() {
+        let dev = Path::new("/dev").join(&name);
+        if dev.exists() {
+            return Some(std::fs::canonicalize(&dev).unwrap_or(dev));
+        }
+    }
     let mounts = std::fs::read_to_string("/proc/self/mounts").ok()?;
     for line in mounts.lines() {
         let mut fields = line.split_whitespace();
