@@ -164,6 +164,7 @@ const EMPTY_GRID = {
  *   onSave: (bytes: Uint8Array, revision: number) => Promise<{ revision: number }>,
  *   onClose: () => void,
  *   onReload?: () => Promise<{ bytes: Uint8Array, revision: number }>,
+ *   formMode?: boolean,
  * }} props
  */
 export default function SqliteEditor({
@@ -175,6 +176,7 @@ export default function SqliteEditor({
   onSave,
   onClose,
   onReload = null,
+  formMode = false,
 }) {
   const oversized = asBytes(initialBytes).byteLength > MAX_DATABASE_BYTES;
   return (
@@ -194,6 +196,7 @@ export default function SqliteEditor({
           onSave={onSave}
           onReload={onReload}
           frame={frame}
+          formMode={formMode}
         />
       )}
     </FullscreenEditorFrame>
@@ -209,6 +212,7 @@ SqliteEditor.propTypes = {
   onSave: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onReload: PropTypes.func,
+  formMode: PropTypes.bool,
 };
 
 /**
@@ -231,6 +235,7 @@ SqliteEditor.propTypes = {
  *   conflictMessage?: string,
  *   conflictNoReloadMessage?: string,
  *   oversizedHint?: string,
+ *   formMode?: boolean,
  * }} props
  */
 export function SqliteEditorSession({
@@ -244,6 +249,7 @@ export function SqliteEditorSession({
   conflictMessage = "Someone answered this form after you opened the database. Saving now would replace the newer answers.",
   conflictNoReloadMessage = "Close the editor and open the form again to load the new answers.",
   oversizedHint = "Use the Responses view to read answers page by page.",
+  formMode = false,
 }) {
   const { onRegisterSave, onSaveStateChange } = frame;
   const { addToast } = useToast();
@@ -1666,6 +1672,7 @@ export function SqliteEditorSession({
         open={Boolean(renameTarget)}
         tableName={renameTarget?.name || ""}
         existingNames={tables.map((table) => table.name)}
+        formMode={formMode}
         onSubmit={renameTable}
         onClose={() => setRenameTarget(null)}
       />
@@ -1676,6 +1683,7 @@ export function SqliteEditorSession({
         tableName={selected?.name || ""}
         column={columnDialog?.column || null}
         existingNames={selected?.columns.map((column) => column.name) || []}
+        formMode={formMode}
         onSubmit={submitColumn}
         onClose={() => setColumnDialog(null)}
       />
@@ -1809,4 +1817,5 @@ SqliteEditorSession.propTypes = {
     onSaveStateChange: PropTypes.func.isRequired,
     requestClose: PropTypes.func,
   }).isRequired,
+  formMode: PropTypes.bool,
 };

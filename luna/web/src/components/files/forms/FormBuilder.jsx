@@ -1002,6 +1002,7 @@ function BuilderSession({
                 }
               : null
           }
+          formMode
         />
       )}
 

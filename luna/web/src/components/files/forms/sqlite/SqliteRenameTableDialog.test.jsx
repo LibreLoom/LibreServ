@@ -8,6 +8,7 @@ function mount(overrides = {}) {
     open: true,
     tableName: "responses",
     existingNames: ["responses", "members"],
+    formMode: true,
     onSubmit: vi.fn().mockResolvedValue(undefined),
     onClose: vi.fn(),
     ...overrides,
@@ -17,7 +18,7 @@ function mount(overrides = {}) {
 }
 
 describe("SqliteRenameTableDialog", () => {
-  it("starts with the current name and explains the risk", () => {
+  it("starts with the current name and explains the form risk", () => {
     mount();
     expect(
       screen.getByRole("heading", { name: "Rename table" }),
@@ -26,6 +27,13 @@ describe("SqliteRenameTableDialog", () => {
     expect(
       screen.getByText(/can break forms that use this table/i),
     ).toBeInTheDocument();
+  });
+
+  it("does not mention forms for an ordinary database", () => {
+    mount({ formMode: false });
+    expect(
+      screen.queryByText(/can break forms that use this table/i),
+    ).not.toBeInTheDocument();
   });
 
   it("refuses a name that already exists", async () => {

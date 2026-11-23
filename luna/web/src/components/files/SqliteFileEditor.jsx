@@ -274,6 +274,7 @@ export default function SqliteFileEditor({
           ? "Open the form's Responses view to read answers page by page."
           : "Download it and open it in a desktop database app."
       }
+      formMode={formMode}
     />
   );
 }

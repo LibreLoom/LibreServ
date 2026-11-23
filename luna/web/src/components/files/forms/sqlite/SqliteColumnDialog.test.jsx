@@ -10,6 +10,7 @@ function mount(overrides = {}) {
     tableName: "responses",
     column: null,
     existingNames: ["id", "email"],
+    formMode: true,
     onSubmit: vi.fn().mockResolvedValue(undefined),
     onClose: vi.fn(),
     ...overrides,
@@ -43,6 +44,13 @@ describe("SqliteColumnDialog", () => {
       screen.getByText("A column with that name already exists."),
     ).toBeInTheDocument();
     expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not mention forms for an ordinary database", () => {
+    mount({ formMode: false });
+    expect(
+      screen.queryByText(/Changing columns on/),
+    ).not.toBeInTheDocument();
   });
 
   it("submits a new column name and type", async () => {

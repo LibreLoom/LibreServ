@@ -19,6 +19,7 @@ import { cleanTableName } from "./sqliteSql.js";
  *   open: boolean,
  *   tableName: string,
  *   existingNames: string[],
+ *   formMode?: boolean,
  *   onSubmit: (name: string) => Promise<unknown>,
  *   onClose: () => void,
  * }} props
@@ -27,6 +28,7 @@ export default function SqliteRenameTableDialog({
   open,
   tableName,
   existingNames,
+  formMode = false,
   onSubmit,
   onClose,
 }) {
@@ -113,10 +115,12 @@ export default function SqliteRenameTableDialog({
           />
         </label>
 
-        <PageNotice variant="warning" surface="secondary" className="mt-4">
-          Renaming <InlinePill>{tableName}</InlinePill> can break forms that
-          use this table. Test them after you save.
-        </PageNotice>
+        {formMode ? (
+          <PageNotice variant="warning" surface="secondary" className="mt-4">
+            Renaming <InlinePill>{tableName}</InlinePill> can break forms that
+            use this table. Test them after you save.
+          </PageNotice>
+        ) : null}
 
         {error ? <InlineError className="mt-3">{error}</InlineError> : null}
 
@@ -142,6 +146,7 @@ SqliteRenameTableDialog.propTypes = {
   open: PropTypes.bool.isRequired,
   tableName: PropTypes.string.isRequired,
   existingNames: PropTypes.arrayOf(PropTypes.string).isRequired,
+  formMode: PropTypes.bool,
   onSubmit: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
