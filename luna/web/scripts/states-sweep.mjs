@@ -29,6 +29,7 @@ const scenarios = await page.evaluate(async () => {
     id: s.id,
     url: s.url || "/",
     check: s.check || [],
+    realLunadOnly: s.realLunadOnly || "",
     viewport: s.viewport || "desktop",
     theme: s.theme || "scenario default",
   }));
@@ -84,7 +85,11 @@ for (let i = 0; i < scenarios.length; i++) {
   if (status === "fail") failures++;
 
   const checks = scenario.check.length ? ` Check items: ${scenario.check.join(" | ")}.` : "";
-  const note = `Sweep observed: ${observed.join("; ")}.${checks}`;
+  // The fake cannot stand in for a real service (live collaboration, office
+  // editors, real lunad routes). Say so explicitly instead of letting a
+  // load-only pass read as if those flows were verified.
+  const caveat = scenario.realLunadOnly ? ` Needs real Luna: ${scenario.realLunadOnly}.` : "";
+  const note = `Sweep observed: ${observed.join("; ")}.${checks}${caveat}`;
   await post(scenario.id, {
     status,
     note,

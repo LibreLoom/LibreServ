@@ -1027,6 +1027,9 @@ describe("PhotosPage", () => {
       expect(screen.queryByText(/with these filters on/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Try another word or clear the search/i)).not.toBeInTheDocument();
     });
+    // The normal grid really came back, not just an empty page: this test
+    // starts in Albums, whose own empty state is the positive assertion.
+    expect(await screen.findByText(/No albums yet/i)).toBeInTheDocument();
   });
 
   it("keeps a smart album inside Albums, can save it as an album, and Back returns to the grid", async () => {

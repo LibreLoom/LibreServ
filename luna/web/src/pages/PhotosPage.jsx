@@ -2189,6 +2189,17 @@ export default function PhotosPage() {
               <Button
                 variant="primary"
                 onClick={() => {
+                  // A smart album or detail view owns the filters; clearing
+                  // them without leaving the view leaves a blank page behind.
+                  // Reuse the same path as Back so the grid really returns.
+                  if (window.history.state?.lunaPhotosDetail) {
+                    window.history.back();
+                    return;
+                  }
+                  pendingAlbumRef.current = null;
+                  setAlbumView(null);
+                  setViewLabel(null);
+                  setDuplicatesView(false);
                   setFilters({ ...EMPTY_FILTERS });
                   setQ("");
                   setSearch("");
