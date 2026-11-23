@@ -145,7 +145,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn synthesizes_the_original_bytes_and_rejects_traversal() {
+    async fn synthesizes_the_generated_web_font_and_rejects_traversal() {
         let tmp = tempfile::tempdir().unwrap();
         let pack = tmp.path();
         std::fs::create_dir_all(pack.join("core-fonts/sub")).unwrap();
