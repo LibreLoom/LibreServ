@@ -1,0 +1,157 @@
+import { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import Card from "@libreloom/ui/components/cards/Card.jsx";
+import ClickableCard from "../components/cards/ClickableCard.jsx";
+import Page from "@libreloom/ui/components/ui/Page.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
+
+export default function LorePage() {
+  const [loreContent, setLoreContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    // Load markdown content lazily so the main bundle stays lean.
+    // @ts-ignore - dynamic import for lore markdown
+    import("../../../../../.lore/lore.md?raw")
+      .then((module) => {
+        setLoreContent(module.default);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  return (
+    <Page
+      title="Lore"
+      padded={false}
+      headerClassName="px-8 mb-10"
+        bottomContent={
+        <p className="text-lg font-semibold">
+          You found the lore page!
+        </p>
+      }
+    >
+
+      {/* Content */}
+      <section className="px-8" aria-label="Lore content" data-slot="lore">
+        <Card>
+          {loading && <Spinner />}
+          {error && <p className="text-primary">Error: {error}</p>}
+          {!loading && !error && (
+            <div className="markdown-content">
+              {/* Map markdown elements to app typography + spacing. */}
+              <ReactMarkdown
+                rehypePlugins={[rehypeSanitize]}
+                components={{
+                  h1: (props) => (
+                    <h1
+                      className="text-3xl font-mono font-normal mb-4 mt-6"
+                      {...props}
+                    />
+                  ),
+                  h2: (props) => (
+                    <h2
+                      className="text-2xl font-mono font-normal mb-3 mt-5"
+                      {...props}
+                    />
+                  ),
+                  h3: (props) => (
+                    <h3
+                      className="text-xl font-mono font-normal mb-2 mt-4"
+                      {...props}
+                    />
+                  ),
+                  h4: (props) => (
+                    <h4
+                      className="text-lg font-mono font-normal mb-2 mt-3"
+                      {...props}
+                    />
+                  ),
+                  h5: (props) => (
+                    <h5
+                      className="text-base font-mono font-normal mb-2 mt-3"
+                      {...props}
+                    />
+                  ),
+                  h6: (props) => (
+                    <h6
+                      className="text-sm font-mono font-normal mb-2 mt-2"
+                      {...props}
+                    />
+                  ),
+                  p: (props) => <p className="mb-4" {...props} />,
+                  ul: (props) => (
+                    <ul
+                      className="list-disc list-inside mb-4 ml-4"
+                      {...props}
+                    />
+                  ),
+                  ol: (props) => (
+                    <ol
+                      className="list-decimal list-inside mb-4 ml-4"
+                      {...props}
+                    />
+                  ),
+                  li: (props) => <li className="mb-1" {...props} />,
+                  code: (props) => {
+                    const { inline, children } =
+                      /** @type {{ inline?: boolean, children?: import('react').ReactNode }} */ (
+                        props
+                      );
+                    if (inline) {
+                      return (
+                        <code
+                          className="surface-secondary px-1 py-0.5 rounded text-sm"
+                          {...props}
+                        />
+                      );
+                    }
+
+                    const blockCode = (
+                      <code
+                        className="block surface-secondary p-4 rounded mb-4 overflow-x-auto"
+                        {...props}
+                      />
+                    );
+
+                    // The closing clipboard art is an easter egg: clicking it
+                    // flies you off to the pigeon.
+                    if (String(children ?? "").includes("THE END")) {
+                      return (
+                        <ClickableCard
+                          action="/pigeon"
+                          ariaLabel="A mysterious clipboard. Click to follow it."
+                          className="bg-transparent p-0"
+                        >
+                          {blockCode}
+                        </ClickableCard>
+                      );
+                    }
+
+                    return blockCode;
+                  },
+                  hr: (props) => (
+                    <hr className="my-6 border-accent" {...props} />
+                  ),
+                  a: (props) => (
+                    <a
+                      className="link-accent"
+                      {...props}
+                    />
+                  ),
+                }}
+              >
+                {loreContent}
+              </ReactMarkdown>
+            </div>
+          )}
+        </Card>
+      </section>
+    </Page>
+  );
+}
