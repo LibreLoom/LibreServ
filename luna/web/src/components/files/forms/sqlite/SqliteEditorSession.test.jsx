@@ -42,6 +42,13 @@ vi.mock("./sqliteClient.js", () => {
             if (table) table.name = to;
             return { columns: [], rows: [], rowCount: 0, changes: 1, truncated: false };
           }
+          const dropped = sql.match(/^DROP TABLE "((?:[^"]|"")+)"/);
+          if (dropped) {
+            const name = dropped[1].replaceAll('""', '"');
+            const index = tables.findIndex((entry) => entry.name === name);
+            if (index >= 0) tables.splice(index, 1);
+            return { columns: [], rows: [], rowCount: 0, changes: 1, truncated: false };
+          }
           if (/COUNT\(/i.test(sql)) {
             return { columns: ["count"], rows: [[1]], rowCount: 1, changes: 0, truncated: false };
           }
@@ -165,6 +172,29 @@ describe("SqliteEditorSession table switching", () => {
     expect(
       screen.queryByRole("button", { name: /^events,/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("deletes a table after confirming, and moves to another table", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for table events" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete table" }));
+    expect(
+      await screen.findByText(/Every row in it is removed/i),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete table" }));
+
+    expect(await screen.findByText("Table deleted")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /^members,/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^events,/i }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Ada")).toBeInTheDocument();
   });
 
   it("explains cell editing from the table header", async () => {

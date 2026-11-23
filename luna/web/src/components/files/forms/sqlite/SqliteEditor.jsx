@@ -19,6 +19,7 @@ import {
   Plus,
   RefreshCw,
   Table2,
+  Trash2,
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
@@ -72,6 +73,7 @@ import {
   buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
+  buildDropTableSql,
   buildInsertRowSql,
   buildRenameColumnSql,
   buildRenameTableSql,
@@ -290,6 +292,11 @@ export function SqliteEditorSession({
   const [renameTarget, setRenameTarget] = useState(
     /** @type {any | null} */ (null),
   );
+  const [deleteTableTarget, setDeleteTableTarget] = useState(
+    /** @type {any | null} */ (null),
+  );
+  const [deleteTableBusy, setDeleteTableBusy] = useState(false);
+  const [deleteTableError, setDeleteTableError] = useState("");
   const [dropTarget, setDropTarget] = useState(
     /** @type {{ table: any, column: any } | null} */ (null),
   );
@@ -531,6 +538,52 @@ export function SqliteEditorSession({
     },
     [addToast, markDirty, reloadTable, renameTarget],
   );
+
+  const confirmDeleteTable = useCallback(async () => {
+    const target = deleteTableTarget;
+    const client = clientRef.current;
+    if (!target || !client || deleteTableBusy) return;
+    setDeleteTableBusy(true);
+    setDeleteTableError("");
+    const wasSelected = target.name === selectedTableRef.current;
+    const built = buildDropTableSql({ table: target.name });
+    try {
+      await client.exec(built.sql);
+    } catch (error) {
+      setDeleteTableError(
+        apiErrorMessage(error, "Luna couldn't delete that table."),
+      );
+      setDeleteTableBusy(false);
+      return;
+    }
+    markDirty();
+    setQuery(null);
+    setDeleteTableTarget(null);
+    addToast({ type: "success", message: "Table deleted" });
+    try {
+      await reloadTable(
+        wasSelected ? "" : selectedTableRef.current,
+        wasSelected ? 1 : pageRef.current,
+        client,
+      );
+      setPanel("table");
+    } catch (error) {
+      setGridError(
+        apiErrorMessage(
+          error,
+          "The table was deleted, but the list didn't refresh. Use Reload table.",
+        ),
+      );
+    } finally {
+      setDeleteTableBusy(false);
+    }
+  }, [
+    addToast,
+    deleteTableBusy,
+    deleteTableTarget,
+    markDirty,
+    reloadTable,
+  ]);
 
   const refreshAfterWrite = useCallback(
     async (keepQuery) => {
@@ -1275,11 +1328,18 @@ export function SqliteEditorSession({
                                   label: "Rename table",
                                   icon: Pencil,
                                 },
+                                {
+                                  value: "delete",
+                                  label: "Delete table",
+                                  icon: Trash2,
+                                },
                               ]}
                               value=""
                               onChange={(action) => {
                                 if (action === "rename") {
                                   setRenameTarget(table);
+                                } else if (action === "delete") {
+                                  setDeleteTableTarget(table);
                                 }
                               }}
                               menu
@@ -1619,6 +1679,27 @@ export function SqliteEditorSession({
         onSubmit={submitColumn}
         onClose={() => setColumnDialog(null)}
       />
+
+      <ConfirmModal
+        open={Boolean(deleteTableTarget)}
+        onClose={() => {
+          if (deleteTableBusy) return;
+          setDeleteTableTarget(null);
+          setDeleteTableError("");
+        }}
+        title="Delete table"
+        variant="danger"
+        confirmLabel="Delete table"
+        loading={deleteTableBusy}
+        error={deleteTableError || null}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onConfirm={() => void confirmDeleteTable()}
+      >
+        <p className="text-sm text-primary">
+          Delete <InlinePill>{deleteTableTarget?.name}</InlinePill>? Every row
+          in it is removed.
+        </p>
+      </ConfirmModal>
 
       <ConfirmModal
         open={Boolean(dropTarget)}

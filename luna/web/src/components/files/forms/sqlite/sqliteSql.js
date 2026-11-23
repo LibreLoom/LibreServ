@@ -183,6 +183,16 @@ export function buildRenameTableSql({ table, newName }) {
 }
 
 /**
+ * @param {{ table: string }} options
+ */
+export function buildDropTableSql({ table }) {
+  return {
+    sql: `DROP TABLE ${quoteIdent(table)}`,
+    params: [],
+  };
+}
+
+/**
  * @param {{ table: string, column: string, newName: string }} options
  */
 export function buildRenameColumnSql({ table, column, newName }) {

@@ -5,6 +5,7 @@ import {
   buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
+  buildDropTableSql,
   buildInsertRowSql,
   buildRenameColumnSql,
   buildRenameTableSql,
@@ -224,5 +225,15 @@ describe("table changes", () => {
     expect(() =>
       buildRenameTableSql({ table: "answers", newName: "sqlite_master" }),
     ).toThrow(/reserved/);
+  });
+
+  it("drops a table by its quoted name", () => {
+    expect(buildDropTableSql({ table: "answers" })).toEqual({
+      sql: 'DROP TABLE "answers"',
+      params: [],
+    });
+    expect(buildDropTableSql({ table: 'odd"name' }).sql).toBe(
+      'DROP TABLE "odd""name"',
+    );
   });
 });
