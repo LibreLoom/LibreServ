@@ -21,10 +21,10 @@ export function useModalClose() {
   return close;
 }
 
-/** Longest modal exit animation (overlay + card pop-out). */
+/** Longest modal exit animation (dialog pop-out + overlay fade). */
 export const EXIT_ANIMATION_MS = 300;
 
-/** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
+/** Dialog `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
 export const POP_IN_ANIMATION_MS = 300;
 
 /** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
@@ -315,8 +315,8 @@ export default function ModalCard({
       {/*
         The blur is its own static layer, and only the dim fades. Chrome
         re-blurs the whole page every frame while a backdrop-filter element is
-        itself fading or scaling, which is what made the open animation choppy.
-        The dialog animates its own fade and zoom, so the backdrop never moves.
+        itself fading or scaling, which is what made the animation choppy. The
+        dialog animates its own fade, rise and scale, so the backdrop is still.
       */}
       <div
         data-slot="dialog-blur"
@@ -340,15 +340,18 @@ export default function ModalCard({
         aria-labelledby={titleId}
         className={cn(
           "relative w-full overflow-hidden rounded-large-element surface-secondary",
-          // The dialog zooms itself in and out. The overlay used to carry this
-          // scale, which meant the blurred backdrop was re-blurred every frame.
-          isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
+          // One animation for the whole dialog, on its own layer: the surface
+          // and everything on it fade, rise and scale together. `pop-in` ends at
+          // `transform: none`, so no compositing layer is left behind; the
+          // backdrop blur lives outside this element and never moves.
+          isClosing ? "pop-out" : "pop-in",
           "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses
         )}
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
+        onAnimationEnd={handlePopInEnd}
       >
         {/*
           Scroller carries viewport max-height + overflow. Measure target is a
@@ -367,14 +370,13 @@ export default function ModalCard({
               ? "overflow-y-auto overflow-x-hidden"
               : "overflow-hidden",
           )}
-          onAnimationEnd={handlePopInEnd}
         >
           <div ref={innerRef} data-slot="dialog-measure">
             <ModalCloseContext.Provider value={handleClose}>
               <Card
                 noHeightAnim
                 noPopIn
-                className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
+                className={cn("relative overflow-hidden", className)}
               >
                 {showCloseButton && (
                   <button
