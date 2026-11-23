@@ -1,7 +1,9 @@
 package database
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,5 +70,36 @@ func TestIntegrityCheckDoesNotInventMissingFile(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err == nil {
 		t.Fatal("integrity check recreated the missing database file")
+	}
+}
+
+func TestIntegrityCheckClassifiesNonDatabaseAsCorrupt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "garbage.db")
+	if err := os.WriteFile(path, []byte("this is not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := integrityCheckFile(context.Background(), path)
+	if !errors.Is(err, ErrDatabaseCorrupt) {
+		t.Fatalf("expected a corrupt classification, got %v", err)
+	}
+}
+
+func TestHealthCheckFailsForDeletedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gone.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	// Delete the file underneath the still-open handle: that is the case the
+	// cheap probe used to miss.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.HealthCheck(); err == nil {
+		t.Fatal("health check should fail when the database file is gone")
 	}
 }

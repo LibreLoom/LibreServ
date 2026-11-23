@@ -343,24 +343,24 @@ fonts are lazy assets and are not part of W1.
 
 | Journey | Before | After | Ratio |
 |---|---|---|---|
-| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1115.9 KiB | 2.02x |
+| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1151.6 KiB | 1.96x |
 
 Both sides used the current `bundle-report.js`: the before build had the font
 edits reverted, the after build is this branch. Each was rebuilt with a clean
 output directory, then measured with `npm run perf:bundle`. Lunad embeds
 `web/dist` and serves files verbatim, with no `.gz` lookup and no compression
 layer, so `totals.initial.wire` is raw bytes throughout. Before = 728.2 KiB
-JS/CSS + 1530.0 KiB TTF; after = 728.5 KiB JS/CSS + 387.4 KiB WOFF2. An
+JS/CSS + 1530.0 KiB TTF; after = 727.4 KiB JS/CSS + 424.2 KiB WOFF2. An
 earlier draft used gzip sizes for JS/CSS, which lunad never sends. Raw reports
 are `perf/results/bundle-<time>.json`.
 
 A browser run against the built app with this harness's remote profile
 (80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop
-from 584,724 B to 189,768 B (3.08x), while W1 p50 moved from 1394 ms to 1286 ms
+from 584,724 B to 189,468 B of font data (3.09x; the browser reported 189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
 (1.08x). The remaining time is JS parse, layout and round trips; the byte win
 does not become a 1.5x wall-clock win in that setup. A few mono labels use a
 500 weight or bold text inside a mono container, so the two bold faces remain:
-they keep Latin and common symbols in ~30 KiB WOFF2 subsets and would need
+they keep Latin-1, Latin Extended-A and common symbols in ~46-49 KiB WOFF2 subsets and would need
 widening for a non-Latin bold-mono string. Regular and oblique retain every
 codepoint in the original TTF `cmap`.
 

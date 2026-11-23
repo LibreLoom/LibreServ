@@ -1064,3 +1064,23 @@ describe("AboutCategory integrity failure kinds", () => {
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 });
+
+describe("AboutCategory integrity error result", () => {
+  it("does not claim everything is fine when the check could not run", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", reason: "error", corrupt: false, message: "Sol couldn't check the database file right now. Please try again." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/couldn't check the database file right now/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("1 of 1 checks passed — everything looks good.")).not.toBeInTheDocument();
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+});

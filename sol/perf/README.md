@@ -46,13 +46,13 @@ journey budgets yet.
 
 The WOFF2 files are generated from the committed TTFs with `fonttools`. Every
 codepoint in the TTF `cmap` is kept in the regular and oblique faces. The two
-bold faces cover Latin and common symbols only; a few mono labels use a 500
+bold faces cover Latin-1, Latin Extended-A and common symbols; a few mono labels use a 500
 weight or bold text inside a mono container, so widen those subsets if such a
 string ever needs characters outside that range.
 
 ```sh
 SRC=shared/ui/fonts
-UNICODES='U+0020-007E,U+00A0-00FF,U+2000-206F,U+2190-21FF,U+2200-22FF,U+2500-257F,U+2600-26FF'
+UNICODES='U+0020-007E,U+00A0-024F,U+2000-206F,U+2190-21FF,U+2200-22FF,U+2500-257F,U+2600-26FF'
 for f in FreeMono FreeMonoOblique; do
   pyftsubset "$SRC/$f.ttf" --unicodes='*' --flavor=woff2 --output-file="$SRC/$f.woff2"
 done

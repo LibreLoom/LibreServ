@@ -69,7 +69,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
         }
         if (result.status !== "running") {
           // A timeout or a locked database is not a problem with the file.
-          setFileProblem(result.status === "corrupt" || result.reason === "missing");
+          setFileProblem(result.status === "corrupt" || result.reason === "missing" || result.reason === "error");
           setFileResult(result.message || "The database file is fine.");
           break;
         }
@@ -78,11 +78,16 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           break;
         }
         await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 1500);
-          controller.signal.addEventListener("abort", () => {
+          let timer;
+          const onAbort = () => {
             clearTimeout(timer);
             resolve();
-          }, { once: true });
+          };
+          timer = setTimeout(() => {
+            controller.signal.removeEventListener("abort", onAbort);
+            resolve();
+          }, 1500);
+          controller.signal.addEventListener("abort", onAbort, { once: true });
         });
       }
     } catch (err) {

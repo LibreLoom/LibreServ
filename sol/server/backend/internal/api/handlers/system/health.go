@@ -137,6 +137,9 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 			if errors.Is(err, fs.ErrNotExist) {
 				reason = "missing"
 				message = "The database file is missing. Restore a database backup in Settings → Backups."
+			} else if errors.Is(err, database.ErrDatabaseCorrupt) {
+				reason = "corrupt"
+				message = "Sol found a problem with the database file. Restore a database backup in Settings → Backups."
 			} else if ctx.Err() != nil {
 				reason = "timeout"
 				message = "The database check took too long. Please try again."

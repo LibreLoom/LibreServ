@@ -242,10 +242,18 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 
 // HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
 // and on the dashboard's monitoring poll, so it must not walk every page.
-// It reads the schema through the already-open pool, which catches an
-// unreadable database but not a deleted file (the open handle still works) or
-// page-level corruption; those need IntegrityCheck.
+// It stats the file and reads the schema through the already-open pool, which
+// catches a deleted or unreadable database but not page-level corruption; that
+// needs IntegrityCheck.
 func (d *DB) HealthCheck() error {
+	// The open handle can keep serving from an unlinked file. A stat on every
+	// probe is cheap and makes /health/ready stop lying when the file is gone.
+	if d.path != ":memory:" {
+		if _, err := os.Stat(d.path); err != nil {
+			return fmt.Errorf("database health check failed: %w", err)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -297,15 +305,34 @@ func integrityCheckFile(ctx context.Context, path string) (bool, error) {
 	return integrityCheckOn(ctx, tmp)
 }
 
+// ErrDatabaseCorrupt marks a file that SQLite says is damaged or is not a
+// database at all. Retrying such a check never helps; the admin needs to
+// restore a backup.
+var ErrDatabaseCorrupt = errors.New("database file is corrupt")
+
+func integrityQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "not a database") ||
+		strings.Contains(message, "malformed") ||
+		strings.Contains(message, "database image") ||
+		strings.Contains(message, "file is encrypted") {
+		return fmt.Errorf("%w: %v", ErrDatabaseCorrupt, err)
+	}
+	return fmt.Errorf("database integrity check failed: %w", err)
+}
+
 func integrityCheckOn(ctx context.Context, conn *sql.DB) (bool, error) {
 	var count int
 	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
-		return false, fmt.Errorf("database integrity check failed: %w", err)
+		return false, integrityQueryError(err)
 	}
 
 	var integrityOk string
 	if err := conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
-		return false, fmt.Errorf("database integrity check failed: %w", err)
+		return false, integrityQueryError(err)
 	}
 	return integrityOk != "ok", nil
 }
