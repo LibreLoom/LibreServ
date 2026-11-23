@@ -163,9 +163,13 @@ mod tests {
     #[tokio::test]
     async fn synthesizes_the_generated_web_font_and_rejects_traversal() {
         let tmp = tempfile::tempdir().unwrap();
-        let pack = tmp.path();
+        let root = tmp.path();
+        let pack = root.join("pack");
         std::fs::create_dir_all(pack.join("core-fonts/sub")).unwrap();
         std::fs::create_dir_all(pack.join("fonts")).unwrap();
+        // This file exists, so the traversal alias can only be refused by the
+        // ParentDir guard, not by a missing source file.
+        std::fs::write(root.join("outside.ttf"), &vec![9u8; 64]).unwrap();
         // allfontsgen's real layout: same length as the source, first 32 bytes
         // XOR-masked in place.
         let source = vec![7u8; 64];
@@ -190,14 +194,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            etag_for(pack, "024"),
+            etag_for(&pack, "024"),
             Some(format!("\"{}\"", hex_hash(&generated)))
         );
-        let got = synth(pack, "024").await.unwrap();
+        let got = synth(&pack, "024").await.unwrap();
         assert_eq!(got.len(), source.len());
         assert_eq!(got, generated);
-        assert!(synth(pack, "evil").await.is_none());
-        assert!(synth(pack, "000").await.is_none());
-        assert!(synth(pack, "../024").await.is_none());
+        assert!(synth(&pack, "evil").await.is_none());
+        assert!(synth(&pack, "000").await.is_none());
+        assert!(synth(&pack, "../024").await.is_none());
     }
 }

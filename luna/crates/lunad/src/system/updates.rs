@@ -13,7 +13,7 @@
 //!
 //! Apply is tap-to-update only — never silent.
 
-use std::io::{BufRead, Read, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
@@ -701,17 +701,19 @@ fn decompress_image_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result
     let io = |e: std::io::Error| UpdateError::Other(e.to_string());
     let mut input =
         std::io::BufReader::with_capacity(256 * 1024, std::fs::File::open(src).map_err(io)?);
-    let peek = input.fill_buf().map_err(io)?;
-    if peek.len() < 4 {
+    // read_exact, not fill_buf: a short read from a network or FUSE-backed
+    // image must not turn a valid image into a mystery refusal.
+    let mut magic = [0u8; 4];
+    if input.read_exact(&mut magic).is_err() {
         return Err(UpdateError::Other(
             "The operating-system update could not be unpacked. Nothing was installed.".into(),
         ));
     }
-    let magic = peek[..4].to_vec();
+    let rest = std::io::Cursor::new(magic).chain(input);
     let reader: Box<dyn Read> = if magic == [0x28, 0xb5, 0x2f, 0xfd] {
-        Box::new(zstd::stream::read::Decoder::new(input).map_err(io)?)
+        Box::new(zstd::stream::read::Decoder::new(rest).map_err(io)?)
     } else if magic.starts_with(&[0xfd, 0x37, 0x7a, 0x58]) {
-        Box::new(lzma_rust2::XzReader::new(input, false))
+        Box::new(lzma_rust2::XzReader::new(rest, false))
     } else {
         return Err(UpdateError::Other(
             "The operating-system update could not be unpacked. Nothing was installed.".into(),
