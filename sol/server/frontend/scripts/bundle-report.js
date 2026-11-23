@@ -72,19 +72,28 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
       const gz = existsSync(path.join(distDir, `${file}.gz`))
         ? statSync(path.join(distDir, `${file}.gz`)).size
         : gzipSync(bytes, { level: 9 }).length;
-      return { file, group: initial.has(file) ? "initial" : "lazy", bytes: bytes.length, gzip: gz };
+      // What actually crosses the wire: the backend serves the .gz sibling
+      // for JS/CSS, but fonts are not compressed by gzipAssets. Counting a
+      // font's gzip size understates its transfer by about 45%.
+      const wire = FONT_RE.test(file) ? bytes.length : gz;
+      return { file, group: initial.has(file) ? "initial" : "lazy", bytes: bytes.length, gzip: gz, wire };
     })
     .sort((a, b) => b.bytes - a.bytes);
 
   /** @param {string} group */
   const total = (group) => {
     const list = files.filter((f) => f.group === group);
-    return { files: list.length, bytes: list.reduce((n, f) => n + f.bytes, 0), gzip: list.reduce((n, f) => n + f.gzip, 0) };
+    return {
+      files: list.length,
+      bytes: list.reduce((n, f) => n + f.bytes, 0),
+      gzip: list.reduce((n, f) => n + f.gzip, 0),
+      wire: list.reduce((n, f) => n + f.wire, 0),
+    };
   };
   const report = {
     generated_at: new Date().toISOString(),
     dist: distDir,
-    note: "initial = entry JS, preloads, CSS and all shipped font faces; lazy = route chunks. The browser fetches a font face only when something uses it, so this is an upper bound on a real first load. gzip for fonts is informational (WOFF2 is already compressed).",
+    note: "initial = entry JS, preloads, CSS and all shipped font faces; lazy = route chunks. A font face is only fetched when something uses it, so this is an upper bound on a real first load. 'wire' is what the server sends: .gz bytes for JS/CSS, raw bytes for fonts.",
     totals: { initial: total("initial"), lazy: total("lazy") },
     files,
   };
@@ -97,7 +106,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
 
   if (!quiet) {
     const t = report.totals;
-    console.log(`Bundle (upper bound: all shipped font faces): initial ${kb(t.initial.bytes)} KiB raw / ${kb(t.initial.gzip)} KiB gzip in ${t.initial.files} files; lazy ${kb(t.lazy.bytes)} KiB in ${t.lazy.files} files`);
+    console.log(`Bundle (upper bound: all shipped font faces): initial ${kb(t.initial.wire)} KiB on the wire / ${kb(t.initial.bytes)} KiB raw in ${t.initial.files} files; lazy ${kb(t.lazy.wire)} KiB on the wire`);
     for (const f of files.filter((x) => x.group === "initial")) {
       console.log(`  initial ${String(kb(f.bytes)).padStart(8)} KiB raw  ${String(kb(f.gzip)).padStart(8)} KiB gz  ${f.file}`);
     }

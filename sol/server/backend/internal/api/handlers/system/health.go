@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"runtime"
 	"time"
@@ -102,11 +103,15 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 // A full PRAGMA integrity_check walks every page, so it is an explicit
 // diagnostic instead of part of the short-interval health probes.
 func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	// Keep this under the server's 15 s write timeout: a slow disk should give
+	// the admin a verdict in Settings, not a dropped browser connection.
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
 	if err := h.db.IntegrityCheckContext(ctx); err != nil {
-		// A failed check is a broken database, not a temporary unavailability.
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		// Driver errors contain paths and page numbers. Log the detail for
+		// support; tell the person only what they need to know.
+		slog.Warn("database integrity check failed", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Sol couldn't finish checking the database file. Please try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"status": "ok"})

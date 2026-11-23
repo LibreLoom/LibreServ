@@ -71,20 +71,28 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
       const gz = existsSync(path.join(distDir, `${file}.gz`))
         ? statSync(path.join(distDir, `${file}.gz`)).size
         : gzipSync(bytes, { level: 9 }).length;
+      // lunad serves .gz for JS/CSS but fonts raw, so a font's gzip size
+      // understates what the browser actually downloads.
+      const wire = FONT_RE.test(file) ? bytes.length : gz;
       const group = initial.has(file) ? "initial" : PAGE_CHUNK.test(file) ? "pages" : "lazy";
-      return { file, group, bytes: bytes.length, gzip: gz };
+      return { file, group, bytes: bytes.length, gzip: gz, wire };
     })
     .sort((a, b) => b.gzip - a.gzip);
 
   /** @param {string} group */
   const total = (group) => {
     const list = files.filter((f) => f.group === group);
-    return { files: list.length, bytes: list.reduce((n, f) => n + f.bytes, 0), gzip: list.reduce((n, f) => n + f.gzip, 0) };
+    return {
+      files: list.length,
+      bytes: list.reduce((n, f) => n + f.bytes, 0),
+      gzip: list.reduce((n, f) => n + f.gzip, 0),
+      wire: list.reduce((n, f) => n + f.wire, 0),
+    };
   };
   const report = {
     generated_at: new Date().toISOString(),
     dist: distDir,
-    note: "initial = what index.html loads before the first page; pages = per-route chunks (one loads per first visit); lazy = editors, viewers and the rest.",
+    note: "initial = entry JS, preloads, CSS and all shipped font faces; pages = per-route chunks; lazy = editors, viewers and the rest. 'wire' is what the server sends: .gz bytes for JS/CSS, raw bytes for fonts. A font face is only fetched when something uses it.",
     totals: { initial: total("initial"), pages: total("pages"), lazy: total("lazy") },
     files,
   };
@@ -98,7 +106,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
 
   if (!quiet) {
     const t = report.totals;
-    console.log(`Bundle (gzip KiB): initial ${kb(t.initial.gzip)} in ${t.initial.files} files, pages ${kb(t.pages.gzip)}, lazy ${kb(t.lazy.gzip)}`);
+    console.log(`Bundle (wire KiB, upper bound): initial ${kb(t.initial.wire)} in ${t.initial.files} files, pages ${kb(t.pages.wire)}, lazy ${kb(t.lazy.wire)}`);
     for (const f of files.filter((x) => x.group !== "lazy")) {
       console.log(`  ${f.group.padEnd(7)} ${String(kb(f.gzip)).padStart(8)} KiB gz  ${String(kb(f.bytes)).padStart(8)} KiB  ${f.file}`);
     }

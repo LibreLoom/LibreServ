@@ -8,6 +8,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
+import api from "../../../lib/api";
 import { labelFor } from "../../../lib/healthChecks";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -16,6 +17,26 @@ const inputClass =
 
 function SystemChecksCard({ index = 2 }) {
   const { data, isLoading, error } = useSystemHealthCheck();
+  const [checkingFile, setCheckingFile] = useState(false);
+  const [fileResult, setFileResult] = useState(null);
+
+  async function checkDatabaseFile() {
+    setCheckingFile(true);
+    setFileResult(null);
+    // The server's write timeout is 15 s; stay under it so a slow disk gives
+    // a verdict in the card instead of a network error in the browser.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      await api("/system/database/integrity", { signal: controller.signal });
+      setFileResult("The database file is fine.");
+    } catch {
+      setFileResult("Sol couldn't finish checking the database file. Please try again.");
+    } finally {
+      clearTimeout(timer);
+      setCheckingFile(false);
+    }
+  }
 
   if (isLoading && !data) {
     return (
@@ -74,6 +95,18 @@ function SystemChecksCard({ index = 2 }) {
           >
             {allOk ? "Healthy" : "Issues found"}
           </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 pb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={checkDatabaseFile}
+            loading={checkingFile}
+          >
+            Check the database file
+          </Button>
+          {fileResult && <p className="text-sm">{fileResult}</p>}
         </div>
 
         <ul className="space-y-1">

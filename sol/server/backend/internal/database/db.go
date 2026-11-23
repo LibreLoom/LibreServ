@@ -21,8 +21,9 @@ type DB struct {
 	db   *sql.DB
 	path string
 
-	// onReplace is called after a restore swaps the database file. Services
-	// that cache rows from this DB use it to drop stale answers.
+	// onReplace is called once the restored file is in place, before migration
+	// and integrity verification. Services that cache rows from this DB use it
+	// to drop stale answers immediately.
 	onReplace func()
 }
 
@@ -230,8 +231,8 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 
 // HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
 // and on the dashboard's monitoring poll, so it must not walk every page.
-// It does read the schema, so a missing, truncated or unreadable file is still
-// reported as unhealthy. IntegrityCheck is the full on-disk diagnostic.
+// It reads the schema, which catches a missing or unreadable database. Page-level
+// corruption past the schema pages is only caught by IntegrityCheck.
 func (d *DB) HealthCheck() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

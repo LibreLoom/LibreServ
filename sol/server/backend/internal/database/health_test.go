@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// A truncated file must not answer healthy: the cheap probe still has to read
-// the schema, not just the constant "1".
-func TestHealthCheckDetectsTruncatedDatabase(t *testing.T) {
+// A file that is not a database must not answer healthy: the cheap probe
+// reads the schema, not just the constant "1". Corruption past the schema
+// pages is the job of IntegrityCheck.
+func TestHealthCheckRejectsNonDatabaseFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "truncated.db")
 	if err := os.WriteFile(path, []byte("this is not a sqlite database"), 0o600); err != nil {
 		t.Fatal(err)

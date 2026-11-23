@@ -660,12 +660,6 @@ textarea::placeholder {
     animation: cascade-in 280ms var(--motion-easing-emphasized-decelerate) backwards;
 }
 
-/* PhotoThumb marks the img directly on load. A scrub paints many cells at
-   once; a state update per image re-rendered the whole cell during W8. */
-img[data-thumb-loaded] {
-    opacity: 1;
-}
-
 /* Material Design 3 Indeterminate Linear Progress Animations */
 @keyframes md-indeterminate-bar-1 {
     0% {

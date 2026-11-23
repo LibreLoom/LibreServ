@@ -35,6 +35,15 @@ const DETECT_TTL: Duration = Duration::from_secs(60);
 static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>> =
     OnceLock::new();
 
+/// Called wherever the drive manager forgets its own marker memo (adopt,
+/// format, eject, remove, reconcile). The cached prefix must not outlive the
+/// operation that changed it.
+pub fn forget_all_cached() {
+    if let Some(cache) = DETECT_CACHE.get() {
+        cache.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
+}
+
 impl Layout {
     /// Detect this drive's prefix from its `.luna-<uuid>.sqlite3` marker.
     /// `None` when the drive is not adopted.

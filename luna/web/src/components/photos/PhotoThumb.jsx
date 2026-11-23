@@ -84,7 +84,6 @@ function PhotoThumb({
   const [gated] = useState(canWatchNearViewport);
   const imgRef = useRef(/** @type {HTMLImageElement|null} */ (null));
   const started = useRef(false);
-  const shownThumb = useRef(photo.thumb);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!gated || !img || !photo.thumb) return undefined;
@@ -194,15 +193,7 @@ function PhotoThumb({
         <img
           ref={(img) => {
             imgRef.current = img;
-            if (!img) return;
-            // A recycled cell keeps the same <img>. Clear the previous
-            // photo's loaded flag on both paths: the gated one sets src
-            // imperatively, the ungated one gets it from React below.
-            if (shownThumb.current !== photo.thumb) {
-              delete img.dataset.thumbLoaded;
-              shownThumb.current = photo.thumb;
-            }
-            if (img.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
+            if (img?.complete && img.currentSrc) img.dataset.thumbLoaded = "1";
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}
@@ -216,7 +207,7 @@ function PhotoThumb({
           onLoad={(e) => {
             e.currentTarget.dataset.thumbLoaded = "1";
           }}
-          className="h-full w-full object-cover opacity-0 motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100"
+          className="h-full w-full object-cover opacity-0 data-[thumb-loaded]:opacity-100 motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100"
         />
       ) : (
         <span className="flex h-full w-full items-center justify-center font-mono text-xs">
