@@ -316,7 +316,7 @@ export default function ModalCard({
         The blur is its own static layer, and only the dim fades. Chrome
         re-blurs the whole page every frame while a backdrop-filter element is
         itself fading or scaling, which is what made the open animation choppy.
-        The dialog's own pop-in supplies the zoom, so the overlay never scales.
+        The dialog animates its own fade and zoom, so the backdrop never moves.
       */}
       <div
         data-slot="dialog-blur"
@@ -340,6 +340,9 @@ export default function ModalCard({
         aria-labelledby={titleId}
         className={cn(
           "relative w-full overflow-hidden rounded-large-element surface-secondary",
+          // The dialog zooms itself in and out. The overlay used to carry this
+          // scale, which meant the blurred backdrop was re-blurred every frame.
+          isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
           "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses

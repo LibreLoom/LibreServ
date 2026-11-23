@@ -373,6 +373,22 @@ describe("ModalCard", () => {
     }
   });
 
+  it("scales the dialog, never the blurred backdrop", () => {
+    render(
+      <ModalCard title="Zoom" onClose={() => {}}>
+        Body
+      </ModalCard>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("animate-in");
+    expect(dialog).toHaveClass("zoom-in-95");
+    // Animating anything with the backdrop-filter on it re-blurs the whole page
+    // every frame; the overlay and its blur are static.
+    const overlay = dialog.closest("[data-slot=dialog-overlay]");
+    expect(overlay).not.toHaveClass("animate-in");
+    expect(overlay.querySelector("[data-slot=dialog-blur]")).not.toHaveClass("animate-in");
+  });
+
   it("applies overlayClassName on the fixed overlay for stacking", () => {
     render(
       <ModalCard title="Stacked" onClose={() => {}} overlayClassName="z-[90]">
