@@ -127,7 +127,7 @@ lint:
 	cargo clippy --workspace -- -D warnings
 	cd web && $(PM) run lint
 
-# Luna OS slot image (os/dist/luna-os-x86_64.img.xz); rootless Podman, needs a built lunad.
+# Luna OS slot image (os/dist/luna-os-x86_64.img.zst); rootless Podman, needs a built lunad.
 os-image:
 	./os/build-rootfs.sh
 	./os/make-image.sh

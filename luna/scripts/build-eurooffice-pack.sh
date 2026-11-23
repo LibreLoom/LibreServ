@@ -40,7 +40,9 @@ echo "Packing $PACK_SRC → $TARBALL (help dirs excluded)…"
 tmp="$TARBALL.tmp"
 # Pack the eurooffice/ dir itself so the tarball is self-describing and
 # unpacks straight into the image's pack root (/usr/share/luna).
-tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' -cf - eurooffice |
+# *.js.map files are debug-only (browser devtools); ServeDir never serves a
+# source map to the editor, so they are pure image weight (~23 MiB unpacked).
+tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' --exclude='*.js.map' -cf - eurooffice |
 	zstd -19 -T0 -o "$tmp"
 mv "$tmp" "$TARBALL"
 

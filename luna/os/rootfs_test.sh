@@ -174,8 +174,8 @@ assert_file_lacks "$ROOT/os/build/image.sh" '^[^#]*(podman|sudo|--privileged)' \
 	"image.sh runs inside the build container and must not call podman or sudo"
 assert_file_has "$ROOT/os/build/image.sh" 'mkfs.ext4 .* -d ' \
 	"image.sh must write the filesystem with mkfs.ext4 -d (no loop device, no mount)"
-assert_file_has "$ROOT/os/build/image.sh" 'xz -3' \
-	"image.sh must compress the slot image with xz"
+assert_file_has "$ROOT/os/build/image.sh" 'zstd -"\$ZSTD_LEVEL"' \
+	"image.sh must compress the slot image with zstd"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
 assert_file_has "$FLASH" 'rootflags=ro,noatime' \

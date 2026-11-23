@@ -186,7 +186,20 @@ pub async fn fonts_dispatch(
     Path(tail): Path<String>,
     mut req: axum::extract::Request,
 ) -> Response {
-    let dir = crate::packs::dir(&state.data_dir, "eurooffice").join("fonts");
+    let pack = crate::packs::dir(&state.data_dir, "eurooffice");
+    // Most fonts/NNN files are a 32-byte header plus a core-fonts body. The
+    // image ships only the header, so rebuild the original bytes here.
+    if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+        let len = body.len();
+        let is_head = req.method() == axum::http::Method::HEAD;
+        return axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+            .header(axum::http::header::CONTENT_LENGTH, len)
+            .body(axum::body::Body::from(if is_head { Vec::new() } else { body }))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let dir = pack.join("fonts");
     let orig_path = req.uri().path().to_string();
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;

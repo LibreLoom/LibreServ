@@ -70,14 +70,14 @@ func TestBuildLunaOSAndInstaller(t *testing.T) {
 	// 1. named parts: always built.
 	res1, d1 := run("first", []string{"os", "installer"})
 	dir1 := res1.Units[0].Dir
-	img1 := filepath.Join(dir1, "luna-os-x86_64.img.xz")
+	img1 := filepath.Join(dir1, "luna-os-x86_64.img.zst")
 	iso1 := filepath.Join(dir1, "luna-rapidinstall-x86_64.iso.xz")
 	for _, f := range []string{img1, iso1} {
 		if st, err := os.Stat(f); err != nil || st.Size() == 0 {
 			t.Fatalf("missing %s: %v", f, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir1, "luna-os-x86_64.img.xz.sha256")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir1, "luna-os-x86_64.img.zst.sha256")); err == nil {
 		t.Error("the .sha256 scratch file leaked into the release dir")
 	}
 	if xz, err := exec.LookPath("xz"); err == nil {
@@ -94,7 +94,7 @@ func TestBuildLunaOSAndInstaller(t *testing.T) {
 	// 2. the whole unit again, same inputs: nothing OS-related is rebuilt.
 	res2, d2 := run("second", nil)
 	dir2 := res2.Units[0].Dir
-	for _, f := range []string{"luna-os-x86_64.img.xz", "luna-rapidinstall-x86_64.iso.xz"} {
+	for _, f := range []string{"luna-os-x86_64.img.zst", "luna-rapidinstall-x86_64.iso.xz"} {
 		s1, e1 := os.Stat(filepath.Join(dir1, f))
 		s2, e2 := os.Stat(filepath.Join(dir2, f))
 		if e1 != nil || e2 != nil || !os.SameFile(s1, s2) {

@@ -1,9 +1,9 @@
 #!/bin/sh
 # Dev wrapper: build the rapidinstall ISO (BIOS + UEFI hybrid, volume LUNAINST)
-# from os/dist/luna-os-x86_64.img.xz. Rootless podman only; no sudo, no
+# from os/dist/luna-os-x86_64.img.zst. Rootless podman only; no sudo, no
 # live-build. The work is build/iso.sh, which runs inside build/Containerfile.iso.
 #
-# Needs first: ./os/make-image.sh (the .img.xz). The image carries the editor
+# Needs first: ./os/make-image.sh (the .img.zst). The image carries the editor
 # packs, so no pack files are passed separately.
 set -eu
 
@@ -16,7 +16,7 @@ DEBIAN_IMAGE="${DEBIAN_IMAGE:-docker.io/library/debian@sha256:2c037a04925515fdd6
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
 
 luna_need_podman
-[ -s "$OUT/luna-os-$ARCH.img.xz" ] || luna_die "missing $OUT/luna-os-$ARCH.img.xz: run os/make-image.sh first"
+[ -s "$OUT/luna-os-$ARCH.img.zst" ] || luna_die "missing $OUT/luna-os-$ARCH.img.zst: run os/make-image.sh first"
 
 IMAGE="$(luna_build_image iso "$OSDIR/build/Containerfile.iso" "DEBIAN_IMAGE=$DEBIAN_IMAGE")"
 podman volume exists "$LUNA_ISO_CACHE_VOLUME" || podman volume create "$LUNA_ISO_CACHE_VOLUME" >/dev/null

@@ -44,11 +44,11 @@ luna_os_input_hash() {
 	sh "$OSDIR/build/input-hash.sh"
 }
 
-# luna_os_image_current <dist-dir>: 0 when dist already holds an .img.xz built
+# luna_os_image_current <dist-dir>: 0 when dist already holds an .img.zst built
 # from the current inputs (and LUNA_OS_FORCE is not set).
 luna_os_image_current() {
 	_dist="$1"
-	_f="$_dist/luna-os-${ARCH:-x86_64}.img.xz"
+	_f="$_dist/luna-os-${ARCH:-x86_64}.img.zst"
 	[ -z "${LUNA_OS_FORCE:-}" ] || return 1
 	[ -s "$_f" ] && [ -s "$_f.sha256" ] && [ -s "$_f.inputs" ] || return 1
 	[ "$(cat "$_f.inputs")" = "$(luna_os_input_hash)" ] || return 1

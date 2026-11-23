@@ -17,7 +17,7 @@ use crate::backup::cloud::check::{CheckReport, Sample};
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
 use crate::backup::cloud::rewrap;
-use crate::backup::cloud::run::{CloudOutcome, first_upload_in_progress};
+use crate::backup::cloud::run::CloudOutcome;
 use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
 use crate::db::{self, ProtectionRow};

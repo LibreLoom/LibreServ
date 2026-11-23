@@ -533,8 +533,8 @@
         "name": "exact-name-found"
       },
       {
-        "expect": "4c9f78b342c24ff86ea200f6bfd53803d4e158d08c6f4a5f653e8be17d44341f",
-        "file": "luna-os-x86_64.img.xz",
+        "expect": "dc7d0302646dc3c017f94ae2d72831c61b1998e7c9f7d46fbd372b3a089080a7",
+        "file": "luna-os-x86_64.img.zst",
         "name": "exact-name-other-file"
       },
       {

@@ -87,7 +87,7 @@ func TestPlanFeeds(t *testing.T) {
 			{Name: "lunad", OS: "linux", Arch: "amd64", File: "lunad"},
 			{Name: "flatpak", OS: "linux", Arch: "amd64", File: "flatpak-stable", Channel: Stable},
 			{Name: "flatpak", OS: "linux", Arch: "amd64", File: "flatpak-beta", Channel: Beta},
-			{Name: "os", OS: "linux", Arch: "amd64", File: "os.img.xz", Version: "0.3.0", Size: 9, SHA256: "dd"},
+			{Name: "os", OS: "linux", Arch: "amd64", File: "os.img.zst", Version: "0.3.0", Size: 9, SHA256: "dd"},
 		}}
 	none := func(string) (*feed.Feed, error) { return nil, nil }
 
@@ -101,7 +101,7 @@ func TestPlanFeeds(t *testing.T) {
 	if outs[0].Feed.Parts[1].File != "flatpak-stable" || outs[1].Feed.Parts[1].File != "flatpak-beta" {
 		t.Fatalf("per-channel parts: %+v / %+v", outs[0].Feed.Parts, outs[1].Feed.Parts)
 	}
-	if got := outs[0].Feed.Parts[2].URLs[0]; got != "https://x/0.3.0/os.img.xz" {
+	if got := outs[0].Feed.Parts[2].URLs[0]; got != "https://x/0.3.0/os.img.zst" {
 		t.Fatalf("earlier-version part url %s", got)
 	}
 

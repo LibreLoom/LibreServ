@@ -24,7 +24,7 @@ func init() {
 
 // File names, exactly as in the plan's parts table.
 const (
-	OSFile        = "luna-os-x86_64.img.xz"
+	OSFile        = "luna-os-x86_64.img.zst"
 	InstallerFile = "luna-rapidinstall-x86_64.iso.xz"
 
 	osHashJob     = "luna/os:hash"
@@ -427,7 +427,7 @@ type packDef struct {
 var packDefs = []packDef{
 	{name: "eurooffice", file: "eurooffice-pack.tar.zst", title: "EuroOffice pack", heavy: true,
 		inputs: []string{"luna/scripts/install-eurooffice-assets.sh", "luna/scripts/build-eurooffice-pack.sh",
-			"luna/web/public/office-x2t-worker.js", "luna/web/public/licenses/agpl-3.0.txt",
+			"luna/scripts/dedupe-office-fonts.py", "luna/web/public/office-x2t-worker.js", "luna/web/public/licenses/agpl-3.0.txt",
 			"infra/release/images/luna-eurooffice/Containerfile"},
 		env: map[string]string{"EUROOFFICE_IN_IMAGE": "/var/www/euro-office/documentserver", "LUNA_DATA_DIR": "/work/none"}},
 	{name: "drawio", file: "drawio-pack.tar.zst", title: "draw.io pack",
@@ -699,7 +699,7 @@ func linkFile(src, dst string) error {
 
 // ---- the installer's payload
 
-// payload fills the directory iso.sh embeds: the exact .img.xz this release
+// payload fills the directory iso.sh embeds: the exact .img.zst this release
 // ships (built now, or linked from the cache) with its .sha256, and the packs
 // when present.
 func (o *osBuilder) payload(ctx context.Context, b *engine.BuildContext, j *engine.JobRun, pl *osPlan) (string, error) {

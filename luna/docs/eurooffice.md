@@ -88,8 +88,9 @@ fonts-manifest.json                  TTF list the worker fetches
 `make eurooffice-pack` (or `scripts/build-eurooffice-pack.sh`) produces
 `os/dist/eurooffice-pack.tar.zst` — the pack minus `web-apps/*/resources/help`
 (~500MB of offline-help PNGs; the Help menu is already hidden via
-`customization.help: false`). Everything else ships: every font, all 50
-dictionaries.
+`customization.help: false`) and `*.js.map` (debug-only source maps lunad never
+serves). The x2t download also drops its unused `.br` variants. Everything else
+ships: every font, all 50 dictionaries.
 
 The pack is a program file, so it lives in the OS image, not on the data
 partition. The release tool builds it before the rootfs and mounts it in;

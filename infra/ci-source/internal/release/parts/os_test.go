@@ -22,7 +22,7 @@ func TestOSRegistered(t *testing.T) {
 	if strings.Join(names, ",") != "lunad,os,installer" {
 		t.Fatalf("luna parts %v", names)
 	}
-	if OSFile != "luna-os-x86_64.img.xz" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
+	if OSFile != "luna-os-x86_64.img.zst" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
 		t.Fatal(OSFile, InstallerFile)
 	}
 }
