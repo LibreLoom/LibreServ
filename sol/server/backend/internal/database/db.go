@@ -250,7 +250,7 @@ func (d *DB) HealthCheck() error {
 	// probe is cheap and makes /health/ready stop lying when the file is gone.
 	if d.path != ":memory:" {
 		if _, err := os.Stat(d.path); err != nil {
-			return fmt.Errorf("database health check failed: %w", err)
+			return fmt.Errorf("%w: %v", ErrDatabaseFileMissing, err)
 		}
 	}
 
@@ -308,7 +308,12 @@ func integrityCheckFile(ctx context.Context, path string) (bool, error) {
 // ErrDatabaseCorrupt marks a file that SQLite says is damaged or is not a
 // database at all. Retrying such a check never helps; the admin needs to
 // restore a backup.
-var ErrDatabaseCorrupt = errors.New("database file is corrupt")
+var (
+	ErrDatabaseCorrupt = errors.New("database file is corrupt")
+	// ErrDatabaseFileMissing is returned by the cheap probe when the file has
+	// been deleted or unmounted; handlers keep the path out of public responses.
+	ErrDatabaseFileMissing = errors.New("database file is missing")
+)
 
 func integrityQueryError(err error) error {
 	if err == nil {

@@ -57,15 +57,26 @@ type VersionResponse struct {
 	GoVersion string `json:"go_version"`
 }
 
+// databaseHealthMessage keeps filesystem paths out of the public health
+// endpoints. The caller logs the full error for support.
+func databaseHealthMessage(err error) string {
+	if errors.Is(err, database.ErrDatabaseFileMissing) {
+		return "unhealthy: the database file is missing"
+	}
+	return "unhealthy: could not read the database"
+}
+
 // HealthCheck handles GET /health
 // Returns overall system health including all component checks
 func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	checks := make(map[string]string)
 	overallStatus := "healthy"
 
-	// Check database health
+	// Check database health. These endpoints are public, so only a short
+	// verdict goes out; driver paths stay in the log.
 	if err := h.db.HealthCheck(); err != nil {
-		checks["database"] = "unhealthy: " + err.Error()
+		slog.Warn("database health check failed", "error", err)
+		checks["database"] = databaseHealthMessage(err)
 		overallStatus = "unhealthy"
 	} else {
 		checks["database"] = "healthy"
@@ -92,10 +103,11 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	// Check if database is accessible
 	if err := h.db.HealthCheck(); err != nil {
+		slog.Warn("database readiness check failed", "error", err)
 		JSON(w, http.StatusServiceUnavailable, HealthResponse{
 			Status:    "not ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Checks:    map[string]string{"database": err.Error()},
+			Checks:    map[string]string{"database": databaseHealthMessage(err)},
 		})
 		return
 	}
@@ -132,20 +144,28 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 			// tell the card which kind of failure this was, so a timeout is
 			// not reported as a damaged file.
 			slog.Warn("database integrity check could not run", "error", err)
-			reason := "error"
-			message := "Sol couldn't check the database file right now. Please try again."
-			if errors.Is(err, fs.ErrNotExist) {
-				reason = "missing"
-				message = "The database file is missing. Restore a database backup in Settings → Backups."
-			} else if errors.Is(err, database.ErrDatabaseCorrupt) {
-				reason = "corrupt"
-				message = "Sol found a problem with the database file. Restore a database backup in Settings → Backups."
-			} else if ctx.Err() != nil {
-				reason = "timeout"
-				message = "The database check took too long. Please try again."
+			corruptResult := map[string]any{
+				"status": "corrupt", "reason": "corrupt", "corrupt": true,
+				"message": "Sol found a problem with the database file. Restore a database backup in Settings → Backups.",
 			}
-			result = map[string]any{
-				"status": "unavailable", "reason": reason, "corrupt": false, "message": message,
+			if errors.Is(err, fs.ErrNotExist) {
+				result = map[string]any{
+					"status": "unavailable", "reason": "missing", "corrupt": false,
+					"message": "The database file is missing. Restore a database backup in Settings → Backups.",
+				}
+			} else if errors.Is(err, database.ErrDatabaseCorrupt) {
+				// Same shape as a completed walk that found damage.
+				result = corruptResult
+			} else if ctx.Err() != nil {
+				result = map[string]any{
+					"status": "unavailable", "reason": "timeout", "corrupt": false,
+					"message": "The database check took too long. Please try again.",
+				}
+			} else {
+				result = map[string]any{
+					"status": "unavailable", "reason": "error", "corrupt": false,
+					"message": "Sol couldn't check the database file right now. Please try again.",
+				}
 			}
 		} else if corrupt {
 			result = map[string]any{

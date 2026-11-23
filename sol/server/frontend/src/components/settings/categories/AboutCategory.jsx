@@ -69,7 +69,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
         }
         if (result.status !== "running") {
           // A timeout or a locked database is not a problem with the file.
-          setFileProblem(result.status === "corrupt" || result.reason === "missing" || result.reason === "error");
+          setFileProblem(result.status === "corrupt" || result.reason === "corrupt" || result.reason === "missing" || result.reason === "error");
           setFileResult(result.message || "The database file is fine.");
           break;
         }

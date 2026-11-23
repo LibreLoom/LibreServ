@@ -128,3 +128,40 @@ func TestDatabaseIntegrityMissingFileMessage(t *testing.T) {
 	}
 	t.Fatal("integrity check did not finish")
 }
+
+func TestDatabaseIntegrityGarbageFileReportsCorrupt(t *testing.T) {
+	path := t.TempDir() + "/garbage.db"
+	db, err := database.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	// Overwrite the file underneath the open handle: a damaged database does
+	// not open cleanly, but the check must still diagnose it.
+	if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(path + "-wal")
+	_ = os.Remove(path + "-shm")
+	h := NewHealthHandler(db)
+	h.DatabaseIntegrity(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/system/database/integrity", nil))
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		rr := httptest.NewRecorder()
+		h.DatabaseIntegrityStatus(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity/status", nil))
+		body := rr.Body.String()
+		if strings.Contains(body, `"status":"running"`) {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		if !strings.Contains(body, `"status":"corrupt"`) || !strings.Contains(body, `"corrupt":true`) {
+			t.Fatalf("garbage file should report corrupt in HTTP response, got: %s", body)
+		}
+		return
+	}
+	t.Fatal("integrity check did not finish")
+}

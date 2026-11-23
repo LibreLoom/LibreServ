@@ -1084,3 +1084,22 @@ describe("AboutCategory integrity error result", () => {
     expect(screen.getByText("The database file needs attention.")).toBeVisible();
   });
 });
+
+describe("AboutCategory detected corruption shape", () => {
+  it("flags a problem when the handler reports a damaged file with reason corrupt", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+});
