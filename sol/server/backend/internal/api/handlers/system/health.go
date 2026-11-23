@@ -71,7 +71,8 @@ func (h *HealthHandler) logHealthFailure(message string, err error) {
 }
 
 // databaseHealthMessage keeps filesystem paths out of the public health
-// endpoints. The caller logs the full error once through logHealthFailure.
+// endpoints. DB.HealthCheck logs the detail once per outage; callers just
+// pick the safe wording for the response.
 func databaseHealthMessage(err error) string {
 	if errors.Is(err, database.ErrDatabaseFileMissing) {
 		return "unhealthy: the database file is missing"

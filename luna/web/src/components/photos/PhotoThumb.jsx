@@ -196,6 +196,9 @@ function PhotoThumb({
     >
       {photo.thumb ? (
         <img
+          // Keep this callback inline: its identity changing each render is
+          // what re-runs the recycled-cell check below. Wrapping it in
+          // useCallback would leave the old thumb-loaded flag in place.
           ref={(img) => {
             imgRef.current = img;
             if (!img) return;

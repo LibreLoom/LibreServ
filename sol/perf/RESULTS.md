@@ -12,8 +12,8 @@ TTF replaced with WOFF2, TTF kept as a fallback for older browsers. The
 regular face is preloaded in both products.
 
 A few places use a 500 weight or bold text inside a mono container, so the two
-bold faces still exist. They keep Latin-1, Latin Extended-A and common symbols in a ~46-49 KiB WOFF2
-subset each; today's strings are covered, but a future non-Latin bold-mono
+bold faces still exist. They keep Latin-1, Latin Extended-A and common
+symbols in WOFF2 subsets of 51.4 and 52.0 KiB respectively; today's strings are covered, but a future non-Latin bold-mono
 string would need the subset widened. The regular and italic faces retain every
 codepoint in the original TTF `cmap`. Conversion commands are in
 `sol/perf/README.md`.

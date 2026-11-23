@@ -365,7 +365,8 @@ from 584,424 B to 189,468 B of font data (3.08x; the browser reported 189,768 B 
 (1.08x). The remaining time is JS parse, layout and round trips; the byte win
 does not become a 1.5x wall-clock win in that setup. A few mono labels use a
 500 weight or bold text inside a mono container, so the two bold faces remain:
-they keep Latin-1, Latin Extended-A and common symbols in ~46-49 KiB WOFF2 subsets and would need
+they keep Latin-1, Latin Extended-A and common symbols in WOFF2 subsets
+of 51.4 and 52.0 KiB, and would need
 widening for a non-Latin bold-mono string. Regular and oblique retain every
 codepoint in the original TTF `cmap`.
 

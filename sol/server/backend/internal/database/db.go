@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,8 +26,10 @@ type DB struct {
 	path string
 
 	// onReplace holds callbacks from services that cache rows from this DB.
-	// They run once a restored file is in place, before migration.
-	onReplace []func()
+	// They run once a restored file is in place, before migration. The mutex
+	// allows a late registration without racing an in-flight restore.
+	onReplaceMu sync.RWMutex
+	onReplace   []func()
 
 	// healthWarned keeps a missing database from writing one warning per probe.
 	healthWarned atomic.Bool
@@ -35,13 +38,18 @@ type DB struct {
 // OnReplace adds a cache-invalidation hook for database restores. Registration
 // is additive: setup state and the admin integrity verdict both need it.
 func (d *DB) OnReplace(fn func()) {
+	d.onReplaceMu.Lock()
+	defer d.onReplaceMu.Unlock()
 	d.onReplace = append(d.onReplace, fn)
 }
 
 // InvalidateCaches runs every registered hook. Callers that replace or rewrite
 // the database outside ReplaceFile (for example a factory reset) use it.
 func (d *DB) InvalidateCaches() {
-	for _, fn := range d.onReplace {
+	d.onReplaceMu.RLock()
+	hooks := append([]func(){}, d.onReplace...)
+	d.onReplaceMu.RUnlock()
+	for _, fn := range hooks {
 		fn()
 	}
 }
@@ -280,6 +288,13 @@ func (d *DB) HealthCheck() error {
 
 	var count int
 	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
+		// This probe also backs the public comprehensive check and its
+		// background refresh; warn once per outage so those paths are logged.
+		if d.healthWarned.Swap(true) {
+			slog.Warn("database schema read failed", "error", err)
+		} else {
+			slog.Debug("database schema read failed", "error", err)
+		}
 		return fmt.Errorf("database health check failed: %w", err)
 	}
 	if count == 0 {
