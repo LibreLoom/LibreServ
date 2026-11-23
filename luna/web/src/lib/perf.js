@@ -326,7 +326,10 @@ export function initPerf() {
   const noteInput = () => {
     lastInputAt = now();
   };
-  window.addEventListener("pointerdown", noteInput, { capture: true, passive: true });
+  // The click, not the press: a person can hold a mouse button (or rest a
+  // finger) far longer than the app takes to react, and that time is not the
+  // app's latency. W4/W16 date from the activation, as their budgets say.
+  window.addEventListener("pointerup", noteInput, { capture: true, passive: true });
   window.addEventListener("keydown", noteInput, { capture: true, passive: true });
 
   observe("longtask", (entries) => {
