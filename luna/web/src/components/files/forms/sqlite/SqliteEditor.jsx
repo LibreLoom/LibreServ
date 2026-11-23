@@ -33,6 +33,7 @@ import EditorLoadingScreen, {
   EditorMountedSignal,
 } from "../../EditorLoadingScreen.jsx";
 import QueryResultTable from "./QueryResultTable.jsx";
+import SqliteDataViewStack from "./SqliteDataViewStack.jsx";
 import SqlEditor from "./SqlEditor.jsx";
 import SqliteColumnDialog from "./SqliteColumnDialog.jsx";
 import SqliteTableDialog from "./SqliteTableDialog.jsx";
@@ -234,7 +235,9 @@ export function SqliteEditorSession({
   const [ready, setReady] = useState(false);
   const [tables, setTables] = useState(/** @type {any[]} */ ([]));
   const [selectedTable, setSelectedTable] = useState("");
-  const [panel, setPanel] = useState("table");
+  const [panel, setPanel] = useState(
+    /** @type {"table" | "query"} */ ("table"),
+  );
   const [grid, setGrid] = useState({ ...EMPTY_GRID });
   const [query, setQuery] = useState(/** @type {any|null} */ (null));
   const [sqlError, setSqlError] = useState("");
@@ -1220,7 +1223,9 @@ export function SqliteEditorSession({
                       { value: "query", label: "Result" },
                     ]}
                     value={panel}
-                    onChange={setPanel}
+                    onChange={(value) =>
+                      setPanel(value === "query" ? "query" : "table")
+                    }
                     surface="primary"
                     aria-label="Data view"
                   />
@@ -1276,78 +1281,81 @@ export function SqliteEditorSession({
                 ) : null}
               </TooltipTargets>
 
-              <div className="flex min-h-0 flex-1 flex-col px-4 pb-3">
-                {panel === "query" && query ? (
-                  <QueryResultTable result={query} />
-                ) : !selected ? (
-                  <div className="flex min-h-0 flex-1 items-center justify-center">
-                    <EmptyState
-                      icon={Table2}
-                      title={
-                        tables.length === 0 ? "No tables yet" : "Choose a table"
-                      }
-                      description={
-                        tables.length === 0
-                          ? "Use the plus button beside Tables to add one."
-                          : "Pick a table to see its rows."
-                      }
-                    />
-                  </div>
-                ) : (
-                  <div className="flex min-h-0 flex-1 flex-col gap-2">
-                    {selected.primaryKey.length === 0 ? (
-                      <PageNotice variant="info" className="shrink-0">
-                        This table has no primary key, so existing rows
-                        can't be changed here.
-                      </PageNotice>
-                    ) : null}
-                    {gridError ? (
-                      <PageNotice variant="error" className="shrink-0">
-                        {gridError}
-                      </PageNotice>
-                    ) : null}
-                    {grid.truncated ? (
-                      <PageNotice variant="info" className="shrink-0">
-                        {grid.rows.length > 0
-                          ? "Some rows are too large to show here. Use SQL to select fewer columns."
-                          : "This page is too large to show here. Use SQL to select fewer columns."}
-                      </PageNotice>
-                    ) : null}
-                    {grid.loading && grid.rows.length === 0 ? (
-                      <div
-                        className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-secondary"
-                        role="status"
-                      >
-                        <Spinner size="md" decorative />
-                        Loading rows…
-                      </div>
-                    ) : (
-                      <SqliteGrid
-                  truncated={grid.truncated}
-                        table={selected}
-                        rows={grid.rows}
-                        total={grid.total}
-                        page={grid.page}
-                        canWrite={canWrite}
-                        busy={busy || grid.loading}
-                        loading={grid.loading}
-                        onPageChange={changePage}
-                        onUpdateCell={updateCell}
-                        onRenameColumn={(column) =>
-                          setColumnDialog({ mode: "rename", column })
+              <SqliteDataViewStack
+                view={panel}
+                hasResult={Boolean(query)}
+                result={query ? <QueryResultTable result={query} /> : null}
+                table={
+                  !selected ? (
+                    <div className="flex min-h-0 flex-1 items-center justify-center">
+                      <EmptyState
+                        icon={Table2}
+                        title={
+                          tables.length === 0 ? "No tables yet" : "Choose a table"
                         }
-                        onDropColumn={(column) =>
-                          setDropTarget({ table: selected, column })
+                        description={
+                          tables.length === 0
+                            ? "Use the plus button beside Tables to add one."
+                            : "Pick a table to see its rows."
                         }
-                        onDeleteRow={(row) =>
-                          setDeleteTarget({ table: selected, row })
-                        }
-                        onEditingChange={handleCellEditing}
                       />
-                    )}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                      {selected.primaryKey.length === 0 ? (
+                        <PageNotice variant="info" className="shrink-0">
+                          This table has no primary key, so existing rows
+                          can't be changed here.
+                        </PageNotice>
+                      ) : null}
+                      {gridError ? (
+                        <PageNotice variant="error" className="shrink-0">
+                          {gridError}
+                        </PageNotice>
+                      ) : null}
+                      {grid.truncated ? (
+                        <PageNotice variant="info" className="shrink-0">
+                          {grid.rows.length > 0
+                            ? "Some rows are too large to show here. Use SQL to select fewer columns."
+                            : "This page is too large to show here. Use SQL to select fewer columns."}
+                        </PageNotice>
+                      ) : null}
+                      {grid.loading && grid.rows.length === 0 ? (
+                        <div
+                          className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-secondary"
+                          role="status"
+                        >
+                          <Spinner size="md" decorative />
+                          Loading rows…
+                        </div>
+                      ) : (
+                        <SqliteGrid
+                          truncated={grid.truncated}
+                          table={selected}
+                          rows={grid.rows}
+                          total={grid.total}
+                          page={grid.page}
+                          canWrite={canWrite}
+                          busy={busy || grid.loading}
+                          loading={grid.loading}
+                          onPageChange={changePage}
+                          onUpdateCell={updateCell}
+                          onRenameColumn={(column) =>
+                            setColumnDialog({ mode: "rename", column })
+                          }
+                          onDropColumn={(column) =>
+                            setDropTarget({ table: selected, column })
+                          }
+                          onDeleteRow={(row) =>
+                            setDeleteTarget({ table: selected, row })
+                          }
+                          onEditingChange={handleCellEditing}
+                        />
+                      )}
+                    </div>
+                  )
+                }
+              />
             </section>
           </div>
         </div>
