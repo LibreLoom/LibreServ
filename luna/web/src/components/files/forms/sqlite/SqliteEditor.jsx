@@ -979,7 +979,7 @@ export function SqliteEditorSession({
                 </Pill>
               </div>
               {tables.length > 0 ? (
-                <ul className="flex flex-col gap-1 md:min-h-0 md:flex-1 md:overflow-y-auto">
+                <ul className="flex scroll-p-1 flex-col gap-1 p-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
                   {tables.map((table) => {
                     const active = table.name === selectedTable;
                     return (
