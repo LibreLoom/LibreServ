@@ -306,13 +306,31 @@ export default function ModalCard({
     <div
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
+        "fixed inset-0 flex items-center justify-center z-50",
         mobileFsClasses,
-        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
         overlayClassName,
       )}
       onClick={handleClose}
     >
+      {/*
+        The blur is its own static layer, and only the dim fades. Chrome
+        re-blurs the whole page every frame while a backdrop-filter element is
+        itself fading or scaling, which is what made the open animation choppy.
+        The dialog's own pop-in supplies the zoom, so the overlay never scales.
+      */}
+      <div
+        data-slot="dialog-blur"
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 backdrop-blur-sm"
+      />
+      <div
+        data-slot="dialog-scrim"
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-0 -z-10 bg-primary/60",
+          isClosing ? "animate-out fade-out" : "animate-in fade-in",
+        )}
+      />
       <div
         ref={setRefs}
         data-slot="dialog-content"
@@ -321,7 +339,7 @@ export default function ModalCard({
         aria-busy={loading || undefined}
         aria-labelledby={titleId}
         className={cn(
-          "w-full overflow-hidden rounded-large-element surface-secondary",
+          "relative w-full overflow-hidden rounded-large-element surface-secondary",
           "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses

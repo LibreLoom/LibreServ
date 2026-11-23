@@ -338,6 +338,34 @@ const ERASING_MESSAGE =
 const CANT_OPEN_HINT =
   "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive may be damaged.";
 
+/**
+ * The drive's status pill, plus the sheet its trailing segment opens. The open
+ * state lives here, not in the card: a sheet is a portal, so it can be mounted
+ * from inside the pill, and opening it then re-renders the pill and the sheet
+ * instead of the whole card and its storage bar behind the overlay.
+ *
+ * @param {{
+ *   drive: { id: string, state: string, label?: string, mounted?: boolean, encrypted?: boolean, locked?: boolean },
+ *   health: import("../lib/driveHealth.js").DriveHealthReport | null | undefined,
+ *   actions: import("@libreloom/ui/components/ui/RowActionMenu.jsx").RowAction[],
+ * }} props
+ */
+function DriveStatusSheet({ drive, health, actions }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <DriveStatusPill
+        drive={drive}
+        health={health}
+        onActions={actions.length > 0 ? () => setOpen(true) : undefined}
+      />
+      <ModalCard open={open} title={drive.label} size="sm" onClose={() => setOpen(false)}>
+        {({ close }) => <RowActionSheet actions={actions} close={close} />}
+      </ModalCard>
+    </>
+  );
+}
+
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -357,7 +385,6 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     refetchInterval: ready ? 60_000 : false,
   });
   // The status pill's trailing segment opens this drive's rare actions.
-  const [actionsOpen, setActionsOpen] = useState(false);
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
@@ -406,11 +433,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           /* One LayeredPill: the drive's status, with its rare actions as the
              pill's trailing segment. It sits in the panel's top-right corner;
              the arrow disc on the tray opens the drive. */
-          <DriveStatusPill
-            drive={drive}
-            health={health.data}
-            onActions={actions.length > 0 ? () => setActionsOpen(true) : undefined}
-          />
+          <DriveStatusSheet drive={drive} health={health.data} actions={actions} />
         }
         action={shelf}
       >
@@ -439,9 +462,6 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           </div>
         ) : null}
       </DriveCard>
-      <ModalCard open={actionsOpen} title={drive.label} size="sm" onClose={() => setActionsOpen(false)}>
-        {({ close }) => <RowActionSheet actions={actions} close={close} />}
-      </ModalCard>
     </div>
   );
 }

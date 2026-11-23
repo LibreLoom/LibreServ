@@ -280,7 +280,7 @@ describe("FilesPage", () => {
     await user.click(await screen.findByRole("button", { name: /^Add drive$/i }));
     await user.click(await screen.findByRole("button", { name: /Add this drive/i }));
     await waitFor(() => {
-      expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+      expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]").querySelector("[data-slot=dialog-scrim]"))
         .toHaveClass("animate-out");
     });
     await waitFor(() => {

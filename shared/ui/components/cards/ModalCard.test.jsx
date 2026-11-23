@@ -63,7 +63,7 @@ describe("ModalCard", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]").querySelector("[data-slot=dialog-scrim]"))
       .toHaveClass("animate-out");
 
     act(() => {
@@ -120,7 +120,7 @@ describe("ModalCard", () => {
     );
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]").querySelector("[data-slot=dialog-scrim]"))
       .toHaveClass("animate-out");
     expect(onClose).not.toHaveBeenCalled();
 
@@ -220,7 +220,7 @@ describe("ModalCard", () => {
 
     expect(scroller).toHaveClass("overflow-hidden");
     expect(scroller).not.toHaveClass("overflow-y-auto");
-    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]"))
+    expect(screen.getByRole("dialog").closest("[data-slot=dialog-overlay]").querySelector("[data-slot=dialog-scrim]"))
       .toHaveClass("animate-out");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
