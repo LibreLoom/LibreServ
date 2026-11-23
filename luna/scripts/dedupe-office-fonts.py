@@ -84,9 +84,12 @@ def main():
         # fail. One it does not list is a legitimately unique font (no core
         # twin), so it stays and the no-op is correct.
         try:
-            recorded = json.loads(manifest.read_text(encoding="utf-8")).get("fonts", {})
+            parsed = json.loads(manifest.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
             raise SystemExit(f"font dedup: cannot read {manifest}: {exc}") from exc
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("fonts"), dict):
+            raise SystemExit(f"font dedup: {manifest.name} has an invalid 'fonts' map")
+        recorded = parsed["fonts"]
         leftover = [p.name for p in fonts.iterdir() if p.is_file() and p.name.isdigit()]
         stale = [name for name in leftover if name in recorded]
         if stale:

@@ -143,6 +143,23 @@ class DedupeTest(unittest.TestCase):
             self.assertIn("stale", proc.stderr)
             self.assertTrue((fonts / "aliases.json").exists())
 
+    def test_malformed_manifest_fails_cleanly(self):
+        for bad in ("[]", '{"fonts": null}', "{}"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "core-fonts").mkdir()
+                fonts = root / "fonts"
+                fonts.mkdir()
+                (fonts / "aliases.json").write_text(bad)
+                proc = subprocess.run(
+                    [sys.executable, str(SCRIPT), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIn("invalid 'fonts' map", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+
     def test_no_aliases_fails_the_pack_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
