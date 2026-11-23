@@ -19,7 +19,7 @@ original TTF `cmap`. The conversion commands are in `sol/perf/README.md`.
 | Product | Before | After | Ratio |
 |---|---|---|---|
 | Sol first-load bytes on the wire | 1668.3 KiB | 525.6 KiB | 3.17x |
-| Luna first-load bytes on the wire | 1739.0 KiB | 596.3 KiB | 2.92x |
+| Luna first-load bytes (lunad serves files raw) | 2258.2 KiB | 1115.9 KiB | 2.02x |
 | Shared font faces (raw) | 1530 KiB | 387 KiB | 3.95x |
 
 How each side was produced, so the numbers can be reproduced:
@@ -30,11 +30,13 @@ How each side was produced, so the numbers can be reproduced:
 - The figure is `totals.initial.wire`: JS and CSS at their prebuilt `.gz` size
   (what the servers send), fonts at raw bytes (servers do not gzip fonts). The
   raw JSON is in the gitignored `*/perf/results/bundle-*.json` files.
-- Sol before = 138.3 KiB JS/CSS (.gz) + 1530.0 KiB TTF; after = 138.2 KiB
-  JS/CSS + 387.4 KiB WOFF2. Luna before = 208.9 KiB JS/CSS + 1530.0 KiB TTF;
-  after = 208.9 KiB JS/CSS + 387.4 KiB WOFF2. JS/CSS is unchanged, as the diff
-  implies. An earlier draft mixed gzip and raw bases; the report now emits a
-  single `wire` total so both products use the same ruler.
+- Sol serves the `.gz` sibling for JS/CSS, so its wire total uses those bytes:
+  before = 138.3 KiB JS/CSS + 1530.0 KiB TTF; after = 138.2 + 387.4 KiB WOFF2.
+  Lunad embeds `web/dist` and serves every file verbatim with no compression
+  layer, so Luna's total is raw bytes throughout: before = 728.2 KiB JS/CSS +
+  1530.0 KiB TTF; after = 728.5 + 387.4 KiB WOFF2. Both sides were rebuilt with
+  a clean output directory. An earlier draft measured Luna against a server
+  that does not exist; the report now uses each server's real transfer basis.
 - A browser check against the built Luna app with the luna/perf "remote"
   profile (80 ms RTT, 20 Mbit/s) saw the actually fetched regular face fall
   from 584,724 bytes (TTF) to 189,768 bytes (WOFF2), 3.08x. W1 p50 fell from
@@ -44,6 +46,11 @@ How each side was produced, so the numbers can be reproduced:
 - Interleaved A/B on that built app, the regular-face preload lowered W1 p50
   from 1652/1606 ms without it to 1422 ms with it (8 runs each). The preload
   stays in both products.
+- The same built-app setup for Sol (mocked API, remote profile) put the first
+  usable Dashboard at p50 1562 ms before and 1414 ms after (1.10x, 8 runs
+  each). Neither product reaches 1.5x in wall-clock on this setup: JS parse,
+  layout and round trips dominate once the font bytes are removed. A real
+  Wyse 3040 journey run was not done, so no 1.5x end-to-end claim is made.
 
 Sol's dashboard ticker is a leaf component, so its once-a-second update no
 longer reconciles the health card and app list with it. The polling hooks opt

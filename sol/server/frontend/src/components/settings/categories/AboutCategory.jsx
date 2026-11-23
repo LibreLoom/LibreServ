@@ -8,6 +8,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
+import { useUser } from "../../../hooks/useUser";
 import api from "../../../lib/api";
 import { labelFor } from "../../../lib/healthChecks";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -17,6 +18,8 @@ const inputClass =
 
 function SystemChecksCard({ index = 2 }) {
   const { data, isLoading, error } = useSystemHealthCheck();
+  const { data: user } = useUser();
+  const isAdmin = user?.role === "admin";
   const [checkingFile, setCheckingFile] = useState(false);
   const [fileResult, setFileResult] = useState(null);
 
@@ -28,8 +31,11 @@ function SystemChecksCard({ index = 2 }) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      await api("/system/database/integrity", { signal: controller.signal });
-      setFileResult("The database file is fine.");
+      const res = await api("/system/database/integrity", { signal: controller.signal });
+      const result = await res.json();
+      setFileResult(result.corrupt
+        ? "Sol found a problem with the database file."
+        : "The database file is fine.");
     } catch {
       setFileResult("Sol couldn't finish checking the database file. Please try again.");
     } finally {
@@ -97,17 +103,19 @@ function SystemChecksCard({ index = 2 }) {
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 pb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={checkDatabaseFile}
-            loading={checkingFile}
-          >
-            Check the database file
-          </Button>
-          {fileResult && <p className="text-sm">{fileResult}</p>}
-        </div>
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-3 pb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={checkDatabaseFile}
+              loading={checkingFile}
+            >
+              Check the database file
+            </Button>
+            {fileResult && <p className="text-sm" role="status">{fileResult}</p>}
+          </div>
+        )}
 
         <ul className="space-y-1">
           {ordered.map(([name, check]) => {

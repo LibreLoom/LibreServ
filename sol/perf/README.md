@@ -39,7 +39,8 @@ go test -run '^$' -bench 'BenchmarkIsComplete' ./internal/setup
 a probe no longer pays. `IsComplete` shows the cached path against a forced
 cache miss.
 
-The browser journey budgets for both products live in `luna/perf/budgets.json`.
+Luna's browser journey budgets live in `luna/perf/budgets.json`; Sol has no
+journey budgets yet.
 
 ## Reproducing the font files
 

@@ -72,10 +72,11 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
       const gz = existsSync(path.join(distDir, `${file}.gz`))
         ? statSync(path.join(distDir, `${file}.gz`)).size
         : gzipSync(bytes, { level: 9 }).length;
-      // What actually crosses the wire: the backend serves the .gz sibling
-      // for JS/CSS, but fonts are not compressed by gzipAssets. Counting a
-      // font's gzip size understates its transfer by about 45%.
-      const wire = FONT_RE.test(file) ? bytes.length : gz;
+      // What actually crosses the wire: the backend serves a .gz sibling for
+      // JS/CSS when gzipAssets emitted one, and the raw file otherwise. Fonts
+      // are never gzipped by that step.
+      const hasGz = existsSync(path.join(distDir, `${file}.gz`));
+      const wire = FONT_RE.test(file) || !hasGz ? bytes.length : gz;
       return { file, group: initial.has(file) ? "initial" : "lazy", bytes: bytes.length, gzip: gz, wire };
     })
     .sort((a, b) => b.bytes - a.bytes);

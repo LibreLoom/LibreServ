@@ -258,18 +258,32 @@ func (d *DB) IntegrityCheck() error {
 }
 
 func (d *DB) IntegrityCheckContext(ctx context.Context) error {
-	return d.integrityCheck(ctx)
+	// The main pool has a single connection. A page walk on it would block
+	// every other query and make the 2 s health probe report the database as
+	// unhealthy while an admin runs the diagnostic. Use a separate handle.
+	tmp, err := sql.Open("sqlite", d.path)
+	if err != nil {
+		return fmt.Errorf("database integrity check failed: %w", err)
+	}
+	defer tmp.Close()
+	tmp.SetMaxOpenConns(1)
+	_, _ = tmp.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+	return integrityCheckOn(ctx, tmp)
 }
 
 func (d *DB) integrityCheck(ctx context.Context) error {
+	return integrityCheckOn(ctx, d.db)
+}
+
+func integrityCheckOn(ctx context.Context, conn *sql.DB) error {
 	var count int
-	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
+	err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
 	if err != nil {
 		return fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	var integrityOk string
-	err = d.db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk)
+	err = conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk)
 	if err != nil || integrityOk != "ok" {
 		return fmt.Errorf("database integrity check failed (result: %s): %v", integrityOk, err)
 	}

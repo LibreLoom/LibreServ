@@ -343,15 +343,16 @@ fonts are lazy assets and are not part of W1.
 
 | Journey | Before | After | Ratio |
 |---|---|---|---|
-| W1 first-load bytes on the wire (upper bound, all faces) | 1739.0 KiB | 596.3 KiB | 2.92x |
+| W1 first-load bytes (upper bound, all faces) | 2258.2 KiB | 1115.9 KiB | 2.02x |
 
 Both sides used the current `bundle-report.js`: the before build had the font
-edits reverted, the after build is this branch. Each was measured with
-`npm run build` then `npm run perf:bundle`. The figure is
-`totals.initial.wire`: JS/CSS at their prebuilt `.gz` size, fonts at raw bytes,
-because lunad serves `.gz` for JS/CSS and fonts uncompressed. Before =
-208.9 KiB JS/CSS + 1530.0 KiB TTF; after = 208.9 KiB JS/CSS + 387.4 KiB WOFF2.
-Raw reports are `perf/results/bundle-<time>.json`.
+edits reverted, the after build is this branch. Each was rebuilt with a clean
+output directory, then measured with `npm run perf:bundle`. Lunad embeds
+`web/dist` and serves files verbatim, with no `.gz` lookup and no compression
+layer, so `totals.initial.wire` is raw bytes throughout. Before = 728.2 KiB
+JS/CSS + 1530.0 KiB TTF; after = 728.5 KiB JS/CSS + 387.4 KiB WOFF2. An
+earlier draft used gzip sizes for JS/CSS, which lunad never sends. Raw reports
+are `perf/results/bundle-<time>.json`.
 
 A browser run against the built app with this harness's remote profile
 (80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop

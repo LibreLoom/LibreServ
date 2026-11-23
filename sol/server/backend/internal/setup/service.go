@@ -40,13 +40,19 @@ type State struct {
 // the TTL is only a safety net for out-of-band changes such as a DB restore.
 const completionCacheTTL = 30 * time.Second
 
+type completionSnapshot struct {
+	complete bool
+	checked  time.Time
+}
+
 type Service struct {
 	db            *database.DB
 	mu            sync.Mutex
 	SetupCodePath string
 
-	complete        atomic.Bool
-	completeChecked atomic.Int64
+	// One atomic value keeps the answer and its timestamp together, so the
+	// fast path cannot read a fresh timestamp and a stale answer.
+	completion atomic.Value
 }
 
 func NewService(db *database.DB) *Service {
@@ -57,8 +63,15 @@ func NewService(db *database.DB) *Service {
 const DefaultSetupCodePath = "/etc/sol/setup-code"
 
 func (s *Service) cacheCompletion(status string) {
-	s.complete.Store(status == StatusComplete)
-	s.completeChecked.Store(time.Now().UnixNano())
+	s.completion.Store(completionSnapshot{
+		complete: status == StatusComplete,
+		checked:  time.Now(),
+	})
+}
+
+func (s *Service) cachedCompletion() (completionSnapshot, bool) {
+	snap, ok := s.completion.Load().(completionSnapshot)
+	return snap, ok && time.Since(snap.checked) < completionCacheTTL
 }
 
 func (s *Service) Ensure(ctx context.Context) (*State, error) {
@@ -159,8 +172,8 @@ func (s *Service) MarkComplete(ctx context.Context) (*State, error) {
 // authenticated request used to read and JSON-decode the whole setup_state
 // row under the service mutex; only the status column is needed here.
 func (s *Service) IsComplete(ctx context.Context) bool {
-	if completionFresh(&s.completeChecked) {
-		return s.complete.Load()
+	if snap, ok := s.cachedCompletion(); ok {
+		return snap.complete
 	}
 
 	// Hold the same mutex as the state-changing methods across the read and
@@ -168,8 +181,8 @@ func (s *Service) IsComplete(ctx context.Context) bool {
 	// repopulate the cache with the old answer after the reset cleared it.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if completionFresh(&s.completeChecked) {
-		return s.complete.Load()
+	if snap, ok := s.cachedCompletion(); ok {
+		return snap.complete
 	}
 
 	var status string
@@ -182,18 +195,13 @@ func (s *Service) IsComplete(ctx context.Context) bool {
 	return status == StatusComplete
 }
 
-func completionFresh(checked *atomic.Int64) bool {
-	at := checked.Load()
-	return at != 0 && time.Since(time.Unix(0, at)) < completionCacheTTL
-}
-
 // InvalidateCompletion drops the cached answer. Call this when setup_state is
 // changed outside MarkComplete/MarkInProgress, for example during a factory
 // reset or a database restore.
 func (s *Service) InvalidateCompletion() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.completeChecked.Store(0)
+	s.completion.Store(completionSnapshot{checked: time.Time{}})
 }
 
 // SetupToken returns the current setup token (nonce).

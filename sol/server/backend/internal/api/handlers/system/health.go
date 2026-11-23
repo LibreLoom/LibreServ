@@ -109,12 +109,23 @@ func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request
 	defer cancel()
 	if err := h.db.IntegrityCheckContext(ctx); err != nil {
 		// Driver errors contain paths and page numbers. Log the detail for
-		// support; tell the person only what they need to know.
+		// support; tell the person only what they need to know. A timeout is
+		// retryable, a real integrity failure is not.
 		slog.Warn("database integrity check failed", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Sol couldn't finish checking the database file. Please try again.")
+		if ctx.Err() != nil {
+			JSON(w, http.StatusGatewayTimeout, map[string]any{
+				"status": "timeout", "corrupt": false,
+				"message": "Sol couldn't finish checking the database file. Please try again.",
+			})
+			return
+		}
+		JSON(w, http.StatusInternalServerError, map[string]any{
+			"status": "corrupt", "corrupt": true,
+			"message": "Sol found a problem with the database file.",
+		})
 		return
 	}
-	JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	JSON(w, http.StatusOK, map[string]any{"status": "ok", "corrupt": false})
 }
 
 // LivenessCheck handles GET /health/live

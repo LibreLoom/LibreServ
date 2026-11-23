@@ -132,27 +132,31 @@ func (s *Service) touchAPITokenLastUsed(ctx context.Context, tokenID, hash strin
 		s.apiTokenLastUsedMu.Unlock()
 		return
 	}
-	s.apiTokenLastUsedMu.Unlock()
-
-	// Best-effort: a failed bookkeeping write must not fail authentication.
-	// Only remember the attempt after it succeeded, so a transient DB error is
-	// retried on the next request instead of silencing writes for a minute.
-	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?`, now, hash)
-	if err != nil {
-		return
-	}
-	s.apiTokenLastUsedMu.Lock()
+	// Reserve the slot while still holding the lock. Concurrent validations
+	// of a cold token must not all decide to write before any of them records
+	// the attempt.
+	s.apiTokenLastUsed[tokenID] = now
 	// Keep the map bounded without a separate sweeper. A revoked token is
 	// never validated again, so its entry can go as soon as the map grows.
 	if len(s.apiTokenLastUsed) > 512 {
 		for key, at := range s.apiTokenLastUsed {
-			if now.Sub(at) >= time.Minute {
+			if key != tokenID && now.Sub(at) >= time.Minute {
 				delete(s.apiTokenLastUsed, key)
 			}
 		}
 	}
-	s.apiTokenLastUsed[tokenID] = now
 	s.apiTokenLastUsedMu.Unlock()
+
+	// Best-effort: a failed bookkeeping write must not fail authentication.
+	// Clear the reserved slot so the next request retries instead of being
+	// silenced for a whole minute.
+	if _, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?`, now, hash); err != nil {
+		s.apiTokenLastUsedMu.Lock()
+		if s.apiTokenLastUsed[tokenID] == now {
+			delete(s.apiTokenLastUsed, tokenID)
+		}
+		s.apiTokenLastUsedMu.Unlock()
+	}
 }
 
 // forgetAPITokenLastUsed drops the throttle entry for a token that no longer

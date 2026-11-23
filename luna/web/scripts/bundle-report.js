@@ -71,9 +71,9 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
       const gz = existsSync(path.join(distDir, `${file}.gz`))
         ? statSync(path.join(distDir, `${file}.gz`)).size
         : gzipSync(bytes, { level: 9 }).length;
-      // lunad serves .gz for JS/CSS but fonts raw, so a font's gzip size
-      // understates what the browser actually downloads.
-      const wire = FONT_RE.test(file) ? bytes.length : gz;
+      // lunad embeds web/dist and serves every file verbatim: no .gz lookup,
+      // no compression layer. What you see here is what the browser gets.
+      const wire = bytes.length;
       const group = initial.has(file) ? "initial" : PAGE_CHUNK.test(file) ? "pages" : "lazy";
       return { file, group, bytes: bytes.length, gzip: gz, wire };
     })
@@ -92,7 +92,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   const report = {
     generated_at: new Date().toISOString(),
     dist: distDir,
-    note: "initial = entry JS, preloads, CSS and all shipped font faces; pages = per-route chunks; lazy = editors, viewers and the rest. 'wire' is what the server sends: .gz bytes for JS/CSS, raw bytes for fonts. A font face is only fetched when something uses it.",
+    note: "initial = entry JS, preloads, CSS and all shipped font faces; pages = per-route chunks; lazy = editors, viewers and the rest. 'wire' is what lunad sends: embedded dist files verbatim, with no gzip layer. A font face is only fetched when something uses it.",
     totals: { initial: total("initial"), pages: total("pages"), lazy: total("lazy") },
     files,
   };
