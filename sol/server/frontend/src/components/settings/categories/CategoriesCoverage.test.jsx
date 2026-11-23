@@ -1012,7 +1012,7 @@ describe("AboutCategory database integrity action", () => {
     }));
     renderAbout();
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
-    expect(await screen.findByText("The database file is fine.")).toBeVisible();
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
     expect(apiMock.mock.calls.filter(([path]) => !path.endsWith("/status")).length).toBe(2);
   });
 
@@ -1066,7 +1066,7 @@ describe("AboutCategory integrity failure kinds", () => {
 });
 
 describe("AboutCategory integrity error result", () => {
-  it("does not claim everything is fine when the check could not run", async () => {
+  it("keeps a failed check retryable rather than calling the file damaged", async () => {
     const user = userEvent.setup();
     healthState.data = {
       checks: { database: { status: "passed", message: "Ready" } },
@@ -1080,8 +1080,7 @@ describe("AboutCategory integrity error result", () => {
     render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
     expect((await screen.findAllByText(/couldn't check the database file right now/)).length).toBeGreaterThan(0);
-    expect(screen.queryByText("1 of 1 checks passed — everything looks good.")).not.toBeInTheDocument();
-    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect(screen.queryByText("The database file needs attention.")).not.toBeInTheDocument();
   });
 });
 
@@ -1101,5 +1100,44 @@ describe("AboutCategory detected corruption shape", () => {
     await user.click(screen.getByRole("button", { name: "Check the database file" }));
     expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
     expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+});
+
+describe("AboutCategory integrity gate and successful check", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("does not offer the admin action to a member", () => {
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Check the database file" })).not.toBeInTheDocument();
+  });
+
+  it("merges a successful manual check into the database row", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+  });
+
+  it("keeps the action when the periodic health query failed", () => {
+    healthState.data = null;
+    const originalError = healthState.error;
+    healthState.error = new Error("health query failed");
+    try {
+      render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+      expect(screen.getByRole("button", { name: "Check the database file" })).toBeVisible();
+    } finally {
+      healthState.error = originalError;
+    }
   });
 });

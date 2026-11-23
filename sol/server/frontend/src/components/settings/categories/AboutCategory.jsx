@@ -20,8 +20,28 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [checkingFile, setCheckingFile] = useState(false);
   const [fileResult, setFileResult] = useState(null);
   const [fileProblem, setFileProblem] = useState(false);
+  const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
   useEffect(() => () => pollRef.current?.abort(), []);
+
+  // Always available to an admin, even when the periodic health query fails.
+  const actionRow = isAdmin && (
+    <div className="flex flex-wrap items-center gap-3 pb-4">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={checkDatabaseFile}
+        loading={checkingFile}
+      >
+        Check the database file
+      </Button>
+      {fileResult && (
+        <p className={`text-sm ${fileProblem ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`} role="status">
+          {fileResult}
+        </p>
+      )}
+    </div>
+  );
 
   async function checkDatabaseFile() {
     // Leaving Settings must stop the poll, even if a status request hangs.
@@ -31,6 +51,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
     setCheckingFile(true);
     setFileResult(null);
     setFileProblem(false);
+    setFileChecked(false);
     let restartedIdle = false;
     // A single hung request must not disable the button forever. Bound every
     // call separately; the deadline below bounds the whole poll.
@@ -69,7 +90,9 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
         }
         if (result.status !== "running") {
           // A timeout or a locked database is not a problem with the file.
-          setFileProblem(result.status === "corrupt" || result.reason === "corrupt" || result.reason === "missing" || result.reason === "error");
+          // A check that could not run is retryable, not a damaged file.
+          setFileProblem(result.status === "corrupt" || result.reason === "corrupt" || result.reason === "missing");
+          setFileChecked(result.status === "ok");
           setFileResult(result.message || "The database file is fine.");
           break;
         }
@@ -121,9 +144,10 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   if (!data && error) {
     return (
       <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
-        <p className="px-5 py-4 text-sm text-error">
+        <p className="px-5 pt-4 text-sm text-error">
           Couldn't check your system right now. Please try again later.
         </p>
+        <div className="px-5">{actionRow}</div>
       </SettingsCard>
     );
   }
@@ -132,9 +156,11 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   // The cheap probe still reports the database connection as healthy when the
   // manual file check found damage. Replace that row so the card cannot argue
   // with itself.
-  const checks = fileProblem
+  const checks = fileProblem || fileChecked
     ? rawChecks.map(([name, check]) => name === "database"
-      ? [name, { ...check, status: "failed", message: fileResult || "The database file needs attention." }]
+      ? [name, fileProblem
+        ? { ...check, status: "failed", message: fileResult || "The database file needs attention." }
+        : { ...check, status: "passed", message: "The database file is fine." }]
       : [name, check])
     : rawChecks;
   const summary = data?.summary;
@@ -172,26 +198,7 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
           </span>
         </div>
 
-        {isAdmin && (
-          <div className="flex flex-wrap items-center gap-3 pb-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={checkDatabaseFile}
-              loading={checkingFile}
-            >
-              Check the database file
-            </Button>
-            {fileResult && (
-              <p
-                className={`text-sm ${fileProblem ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`}
-                role="status"
-              >
-                {fileResult}
-              </p>
-            )}
-          </div>
-        )}
+        {actionRow}
 
         <ul className="space-y-1">
           {ordered.map(([name, check]) => {

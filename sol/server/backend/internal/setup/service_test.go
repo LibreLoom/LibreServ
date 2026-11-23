@@ -117,3 +117,26 @@ func TestIsCompleteInvalidationContract(t *testing.T) {
 		t.Fatal("a restore must invalidate the completion cache")
 	}
 }
+
+func TestMarkCompleteRejectsMissingRow(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM setup_state WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db)
+	ctx := context.Background()
+	if _, err := svc.MarkComplete(ctx); err == nil {
+		t.Fatal("MarkComplete must fail when no row was updated")
+	}
+	if svc.IsComplete(ctx) {
+		t.Fatal("a 0-row update must not be cached as complete")
+	}
+}

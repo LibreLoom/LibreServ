@@ -41,7 +41,7 @@ How each side was produced, so the numbers can be reproduced:
   that does not exist; the report now uses each server's real transfer basis.
 - A browser check against the built Luna app with the luna/perf "remote"
   profile (80 ms RTT, 20 Mbit/s) saw the actually fetched regular face fall
-  from 584,724 bytes (TTF) to 189,468 bytes of font data; the browser reported 189,768 B including headers, 3.08x. W1 p50 fell from
+  from 584,424 bytes (TTF) to 189,468 bytes of font data; the browser reported 189,768 B including headers, 3.08x. W1 p50 fell from
   1394 ms to 1286 ms (1.08x) with API responses mocked; the remaining time is
   JS parse, layout and round trips, so the byte win does not become a 1.5x
   wall-clock win there. That limit is stated rather than hidden.

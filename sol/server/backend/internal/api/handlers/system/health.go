@@ -63,6 +63,9 @@ func databaseHealthMessage(err error) string {
 	if errors.Is(err, database.ErrDatabaseFileMissing) {
 		return "unhealthy: the database file is missing"
 	}
+	if errors.Is(err, database.ErrDatabaseUnreadable) {
+		return "unhealthy: could not read the database file"
+	}
 	return "unhealthy: could not read the database"
 }
 

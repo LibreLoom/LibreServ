@@ -139,11 +139,14 @@ func (s *Service) MarkInProgress(ctx context.Context) (*State, error) {
 	}
 
 	now := time.Now()
-	_, err = s.db.Exec(`
+	result, err := s.db.Exec(`
 		UPDATE setup_state SET status = ?, started_at = ? WHERE id = 1
 	`, StatusInProgress, now)
 	if err != nil {
 		return nil, fmt.Errorf("mark in progress: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return nil, errors.New("mark in progress: setup state row is missing")
 	}
 
 	state.Status = StatusInProgress
@@ -157,12 +160,17 @@ func (s *Service) MarkComplete(ctx context.Context) (*State, error) {
 	defer s.mu.Unlock()
 
 	now := time.Now()
-	_, err := s.db.Exec(`
+	result, err := s.db.Exec(`
 		UPDATE setup_state SET status = ?, completed_at = ?, current_step = ?, current_sub_step = NULL, step_data = '{}', progress_updated_at = ?
 		WHERE id = 1
 	`, StatusComplete, now, StepComplete, now)
 	if err != nil {
 		return nil, fmt.Errorf("mark complete: %w", err)
+	}
+	// Exec reports success for a 0-row update; without this check a missing
+	// setup_state row would be cached as "complete" for the TTL.
+	if n, _ := result.RowsAffected(); n == 0 {
+		return nil, errors.New("mark complete: setup state row is missing")
 	}
 	s.cacheCompletion(StatusComplete)
 	return &State{Status: StatusComplete, CompletedAt: &now, CurrentStep: StepComplete}, nil

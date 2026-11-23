@@ -356,7 +356,7 @@ are `perf/results/bundle-<time>.json`.
 
 A browser run against the built app with this harness's remote profile
 (80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop
-from 584,724 B to 189,468 B of font data (3.09x; the browser reported 189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
+from 584,424 B to 189,468 B of font data (3.08x; the browser reported 189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
 (1.08x). The remaining time is JS parse, layout and round trips; the byte win
 does not become a 1.5x wall-clock win in that setup. A few mono labels use a
 500 weight or bold text inside a mono container, so the two bold faces remain:

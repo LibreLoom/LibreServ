@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
@@ -250,7 +251,10 @@ func (d *DB) HealthCheck() error {
 	// probe is cheap and makes /health/ready stop lying when the file is gone.
 	if d.path != ":memory:" {
 		if _, err := os.Stat(d.path); err != nil {
-			return fmt.Errorf("%w: %v", ErrDatabaseFileMissing, err)
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("%w: %v", ErrDatabaseFileMissing, err)
+			}
+			return fmt.Errorf("%w: %v", ErrDatabaseUnreadable, err)
 		}
 	}
 
@@ -313,6 +317,9 @@ var (
 	// ErrDatabaseFileMissing is returned by the cheap probe when the file has
 	// been deleted or unmounted; handlers keep the path out of public responses.
 	ErrDatabaseFileMissing = errors.New("database file is missing")
+	// ErrDatabaseUnreadable covers permissions and IO errors; restoring a
+	// backup is not the right next step for those.
+	ErrDatabaseUnreadable = errors.New("database file is unreadable")
 )
 
 func integrityQueryError(err error) error {
