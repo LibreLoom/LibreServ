@@ -662,7 +662,7 @@ mod tests {
         let recovery_file = usb_dir.path().join("luna-recover-sec-token-123.luna");
         fs::write(
             &recovery_file,
-            r#"{"user": "g-admin", "password": "recoveredpassword"}"#,
+            r#"{"user": "g-admin", "password": "recoveredpassword1"}"#,
         )
         .unwrap();
         // OS junk is tolerated on a dedicated stick.
@@ -685,7 +685,7 @@ mod tests {
         let admin = db::get_user_by_username(&conn, "admin").unwrap().unwrap();
         assert!(
             crate::auth::verify_password_hash(
-                "recoveredpassword",
+                "recoveredpassword1",
                 &argon2::PasswordHash::new(&admin.password_hash).unwrap()
             )
             .is_ok()

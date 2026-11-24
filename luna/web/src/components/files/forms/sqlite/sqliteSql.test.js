@@ -5,8 +5,10 @@ import {
   buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
+  buildDropTableSql,
   buildInsertRowSql,
   buildRenameColumnSql,
+  buildRenameTableSql,
   buildRowsQuery,
   buildUpdateCellSql,
   cleanColumnName,
@@ -200,5 +202,38 @@ describe("column changes", () => {
         type: "TEXT; DROP TABLE answers",
       }),
     ).toThrow(/Choose a column type/);
+  });
+});
+
+describe("table changes", () => {
+  it("renames a table with quoted identifiers", () => {
+    expect(
+      buildRenameTableSql({ table: "answers", newName: "form answers" }),
+    ).toEqual({
+      sql: 'ALTER TABLE "answers" RENAME TO "form answers"',
+      params: [],
+    });
+    expect(
+      buildRenameTableSql({ table: "answers", newName: 'odd"name' }).sql,
+    ).toBe('ALTER TABLE "answers" RENAME TO "odd""name"');
+  });
+
+  it("rejects an empty or reserved table name", () => {
+    expect(() =>
+      buildRenameTableSql({ table: "answers", newName: "   " }),
+    ).toThrow(/Enter a table name/);
+    expect(() =>
+      buildRenameTableSql({ table: "answers", newName: "sqlite_master" }),
+    ).toThrow(/reserved/);
+  });
+
+  it("drops a table by its quoted name", () => {
+    expect(buildDropTableSql({ table: "answers" })).toEqual({
+      sql: 'DROP TABLE "answers"',
+      params: [],
+    });
+    expect(buildDropTableSql({ table: 'odd"name' }).sql).toBe(
+      'DROP TABLE "odd""name"',
+    );
   });
 });

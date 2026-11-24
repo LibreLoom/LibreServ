@@ -247,7 +247,8 @@ impl DiskTools for CommandTools {
         // unprivileged child, the same way `blkid_export` probes a drive: the
         // parent opens the device read-only and hands the child an inherited
         // fd, so a parser flaw yields nobody, not root.
-        let cant_probe = || ToolError::Failed(format!("Luna couldn't look at this drive. {TRY_AGAIN}"));
+        let cant_probe =
+            || ToolError::Failed(format!("Luna couldn't look at this drive. {TRY_AGAIN}"));
         let mut io = sandbox::SandboxIo::new().map_err(|e| {
             tracing::warn!(error = %e, "could not prepare a sandboxed probe");
             cant_probe()

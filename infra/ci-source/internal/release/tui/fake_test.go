@@ -117,9 +117,11 @@ func (f *fakeSecrets) SetValueOpt(slot, v string, remember bool) error {
 	}
 	return nil
 }
-func (f *fakeSecrets) PasteKey(id secrets.ID, t string, r bool) (int, error) { return len(t), nil }
-func (f *fakeSecrets) PasteKeystore(t string, r bool) (int, error)           { return len(t), nil }
-func (f *fakeSecrets) Forget(string) error                                   { return nil }
+func (f *fakeSecrets) PasteKey(id secrets.ID, t string, r bool) (int, error) {
+	return len(t), f.SetValueOpt(secrets.SlotKey(id), t, r)
+}
+func (f *fakeSecrets) PasteKeystore(t string, r bool) (int, error) { return len(t), nil }
+func (f *fakeSecrets) Forget(string) error                         { return nil }
 func (f *fakeSecrets) Slots() []secrets.SlotInfo {
 	return []secrets.SlotInfo{{Slot: secrets.SlotForgejoToken, Label: "Forgejo token", Set: true}}
 }

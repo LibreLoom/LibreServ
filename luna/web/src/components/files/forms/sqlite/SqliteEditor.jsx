@@ -12,16 +12,20 @@ import PropTypes from "prop-types";
 import {
   ChevronDown,
   ChevronUp,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Table2,
+  Trash2,
 } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
+import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
@@ -48,6 +52,7 @@ import QueryResultTable from "./QueryResultTable.jsx";
 import SqliteDataViewStack from "./SqliteDataViewStack.jsx";
 import SqlEditor from "./SqlEditor.jsx";
 import SqliteColumnDialog from "./SqliteColumnDialog.jsx";
+import SqliteRenameTableDialog from "./SqliteRenameTableDialog.jsx";
 import SqliteTableDialog from "./SqliteTableDialog.jsx";
 import SqliteGrid from "./SqliteGrid.jsx";
 import { createSqliteClient } from "./sqliteClient.js";
@@ -68,10 +73,13 @@ import {
   buildCreateTableSql,
   buildDeleteRowSql,
   buildDropColumnSql,
+  buildDropTableSql,
   buildInsertRowSql,
   buildRenameColumnSql,
+  buildRenameTableSql,
   buildRowsQuery,
   buildUpdateCellSql,
+  cleanTableName,
   pageOrder,
 } from "./sqliteSql.js";
 
@@ -156,6 +164,7 @@ const EMPTY_GRID = {
  *   onSave: (bytes: Uint8Array, revision: number) => Promise<{ revision: number }>,
  *   onClose: () => void,
  *   onReload?: () => Promise<{ bytes: Uint8Array, revision: number }>,
+ *   formMode?: boolean,
  * }} props
  */
 export default function SqliteEditor({
@@ -167,6 +176,7 @@ export default function SqliteEditor({
   onSave,
   onClose,
   onReload = null,
+  formMode = false,
 }) {
   const oversized = asBytes(initialBytes).byteLength > MAX_DATABASE_BYTES;
   return (
@@ -186,6 +196,7 @@ export default function SqliteEditor({
           onSave={onSave}
           onReload={onReload}
           frame={frame}
+          formMode={formMode}
         />
       )}
     </FullscreenEditorFrame>
@@ -201,6 +212,7 @@ SqliteEditor.propTypes = {
   onSave: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onReload: PropTypes.func,
+  formMode: PropTypes.bool,
 };
 
 /**
@@ -223,6 +235,7 @@ SqliteEditor.propTypes = {
  *   conflictMessage?: string,
  *   conflictNoReloadMessage?: string,
  *   oversizedHint?: string,
+ *   formMode?: boolean,
  * }} props
  */
 export function SqliteEditorSession({
@@ -236,6 +249,7 @@ export function SqliteEditorSession({
   conflictMessage = "Someone answered this form after you opened the database. Saving now would replace the newer answers.",
   conflictNoReloadMessage = "Close the editor and open the form again to load the new answers.",
   oversizedHint = "Use the Responses view to read answers page by page.",
+  formMode = false,
 }) {
   const { onRegisterSave, onSaveStateChange } = frame;
   const { addToast } = useToast();
@@ -251,6 +265,7 @@ export function SqliteEditorSession({
     /** @type {"table" | "query"} */ ("table"),
   );
   const [tablesOpen, setTablesOpen] = useState(true);
+  const [sqlOpen, setSqlOpen] = useState(false);
   const collapseTablesRef = useRef(
     /** @type {HTMLButtonElement | null} */ (null),
   );
@@ -280,6 +295,14 @@ export function SqliteEditorSession({
     /** @type {{ mode: "add"|"rename", column: any|null } | null} */ (null),
   );
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(
+    /** @type {any | null} */ (null),
+  );
+  const [deleteTableTarget, setDeleteTableTarget] = useState(
+    /** @type {any | null} */ (null),
+  );
+  const [deleteTableBusy, setDeleteTableBusy] = useState(false);
+  const [deleteTableError, setDeleteTableError] = useState("");
   const [dropTarget, setDropTarget] = useState(
     /** @type {{ table: any, column: any } | null} */ (null),
   );
@@ -475,6 +498,98 @@ export function SqliteEditorSession({
     },
     [addToast, markDirty, reloadTable],
   );
+
+  const renameTable = useCallback(
+    async (nextName) => {
+      const client = clientRef.current;
+      const target = renameTarget;
+      if (!client || !target) throw new Error("Choose a table first.");
+      const cleanName = cleanTableName(nextName);
+      const built = buildRenameTableSql({
+        table: target.name,
+        newName: cleanName,
+      });
+      workingRef.current = true;
+      setWorking(true);
+      try {
+        await client.exec(built.sql);
+      } catch (error) {
+        workingRef.current = false;
+        setWorking(false);
+        throw new Error(
+          apiErrorMessage(error, "Luna couldn't rename that table."),
+        );
+      }
+      markDirty();
+      setQuery(null);
+      addToast({ type: "success", message: "Table renamed" });
+      try {
+        await reloadTable(
+          cleanName,
+          target.name === selectedTableRef.current ? pageRef.current : 1,
+          client,
+        );
+        setPanel("table");
+      } catch (error) {
+        setGridError(
+          apiErrorMessage(
+            error,
+            "The table was renamed, but the list didn't refresh. Use Reload table.",
+          ),
+        );
+      } finally {
+        workingRef.current = false;
+        setWorking(false);
+      }
+    },
+    [addToast, markDirty, reloadTable, renameTarget],
+  );
+
+  const confirmDeleteTable = useCallback(async () => {
+    const target = deleteTableTarget;
+    const client = clientRef.current;
+    if (!target || !client || deleteTableBusy) return;
+    setDeleteTableBusy(true);
+    setDeleteTableError("");
+    const wasSelected = target.name === selectedTableRef.current;
+    const built = buildDropTableSql({ table: target.name });
+    try {
+      await client.exec(built.sql);
+    } catch (error) {
+      setDeleteTableError(
+        apiErrorMessage(error, "Luna couldn't delete that table."),
+      );
+      setDeleteTableBusy(false);
+      return;
+    }
+    markDirty();
+    setQuery(null);
+    setDeleteTableTarget(null);
+    addToast({ type: "success", message: "Table deleted" });
+    try {
+      await reloadTable(
+        wasSelected ? "" : selectedTableRef.current,
+        wasSelected ? 1 : pageRef.current,
+        client,
+      );
+      setPanel("table");
+    } catch (error) {
+      setGridError(
+        apiErrorMessage(
+          error,
+          "The table was deleted, but the list didn't refresh. Use Reload table.",
+        ),
+      );
+    } finally {
+      setDeleteTableBusy(false);
+    }
+  }, [
+    addToast,
+    deleteTableBusy,
+    deleteTableTarget,
+    markDirty,
+    reloadTable,
+  ]);
 
   const refreshAfterWrite = useCallback(
     async (keepQuery) => {
@@ -1177,7 +1292,10 @@ export function SqliteEditorSession({
                     {tables.map((table) => {
                       const active = table.name === selectedTable;
                       return (
-                        <li key={table.name}>
+                        <li
+                          key={table.name}
+                          className="flex min-w-0 items-center gap-1"
+                        >
                           <CardButton
                             variant="nav"
                             active={active}
@@ -1186,7 +1304,7 @@ export function SqliteEditorSession({
                               table.columns.length === 1 ? "column" : "columns"
                             }`}
                             ariaCurrent={active ? "page" : undefined}
-                            className="gap-2 px-3 py-2"
+                            className="min-w-0 flex-1 gap-2 px-3 py-2"
                             trailing={
                               <span className="shrink-0 text-xs tabular-nums">
                                 {table.columns.length}
@@ -1208,6 +1326,37 @@ export function SqliteEditorSession({
                               {table.name}
                             </span>
                           </CardButton>
+                          {canWrite ? (
+                            <Dropdown
+                              options={[
+                                {
+                                  value: "rename",
+                                  label: "Rename table",
+                                  icon: Pencil,
+                                },
+                                {
+                                  value: "delete",
+                                  label: "Delete table",
+                                  icon: Trash2,
+                                },
+                              ]}
+                              value=""
+                              onChange={(action) => {
+                                if (action === "rename") {
+                                  setRenameTarget(table);
+                                } else if (action === "delete") {
+                                  setDeleteTableTarget(table);
+                                }
+                              }}
+                              menu
+                              menuLabel={`${table.name} table actions`}
+                              icon={MoreHorizontal}
+                              bg="secondary"
+                              ghost
+                              align="end"
+                              aria-label={`Actions for table ${table.name}`}
+                            />
+                          ) : null}
                         </li>
                       );
                     })}
@@ -1249,7 +1398,7 @@ export function SqliteEditorSession({
                     aria-hidden="true"
                   />
                 </Button>
-                <span className="hidden font-mono text-[11px] text-secondary md:block [writing-mode:vertical-rl]">
+                <span className="hidden font-mono text-sm text-secondary md:block [writing-mode:vertical-rl]">
                   Tables
                 </span>
               </div>
@@ -1259,7 +1408,11 @@ export function SqliteEditorSession({
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <section
               aria-label="SQL editor"
-              className="flex h-56 shrink-0 flex-col border-b border-secondary/15 md:h-60"
+              className={cn(
+                "flex shrink-0 flex-col overflow-hidden border-b border-secondary/15",
+                "motion-safe:transition-[height] motion-safe:duration-[var(--motion-duration-short4)] motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+                sqlOpen ? "h-56 md:h-60" : "h-11",
+              )}
             >
               <div className="flex h-11 shrink-0 items-center gap-2 px-4">
                 <h2 className="font-mono text-xs text-secondary">SQL</h2>
@@ -1274,39 +1427,69 @@ export function SqliteEditorSession({
                   label="About SQL"
                 />
                 <span className="min-w-0 flex-1" />
-                <span className="hidden text-xs text-secondary sm:inline">
-                  {RUN_SHORTCUT}
-                </span>
+                {sqlOpen ? (
+                  <>
+                    <span className="hidden text-xs text-secondary sm:inline">
+                      {RUN_SHORTCUT}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      surface="primary"
+                      size="sm"
+                      smoothResize={false}
+                      loading={running}
+                      disabled={running || saving || working || !hasSql}
+                      onClick={() => void runSql()}
+                    >
+                      Run
+                    </Button>
+                  </>
+                ) : null}
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   surface="primary"
-                  size="sm"
+                  size="iconSm"
                   smoothResize={false}
-                  loading={running}
-                  disabled={running || saving || working || !hasSql}
-                  onClick={() => void runSql()}
+                  haptic="light"
+                  type="button"
+                  aria-label={sqlOpen ? "Hide SQL editor" : "Show SQL editor"}
+                  aria-controls="sqlite-sql-editor-body"
+                  aria-expanded={sqlOpen}
+                  tooltip={sqlOpen ? "Hide SQL editor" : "Show SQL editor"}
+                  onClick={() => setSqlOpen((open) => !open)}
                 >
-                  Run
+                  {sqlOpen ? (
+                    <ChevronUp size={ICON_SIZE.sm} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
+                  )}
                 </Button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden border-t border-secondary/15">
-                <SqlEditor
-                  schema={schemaCompletions}
-                  onChange={(sql) => {
-                    sqlRef.current = sql;
-                    const next = sql.trim().length > 0;
-                    setHasSql((current) =>
-                      current === next ? current : next,
-                    );
-                  }}
-                  onRun={() => void runSql()}
-                />
-              </div>
-              {sqlError ? (
-                <div className="border-t border-secondary/15 px-4 py-2">
-                  <InlineError surface="primary">{sqlError}</InlineError>
+              <div
+                id="sqlite-sql-editor-body"
+                aria-hidden={sqlOpen ? undefined : true}
+                inert={sqlOpen ? undefined : true}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <div className="min-h-0 flex-1 overflow-hidden border-t border-secondary/15">
+                  <SqlEditor
+                    schema={schemaCompletions}
+                    onChange={(sql) => {
+                      sqlRef.current = sql;
+                      const next = sql.trim().length > 0;
+                      setHasSql((current) =>
+                        current === next ? current : next,
+                      );
+                    }}
+                    onRun={() => void runSql()}
+                  />
                 </div>
-              ) : null}
+                {sqlError ? (
+                  <div className="border-t border-secondary/15 px-4 py-2">
+                    <InlineError surface="primary">{sqlError}</InlineError>
+                  </div>
+                ) : null}
+              </div>
             </section>
 
             <section
@@ -1485,15 +1668,46 @@ export function SqliteEditorSession({
         onSubmit={createTable}
       />
 
+      <SqliteRenameTableDialog
+        open={Boolean(renameTarget)}
+        tableName={renameTarget?.name || ""}
+        existingNames={tables.map((table) => table.name)}
+        formMode={formMode}
+        onSubmit={renameTable}
+        onClose={() => setRenameTarget(null)}
+      />
+
       <SqliteColumnDialog
         open={Boolean(columnDialog)}
         mode={columnDialog?.mode || "add"}
         tableName={selected?.name || ""}
         column={columnDialog?.column || null}
         existingNames={selected?.columns.map((column) => column.name) || []}
+        formMode={formMode}
         onSubmit={submitColumn}
         onClose={() => setColumnDialog(null)}
       />
+
+      <ConfirmModal
+        open={Boolean(deleteTableTarget)}
+        onClose={() => {
+          if (deleteTableBusy) return;
+          setDeleteTableTarget(null);
+          setDeleteTableError("");
+        }}
+        title="Delete table"
+        variant="danger"
+        confirmLabel="Delete table"
+        loading={deleteTableBusy}
+        error={deleteTableError || null}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        onConfirm={() => void confirmDeleteTable()}
+      >
+        <p className="text-sm text-primary">
+          Delete <InlinePill>{deleteTableTarget?.name}</InlinePill>? Every row
+          in it is removed.
+        </p>
+      </ConfirmModal>
 
       <ConfirmModal
         open={Boolean(dropTarget)}
@@ -1603,4 +1817,5 @@ SqliteEditorSession.propTypes = {
     onSaveStateChange: PropTypes.func.isRequired,
     requestClose: PropTypes.func,
   }).isRequired,
+  formMode: PropTypes.bool,
 };

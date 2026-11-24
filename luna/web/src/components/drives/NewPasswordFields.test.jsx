@@ -44,7 +44,8 @@ describe("NewPasswordFields", () => {
     // 12 characters, 21 UTF-8 bytes: the length chip is satisfied even though
     // the byte count is higher. This is a suggestion, not a lunad requirement.
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: `${"é".repeat(10)}a1` } });
-    expect(screen.getByText("Strength (optional)")).toBeInTheDocument();
+    const lengthChip = screen.getByText("12+ chars").closest("span");
+    expect(lengthChip?.className).toContain("bg-success/20");
   });
 
   it("shows the caller's message under the second field", () => {

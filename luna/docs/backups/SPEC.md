@@ -84,13 +84,12 @@ A backup's status has two independent parts: its **lifecycle** and, while it is 
 |---|---|
 | OK | The last run finished, or the backup is new and under a day old |
 | No copy yet / first backup in progress | Nothing has finished yet. Shows how much is done (**gap**: REVIEW F-07). A first upload that takes days is expected, not a fault |
-| Waiting | A prerequisite is missing and a person has to supply it: the source or backup drive is unplugged or locked, Luna is not linked to Luna Connect, there is no payment card, or no Admin has a phrase yet. Shown as "Waiting: <what>", never as "failed". **Gap:** a wait never counts as "needs a look", even after a day, and some cloud waits (an unplugged source drive) are not recognised yet (REVIEW F-08) |
+| Waiting | A prerequisite is missing and a person has to supply it: the source or backup drive is unplugged or locked, Luna is not linked to Luna Connect, there is no payment card, cloud storage is full, or no Admin has a phrase yet. Shown as "Waiting: <what>", never as "failed". A recorded wait counts as "needs a look" once it has lasted a day |
 | Out of date (stale) | No run has finished in over a day |
 | Failing | A run failed for another reason, or the same problem lasted past the grace period (an hour for soft problems; at once for problems a person must fix). The message says what to do |
 | Held: most of the source is gone | A run would remove or mark as deleted most of the source, so Luna applies nothing and asks. Both destinations use one rule: at least 20 files and more than half. "Run anyway" / "Back up anyway" applies it. The copies of deleted files then follow section 5 |
 | Check failed (cloud) | The last sample check found a missing or damaged pack |
 | Moving to a new phrase (cloud) | Older packs are being re-sealed after a phrase replacement. Not a problem state |
-| Cloud paused | Connect is not linked, or has no payment card, or storage is full. Shown on the backup row with what to do |
 | Covered | A bigger backup of the same kind and destination holds this one. "Included in the backup of X" |
 
 The Backups card, "See all backups" and Needs you read these same records. Problems show as a status, not as toasts. Toasts only announce actions the person just took.

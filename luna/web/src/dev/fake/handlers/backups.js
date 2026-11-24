@@ -58,7 +58,7 @@ function pausedBy(world, row) {
   return { paused: locked.length ? "locked" : null, locked_drive_names: locked };
 }
 
-function backupJson(world, row, user) {
+function backupJson(world, row, user, includeResume = false) {
   const now = nowS();
   const srcLabel = label(world, row.source_drive);
   const parent = coveringBackup(world, row);
@@ -87,9 +87,14 @@ function backupJson(world, row, user) {
     covered_by: parent ? { path: parent.source_path, name: folderName(parent.source_path, srcLabel) } : null,
     source_drive_name: row.source_drive_name ?? srcLabel,
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
-    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null, check_problem: row.check_problem || "" } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), can_resume: row.status === "paused" && canDelete(world, row, user) }),
+    ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null, check_problem: row.check_problem || "" } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive) }),
+    // The combined list carries can_resume for both kinds; the cloud-only
+    // route does not send it at all (api/cloud_backups.rs).
+    ...(row.kind !== "cloud" || includeResume
+      ? { can_resume: row.status === "paused" && canDelete(world, row, user) }
+      : {}),
     state: waiting ? "waiting" : uploading ? "in_progress" : health,
-    ...(uploading ? { source_missing: false } : {}),
+    source_missing: Boolean(row.source_missing),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),
     running: Boolean(row.running),
@@ -107,7 +112,7 @@ get("/api/v1/backups", ({ world, user, query }) => world.backups
   .filter((b) => visibleTo(world, b, user))
   .filter((b) => !query.drive || b.source_drive === query.drive)
   .filter((b) => query.path == null || clean(b.source_path) === clean(query.path))
-  .map((b) => backupJson(world, b, user)));
+  .map((b) => backupJson(world, b, user, true)));
 
 /** Which backups of a bigger folder already hold this one, per kind and place they go to. */
 get("/api/v1/backups/covered", ({ world, user, query }) => {

@@ -37,6 +37,7 @@ const TYPE_OPTIONS = COLUMN_TYPES.map((value) => ({
  *   tableName: string,
  *   column?: { name: string } | null,
  *   existingNames: string[],
+ *   formMode?: boolean,
  *   onSubmit: (values: { name: string, type: string }) => Promise<unknown>,
  *   onClose: () => void,
  * }} props
@@ -47,6 +48,7 @@ export default function SqliteColumnDialog({
   tableName,
   column = null,
   existingNames,
+  formMode = false,
   onSubmit,
   onClose,
 }) {
@@ -154,10 +156,12 @@ export default function SqliteColumnDialog({
           </div>
         ) : null}
 
-        <PageNotice variant="warning" surface="secondary" className="mt-4">
-          Changing columns on <InlinePill>{tableName}</InlinePill> can break this
-          form. Test it after you save.
-        </PageNotice>
+        {formMode ? (
+          <PageNotice variant="warning" surface="secondary" className="mt-4">
+            Changing columns on <InlinePill>{tableName}</InlinePill> can break
+            this form. Test it after you save.
+          </PageNotice>
+        ) : null}
 
         {error ? <InlineError className="mt-3">{error}</InlineError> : null}
 
@@ -185,6 +189,7 @@ SqliteColumnDialog.propTypes = {
   tableName: PropTypes.string.isRequired,
   column: PropTypes.shape({ name: PropTypes.string }),
   existingNames: PropTypes.arrayOf(PropTypes.string).isRequired,
+  formMode: PropTypes.bool,
   onSubmit: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };

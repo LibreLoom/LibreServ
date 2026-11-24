@@ -1683,7 +1683,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cross_drive_move_carries_unreadable_boundaries_without_counting_them() {
+    async fn cross_drive_move_of_a_folder_holding_private_items_is_blocked() {
         let (dir, state) = fixture();
         let a = dir.path().join("a");
         let b = dir.path().join("b");
@@ -1701,32 +1701,34 @@ mod tests {
                 crate::access::CAP_VIEW,
             );
         }
-        let job = state
-            .job_manager
-            .enqueue("move", "a", "Container", "b", "", "admin")
-            .await
-            .unwrap();
-        assert_eq!(job.total, 0);
-        let done = finished_job(&state, &job.id).await;
-        assert_eq!(done.state, "done", "{}", done.error);
-        assert_eq!(done.progress, 0);
-        assert_eq!(item_at(&b, "Container/Bobs").unwrap().owner, "bob");
+        // Moving to another drive deletes the original, so a folder holding
+        // private items at any depth cannot move.
+        assert!(matches!(
+            state
+                .job_manager
+                .enqueue("move", "a", "Container", "b", "", "admin")
+                .await,
+            Err(crate::jobs::JobError::Blocked)
+        ));
+        // Nothing reached the destination, and the source kept its boundaries.
+        assert!(item_at(&b, "Container").is_none());
+        assert_eq!(item_at(&a, "Container/Bobs").unwrap().owner, "bob");
         assert_eq!(
-            std::fs::read(b.join(disk_rel(&b, "Container/Bobs/secret.txt"))).unwrap(),
+            std::fs::read(a.join(disk_rel(&a, "Container/Bobs/secret.txt"))).unwrap(),
             b"secret"
         );
         let conn = state.db.lock().unwrap();
         assert!(crate::auth::can_access(
             &actor("carol"),
             &conn,
-            "b",
+            "a",
             "Container/Bobs/secret.txt",
             false
         ));
         assert!(!crate::auth::can_access(
             &actor("admin"),
             &conn,
-            "b",
+            "a",
             "Container/Bobs/secret.txt",
             false
         ));

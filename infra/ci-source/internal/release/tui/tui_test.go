@@ -179,15 +179,16 @@ func TestCutHappyPathWithFix(t *testing.T) {
 	h.key("ctrl+s")
 	v = h.wantView("Cut luna 0.4.1", "✗ Luna release signing key", "none of the 3 known passwords opens it", "e fix this")
 	show(t, "cut preflight", v)
-	// Enter a password on the fix menu.
+	// Fix it by pasting the secret key.
 	h.key("e")
-	h.wantView("Enter the key's password", "Paste the secret key")
+	h.wantView("what would you like to do?", "Paste the secret key")
 	h.key("enter")
+	h.wantView("Paste the whole key file")
 	h.typ(secretValue)
 	h.wantView("[x] Remember")
 	h.key("enter")
 	v = h.wantView("Everything is ready")
-	if got := h.be.sec.values; len(got) != 1 || !strings.Contains(got[0], "minisign-password:luna-signing remember=true") {
+	if got := h.be.sec.values; len(got) != 1 || !strings.Contains(got[0], "minisign-key:luna-signing remember=true") {
 		t.Fatalf("%v", got)
 	}
 	h.key("enter")
@@ -276,7 +277,7 @@ func TestSecretsScreens(t *testing.T) {
 	v = h.wantView("Luna release signing key", "must match keys/luna.minisign.pub", "none of the 3 known passwords opens it", "matches no public key", "e enter or paste")
 	show(t, "secret details", v)
 	h.key("e")
-	h.key("down") // paste the secret key
+	// Paste the secret key (the first fix item).
 	h.key("enter")
 	h.wantView("Paste the whole key file")
 	h.typ("RW" + strings.Repeat("a", 210))
