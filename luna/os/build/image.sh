@@ -5,7 +5,8 @@
 #   in:  the rootfs tree at ROOTFS (default /rootfs, read-only is fine)
 #   out: OUT/luna-os-x86_64.img.zst            the release asset, compressed once
 #        OUT/luna-os-x86_64.img.zst.sha256     "<hash>  luna-os-x86_64.img.zst"
-#        OUT/luna-os-x86_64.img.zst.inputs     OS_INPUT_HASH, when set (dev skip)
+#        OUT/luna-os-x86_64.img.zst.inputs     OS_INPUT_HASH plus zstd=THREADS/LEVEL/LONG,
+#                                              when set (dev skip check reads both lines)
 #   env: SIZE_MB (default: the A/B slot size from lib/disk.sh), ZSTD_THREADS,
 #        ZSTD_LEVEL, ZSTD_LONG (window log, optional), OS_INPUT_HASH
 #

@@ -282,7 +282,23 @@ func osImageKey(osHash string, packKeys map[string]string, commit, ver string) s
 	}
 	sort.Strings(names)
 	h := sha256.New()
-	fmt.Fprintf(h, "os=%s\ncommit=%s\nversion=%s\n", osHash, commit, ver)
+	zstdThreads, zstdLevel, zstdLong := os.Getenv("ZSTD_THREADS"), os.Getenv("ZSTD_LEVEL"), os.Getenv("ZSTD_LONG")
+	if zstdThreads == "" {
+		zstdThreads = "3"
+	}
+	if zstdLevel == "" {
+		zstdLevel = "19"
+	}
+	fmt.Fprintf(
+		h,
+		"os=%s\ncommit=%s\nversion=%s\nzstd=%s/%s/%s\n",
+		osHash,
+		commit,
+		ver,
+		zstdThreads,
+		zstdLevel,
+		zstdLong,
+	)
 	for _, n := range names {
 		fmt.Fprintf(h, "pack=%s %s\n", n, packKeys[n])
 	}
