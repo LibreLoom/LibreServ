@@ -1691,7 +1691,7 @@ mod http_tests {
 
         // Traversal and siblings of a file link are refused.
         let res = guest_session_call(&app, "tok-g2", r#"{"path":"../x.docx"}"#, &[]).await;
-        assert_eq!(res.status(), 400);
+        assert_eq!(res.status(), 404);
         add_link(
             &dir,
             "tok-g3",
