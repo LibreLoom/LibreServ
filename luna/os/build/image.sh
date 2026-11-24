@@ -74,7 +74,12 @@ printf '%s  %s\n' "$SHA" "$NAME" > "$OUT/$NAME.sha256"
 # The dev wrappers pass OS_INPUT_HASH so they can skip an unchanged rebuild.
 # The release tool does not: it always builds the image.
 if [ -n "${OS_INPUT_HASH:-}" ]; then
-	printf '%s\n' "$OS_INPUT_HASH" > "$OUT/$NAME.inputs"
+	{
+		printf '%s\n' "$OS_INPUT_HASH"
+		# Compression settings affect only this image, not the rootfs, so they
+		# live here instead of in the shared rootfs input hash.
+		printf 'zstd=%s/%s/%s\n' "$ZSTD_THREADS" "$ZSTD_LEVEL" "${ZSTD_LONG:-}"
+	} > "$OUT/$NAME.inputs"
 else
 	rm -f "$OUT/$NAME.inputs"
 fi

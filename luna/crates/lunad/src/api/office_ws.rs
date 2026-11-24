@@ -312,44 +312,40 @@ pub async fn fonts_dispatch(
         .get(axum::http::header::RANGE)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    if is_read {
-        if let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
-            // A matching validator returns 304 before the font is read at all.
-            if if_none_match_matches(if_none_match.as_deref(), &etag) {
-                return aliased_font_response(
-                    etag,
-                    is_head,
-                    if_none_match.as_deref(),
-                    None,
-                    0,
-                    Vec::new(),
-                );
-            }
-            // HEAD needs only the would-be length: the masked prefix replaces
-            // 32 bytes in place, so the source file's size is the answer.
-            if is_head {
-                if let Some(len) = crate::api::font_aliases::source_len_for(&pack, &tail) {
-                    return aliased_font_response(
-                        etag,
-                        true,
-                        if_none_match.as_deref(),
-                        None,
-                        len as usize,
-                        Vec::new(),
-                    );
-                }
-            }
-            if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
-                let total = body.len();
-                return aliased_font_response(
-                    etag,
-                    is_head,
-                    if_none_match.as_deref(),
-                    range_header.as_deref(),
-                    total,
-                    body,
-                );
-            }
+    if is_read && let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
+        // A matching validator returns 304 before the font is read at all.
+        if if_none_match_matches(if_none_match.as_deref(), &etag) {
+            return aliased_font_response(
+                etag,
+                is_head,
+                if_none_match.as_deref(),
+                None,
+                0,
+                Vec::new(),
+            );
+        }
+        // HEAD needs only the would-be length: the masked prefix replaces
+        // 32 bytes in place, so the source file's size is the answer.
+        if is_head && let Some(len) = crate::api::font_aliases::source_len_for(&pack, &tail) {
+            return aliased_font_response(
+                etag,
+                true,
+                if_none_match.as_deref(),
+                None,
+                len as usize,
+                Vec::new(),
+            );
+        }
+        if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+            let total = body.len();
+            return aliased_font_response(
+                etag,
+                is_head,
+                if_none_match.as_deref(),
+                range_header.as_deref(),
+                total,
+                body,
+            );
         }
     }
     let dir = pack.join("fonts");

@@ -63,44 +63,40 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
         // Cache a miss too: a pack with no aliases.json must not re-read it on
         // every font request.
         let mut aliases = HashMap::new();
-        if let Ok(raw) = std::fs::read(&path) {
-            if let Ok(manifest) = serde_json::from_slice::<Manifest>(&raw) {
-                if manifest.version == 1 {
-                    aliases.reserve(manifest.fonts.len());
-                    for (name, alias) in manifest.fonts {
-                        let Ok(header) =
-                            base64::engine::general_purpose::STANDARD.decode(alias.head)
-                        else {
-                            continue;
-                        };
-                        if header.len() != 32 {
-                            continue;
-                        }
-                        // Reject absolute paths and `..` components before joining.
-                        let rel = Path::new(&alias.src);
-                        if rel.is_absolute() || rel.components().any(|c| c == Component::ParentDir)
-                        {
-                            continue;
-                        }
-                        if alias.sha256.len() != 64
-                            || !alias.sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                        {
-                            continue;
-                        }
-                        let source = pack_dir.join(rel);
-                        if !source.is_file() {
-                            continue;
-                        }
-                        aliases.insert(
-                            name,
-                            Entry {
-                                header,
-                                source,
-                                etag: format!("\"{}\"", alias.sha256),
-                            },
-                        );
-                    }
+        if let Ok(raw) = std::fs::read(&path)
+            && let Ok(manifest) = serde_json::from_slice::<Manifest>(&raw)
+            && manifest.version == 1
+        {
+            aliases.reserve(manifest.fonts.len());
+            for (name, alias) in manifest.fonts {
+                let Ok(header) = base64::engine::general_purpose::STANDARD.decode(alias.head)
+                else {
+                    continue;
+                };
+                if header.len() != 32 {
+                    continue;
                 }
+                // Reject absolute paths and `..` components before joining.
+                let rel = Path::new(&alias.src);
+                if rel.is_absolute() || rel.components().any(|c| c == Component::ParentDir) {
+                    continue;
+                }
+                if alias.sha256.len() != 64 || !alias.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    continue;
+                }
+                let source = pack_dir.join(rel);
+                if !source.is_file() {
+                    continue;
+                }
+                aliases.insert(
+                    name,
+                    Entry {
+                        header,
+                        source,
+                        etag: format!("\"{}\"", alias.sha256),
+                    },
+                );
             }
         }
         *slot = Some(Cache {

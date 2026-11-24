@@ -9,7 +9,9 @@
 # Plain POSIX sh + sha256sum: runs on the host, in CI, or in any container.
 #
 #   usage: input-hash.sh            prints the hex hash
-#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB
+#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB LUNA_OS_REFRESH
+# Compression knobs (ZSTD_THREADS/ZSTD_LEVEL/ZSTD_LONG) are image-only and
+# tracked in the image's .inputs file, not in this rootfs input hash.
 #
 # Not covered, on purpose: package updates inside Alpine's repository for the
 # pinned release (apk resolves them at build time). Set LUNA_OS_REFRESH=<any
@@ -31,7 +33,6 @@ export LC_ALL=C
 	printf 'alpine_version=%s\n' "${ALPINE_VERSION:-v3.24}"
 	printf 'cloudflared=%s\n' "$CLOUDFLARED_VERSION"
 	printf 'slot_mib=%s\n' "${SIZE_MB:-$LUNA_SLOT_SIZE_MIB}"
-	printf 'zstd=%s/%s/%s\n' "${ZSTD_THREADS:-3}" "${ZSTD_LEVEL:-19}" "${ZSTD_LONG:-}"
 	printf 'refresh=%s\n' "${LUNA_OS_REFRESH:-}"
 	# Dev wrappers see the full checkout. Release jobs mount only os/; their
 	# outer cache key includes the exported commit and version instead.
