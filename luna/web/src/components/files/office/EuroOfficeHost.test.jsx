@@ -10,6 +10,7 @@ import {
   saveEuroOfficeDocument,
 } from "./euroOfficeApi.js";
 import { CollabSocket } from "./collabSocket.js";
+import { collabPresenceLabel } from "../collabPresence.js";
 
 // The DocsAPI/editor boundary is stubbed: the DocEditor class is a fake that
 // records its config, and the api helpers are spied so the test can see which
@@ -222,5 +223,49 @@ describe("EuroOfficeHost source plumbing", () => {
     act(() => lastEditor().events.onDocumentStateChange({ data: true }));
     await act(async () => { await save(); });
     expect(onSaveStateChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("reports an offline hub after a ready session and recovers on reconnect", async () => {
+    const onPresenceChange = vi.fn();
+    render(
+      <EuroOfficeHost
+        driveId="d1"
+        path="docs/Report.docx"
+        canWrite
+        onPresenceChange={onPresenceChange}
+      />,
+    );
+    await waitFor(() => expect(lastEditor()).toBeTruthy());
+    const socket = /** @type {any} */ (vi.mocked(CollabSocket).mock.results.at(-1)?.value);
+    expect(socket?.onStatus).toBeTypeOf("function");
+
+    act(() => lastEditor().events.onAppReady());
+    await waitFor(() =>
+      expect(onPresenceChange).toHaveBeenLastCalledWith("Live · only you"),
+    );
+
+    act(() => socket.onStatus("closed"));
+    await waitFor(() =>
+      expect(onPresenceChange).toHaveBeenLastCalledWith(
+        collabPresenceLabel("collab-offline", [], true),
+      ),
+    );
+    // A retry in flight is still down — don't claim "Live" until it opens.
+    act(() => socket.onStatus("reconnecting"));
+    expect(onPresenceChange).toHaveBeenLastCalledWith(
+      collabPresenceLabel("collab-offline", [], true),
+    );
+
+    act(() => socket.onStatus("open"));
+    await waitFor(() =>
+      expect(onPresenceChange).toHaveBeenLastCalledWith("Live · only you"),
+    );
+
+    act(() => socket.onStatus("error"));
+    await waitFor(() =>
+      expect(onPresenceChange).toHaveBeenLastCalledWith(
+        collabPresenceLabel("collab-offline", [], true),
+      ),
+    );
   });
 });

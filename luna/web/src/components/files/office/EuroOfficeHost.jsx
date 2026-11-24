@@ -145,6 +145,12 @@ export default function EuroOfficeHost({
   const [status, setStatus] = useState(
     /** @type {"loading" | "error" | "ready"} */ ("loading"),
   );
+  // A real hub loss (socket close/error), separate from the editor's own
+  // lifecycle. Docstorage runs in this browser, so a dead hub still leaves
+  // the file editable — only the presence line changes. A successful
+  // reconnect clears it; a bare "reconnecting" does not (socket still down).
+  // Guest sources never open a socket, so this stays false for them.
+  const [hubDown, setHubDown] = useState(false);
   const [phase, setPhase] = useState("Starting EuroOffice…");
   const [error, setError] = useState("");
   const [peers, setPeers] = useState(/** @type {{ peer_id: number, username: string }[]} */ ([]));
@@ -157,6 +163,7 @@ export default function EuroOfficeHost({
     // surfaces in the console as a failed connection. Guest sources have no
     // presence hub (the docstorage engine inside the editor still runs).
     if (!driveId || !path || source.collab === false) return;
+    let disposed = false;
     const sock = new CollabSocket(driveId, path);
     sock.onMessage = (/** @type {import("../collabDocSync.js").CollabFrame} */ msg) => {
       if (msg?.type === "welcome") {
@@ -175,17 +182,33 @@ export default function EuroOfficeHost({
         setPeers((prev) => prev.filter((p) => p.peer_id !== msg.peer_id));
       }
     };
+    // Follow the socket's own status stream (it reconnects on its own). Only
+    // a close/error marks the hub as down; "connecting"/"reconnecting" leave
+    // the last known state alone so a transient retry isn't reported as live.
+    sock.onStatus = (next) => {
+      if (disposed) return;
+      if (next === "open") setHubDown(false);
+      else if (next === "closed" || next === "error") setHubDown(true);
+    };
     sock.connect();
     return () => {
+      disposed = true;
       sock.close();
     };
   }, [driveId, path, source]);
 
   const selfName = user?.display_name || user?.username || "";
+  // After a successful open, a dead hub is no longer "Live · only you" —
+  // editing still works and saves to this Luna, so use the honest offline
+  // line. Before ready (or after an open failure) the editor status still
+  // owns the line: a loading label or no line at all for the error card.
+  const presenceStatus = status === "ready" && hubDown ? "collab-offline" : status;
 
   useEffect(() => {
-    onPresenceChange?.(collabPresenceLabel(status, peers, canWrite, selfName, selfPeerId));
-  }, [status, peers, canWrite, onPresenceChange, selfName, selfPeerId]);
+    onPresenceChange?.(
+      collabPresenceLabel(presenceStatus, peers, canWrite, selfName, selfPeerId),
+    );
+  }, [presenceStatus, peers, canWrite, onPresenceChange, selfName, selfPeerId]);
 
   useEffect(() => {
     // No file, no session — an empty path must not mint one or fall into

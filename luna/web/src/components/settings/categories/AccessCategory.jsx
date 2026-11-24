@@ -196,8 +196,8 @@ function CreateTokenModal({ open, busy, error, onClose, onSubmit }) {
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          // Let Luna check the name. A blank or over-long one comes back with
-          // the rule in plain words next to the field, instead of a dead button.
+          // Let Luna check the name. A blank one comes back with the rule in
+          // plain words next to the field, instead of a dead button.
           onSubmit({ name: name.trim(), days });
         }}
       >

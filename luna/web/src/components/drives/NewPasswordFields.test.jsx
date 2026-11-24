@@ -19,7 +19,13 @@ describe("NewPasswordFields", () => {
     expect(screen.getByLabelText("Password, once more")).toBeInTheDocument();
   });
 
-  it("shows the strength chips as the password is typed", () => {
+  it("says the chips are only a suggestion and that any password works", () => {
+    onCard(<Harness />);
+    expect(screen.getByText(/Suggestion only/)).toBeInTheDocument();
+    expect(screen.getByText(/Any password you enter works/)).toBeInTheDocument();
+  });
+
+  it("shows the strength chips as the password is typed, without making them rules", () => {
     onCard(<Harness />);
     expect(screen.queryByText("12+ chars")).toBeNull();
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "abc" } });
@@ -27,11 +33,14 @@ describe("NewPasswordFields", () => {
     expect(screen.getByText("letters")).toBeInTheDocument();
     expect(screen.getByText("numbers")).toBeInTheDocument();
     expect(screen.getByText("symbols")).toBeInTheDocument();
+    // A short password still gets chips; the advisory copy says they are not required.
+    expect(screen.getByText(/Suggestion only/)).toBeInTheDocument();
   });
 
-  it("counts characters in the strength chips, like lunad and the caller's check", () => {
+  it("counts characters in the advisory chips, so a multi-byte password is judged by its characters", () => {
     onCard(<Harness />);
-    // 12 characters, 21 UTF-8 bytes: the length chip must be satisfied.
+    // 12 characters, 21 UTF-8 bytes: the length chip is satisfied even though
+    // the byte count is higher. This is a suggestion, not a lunad requirement.
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: `${"é".repeat(10)}a1` } });
     expect(screen.getByText("✓ Acceptable")).toBeInTheDocument();
   });

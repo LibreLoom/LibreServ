@@ -1852,10 +1852,18 @@ export default function FileBrowser({
                   <div className={`flex items-center gap-2 font-mono text-sm ${fg}`}>
                     <span>{rootCrumbLabel}</span>
                     {shownCrumbs.map((crumb, i) => (
-                      <span key={`probe-${crumb.segPath}`} className="flex items-center gap-2">
-                        <span aria-hidden="true">/</span>
-                        <span>{crumbsCollapsed && i === 2 ? "…" : crumb.label}</span>
-                      </span>
+                      <Fragment key={`probe-${crumb.segPath}`}>
+                        {crumbsCollapsed && i === 2 ? (
+                          <span className="flex items-center gap-2">
+                            <span aria-hidden="true">/</span>
+                            <span>…</span>
+                          </span>
+                        ) : null}
+                        <span className="flex items-center gap-2">
+                          <span aria-hidden="true">/</span>
+                          <span>{crumb.label}</span>
+                        </span>
+                      </Fragment>
                     ))}
                     {breadcrumbExtra}
                   </div>

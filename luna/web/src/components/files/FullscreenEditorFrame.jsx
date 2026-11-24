@@ -444,10 +444,11 @@ export default function FullscreenEditorFrame({
         ? "Unsaved"
         : "Saved";
 
-  // A genuine collab disconnect gets a banner as well as the rail/topbar
-  // status — "live editing isn't connected" is too important to live in a
-  // tooltip only. A failed open reports no presence (its error card speaks),
-  // so it never produces this banner.
+  // A genuine collab disconnect gets a banner — "live editing isn't
+  // connected" is too important to live in the desktop rail's tooltip only.
+  // On mobile the topbar shows the full line already, so the banner replaces
+  // it there rather than saying the same thing twice. A failed open reports
+  // no presence (its error card speaks), so it never produces this banner.
   const offlinePresence = isCollabOfflinePresence(presence);
 
   return (
@@ -578,7 +579,9 @@ export default function FullscreenEditorFrame({
                   >
                     {name}
                   </span>
-                  {presence ? (
+                  {/* The offline banner below is the single visible line for
+                      a dead hub — showing it here too would say it twice. */}
+                  {presence && !offlinePresence ? (
                     <span
                       data-slot="editor-presence"
                       data-tooltip={presence}

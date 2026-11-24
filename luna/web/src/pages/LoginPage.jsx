@@ -165,7 +165,7 @@ export default function LoginPage({ unreachable = false }) {
               <p className="text-primary text-sm text-center mt-2">{loginQuip}</p>
               {unreachable ? (
                 <PageNotice variant="info" surface="secondary" className="mt-6">
-                  Can't reach Luna right now. It may be restarting after an update. Trying again…
+                  Can't reach Luna right now; it may be restarting after an update. We'll keep trying.
                 </PageNotice>
               ) : (
                 <form

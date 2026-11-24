@@ -333,6 +333,16 @@ describe("FullscreenEditorFrame presence", () => {
     expect(banner).toHaveTextContent(offline);
   });
 
+  it("shows the offline line once on mobile — in the banner, not the topbar", () => {
+    stubPhoneViewport();
+    const offline = collabPresenceLabel("collab-offline", [], true);
+    renderFrame({ presence: offline });
+    expect(document.querySelector('[data-slot="editor-presence-banner"]')).toHaveTextContent(
+      offline,
+    );
+    expect(topbar().querySelector('[data-slot="editor-presence"]')).toBeNull();
+  });
+
   it("does not banner a failed open, which reports no presence", () => {
     // "error" also covers a bad file type, a start timeout and a crash. The
     // error card says what happened; a "changes still save" banner would lie.

@@ -89,7 +89,7 @@ export default [
   },
   {
     id: "encryption/protect-plain-drive", area: A, title: "Protect a plain drive with a password", url: "/files",
-    check: [SHEET, "Protect with a password asks for a password twice, with the strength chips and one plain warning that there is no way to get it back", "Too short, or two different entries: an inline message and a shake, nothing sent", "Continue opens the erase window with the drive's real contents, a 30 second countdown, and the line about the password", "Erase drive → steps (including protecting with the password) → Drive is ready → Open drive", "The card turns to Ready, and the sheet now says Protected · Unlocked", "Lock it, then unlock with the new password (not correct-horse-1)"],
+    check: [SHEET, "Protect with a password asks for a password twice, with strength chips that say they are only a suggestion and one plain warning that there is no way to get it back", "An empty password is refused inline with a shake; two different entries shake too, and nothing is sent", "A short non-empty password like abc is accepted by the app and sent to lunad, which accepts any non-empty password", "Continue opens the erase window with the drive's real contents, a 30 second countdown, and the line about the password", "Erase drive → steps (including protecting with the password) → Drive is ready → Open drive", "The card turns to Ready, and the sheet now says Protected · Unlocked", "Lock it, then unlock with the new password (not correct-horse-1)"],
   },
   {
     id: "encryption/sheet-unlocked", area: A, title: "Sheet on a protected, unlocked drive", url: "/files",
@@ -109,7 +109,7 @@ export default [
   {
     id: "encryption/change-password", area: A, title: "Change the password", url: "/files",
     seed: (w) => { encryptDrive(w, "d1", { locked: false }); },
-    check: [SHEET, "Change password asks for the current one, then the new one twice", "A wrong current password (not correct-horse-1) shakes under its field", "A short or mismatched new password is refused in the sheet before anything is sent", "A good change (brand-new-pass-2) gives one toast and returns to the sheet", "Lock, then unlock: only the new password works"],
+    check: [SHEET, "Change password asks for the current one, then the new one twice", "A wrong current password (not correct-horse-1) shakes under its field", "An empty or mismatched new password is refused in the sheet before anything is sent; a short one like abc is accepted", "A good change (brand-new-pass-2) gives one toast and returns to the sheet", "Lock, then unlock: only the new password works"],
   },
   {
     id: "encryption/remove-protection", area: A, title: "Remove protection (erases the drive)", url: "/files",

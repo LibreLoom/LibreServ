@@ -58,7 +58,7 @@ function LunaUnreachableNotice() {
         <PageNotice variant="info" surface="secondary">
           <p className="text-primary font-mono text-xl font-normal text-center mb-2">Luna</p>
           <p className="text-primary text-sm text-center">
-            Can't reach Luna right now. It may be restarting after an update. Trying again…
+            Can't reach Luna right now; it may be restarting after an update. We'll keep trying.
           </p>
         </PageNotice>
       </div>

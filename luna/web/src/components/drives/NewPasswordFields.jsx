@@ -6,10 +6,10 @@ import FormInput from "../common/forms/FormInput.jsx";
  * The new password, asked for twice. Used wherever a
  * drive's password is chosen: Protect, Change password, and the Add-drive
  * hand-off. The caller owns the values (they are never stored anywhere else)
- * and checks them with `newPasswordProblem` before going on. The live strength
- * chips make the rules visible while the password is being typed. Both the
- * chips and that check count characters, the unit lunad uses, so a 12-character
- * multi-byte password looks acceptable here and is accepted there.
+ * and checks them with `newPasswordProblem` before going on: only an empty
+ * password or two different entries are refused. The live strength chips are
+ * a suggestion for a harder-to-guess password, not rules lunad enforces — any
+ * non-empty password works on a drive.
  *
  * @param {{
  *   idPrefix: string,
@@ -36,6 +36,9 @@ export default function NewPasswordFields({ idPrefix, password, again, onPasswor
         surface={surface}
         className="mb-4"
       />
+      <p className={`text-xs mb-1 ${surface === "primary" ? "text-secondary" : "text-primary"}`}>
+        Suggestion only: a longer password with letters, numbers and symbols is harder to guess. Any password you enter works.
+      </p>
       <PasswordStrengthChecklist password={password} surface={surface} className="mb-3" />
       <FormInput
         label={`${label}, once more`}

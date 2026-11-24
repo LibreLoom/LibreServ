@@ -7,8 +7,9 @@
  */
 export function fmtDuration(secs) {
   if (!Number.isFinite(secs) || secs <= 0) return null;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
+  const total = Math.round(secs);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return m > 0 ? `${m} min ${s} s` : `${s} s`;
 }
 
