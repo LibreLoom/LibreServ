@@ -59,12 +59,14 @@ PasswordStrengthBar.propTypes = {
  *   password: string,
  *   surface?: "secondary"|"primary",
  *   className?: string,
+ *   advisory?: boolean,   // optional guidance, not a rule the service enforces
  * }} props
  */
 export default function PasswordStrengthChecklist({
   password,
   surface = "secondary",
   className,
+  advisory = false,
 }) {
   if (!password) return null;
 
@@ -81,10 +83,14 @@ export default function PasswordStrengthChecklist({
       <PasswordStrengthBar score={strength.score} surface={surface} />
       <div className="mt-1.5 flex items-center justify-between">
         <p className={cn("font-mono text-xs", textTone)}>
-          {STRENGTH_LABEL[strength.score]}
+          {advisory ? "Strength (optional)" : STRENGTH_LABEL[strength.score]}
         </p>
         <p className={cn("font-mono text-xs", textTone)}>
-          {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
+          {advisory
+            ? "Any password works"
+            : meetsPolicy
+              ? "✓ Acceptable"
+              : "Not strong enough yet"}
         </p>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1.5">
@@ -101,4 +107,5 @@ PasswordStrengthChecklist.propTypes = {
   password: PropTypes.string,
   surface: PropTypes.oneOf(["secondary", "primary"]),
   className: PropTypes.string,
+  advisory: PropTypes.bool,
 };

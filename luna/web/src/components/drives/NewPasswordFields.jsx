@@ -36,10 +36,7 @@ export default function NewPasswordFields({ idPrefix, password, again, onPasswor
         surface={surface}
         className="mb-4"
       />
-      <p className={`text-xs mb-1 ${surface === "primary" ? "text-secondary" : "text-primary"}`}>
-        Suggestion only: a longer password with letters, numbers and symbols is harder to guess. Any password you enter works.
-      </p>
-      <PasswordStrengthChecklist password={password} surface={surface} className="mb-3" />
+      <PasswordStrengthChecklist password={password} surface={surface} className="mb-3" advisory />
       <FormInput
         label={`${label}, once more`}
         name={`${idPrefix}-again`}

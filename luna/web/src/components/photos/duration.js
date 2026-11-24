@@ -10,7 +10,8 @@ export function fmtDuration(secs) {
   const total = Math.round(secs);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return m > 0 ? `${m} min ${s} s` : `${s} s`;
+  if (m === 0) return `${s} s`;
+  return s === 0 ? `${m} min` : `${m} min ${s} s`;
 }
 
 /** Short m:ss chip for a video thumbnail. @param {number} [secs] */

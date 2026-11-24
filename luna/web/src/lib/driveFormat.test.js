@@ -16,7 +16,7 @@ describe("driveFormat", () => {
       expect(text).not.toBe("fallback");
       expect(text.endsWith(".")).toBe(true);
     }
-    expect(startErrorMessage({ code: "weak_password", message: "Passwords need at least 12 characters." }, "x")).toBe("Passwords need at least 12 characters.");
+    expect(startErrorMessage({ code: "weak_password", message: "Enter a password for this drive." }, "x")).toBe("Enter a password for this drive.");
     expect(startErrorMessage({ code: "other", message: "Server words." }, "x")).toBe("Server words.");
     expect(startErrorMessage(null, "fallback")).toBe("fallback");
   });
