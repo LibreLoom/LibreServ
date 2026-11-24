@@ -165,3 +165,45 @@ func TestDatabaseIntegrityGarbageFileReportsCorrupt(t *testing.T) {
 	}
 	t.Fatal("integrity check did not finish")
 }
+
+func TestDatabaseIntegrityInvalidationWhileRunning(t *testing.T) {
+	db, err := database.Open(t.TempDir() + "/generation.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHealthHandler(db)
+
+	status := func() string {
+		rr := httptest.NewRecorder()
+		h.DatabaseIntegrityStatus(rr, httptest.NewRequest(http.MethodGet, "/api/v1/system/database/integrity/status", nil))
+		return rr.Body.String()
+	}
+	start := func() {
+		rr := httptest.NewRecorder()
+		h.DatabaseIntegrity(rr, httptest.NewRequest(http.MethodPost, "/api/v1/system/database/integrity", nil))
+		if rr.Code != http.StatusAccepted {
+			t.Fatalf("start = %d: %s", rr.Code, rr.Body.String())
+		}
+	}
+
+	start()
+	h.InvalidateIntegrity()
+	if !strings.Contains(status(), `"status":"idle"`) {
+		t.Fatalf("invalidation should reset the verdict, got %s", status())
+	}
+	start()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		body := status()
+		if strings.Contains(body, `"status":"ok"`) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("second check did not publish a verdict: %s", status())
+}

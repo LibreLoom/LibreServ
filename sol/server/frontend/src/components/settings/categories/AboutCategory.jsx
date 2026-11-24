@@ -23,6 +23,8 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
   const [fileChecked, setFileChecked] = useState(false);
   const pollRef = useRef(null);
   const manualStartedRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const lastHealthRef = useRef(data);
   useEffect(() => () => pollRef.current?.abort(), []);
 
@@ -46,6 +48,8 @@ function SystemChecksCard({ index = 2, isAdmin = false }) {
       .then((res) => res.json())
       .then((result) => {
         if (cancelled || manualStartedRef.current || !result.status || result.status === "running" || result.status === "idle") return;
+        // A cached "fine" must not be restored on top of a live failed row.
+        if (result.status === "ok" && dataRef.current?.checks?.database?.status === "failed") return;
         setFileResult(result.message || (result.status === "ok" ? "The database file is fine." : null));
         setFileProblem(result.status === "corrupt" || result.reason === "missing");
         setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");

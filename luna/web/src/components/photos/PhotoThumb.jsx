@@ -228,8 +228,8 @@ function PhotoThumb({
           loading={gated ? undefined : "lazy"}
           decoding="async"
           onLoad={(e) => {
-            // A queued load event from the previous photo must not mark the
-            // new one loaded.
+            // Only mark the cell loaded when the DOM src is the photo this
+            // render asked for; changing src cancels the previous request.
             if (e.currentTarget.getAttribute("src") === photo.thumb) {
               e.currentTarget.dataset.thumbLoaded = "1";
             }

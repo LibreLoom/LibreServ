@@ -1237,3 +1237,52 @@ describe("AboutCategory manual OK lifetime", () => {
     expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
   });
 });
+
+describe("AboutCategory mount fetch and idle retry", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("ignores a slow mount verdict that resolves after a manual check", async () => {
+    const user = userEvent.setup();
+    /** @type {Array<(value: any) => void>} */
+    const statusResolvers = [];
+    apiMock.mockImplementation(async (path) => {
+      if (path === "/system/database/integrity") return { json: async () => ({ status: "running" }) };
+      if (path.endsWith("/status")) {
+        return { json: () => new Promise((resolve) => statusResolvers.push(resolve)) };
+      }
+      return { json: async () => ({}) };
+    });
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    if (statusResolvers.length < 2) throw new Error("mount and poll status requests were not both started");
+
+    const corrupt = { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file." };
+    statusResolvers[1](corrupt);
+    expect(await screen.findByText("The database file needs attention.")).toBeVisible();
+    statusResolvers[0]({ status: "ok", reason: "ok" });
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
+  });
+
+  it("restarts once on idle then says the check never started", async () => {
+    const user = userEvent.setup();
+    let posts = 0;
+    apiMock.mockImplementation(async (path) => {
+      if (path === "/system/database/integrity") {
+        posts++;
+        return { json: async () => ({ status: "running" }) };
+      }
+      if (path.endsWith("/status")) return { json: async () => ({ status: "idle" }) };
+      return { json: async () => ({}) };
+    });
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/hasn't started yet/)).toBeVisible();
+    expect(posts).toBe(2);
+  });
+});

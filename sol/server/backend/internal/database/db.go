@@ -31,8 +31,10 @@ type DB struct {
 	onReplaceMu sync.RWMutex
 	onReplace   []func()
 
-	// healthWarned keeps a missing database from writing one warning per probe.
-	healthWarned atomic.Bool
+	// Each distinct health failure warns once per outage, not once per probe.
+	healthStatWarned   atomic.Bool
+	healthSchemaWarned atomic.Bool
+	healthEmptyWarned  atomic.Bool
 }
 
 // OnReplace adds a cache-invalidation hook for database restores. Registration
@@ -271,7 +273,7 @@ func (d *DB) HealthCheck() error {
 			// These errors travel through public health endpoints. Log the
 			// path here; callers only get the sentinel. A missing file makes
 			// every probe fail, so only the first gets a warning.
-			if d.healthWarned.Swap(true) {
+			if d.healthStatWarned.Swap(true) {
 				slog.Debug("database file stat failed", "path", d.path, "error", err)
 			} else {
 				slog.Warn("database file stat failed", "path", d.path, "error", err)
@@ -290,7 +292,7 @@ func (d *DB) HealthCheck() error {
 	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
 		// This probe also backs the public comprehensive check and its
 		// background refresh; warn once per outage so those paths are logged.
-		if !d.healthWarned.Swap(true) {
+		if !d.healthSchemaWarned.Swap(true) {
 			slog.Warn("database schema read failed", "error", err)
 		} else {
 			slog.Debug("database schema read failed", "error", err)
@@ -299,7 +301,7 @@ func (d *DB) HealthCheck() error {
 	}
 	if count == 0 {
 		// An empty file is a valid SQLite database but not a usable Sol one.
-		if !d.healthWarned.Swap(true) {
+		if !d.healthEmptyWarned.Swap(true) {
 			slog.Warn("database has no schema tables")
 		} else {
 			slog.Debug("database has no schema tables")
@@ -307,7 +309,9 @@ func (d *DB) HealthCheck() error {
 		return ErrDatabaseUnreadable
 	}
 	// A new outage after recovery deserves a new warning.
-	d.healthWarned.Store(false)
+	d.healthStatWarned.Store(false)
+	d.healthSchemaWarned.Store(false)
+	d.healthEmptyWarned.Store(false)
 	return nil
 }
 
