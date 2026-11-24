@@ -207,7 +207,7 @@ fn if_none_match_matches(header: Option<&str>, etag: &str) -> bool {
         Some("*") => true,
         Some(list) => list.split(',').any(|candidate| {
             let candidate = candidate.trim();
-            candidate == etag || candidate.strip_prefix("W/") == Some(etag)
+            candidate == "*" || candidate == etag || candidate.strip_prefix("W/") == Some(etag)
         }),
         None => false,
     }
@@ -1391,6 +1391,7 @@ mod tests {
     fn if_none_match_accepts_star_lists_and_weak_etags() {
         let etag = "\"abc\"";
         assert!(if_none_match_matches(Some("*"), etag));
+        assert!(if_none_match_matches(Some("*, \"other\""), etag));
         assert!(if_none_match_matches(Some("\"x\", \"abc\""), etag));
         assert!(if_none_match_matches(Some("W/\"abc\""), etag));
         assert!(!if_none_match_matches(Some("\"other\""), etag));

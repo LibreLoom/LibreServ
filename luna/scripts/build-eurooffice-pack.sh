@@ -36,12 +36,10 @@ for f in \
 	[ -f "$f" ] || { echo "ERROR: pack at $PACK_SRC is incomplete (missing $f)" >&2; exit 1; }
 done
 
-# A pack built before this change has no aliases.json and still ships the
-# duplicate font bodies. Dedupe it here too; a fresh pack already has the
-# manifest (the install script wrote it) and must not be deduped twice.
-if [ ! -f "$PACK_SRC/fonts/aliases.json" ]; then
-	python3 "$ROOT/scripts/dedupe-office-fonts.py" "$PACK_SRC"
-fi
+# Always run dedupe, even when a manifest already exists. The script is
+# idempotent and its stale-manifest guard must also cover a regenerated dev
+# pack that reintroduces fonts/NNN alongside an older aliases.json.
+python3 "$ROOT/scripts/dedupe-office-fonts.py" "$PACK_SRC"
 
 mkdir -p "$OUT"
 echo "Packing $PACK_SRC → $TARBALL (help dirs excluded)…"
