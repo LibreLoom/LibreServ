@@ -32,7 +32,7 @@ describe("Table", () => {
 
   it("keeps the insets equal for a single column", () => {
     render(
-      <Table columns={[{ key: "name", label: "Name" }]} data={[{ name: "Ada" }]} />,
+      <Table columns={[{ key: "name", label: "Name" }]} data={[{ name: "Ada" }]} rowKey="name" />,
     );
 
     expect(insetsOf(screen.getByRole("columnheader"))).toEqual(

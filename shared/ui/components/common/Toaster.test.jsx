@@ -129,7 +129,7 @@ describe("Toaster", () => {
       expect(toast()).not.toBeInTheDocument();
     } finally {
       if (hiddenDescriptor) Object.defineProperty(document, "hidden", hiddenDescriptor);
-      else delete document.hidden;
+      else Reflect.deleteProperty(document, "hidden");
     }
   });
 });
