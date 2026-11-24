@@ -1218,7 +1218,7 @@ pub(crate) fn album_item_is_private(
     match crate::private::wall_for(root, &real) {
         crate::private::Wall::Clear => false,
         crate::private::Wall::Unknown => true,
-        crate::private::Wall::At(b) => crate::private::owner_known(&conn, &b.owner),
+        crate::private::Wall::At(b) => crate::private::owner_known(conn, &b.owner),
     }
 }
 
