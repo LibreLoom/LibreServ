@@ -346,7 +346,7 @@ func osInputHash(ctx context.Context, b *engine.BuildContext, j *engine.JobRun) 
 // forced refresh or a pinned Alpine release behaves as with the dev wrappers.
 func osEnv() map[string]string {
 	env := map[string]string{}
-	for _, k := range []string{"LUNA_OS_REFRESH", "ALPINE_VERSION", "CLOUDFLARED_VERSION", "SIZE_MB"} {
+	for _, k := range []string{"LUNA_OS_REFRESH", "ALPINE_VERSION", "CLOUDFLARED_VERSION", "SIZE_MB", "ZSTD_THREADS", "ZSTD_LEVEL", "ZSTD_LONG"} {
 		if v := os.Getenv(k); v != "" {
 			env[k] = v
 		}

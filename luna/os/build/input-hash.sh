@@ -31,6 +31,7 @@ export LC_ALL=C
 	printf 'alpine_version=%s\n' "${ALPINE_VERSION:-v3.24}"
 	printf 'cloudflared=%s\n' "$CLOUDFLARED_VERSION"
 	printf 'slot_mib=%s\n' "${SIZE_MB:-$LUNA_SLOT_SIZE_MIB}"
+	printf 'zstd=%s/%s/%s\n' "${ZSTD_THREADS:-3}" "${ZSTD_LEVEL:-19}" "${ZSTD_LONG:-}"
 	printf 'refresh=%s\n' "${LUNA_OS_REFRESH:-}"
 	# Dev wrappers see the full checkout. Release jobs mount only os/; their
 	# outer cache key includes the exported commit and version instead.

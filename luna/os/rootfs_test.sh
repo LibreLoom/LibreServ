@@ -99,7 +99,7 @@ assert_file_has "$BUILD" 'virtio_net' \
 	"rootfs network bring-up must load virtio_net for QEMU / virt guests"
 assert_file_has "$BUILD" 'rc_parallel="YES"' \
 	"OpenRC must start services in parallel for faster boot"
-assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3' \
+assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3 -T 1' \
 	"boot DHCP must use a short retry budget so OpenRC is not blocked"
 assert_file_has "$BUILD" 'after luna-network' \
 	"lunad must not wait on avahi before binding HTTP"

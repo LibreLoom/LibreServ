@@ -30,6 +30,9 @@ podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
 	-v "$OUT:/out" \
 	-e ARCH="$ARCH" -e OS_INPUT_HASH="$(luna_os_input_hash)" \
 	${SIZE_MB:+-e SIZE_MB="$SIZE_MB"} \
+	${ZSTD_THREADS:+-e ZSTD_THREADS="$ZSTD_THREADS"} \
+	${ZSTD_LEVEL:+-e ZSTD_LEVEL="$ZSTD_LEVEL"} \
+	${ZSTD_LONG:+-e ZSTD_LONG="$ZSTD_LONG"} \
 	"$IMAGE" sh /luna/os/build/image.sh
 # The old flow's raw image and rootfs tarball no longer exist.
 rm -f "$OUT/luna-os-$ARCH.img" "$OUT/luna-os-$ARCH.img.sha256" "$OUT/luna-rootfs-$ARCH.tar.gz"
