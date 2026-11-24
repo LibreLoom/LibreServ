@@ -71,12 +71,12 @@ export default function AccessAddressesCard({ index = 2 }) {
           </section>
         ) : null}
         {lanBlocked ? (
-          <p className="text-sm text-secondary">
+          <p className="text-sm text-primary">
             Local access is turned off while Luna Connect is on.
           </p>
         ) : null}
         {lanBlocked && !publicUrl ? (
-          <p className="text-sm text-secondary">
+          <p className="text-sm text-primary">
             No way to open Luna is ready right now. Wait a moment and try again.
           </p>
         ) : null}

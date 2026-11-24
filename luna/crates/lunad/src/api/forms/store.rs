@@ -121,15 +121,16 @@ pub fn move_db_files(from: &Path, to: &Path) {
         a.push(suffix);
         b.push(suffix);
         let (a, b) = (PathBuf::from(a), PathBuf::from(b));
-        if a != b && std::fs::symlink_metadata(&a).is_ok() {
-            if let Err(e) = crate::files::rename_noreplace(&a, &b) {
-                tracing::warn!(
-                    from = %a.display(),
-                    to = %b.display(),
-                    error = %e,
-                    "form answers did not follow the form"
-                );
-            }
+        if a != b
+            && std::fs::symlink_metadata(&a).is_ok()
+            && let Err(e) = crate::files::rename_noreplace(&a, &b)
+        {
+            tracing::warn!(
+                from = %a.display(),
+                to = %b.display(),
+                error = %e,
+                "form answers did not follow the form"
+            );
         }
     }
 }

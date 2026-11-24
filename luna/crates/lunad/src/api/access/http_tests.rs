@@ -608,7 +608,7 @@ async fn guest_ops_cannot_escape_or_touch_the_link_root() {
     let (_dir, app) = test_app(mount.path());
     let token = edit_link(&app, "full").await;
 
-    // Traversal out of scope.
+    // Traversal is refused like any other item outside the share.
     for (method, uri, body) in [
         (
             Method::DELETE,
@@ -627,7 +627,7 @@ async fn guest_ops_cannot_escape_or_touch_the_link_root() {
         ),
     ] {
         let (s, _) = public_json(&app, method, &uri, body).await;
-        assert_eq!(s, 400);
+        assert_eq!(s, 404);
     }
     assert!(mount.path().join("secret.txt").is_file());
     assert!(mount.path().join("family/note.txt").is_file());
@@ -1387,7 +1387,7 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     // Escapes, non-document files, and missing files are refused pre-upgrade.
     // (Text and form files are allowed: a guest joins their room too.)
     let res = ws_connect(addr, &ws(&token, "../plan.drawio"), &[]).await;
-    assert_eq!(res.status, 400, "{}", res.head);
+    assert_eq!(res.status, 404, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "note.docx"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "missing.drawio"), &[]).await;

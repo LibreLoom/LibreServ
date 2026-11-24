@@ -33,7 +33,7 @@ describe("shareSource", () => {
     await source.listDir("x", "sub");
     const [url, opts] = calls[0];
     expect(String(url)).toBe("/s/abc/list?path=sub");
-    expect(opts.headers["X-Share-Password"]).toBe("secret");
+    expect(opts.headers["X-Share-Password-Utf8"]).toBe(btoa("secret"));
     expect(String(url)).not.toContain("password");
     vi.unstubAllGlobals();
   });
@@ -72,7 +72,7 @@ describe("shareSource", () => {
       .toEqual([{ id: "r1", answers: {} }]);
     const [url, opts] = calls[0];
     expect(String(url)).toBe("/s/abc/responses?path=docs%2Frsvp.lunaform");
-    expect(opts.headers["X-Share-Password"]).toBe("pw");
+    expect(opts.headers["X-Share-Password-Utf8"]).toBe(btoa("pw"));
     vi.unstubAllGlobals();
   });
 

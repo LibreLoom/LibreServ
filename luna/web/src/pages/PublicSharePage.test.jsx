@@ -602,7 +602,7 @@ describe("PublicSharePage", () => {
     expect(await screen.findByTestId("office-editor")).toBeInTheDocument();
   });
 
-  it("opens a .lunaform view link in the form builder and shows its answers", async () => {
+  it("opens a .lunaform view link in the form builder without other people's answers", async () => {
     const FORM_DOC = JSON.stringify({
       version: 1,
       title: "Family reunion RSVP",
@@ -633,9 +633,8 @@ describe("PublicSharePage", () => {
     expect(screen.getByDisplayValue("Your name?")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share this form" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("radio", { name: /Responses/ }));
-    expect((await screen.findAllByText("Ann")).length).toBeGreaterThan(0);
+    // A view link can open the form but never read other people's answers.
+    expect(screen.queryByRole("radio", { name: /Responses/ })).not.toBeInTheDocument();
   });
 });
 
