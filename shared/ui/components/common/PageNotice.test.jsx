@@ -8,6 +8,16 @@ describe("PageNotice", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Something went right");
   });
 
+  it("spaces direct content blocks consistently", () => {
+    render(
+      <PageNotice variant="error">
+        <p>Could not load your backups.</p>
+        <button type="button">Try again</button>
+      </PageNotice>,
+    );
+    expect(screen.getByRole("status")).toHaveClass("space-y-3");
+  });
+
   it("is its own opaque surface with the status tint layered on top", () => {
     const { container } = render(<PageNotice variant="error">Error message</PageNotice>);
     const clip = container.querySelector("[data-slot=card-clip]");

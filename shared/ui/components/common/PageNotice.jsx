@@ -38,7 +38,7 @@ export default function PageNotice({
       className={cn("border", TONES[variant] || TONES.info, className)}
       data-slot="page-notice"
     >
-      <div className="text-sm" role="status">
+      <div className="space-y-3 text-sm" role="status">
         {typeof children === "string" ? <p>{children}</p> : children}
       </div>
     </Card>
