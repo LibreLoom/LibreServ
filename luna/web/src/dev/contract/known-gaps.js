@@ -4,13 +4,18 @@
 export const KNOWN_GAPS = [
   {
     key: "GET /api/v1/system/health/check",
-    path: "$.checks.network.more",
-    reason: "The dashboard/no-internet scenario seeds a warning on checks.network with `more` (user-facing detail: check that the router or modem is online) so the header pill agrees with the Needs you row. The fixture records a passing network check, whose shape has no `more` — other checks carry an optional `more?`, but network's recorded row does not.",
+    path: "$.checks.search_inside.details",
+    reason: "The CI container that records lunad's responses has no pdftotext or tesseract, so lunad reports search_inside as a warning (with details and more); the fake shows the OS image, where both are installed and the row passes.",
   },
   {
-    key: "GET /api/v1/photos/albums",
-    path: "$[].owner_user_id",
-    reason: "lunad's album_json (api/photos.rs) returns the full row — including owner_user_id — to managers and a projection without it to other viewers. The fixture recorded the list as a viewer, so its shape lacks the key; the fake includes it for albums the caller owns so PhotosPage's canManageAlbum can show edit/delete actions.",
+    key: "GET /api/v1/system/health/check",
+    path: "$.checks.search_inside.more",
+    reason: "Same as search_inside.details: the recording container lacks the PDF and OCR tools the OS image ships.",
+  },
+  {
+    key: "GET /api/v1/system/health/check",
+    path: "$.checks.network.more",
+    reason: "The dashboard/no-internet scenario seeds a warning on checks.network with `more` (user-facing detail: check that the router or modem is online) so the header pill agrees with the Needs you row. The fixture records a passing network check, whose shape has no `more` — other checks carry an optional `more?`, but network's recorded row does not.",
   },
   {
     key: "GET /api/v1/connect/status",
