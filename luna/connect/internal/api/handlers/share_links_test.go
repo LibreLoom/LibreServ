@@ -404,7 +404,7 @@ func TestShareEgressRecordedWhenClientStopsEarly(t *testing.T) {
 func TestInfoIgnoresDeviceOfAnotherAccount(t *testing.T) {
 	d, owner := shareFixture(t)
 	other := cloudAccount(t, d, "elsewhere@example.com")
-	foreignDev, _ := mintDevice(t, d, "official")
+	foreignDev, _, _ := mintDevice(t, d, "official")
 	if _, err := d.DB.Exec(`UPDATE devices SET account_id = ?, name = 'Their drive' WHERE id = ?`, other, foreignDev); err != nil {
 		t.Fatal(err)
 	}

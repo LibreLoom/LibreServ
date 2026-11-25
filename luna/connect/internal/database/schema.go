@@ -27,9 +27,21 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
+  -- Legacy columns remain only so old databases can be opened and fenced off.
+  -- No request authenticates with code_hash or code_sealed.
   code_hash TEXT NOT NULL UNIQUE,
   code_hint TEXT,
   code_sealed TEXT,
+  device_uid TEXT UNIQUE,
+  verification_code_hash TEXT,
+  verification_code_sealed TEXT,
+  state TEXT NOT NULL DEFAULT 'unbound',
+  auth_token_hash TEXT,
+  auth_token_sealed TEXT,
+  previous_auth_token_hash TEXT,
+  previous_auth_token_valid_until INTEGER,
+  last_public_ip TEXT,
+  last_public_ip_at INTEGER,
   kind TEXT NOT NULL DEFAULT 'official',
   account_id TEXT,
   name TEXT,
@@ -45,6 +57,27 @@ CREATE TABLE IF NOT EXISTS devices (
   FOREIGN KEY(account_id) REFERENCES accounts(id)
 );
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
+CREATE TABLE IF NOT EXISTS device_pairings (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL UNIQUE REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_device_pairings_account ON device_pairings(account_id);
+CREATE TABLE IF NOT EXISTS domain_reservations (
+  hostname TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_setup_grants (
+  device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
@@ -226,9 +259,21 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
+  -- Legacy columns remain only so old databases can be opened and fenced off.
+  -- No request authenticates with code_hash or code_sealed.
   code_hash TEXT NOT NULL UNIQUE,
   code_hint TEXT,
   code_sealed TEXT,
+  device_uid TEXT UNIQUE,
+  verification_code_hash TEXT,
+  verification_code_sealed TEXT,
+  state TEXT NOT NULL DEFAULT 'unbound',
+  auth_token_hash TEXT,
+  auth_token_sealed TEXT,
+  previous_auth_token_hash TEXT,
+  previous_auth_token_valid_until BIGINT,
+  last_public_ip TEXT,
+  last_public_ip_at BIGINT,
   kind TEXT NOT NULL DEFAULT 'official',
   account_id TEXT REFERENCES accounts(id),
   name TEXT,
@@ -243,6 +288,27 @@ CREATE TABLE IF NOT EXISTS devices (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
+CREATE TABLE IF NOT EXISTS device_pairings (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL UNIQUE REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  created_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_device_pairings_account ON device_pairings(account_id);
+CREATE TABLE IF NOT EXISTS domain_reservations (
+  hostname TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_setup_grants (
+  device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at BIGINT NOT NULL,
+  used_at BIGINT
+);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,

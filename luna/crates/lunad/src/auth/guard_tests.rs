@@ -16,8 +16,8 @@ const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
     54321,
 );
-/// A public-internet peer — off-LAN, so first registration needs the
-/// device token. `client_ip` won't trust its forwarding headers.
+/// A public-internet peer — off-LAN, so first registration needs a setup
+/// grant. `client_ip` won't trust its forwarding headers.
 const REMOTE: std::net::SocketAddr = std::net::SocketAddr::new(
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 9)),
     54321,
@@ -629,92 +629,59 @@ async fn finishing_setup_needs_no_recovery_phrase() {
 }
 
 #[tokio::test]
-async fn first_account_on_public_hostname_needs_setup_secret() {
-    let (dir, _) = test_app();
-    let connect =
-        crate::net::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-    connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-    connect
-        .apply_claimed(&serde_json::json!({
-            "device_token": "tok",
-            "hostname": "photos.luna.servers.libreloom.org",
-            "tunnel_token": "mock",
-            "setup_secret": "one-time-secret"
-        }))
-        .unwrap();
-    let connect = std::sync::Arc::new(connect);
-    let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
-    let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-    let state = crate::AppState::new(conn, drive_manager, dir.path()).with_connect(connect.clone());
+async fn lan_guard_uses_the_bound_credential_not_pairing_material() {
+    let (dir, _, state) = test_app_with_state();
+    std::fs::write(
+        dir.path().join(crate::net::connect::DEVICE_UID_FILE),
+        "7K4M2Q9XR8N36T5W1PZH\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join(crate::net::connect::PAIRING_CODE_FILE),
+        "A3F91C\n",
+    )
+    .unwrap();
     let app = api::router()
         .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
-        .with_state(state);
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            lan_guard,
+        ))
+        .with_state(state.clone());
+    let lan_request = || {
+        let mut request = req(Method::GET, "/api/v1/auth/status", None, None);
+        request.extensions_mut().insert(ConnectInfo(
+            "192.168.1.44:54321"
+                .parse::<std::net::SocketAddr>()
+                .unwrap(),
+        ));
+        request
+    };
 
-    // A genuinely remote client (public peer IP): the public hostname
-    // alone no longer opens setup — the device token is the proof.
-    let mut denied = from_remote(req(
-        Method::POST,
-        "/api/v1/auth/register",
-        Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
-        None,
-    ));
-    denied
-        .headers_mut()
-        .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
-    let res = call(&app, denied).await;
-    assert_eq!(res.status(), 403, "{}", text(res).await);
+    // UID and code alone keep Luna unbound and leave the LAN open.
+    assert_eq!(call(&app, lan_request()).await.status(), 200);
 
-    let mut via_query = from_remote(req(
-        Method::POST,
-        "/api/v1/auth/register?setup=one-time-secret",
-        Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
-        None,
-    ));
-    via_query
-        .headers_mut()
-        .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
-    let res = call(&app, via_query).await;
-    assert_eq!(
-        res.status(),
-        403,
-        "setup secret in the URL must not pass: {}",
-        text(res).await
-    );
+    std::fs::write(
+        dir.path()
+            .join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+    )
+    .unwrap();
+    state
+        .connect
+        .save(&serde_json::json!({
+            "state": "bound",
+            "bound": true,
+            "paired": true,
+            "hostname": "photos.luna.servers.libreloom.org",
+            "tunnel_token": "mock-token",
+            "tunnel_active": true,
+        }))
+        .unwrap();
+    assert_eq!(call(&app, lan_request()).await.status(), 403);
 
-    let mut via_cookie = from_remote(req(
-        Method::POST,
-        "/api/v1/auth/register",
-        Some(r#"{"username":"max","password":"hunter22hunter1"}"#),
-        None,
-    ));
-    via_cookie
-        .headers_mut()
-        .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
-    via_cookie
-        .headers_mut()
-        .insert("cookie", "luna_setup=one-time-secret".parse().unwrap());
-    let res = call(&app, via_cookie).await;
-    assert_eq!(
-        res.status(),
-        403,
-        "setup secret in a cookie must not pass: {}",
-        text(res).await
-    );
-
-    let mut ok = from_remote(req(
-        Method::POST,
-        "/api/v1/auth/register",
-        Some(r#"{"username":"max","password":"hunter22hunter1","setup_secret":"one-time-secret"}"#),
-        None,
-    ));
-    ok.headers_mut()
-        .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
-    let res = call(&app, ok).await;
-    assert_eq!(res.status(), 200, "{}", text(res).await);
-    assert!(
-        connect.first_user_secret().is_none(),
-        "first-user secret must be one-time"
-    );
+    std::fs::write(dir.path().join(crate::net::connect::LAN_OVERRIDE_FILE), "").unwrap();
+    assert_eq!(call(&app, lan_request()).await.status(), 200);
 }
 
 #[tokio::test]

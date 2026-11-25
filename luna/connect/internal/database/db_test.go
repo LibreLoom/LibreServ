@@ -100,6 +100,14 @@ func TestMigrateUpgradedDevicesAllowsUnboundInsert(t *testing.T) {
 	if codeHash != "legacy-token-hash" {
 		t.Fatalf("code_hash backfill = %q, want legacy-token-hash", codeHash)
 	}
+	var state string
+	var uid *string
+	if err := db.QueryRow(`SELECT state, device_uid FROM devices WHERE id = ?`, "dev_legacy").Scan(&state, &uid); err != nil {
+		t.Fatal(err)
+	}
+	if state != "revoked" || uid != nil {
+		t.Fatalf("legacy permanent token must be fenced off, state=%s uid=%v", state, uid)
+	}
 
 	// Unbound permanent-code insert (no subdomain, no token_hash) must succeed.
 	_, err = db.Exec(`INSERT INTO devices (id, code_hash, code_hint, kind, local_port, created_at)

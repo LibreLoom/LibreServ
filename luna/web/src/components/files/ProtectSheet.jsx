@@ -213,8 +213,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     : !cloudConnected
     ? (
         <>
-          An Admin can link this Luna to Luna Connect by adding the device token in{" "}
-          <PathTrail steps={["Settings", "About", "Advanced"]} />.
+          An Admin can pair this Luna with its Device ID and Verification code in{" "}
+          <PathTrail steps={["Settings", "Luna Connect", "Device token"]} />.
         </>
       )
     : needsPayment

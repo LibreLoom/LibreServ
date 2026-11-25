@@ -25,8 +25,9 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 }
 
-// MintDIY creates a permanent unbound DIY device token after the $1 human check.
+// MintDIY creates an unbound DIY device identity after the $1 human check.
 func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -40,23 +41,25 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowGuess(h.DB, "diy-mint:"+acct.ID, 5, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many device tokens on this account. Wait an hour, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many new device identities on this account. Wait an hour, then try again.")
 		return
 	}
-	id, code, err := insertPermanentDevice(h.DB, "diy", security.OfficialDeviceToken(), "")
+	id, uid, code, err := insertDeviceIdentity(h.DB, "diy", "")
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not create a device identity. Try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusCreated, map[string]any{
-		"device_id": id,
-		"code":      code,
-		"message":   "Paste this device token when the Luna installer asks for it. You can also add it later in Settings → About → Advanced on Luna.",
+		"device_id":         id,
+		"device_uid":        security.GroupCrockford(uid),
+		"verification_code": code,
+		"message":           "Enter this Device ID and verification code on Luna, then pair them on this website.",
 	})
 }
 
 func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	var req struct {
 		OrderRef string `json:"order_ref"`
 		Count    int    `json:"count"`
@@ -69,29 +72,33 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 		req.Count = 100
 	}
 	type minted struct {
-		ID   string `json:"id"`
-		Code string `json:"code"`
+		ID               string `json:"id"`
+		UID              string `json:"device_uid"`
+		VerificationCode string `json:"verification_code"`
 	}
 	out := make([]minted, 0, req.Count)
 	for i := 0; i < req.Count; i++ {
-		id, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
+		id, uid, code, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create a device identity. Try again.")
 			return
 		}
-		out = append(out, minted{ID: id, Code: code})
+		out = append(out, minted{ID: id, UID: security.GroupCrockford(uid), VerificationCode: code})
 	}
 	if len(out) == 1 {
 		JSON(w, http.StatusCreated, map[string]any{
-			"id": out[0].ID, "code": out[0].Code,
-			"message": "Print this device token on the quick-start card. The full token links Luna to Luna Connect.",
+			"id":                out[0].ID,
+			"device_uid":        out[0].UID,
+			"verification_code": out[0].VerificationCode,
+			"message":           "Print this Device ID and verification code on the quick-start card.",
 		})
 		return
 	}
-	JSON(w, http.StatusCreated, map[string]any{"codes": out})
+	JSON(w, http.StatusCreated, map[string]any{"devices": out})
 }
 
 func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	var req struct {
 		Count    int    `json:"count"`
 		OrderRef string `json:"order_ref"`
@@ -101,23 +108,23 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		req.Count = 1
 	}
 	if req.Count > 500 {
-		JSONError(w, http.StatusBadRequest, "Ask for 500 device tokens or fewer at a time.")
+		JSONError(w, http.StatusBadRequest, "Ask for 500 device identities or fewer at a time.")
 		return
 	}
 	var lines []string
 	for i := 0; i < req.Count; i++ {
-		_, code, err := insertPermanentDevice(h.DB, "official", security.OfficialDeviceToken(), req.OrderRef)
+		_, uid, code, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create device tokens. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create device identities. Try again.")
 			return
 		}
-		lines = append(lines, code)
+		lines = append(lines, uid+" "+code)
 	}
 	JSON(w, http.StatusCreated, map[string]any{
 		"filename": "TOKENS",
 		"tokens":   lines,
 		"count":    len(lines),
-		"message":  "One device token per line. Each full token links one Luna to Luna Connect.",
+		"message":  "One Device ID and verification code per line, separated by a space.",
 	})
 }
 

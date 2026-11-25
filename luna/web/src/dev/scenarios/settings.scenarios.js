@@ -9,7 +9,7 @@ const SIGNING_PUBLIC = btoa(String.fromCharCode(...new Uint8Array(SIG_PUBLIC_LEN
 
 /** A phrase that is set and checked, with Luna's signing key present so a replacement can be built. */
 const setPhrase = (w, extra = {}) => {
-  w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+  w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
   w.connectActive = true;
   w.cloudBackups = [cloudBackup()];
   w.phrase = { set: true, set_at: at(90 * DAY), luna_id: "luna-1", signing_public: SIGNING_PUBLIC, check_due: false, last_checked_at: at(DAY), ...extra };
@@ -254,7 +254,7 @@ export default [
     title: "Cloud backups: ok, source missing, check problem",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [
         cloudBackup({ source_name: "Documents" }),
@@ -269,7 +269,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Connect on but no payment card",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
+    seed: (w) => { w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: false }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     check: ["Says a card is needed before backing up, and where to add it"],
   },
   {
@@ -277,7 +277,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Running a cloud backup fails",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
+    seed: (w) => { w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups = [cloudBackup()]; },
     faults: [{ match: "POST /api/v1/cloud/backups/*/run", mode: "502", message: "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again." }],
     check: ["Problem stays on the backup card, not a toast"],
   },
@@ -287,7 +287,7 @@ export default [
     title: "No recovery phrase yet",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.phrase = { ...w.phrase, set: false };
     },
@@ -304,7 +304,7 @@ export default [
     title: "Recovery phrase check with the wrong words",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, check_due: true };
@@ -318,7 +318,7 @@ export default [
     title: "Recovery phrase check for a 24-word phrase",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, phrase_words: 24, check_due: true };
@@ -331,7 +331,7 @@ export default [
     title: "Recovery phrase check is due",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       w.cloudBackups = [cloudBackup()];
       w.phrase = { ...w.phrase, check_due: true };
@@ -447,23 +447,27 @@ export default [
     area: "Settings: Luna Connect",
     title: "Remote access off",
     url: "/settings#luna_connect",
-    check: ["Explains what turning it on does", "Entering a device token ('bad' is refused) turns it on"],
+    seed: (w) => { w.connect = { state: "unbound", paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; },
+    check: ["Shows the Device ID and a hidden Verification code", "Removing the code leaves Connect unchanged"],
   },
   {
     id: "settings/remote-on",
     area: "Settings: Luna Connect",
     title: "Remote access on",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
-    check: ["Shows it is connected", "Removing the device token turns it off after confirming"],
+    seed: (w) => {
+      w.connect = { state: "bound", paired: true, connect_active: true, enabled: true, backup_unlocked: true, hostname: "kitchen.luna.servers.libreloom.org", device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+      w.connectActive = true;
+    },
+    check: ["Shows it is connected", "Disconnect asks for the Luna password and stops remote access"],
   },
   {
     id: "settings/remote-token-rejected",
-    area: "Settings: About",
-    title: "Connect rejected the device token",
-    url: "/settings#about",
-    seed: (w) => { w.connect = { enabled: false, connect_active: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." }; w.connectActive = false; },
-    check: ["Error is shown in plain words", "Replacing the token clears it"],
+    area: "Settings: Luna Connect",
+    title: "Connect revoked this Luna",
+    url: "/settings#luna_connect",
+    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, connect_error: "Luna Connect revoked this Luna. Reconnect it from your Connect account." }; w.connectActive = false; },
+    check: ["Reconnect-required state is shown in plain words", "Opening Luna Connect is offered"],
   },
   {
     id: "settings/about-versions",
@@ -575,7 +579,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Luna Connect for an Admin",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
+    seed: (w) => { w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
     check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────

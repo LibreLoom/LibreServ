@@ -3,14 +3,16 @@
 //! store for tests. Every method blocks; async callers wrap them in `spawn_blocking`.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Mutex;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::crypto::pack_id;
+use crate::net::connect::{CREDENTIAL_REJECTED_MSG, ConnectError, ConnectService};
 
 /// Largest pack Connect accepts.
 pub const MAX_PACK_BYTES: usize = 64 * 1024 * 1024;
@@ -411,10 +413,18 @@ impl CloudStore for MemoryStore {
     }
 }
 
-/// Talks to Luna Connect's storage API with this Luna's device token.
+enum Credential {
+    /// Tests and isolated callers may use a fixed credential.
+    Static(String),
+    /// Production reads the current rolling credential for every request, so
+    /// a five-minute rotation cannot invalidate a long backup midway through.
+    Rolling(Arc<ConnectService>),
+}
+
+/// Talks to Luna Connect's storage API with this Luna's rolling credential.
 pub struct HttpStore {
     base_url: String,
-    device_token: String,
+    credential: Credential,
     luna_id: String,
 }
 
@@ -422,6 +432,14 @@ pub struct HttpStore {
 struct Reply {
     status: u16,
     body: Vec<u8>,
+}
+
+struct RequestAuth {
+    authorization: String,
+    /// Kept separately so an explicit auth reply can be checked against the
+    /// credential that is still current after a concurrent rotation.
+    token: String,
+    connect: Option<Arc<ConnectService>>,
 }
 
 #[derive(Deserialize)]
@@ -506,10 +524,18 @@ fn validate_prefix_page_response(
 
 impl HttpStore {
     /// `base_url` is Connect's address (e.g. `https://connect.luna.libreloom.org`).
-    pub fn new(base_url: &str, device_token: &str, luna_id: &str) -> Self {
+    pub fn new(base_url: &str, credential: &str, luna_id: &str) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            device_token: device_token.to_string(),
+            credential: Credential::Static(credential.to_string()),
+            luna_id: luna_id.to_string(),
+        }
+    }
+
+    pub fn with_connect(base_url: &str, connect: Arc<ConnectService>, luna_id: &str) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            credential: Credential::Rolling(connect),
             luna_id: luna_id.to_string(),
         }
     }
@@ -518,8 +544,53 @@ impl HttpStore {
         format!("{}/api/v1/storage{path}", self.base_url)
     }
 
-    fn auth(&self) -> String {
-        format!("Bearer {}", self.device_token)
+    fn auth(&self) -> Result<RequestAuth, StoreError> {
+        let (token, connect) = match &self.credential {
+            Credential::Static(token) => (token.clone(), None),
+            Credential::Rolling(connect) => (
+                connect
+                    .token()
+                    .map_err(|_| StoreError::Rejected(CREDENTIAL_REJECTED_MSG.into()))?,
+                Some(connect.clone()),
+            ),
+        };
+        Ok(RequestAuth {
+            authorization: format!("Bearer {token}"),
+            token,
+            connect,
+        })
+    }
+
+    fn finish_request(
+        &self,
+        result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+        body_limit: u64,
+        auth: &RequestAuth,
+    ) -> Result<Reply, StoreError> {
+        let reply = finish(result, body_limit)?;
+        self.settle_auth_reply(&reply, auth);
+        Ok(reply)
+    }
+
+    fn settle_auth_reply(&self, reply: &Reply, auth: &RequestAuth) {
+        if reply.is_success() || !matches!(reply.status, 401 | 403) {
+            return;
+        }
+        let Some(connect) = &auth.connect else {
+            return;
+        };
+        let Some(code) = serde_json::from_slice::<Value>(&reply.body)
+            .ok()
+            .and_then(|body| body.get("code").and_then(|code| code.as_str()).map(str::to_string))
+        else {
+            return;
+        };
+        let error = match code.as_str() {
+            "device_unbound" => ConnectError::Unbound,
+            "device_revoked" => ConnectError::Revoked,
+            _ => return,
+        };
+        connect.settle_explicit_auth_failure(&auth.token, &error);
     }
 
     fn request_record_page(
@@ -557,17 +628,19 @@ impl HttpStore {
             query.push_str(&total.to_string());
         }
         let url = format!("{}?{query}", self.url(&format!("/records/{kind}")));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::get(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         if !reply.is_success() {
             return Err(reply.error());
@@ -642,18 +715,19 @@ impl CloudStore for HttpStore {
     fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
         check_pack(id, scope, bytes)?;
         let url = self.url(&format!("/packs/{}", hex_id(id)));
+        let auth = self.auth()?;
         let mut req = ureq::put(&url)
             .config()
             .http_status_as_error(false)
             .timeout_global(Some(PACK_TIMEOUT))
             .timeout_connect(Some(CONNECT_TIMEOUT))
             .build()
-            .header("Authorization", self.auth())
+            .header("Authorization", auth.authorization.as_str())
             .header("X-Luna-Id", self.luna_id.as_str());
         if let Some(scope) = scope {
             req = req.header("X-Luna-Scope", scope);
         }
-        let reply = finish(req.send(bytes), MAX_JSON_REPLY_BYTES)?;
+        let reply = self.finish_request(req.send(bytes), MAX_JSON_REPLY_BYTES, &auth)?;
         if reply.is_success() {
             Ok(())
         } else {
@@ -663,17 +737,19 @@ impl CloudStore for HttpStore {
 
     fn get_pack(&self, id: &[u8; 32]) -> Result<Vec<u8>, StoreError> {
         let url = self.url(&format!("/packs/{}", hex_id(id)));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::get(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(PACK_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_PACK_BYTES as u64,
+            &auth,
         )?;
         if reply.is_success() {
             Ok(reply.body)
@@ -684,17 +760,19 @@ impl CloudStore for HttpStore {
 
     fn delete_pack(&self, id: &[u8; 32]) -> Result<(), StoreError> {
         let url = self.url(&format!("/packs/{}", hex_id(id)));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::delete(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         if reply.is_success() {
             Ok(())
@@ -706,17 +784,19 @@ impl CloudStore for HttpStore {
     fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
         check_record(kind, name, bytes)?;
         let url = self.url(&format!("/records/{kind}/{name}"));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::put(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .send(bytes),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         if reply.is_success() {
             Ok(())
@@ -730,17 +810,19 @@ impl CloudStore for HttpStore {
             return Err(StoreError::Rejected(NAME_MSG.into()));
         }
         let url = self.url(&format!("/records/{kind}/{name}"));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::get(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_RECORD_BYTES as u64,
+            &auth,
         )?;
         match reply.status {
             404 => Ok(None),
@@ -754,17 +836,19 @@ impl CloudStore for HttpStore {
             return Err(StoreError::Rejected(NAME_MSG.into()));
         }
         let url = self.url(&format!("/records/{kind}/{name}"));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::delete(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         // A record that is already gone counts as deleted.
         if reply.is_success() || reply.status == 404 {
@@ -779,17 +863,19 @@ impl CloudStore for HttpStore {
             return Err(StoreError::Rejected(NAME_MSG.into()));
         }
         let url = self.url(&format!("/records/{kind}"));
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::get(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         if !reply.is_success() {
             return Err(reply.error());
@@ -841,17 +927,19 @@ impl CloudStore for HttpStore {
 
     fn usage(&self) -> Result<Usage, StoreError> {
         let url = self.url("/usage");
-        let reply = finish(
+        let auth = self.auth()?;
+        let reply = self.finish_request(
             ureq::get(&url)
                 .config()
                 .http_status_as_error(false)
                 .timeout_global(Some(JSON_TIMEOUT))
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .build()
-                .header("Authorization", self.auth())
+                .header("Authorization", auth.authorization.as_str())
                 .header("X-Luna-Id", self.luna_id.as_str())
                 .call(),
             MAX_JSON_REPLY_BYTES,
+            &auth,
         )?;
         if !reply.is_success() {
             return Err(reply.error());
@@ -867,8 +955,12 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::JoinHandle;
 
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, ConnectState, DEVICE_UID_FILE};
+
     const LUNA: &str = "luna-test-1";
     const TOKEN: &str = "ABCD-EFGH-JKMN-PQRS-TVWX";
+    const ROLLING_TOKEN: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     fn id_of(bytes: &[u8]) -> [u8; 32] {
         pack_id(bytes)
     }
@@ -916,6 +1008,22 @@ mod tests {
 
     fn http(base: &str) -> HttpStore {
         HttpStore::new(base, TOKEN, LUNA)
+    }
+
+    fn rolling(dir: &Path, base: &str) -> Arc<ConnectService> {
+        let connect = Arc::new(ConnectService::new(dir, Some(base.to_string())));
+        std::fs::write(dir.join(DEVICE_UID_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
+        std::fs::write(dir.join(CONNECT_CREDENTIAL_FILE), format!("{ROLLING_TOKEN}\n")).unwrap();
+        connect
+            .save(&serde_json::json!({
+                "state": "bound",
+                "bound": true,
+                "paired": true,
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+            }))
+            .unwrap();
+        connect
     }
 
     #[test]

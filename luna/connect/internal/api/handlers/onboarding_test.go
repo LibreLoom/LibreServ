@@ -15,15 +15,8 @@ func TestOnboardingStatusSkipsCodeWhenBound(t *testing.T) {
 	onbH := OnboardingHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "bound@b.co")
 	verifyEmailFor(t, acctH, "bound@b.co")
-
-	_, code := mintDevice(t, d, "official")
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	bindRec := withVerifiedAccount(acctH, devH.Bind, bindReq)
-	if bindRec.Code != http.StatusOK {
-		t.Fatalf("bind %d %s", bindRec.Code, bindRec.Body.String())
-	}
-
+	_, uid, code := mintDevice(t, d, "official")
+	pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
 	_, _ = d.DB.Exec(`UPDATE accounts SET onboarding_path = 'official', onboarding_step = 'code' WHERE email = ?`, "bound@b.co")
 
 	statusReq := httptest.NewRequest(http.MethodGet, "/onboarding/status", nil)
@@ -34,11 +27,8 @@ func TestOnboardingStatusSkipsCodeWhenBound(t *testing.T) {
 	}
 	var status map[string]any
 	_ = json.Unmarshal(statusRec.Body.Bytes(), &status)
-	if status["step"] != "domain" {
-		t.Fatalf("expected domain step, got %v", status["step"])
-	}
-	if status["skip_code_entry"] != true {
-		t.Fatalf("expected skip_code_entry true, got %v", status["skip_code_entry"])
+	if status["step"] != "domain" || status["skip_code_entry"] != true {
+		t.Fatalf("unexpected onboarding status: %v", status)
 	}
 
 	meReq := httptest.NewRequest(http.MethodGet, "/account/me", nil)
@@ -50,35 +40,27 @@ func TestOnboardingStatusSkipsCodeWhenBound(t *testing.T) {
 	}
 	var me map[string]any
 	_ = json.Unmarshal(meRec.Body.Bytes(), &me)
-	if me["onboarding_step"] != "domain" {
-		t.Fatalf("me step: %v", me["onboarding_step"])
-	}
-	if me["has_bound_device"] != true {
-		t.Fatalf("me has_bound_device: %v", me["has_bound_device"])
+	if me["onboarding_step"] != "domain" || me["has_bound_device"] != true {
+		t.Fatalf("unexpected me state: %v", me)
 	}
 }
 
-func TestBindRejectsSecondLuna(t *testing.T) {
+func TestPairRejectsSecondLuna(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "one@b.co")
 	verifyEmailFor(t, acctH, "one@b.co")
+	_, uid1, code1 := mintDevice(t, d, "official")
+	pairDeviceForAccount(t, acctH, devH, cookie, uid1, code1)
 
-	_, code1 := mintDevice(t, d, "official")
-	bind1 := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code1+`"}`))
-	bind1.AddCookie(cookie)
-	bindRec1 := withVerifiedAccount(acctH, devH.Bind, bind1)
-	if bindRec1.Code != http.StatusOK {
-		t.Fatalf("first bind %d", bindRec1.Code)
-	}
-
-	_, code2 := mintDevice(t, d, "official")
-	bind2 := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code2+`"}`))
-	bind2.AddCookie(cookie)
-	bindRec2 := withVerifiedAccount(acctH, devH.Bind, bind2)
-	if bindRec2.Code != http.StatusConflict {
-		t.Fatalf("second bind expected 409, got %d %s", bindRec2.Code, bindRec2.Body.String())
+	_, uid2, code2 := mintDevice(t, d, "official")
+	body, _ := json.Marshal(pairingInput{DeviceUID: uid2, VerificationCode: code2})
+	req := httptest.NewRequest(http.MethodPost, "/devices/pair", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	rec := withVerifiedAccount(acctH, devH.StartPair, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second pair expected 409, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -88,11 +70,8 @@ func TestUnbindResetsOnboardingToCode(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "unbind@b.co")
 	verifyEmailFor(t, acctH, "unbind@b.co")
-
-	devID, code := mintDevice(t, d, "official")
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	withVerifiedAccount(acctH, devH.Bind, bindReq)
+	_, uid, code := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
 
 	unReq := httptest.NewRequest(http.MethodDelete, "/devices/"+devID, nil)
 	unReq.AddCookie(cookie)
@@ -101,7 +80,6 @@ func TestUnbindResetsOnboardingToCode(t *testing.T) {
 	if unRec.Code != http.StatusOK {
 		t.Fatalf("unbind %d", unRec.Code)
 	}
-
 	var step string
 	_ = d.DB.QueryRow(`SELECT onboarding_step FROM accounts WHERE email = ?`, "unbind@b.co").Scan(&step)
 	if step != "code" {

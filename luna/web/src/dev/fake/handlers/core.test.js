@@ -33,33 +33,132 @@ afterEach(() => {
 });
 
 describe("fake GET /api/v1/connect/status", () => {
-  it("keeps device_token_error so the dashboard can build its Needs you row", async () => {
-    // What lunad's status_for leaves behind when the saved token is unusable.
+  it("keeps connect_error and revoked state so the dashboard can build its Needs you row", async () => {
     startFake((w) => {
       w.connect = {
-        connect_active: true,
-        enabled: true,
-        paired: true,
-        unclaimed: true,
-        tunnel_active: true,
-        device_token_error: "Luna Connect did not accept this device token.",
+        state: "revoked",
+        connect_active: false,
+        enabled: false,
+        paired: false,
+        unclaimed: false,
+        tunnel_active: false,
+        connect_error: "Luna Connect no longer accepts this Luna's connection.",
       };
     });
 
     const body = await (await window.fetch("/api/v1/connect/status")).json();
 
-    expect(body.device_token_error).toBe("Luna Connect did not accept this device token.");
-    // A token error also turns the remote-access flags off (net/connect.rs status_for).
-    expect(body).toMatchObject({ enabled: false, paired: false, unclaimed: false, tunnel_active: false });
+    expect(body.connect_error).toBe("Luna Connect no longer accepts this Luna's connection.");
+    expect(body).toMatchObject({ state: "revoked", enabled: false, paired: false, tunnel_active: false });
   });
 
-  it("leaves device_token_error out when the token is fine, as lunad's serde skip does", async () => {
+  it("leaves connect_error out for an unused identity", async () => {
     startFake();
 
     const body = await (await window.fetch("/api/v1/connect/status")).json();
 
-    expect("device_token_error" in body).toBe(false);
-    expect(body).toMatchObject({ enabled: false, paired: false, unclaimed: false, tunnel_active: false });
+    expect("connect_error" in body).toBe(false);
+    expect(body).toMatchObject({ state: "unbound", enabled: false, paired: false, unclaimed: true, tunnel_active: false });
+  });
+
+  it("reports pairing without treating stale local activity as a binding", async () => {
+    startFake((w) => {
+      w.connectActive = true;
+      w.connect = { state: "pairing", paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+    });
+
+    const body = await (await window.fetch("/api/v1/connect/status")).json();
+
+    expect(body).toMatchObject({ state: "pairing", connect_active: false, paired: false, unclaimed: true });
+    expect(body).not.toHaveProperty("device_code");
+    expect(body).not.toHaveProperty("device_token_error");
+  });
+
+  it("reports a bound Luna without exposing the rolling credential", async () => {
+    startFake((w) => {
+      w.connectActive = true;
+      w.connect = {
+        state: "bound",
+        paired: true,
+        enabled: true,
+        hostname: "kitchen.luna.servers.libreloom.org",
+        device_uid: "7K4M2Q9XR8N36T5W1PZH",
+        verification_code: "A3F91C",
+      };
+    });
+
+    const body = await (await window.fetch("/api/v1/connect/status")).json();
+
+    expect(body).toMatchObject({ state: "bound", connect_active: true, paired: true, unclaimed: false });
+    expect(body).not.toHaveProperty("credential");
+    expect(body).not.toHaveProperty("device_token_error");
+  });
+
+  it("keeps a pending disconnect in the bound state with pairing stopped", async () => {
+    startFake((w) => {
+      w.connectActive = true;
+      w.connect = { state: "bound", paired: false, unbind_pending: true };
+    });
+
+    const body = await (await window.fetch("/api/v1/connect/status")).json();
+
+    expect(body).toMatchObject({ state: "bound", unbind_pending: true, connect_active: false, paired: false });
+    expect(body.connect_error).toMatch(/still disconnecting/);
+  });
+
+  it("does not report Connect active just because a Verification code exists", async () => {
+    startFake((w) => {
+      w.connectActive = true;
+      w.connect = { paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+    });
+
+    const status = await (await window.fetch("/api/v1/auth/status")).json();
+    expect(status.connect_active).toBe(false);
+  });
+});
+
+describe("fake POST /api/v1/auth/register setup grants", () => {
+  const body = { username: "max", display_name: "Max", password: "hunter22hunter1" };
+  const fresh = (world, grant) => {
+    world.users = [];
+    world.sessionUserId = null;
+    world.hasAdmin = false;
+    world.setupGrant = grant;
+  };
+
+  it("requires the configured grant without consuming it on a failed attempt", async () => {
+    const world = startFake((w) => fresh(w, "grant-one"));
+
+    const missing = await postJson("/api/v1/auth/register", body);
+    expect(missing.status).toBe(403);
+    expect((await missing.json()).error).toMatch(/setup link is no longer valid/i);
+
+    const wrong = await postJson("/api/v1/auth/register", { ...body, setup_grant: "wrong-grant" });
+    expect(wrong.status).toBe(403);
+    expect(world.users).toHaveLength(0);
+    expect(world.setupGrant).toBe("grant-one");
+  });
+
+  it("consumes a valid grant once and rejects its replay", async () => {
+    const world = startFake((w) => fresh(w, "grant-one"));
+
+    const first = await postJson("/api/v1/auth/register", { ...body, setup_grant: " grant-one " });
+    expect(first.status).toBe(200);
+    expect(world.users).toHaveLength(1);
+    expect(world.setupGrant).toBeNull();
+    expect(world.usedSetupGrants).toEqual(["grant-one"]);
+
+    world.users = [];
+    world.sessionUserId = null;
+    world.hasAdmin = false;
+    const replay = await postJson("/api/v1/auth/register", {
+      username: "jamie",
+      display_name: "Jamie",
+      password: "hunter22hunter1",
+      setup_grant: "grant-one",
+    });
+    expect(replay.status).toBe(403);
+    expect(world.users).toHaveLength(0);
   });
 });
 

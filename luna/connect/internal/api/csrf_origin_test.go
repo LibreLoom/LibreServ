@@ -9,6 +9,17 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 )
 
+func TestPairingClaimDoesNotRequireBrowserCSRF(t *testing.T) {
+	h := testServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/pair/claim", strings.NewReader(
+		`{"device_uid":"7K4M2Q9XR8N36T5W1PZH","verification_code":"A3F91C"}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("claim should reach its generic no-pairing answer without CSRF, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCSRFRejectsEvilOrigin(t *testing.T) {
 	h := testServer(t)
 	prev := config.C.Server.BaseURL

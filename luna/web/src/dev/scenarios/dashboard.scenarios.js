@@ -173,11 +173,11 @@ export default [
     check: [NEEDS, "Says to check the router or modem"],
   },
   {
-    id: "dashboard/connect-token-error",
+    id: "dashboard/connect-revoked",
     area: "Dashboard",
-    title: "Needs you: Connect device token rejected",
-    seed: (w) => { w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." }; },
-    check: [NEEDS, "Button goes to Settings → About where the token can be replaced", "lunad never sends the saved token back, so the token box is empty even while the error shows — a new token has to be pasted"],
+    title: "Needs you: Connect access revoked",
+    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, enabled: false, connect_error: "Luna Connect revoked this Luna. Reconnect it from your Connect account." }; w.connectActive = false; },
+    check: [NEEDS, "Button goes to Settings → Luna Connect → Device token", "The revoked state is explained without asking for a replacement token"],
   },
   {
     id: "dashboard/system-check-failed",
@@ -205,7 +205,8 @@ export default [
       w.health = { d1: smartHealth({ verdict: "failing", overall: "failed", status_bits: 8, reallocated_sectors: 120, temperature_c: 55, signals: [{ kind: "self_check_failed", level: "failing", value: null, limit: null }, { kind: "reallocated_sectors", level: "failing", value: 120, limit: 100 }, { kind: "temperature", level: "note", value: 55, limit: 60 }] }) };
       w.summaries.d2 = summary("d2", { total_bytes: 64 * GB, free_bytes: GB, used_bytes: 63 * GB });
       w.network = { ethernet_connected: true, has_default_route: false };
-      w.connect = { connect_active: false, enabled: false, device_token_error: "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced." };
+      w.connect = { state: "revoked", paired: false, connect_active: false, enabled: false, connect_error: "Luna Connect revoked this Luna. Reconnect it from your Connect account." };
+      w.connectActive = false;
       w.systemChecks = { overall_pass: false, checks: { drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" }, disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" } } };
       w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." }), backup({ state: "stale", source_name: "Documents" })];
       w.cloudBackups = [cloudBackup({ source_missing: true })];

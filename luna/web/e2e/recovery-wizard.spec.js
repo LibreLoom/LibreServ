@@ -4,7 +4,15 @@ import { readFile } from "node:fs/promises";
 import { contrastRatio } from "../../../shared/ui/lib/colorContrast.js";
 
 const PASSWORD = "recoveryPassword123";
-const DEVICE_TOKEN = "ABCD-EFGH-JKLM-NPQR";
+const RECOVERY_FILENAME = "luna-recover.luna";
+/** @type {Array<[string, { state: string, paired: boolean, connect_active: boolean, unbind_pending?: boolean }]>} */
+const CONNECT_STATES = [
+  ["unbound", { state: "unbound", paired: false, connect_active: false, unbind_pending: false }],
+  ["pairing", { state: "pairing", paired: false, connect_active: false, unbind_pending: false }],
+  ["bound", { state: "bound", paired: true, connect_active: true, unbind_pending: false }],
+  ["revoked", { state: "revoked", paired: false, connect_active: false, unbind_pending: false }],
+  ["disconnecting", { state: "bound", paired: false, connect_active: false, unbind_pending: true }],
+];
 
 async function expectReadableText(locator) {
   const read = () =>
@@ -57,24 +65,37 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Create a password recovery file" })).toBeVisible();
 });
 
-test("downloads a token-bound file with exact filename and JSON bytes", async ({ page }) => {
+test("downloads luna-recover.luna with exact filename and JSON bytes", async ({ page }) => {
+  await expect(page.getByLabel("Verification code", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("This Luna has a Verification code")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Device token" })).toHaveCount(0);
   await chooseAccount(page, "One existing account");
   await page.getByLabel("Username").fill("Sam");
-  await page.locator("#device-token").fill(DEVICE_TOKEN);
   await fillPassword(page, "éééééééééa1");
 
-  await downloadFile(page, "u-sam", "éééééééééa1", "luna-recover-abcdefghjk1mnpqr.luna");
+  await downloadFile(page, "u-sam", "éééééééééa1", RECOVERY_FILENAME);
   const downloadStatus = page.locator('[role="status"]');
   await expect(downloadStatus).toBeVisible();
-  await expect(downloadStatus.getByText("luna-recover-abcdefghjk1mnpqr.luna", { exact: true })).toBeVisible();
+  await expect(downloadStatus.getByText(RECOVERY_FILENAME, { exact: true })).toBeVisible();
 });
 
-test("downloads the tokenless filename when no token is configured", async ({ page }) => {
-  await page.getByLabel("This Luna has a device token").uncheck();
-  await fillPassword(page);
+for (const [state, status] of CONNECT_STATES) {
+  test(`downloads the recovery file while Luna is ${state}`, async ({ page }) => {
+    let connectStatusRequests = 0;
+    await page.route("**/api/v1/connect/status", (route) => {
+      connectStatusRequests += 1;
+      return route.fulfill({ json: status });
+    });
+    await page.reload();
 
-  await downloadFile(page, "g-admin", PASSWORD, "luna-recover.luna");
-});
+    await expect(page.getByRole("button", { name: "Download recovery file" })).toBeVisible();
+    await expect(page.getByText(/USB recovery works whether Luna Connect is on or off\./)).toBeVisible();
+    await expect(page.getByLabel("Verification code", { exact: true })).toHaveCount(0);
+    await fillPassword(page);
+    await downloadFile(page, "g-admin", PASSWORD, RECOVERY_FILENAME);
+    expect(connectStatusRequests).toBe(0);
+  });
+}
 
 test("keeps recovery instructions and section headings readable in light and dark themes", async ({ page }) => {
   for (const theme of ["light", "dark"]) {
@@ -88,14 +109,16 @@ test("keeps recovery instructions and section headings readable in light and dar
     await expect(skipLink).toBeFocused();
     await expectReadableText(skipLink);
 
+    const instructions = page.getByRole("button", { name: "How to use the recovery file" });
+    await instructions.click();
+    await expect(instructions).toHaveAttribute("aria-expanded", "true");
+
     for (const locator of [
-      page.getByText("Put this file on a USB flash drive to set a new password when Luna starts. Your browser makes the file and does not send your password over the network."),
+      page.getByText("Your browser makes this USB recovery file locally and does not send your password over the network. USB recovery works whether Luna Connect is on or off."),
       page.getByRole("heading", { name: "Who is it for?" }),
-      page.getByText("This Luna has a device token", { exact: true }),
-      page.getByRole("heading", { name: "Device token" }),
       page.getByRole("heading", { name: "Set a new password" }),
       page.getByText("Luna signs the selected accounts out on all devices."),
-      page.getByText("A recovery file does not change the password while Luna is already running."),
+      page.getByText("A recovery file works only during startup, whether Luna Connect is on or off."),
     ]) {
       await expectReadableText(locator);
     }
@@ -110,16 +133,15 @@ test("keeps recovery credentials in the local download", async ({ page }) => {
     body: request.postData(),
   }));
 
-  await page.locator("#device-token").fill(DEVICE_TOKEN);
   await fillPassword(page);
-  await downloadFile(page, "g-admin", PASSWORD, "luna-recover-abcdefghjk1mnpqr.luna");
+  await downloadFile(page, "g-admin", PASSWORD, RECOVERY_FILENAME);
 
   const localOrigin = new URL(page.url()).origin;
   expect(requests.every(({ url }) => new URL(url).origin === localOrigin)).toBe(true);
   expect(requests.filter(({ method }) => method !== "GET")).toEqual([]);
+  expect(requests.some(({ url }) => url.includes("/api/v1/connect/status"))).toBe(false);
   expect(requests.every(({ url, body }) =>
-    !url.includes(PASSWORD) && !url.includes(DEVICE_TOKEN) &&
-    !body?.includes(PASSWORD) && !body?.includes(DEVICE_TOKEN)
+    !url.includes(PASSWORD) && !body?.includes(PASSWORD)
   )).toBe(true);
 });
 
@@ -136,9 +158,8 @@ test("encodes every daemon account selector in the downloaded file", async ({ pa
   for (const [label, selector, username] of selectors) {
     await chooseAccount(page, label);
     if (username) await page.getByLabel("Username").fill(username);
-    await page.locator("#device-token").fill(DEVICE_TOKEN);
     await fillPassword(page);
-    await downloadFile(page, selector, PASSWORD, "luna-recover-abcdefghjk1mnpqr.luna");
+    await downloadFile(page, selector, PASSWORD, RECOVERY_FILENAME);
     await page.reload();
   }
 });
@@ -146,7 +167,6 @@ test("encodes every daemon account selector in the downloaded file", async ({ pa
 test("announces field errors and associates them with the invalid input", async ({ page }) => {
   await chooseAccount(page, "One existing account");
   await page.getByLabel("Username").fill("bad name");
-  await page.locator("#device-token").fill(DEVICE_TOKEN);
   await fillPassword(page);
   await page.getByRole("button", { name: "Download recovery file" }).click();
 
@@ -176,17 +196,11 @@ test("supports keyboard access to the skip link and account choices", async ({ p
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
-test("shows a recovery-file error and allows a successful retry", async ({ page }) => {
+test("shows password and recovery-file errors and allows a successful retry", async ({ page }) => {
   let downloads = 0;
   page.on("download", () => { downloads += 1; });
 
-  await page.locator("#device-token").fill("bad");
   await fillPassword(page);
-  await page.getByRole("button", { name: "Download recovery file" }).click();
-  await expect(page.getByRole("alert")).toContainText("16 to 32 character device token");
-  expect(downloads).toBe(0);
-
-  await page.locator("#device-token").fill(DEVICE_TOKEN);
   await page.evaluate(() => {
     const createObjectURL = URL.createObjectURL.bind(URL);
     let shouldFail = true;
@@ -210,7 +224,7 @@ test("shows a recovery-file error and allows a successful retry", async ({ page 
   await expect(page.getByRole("alert")).toContainText("at least 12 characters");
   expect(downloads).toBe(0);
 
-  await fillPassword(page, "recoveryPassword123");
-  await downloadFile(page, "g-admin", PASSWORD, "luna-recover-abcdefghjk1mnpqr.luna");
+  await fillPassword(page);
+  await downloadFile(page, "g-admin", PASSWORD, RECOVERY_FILENAME);
   expect(downloads).toBe(1);
 });

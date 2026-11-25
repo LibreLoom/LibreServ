@@ -13,7 +13,20 @@ import { formatFields } from "./format.js";
 const unmounted = (id) => ({ id, mounted: false, total_bytes: null, free_bytes: null, used_bytes: null, folders: null, files: null, shortcuts: [] });
 const healthy = () => smartHealth();
 const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").every((u) => u.id === id);
-const DEVICE_TOKEN_REJECTED = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
+const CONNECT_STATES = new Set(["unbound", "pairing", "bound", "revoked"]);
+const CONNECT_PENDING_ERROR = "Luna is still disconnecting from Luna Connect. Remote access and pairing are stopped until it finishes.";
+const CONNECT_REVOKED_ERROR = "Luna Connect no longer accepts this Luna's connection. Open Luna Connect to reconnect this Luna.";
+const SETUP_GRANT_ERROR = "That setup link is no longer valid. Create a new one in Luna Connect and try again.";
+
+function fakeConnectState(world) {
+  const connect = world.connect || {};
+  if (CONNECT_STATES.has(connect.state)) return connect.state;
+  return connect.paired ? "bound" : "unbound";
+}
+
+function fakeConnectActive(world) {
+  return fakeConnectState(world) === "bound" && Boolean(world.connectActive) && !world.connect?.unbind_pending;
+}
 
 /** crate::password::validate_password. */
 const badPassword = (pw) => {
@@ -29,7 +42,10 @@ const userJson = (u) => ({ id: u.id, username: u.username, display_name: u.displ
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 get("/api/v1/auth/me", ({ user, world }) => (user ? { ...userJson(user), phrase_set: Boolean(world.phrase?.set) } : null), { public: true });
-get("/api/v1/auth/status", ({ world }) => ({ has_admin: world.users.length > 0 && world.hasAdmin, connect_active: world.connectActive }), { public: true });
+get("/api/v1/auth/status", ({ world }) => ({
+  has_admin: world.users.length > 0 && world.hasAdmin,
+  connect_active: fakeConnectActive(world),
+}), { public: true });
 
 post("/api/v1/auth/login", ({ world, body }) => {
   const u = world.users.find((x) => x.username === String(body.username ?? "").trim().toLowerCase());
@@ -45,8 +61,12 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
   if (hasUsers) {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can add users.");
-  } else if (world.setupSecret && body.setup_secret !== world.setupSecret) {
-    return fail(403, "That device token doesn't match. Check the device token on the quick-start guide or in Luna Connect.");
+  } else {
+    const configuredGrant = String(world.setupGrant ?? "").trim();
+    const submittedGrant = String(body.setup_grant ?? "").trim();
+    const usedGrants = Array.isArray(world.usedSetupGrants) ? world.usedSetupGrants : [];
+    if (submittedGrant && usedGrants.includes(submittedGrant)) return fail(403, SETUP_GRANT_ERROR);
+    if (configuredGrant && submittedGrant !== configuredGrant) return fail(403, SETUP_GRANT_ERROR);
   }
   const bad = badUsername(body.username) || badPassword(body.password);
   if (bad) return bad;
@@ -54,7 +74,16 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
   if (world.users.some((u) => u.username === username)) return fail(409, "That username is already taken.");
   const created = makeUser({ username, display_name: body.display_name || body.username, role: hasUsers ? "user" : "admin" });
   world.users.push(created);
-  if (!hasUsers) { world.hasAdmin = true; world.sessionUserId = created.id; world.phrase = { ...world.phrase, set: false }; }
+  if (!hasUsers) {
+    const configuredGrant = String(world.setupGrant ?? "").trim();
+    if (configuredGrant) {
+      world.usedSetupGrants = [...(Array.isArray(world.usedSetupGrants) ? world.usedSetupGrants : []), configuredGrant];
+      world.setupGrant = null;
+    }
+    world.hasAdmin = true;
+    world.sessionUserId = created.id;
+    world.phrase = { ...world.phrase, set: false };
+  }
   return userJson(created);
 }, { public: true });
 
@@ -502,10 +531,33 @@ post("/api/v1/system/factory-reset", ({ world, user, body }) => {
   if (!body.confirm) return fail(400, "Confirm that you want to reset this Luna. Everyone is signed out and backups stop. Files on your drives are not deleted.");
   if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to confirm this reset.");
   if (body.password === "wrong") return fail(401, "That password is wrong. Reset was not started.");
-  // The reset's unbind step settled Luna Connect (api/search.rs ConnectChoice);
-  // the device token always stays. "keep" leaves the link alone.
-  if (body.connect === "unbound" || body.connect === "pending") {
-    world.connect = { ...world.connect, paired: false, hostname: null, domain: null, subdomain: null, tunnel_active: false };
+  // Pairing identity survives every reset. A pending disconnect keeps remote
+  // access off until Luna can confirm the revocation.
+  if (body.connect === "disconnect") {
+    const priorState = fakeConnectState(world);
+    const revokedFailure = priorState === "revoked" && Boolean(world.unbindFails);
+    const pending = !revokedFailure && Boolean(world.connect.unbind_pending || world.unbindFails);
+    world.connect = {
+      ...world.connect,
+      state: revokedFailure
+        ? "revoked"
+        : pending
+          ? priorState === "pairing" ? "pairing" : "bound"
+          : "unbound",
+      paired: false,
+      account_id: pending || revokedFailure ? world.connect.account_id : null,
+      pairing_id: pending || revokedFailure ? world.connect.pairing_id : null,
+      unbind_pending: pending,
+      hostname: null,
+      domain: null,
+      subdomain: null,
+      tunnel_active: false,
+      backup_unlocked: false,
+      backup_sources: [],
+      connect_error: null,
+    };
+    if (!pending && !revokedFailure) world.connect.setup_grant = null;
+    world.connectActive = false;
   }
   world.sessionUserId = null;
   world.users = [];
@@ -523,15 +575,35 @@ get("/api/v1/network/status", ({ world, user }) => {
 }, { public: true });
 get("/api/v1/connect/status", ({ world, user }) => {
   const admin = isAdmin(user) || world.users.length === 0;
-  const { device_code: code, ...rest } = world.connect;
-  const status = { enabled: false, base_url: "https://connect.luna.libreloom.org", tunnel_active: false, backup_unlocked: false, paired: false, unclaimed: false, backup_sources: [], device_code: code ?? null, domain: null, hostname: null, subdomain: null, connect_active: world.connectActive, ...rest };
-  // lunad's one answer to "can cloud backup store anything?" (net/connect.rs status_for).
-  status.cloud_backup = !status.connect_active || status.device_token_error ? "not_linked" : status.backup_unlocked ? "ready" : "no_payment";
-  // lunad sends device_token_error only when the saved token is unusable (serde skips None),
-  // and the dashboard's "Needs you" row is built from it (lib/needsYou.js).
-  if (status.device_token_error) Object.assign(status, { enabled: false, paired: false, unclaimed: false, tunnel_active: false });
-  else delete status.device_token_error;
-  if (!admin) status.backup_sources = [];
+  const connect = world.connect || {};
+  const state = fakeConnectState(world);
+  const pending = Boolean(connect.unbind_pending);
+  const active = fakeConnectActive(world);
+  const hostname = active ? (connect.hostname || connect.domain || null) : null;
+  const connectError = connect.connect_error
+    || (pending ? CONNECT_PENDING_ERROR : state === "revoked" ? CONNECT_REVOKED_ERROR : "");
+  const status = /** @type {Record<string, any>} */ ({
+    enabled: active && Boolean(connect.enabled || hostname || connect.tunnel_active),
+    base_url: "https://connect.luna.libreloom.org",
+    tunnel_active: active && Boolean(connect.tunnel_active),
+    backup_unlocked: active && Boolean(connect.backup_unlocked),
+    cloud_backup: !active ? "not_linked" : connect.backup_unlocked ? "ready" : "no_payment",
+    paired: active,
+    unclaimed: state === "unbound" || state === "pairing",
+    state,
+    unbind_pending: pending,
+    device_uid: connect.device_uid ?? null,
+    verification_code: admin ? connect.verification_code ?? null : null,
+    domain: hostname,
+    hostname,
+    subdomain: active ? connect.subdomain ?? null : null,
+    connect_active: active,
+    lan_override: Boolean(connect.lan_override),
+    backup_sources: admin && active ? connect.backup_sources || [] : [],
+  });
+  if (connectError) status.connect_error = connectError;
+  if (connect.connect_unreachable) status.connect_unreachable = connect.connect_unreachable;
+  if (connect.tunnel_error) status.tunnel_error = connect.tunnel_error;
   return status;
 }, { public: true });
 
@@ -548,5 +620,3 @@ get("/api/v1/cloud/phrase", ({ world }) => ({
   old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
   resealing: Boolean(world.phrase?.resealing),
 }));
-
-export { DEVICE_TOKEN_REJECTED };

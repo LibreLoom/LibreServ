@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { useQuery } from "@tanstack/react-query";
 import { getJson } from "../../lib/api";
+import { isConnectBound } from "../../lib/connectState.js";
 
 function asHttpsUrl(host) {
   const h = String(host || "").trim();
@@ -44,14 +45,14 @@ export default function DiscoveryPaths({ name = "" }) {
     retry: false,
   });
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
-  // With a device token set, local links are only real when root has turned
-  // the LAN override on. Do not show addresses the browser cannot reach.
+  // Local links depend on Luna's reported Connect binding, not on whether a
+  // human-readable pairing code happens to be saved on disk.
   const lanBlocked = Boolean(
-    connectStatus.data?.connect_active && !connectStatus.data?.lan_override,
+    isConnectBound(connectStatus.data) && !connectStatus.data?.lan_override,
   );
   const remoteHost = (() => {
     const s = connectStatus.data;
-    if (!s || s.device_token_error) return "";
+    if (!isConnectBound(s) || s?.connect_error || s?.unbind_pending) return "";
     const host = String(s.hostname || s.domain || "").trim();
     return host || "";
   })();
@@ -63,7 +64,7 @@ export default function DiscoveryPaths({ name = "" }) {
       </h3>
       {remoteHost ? (
         <div>
-          <p className="text-xs text-secondary mb-2">From anywhere (when Luna Connect is on):</p>
+          <p className="text-xs text-secondary mb-2">From anywhere:</p>
           <a
             href={asHttpsUrl(remoteHost)}
             target="_blank"

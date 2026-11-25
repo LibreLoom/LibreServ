@@ -2,13 +2,22 @@
 
 Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
-Bind is **offline on the website**: you enter the permanent device token
-(`****-****-****-****-****`), pick a name, and optionally turn on cloud backup.
-Luna then pulls `GET /api/v1/status` on boot and every 5 minutes (Bearer = full
-device token). **200** applies tunnel/domain/backup; **JSON 403** means unbound and
-Luna clears remote access. A **Cloudflare managed-challenge 403** (HTML / 
-`cf-mitigated: challenge`) is **not** an unbind — Luna keeps `connect.json` and
-shows a sticky reachability error until Connect returns real JSON again.
+Pairing requires a verified Connect account and a running Luna. The account
+starts with `POST /api/v1/devices/pair`, using the Luna's public 20-character
+Crockford Device ID (`7K4M-2Q9X-R8N3-6T5W-1PZH`) and six-character Verification
+code (`A3F91C`), then polls the returned pairing ID. While unbound, Luna polls
+`POST /api/v1/devices/pair/claim` with the same two values. A successful claim
+returns a hidden rolling `auth_token`; the Device ID and Verification code are
+not ongoing credentials.
+
+Once bound, Luna uses the rolling credential as Bearer auth for
+`GET /api/v1/status` and the other device routes. It refreshes the credential
+every five minutes and after reconnect through `POST /api/v1/token/refresh`.
+Rotation invalidates the old credential, with a 60-second overlap only on the
+refresh endpoint; unbind and revocation invalidate it immediately. A
+**Cloudflare managed-challenge 403** (HTML / `cf-mitigated: challenge`) is not an
+unbind — Luna keeps its local state and shows a reachability error until Connect
+returns real JSON again.
 
 Routes: `/onboarding` (official) and `/diyonboarding` (bring-your-own, $1 mint).
 `/register` redirects to `/diyonboarding`.
@@ -21,24 +30,46 @@ Backup to the cloud is planned as the only paid product. The address never requi
 
 ## Bot challenges in front of the device API
 
-Luna devices call `/api/v1/*` on the public hostname with a Bearer device token.
-They cannot solve browser JavaScript challenges, so a CDN or firewall bot
-challenge on that path (HTML `403` with `cf-mitigated: challenge`) breaks
-status pulls: Luna keeps its local bind state, but **tunnel tokens stop
-refreshing** until the challenge stops. Exempt `/api/v1/*` from bot challenges
-in production. Reproduce locally with
+Luna devices call `/api/v1/*` on the public hostname. Pairing claims use the
+Device ID and Verification code; bound requests use a Bearer rolling credential.
+Devices cannot solve browser JavaScript challenges, so a CDN or firewall bot
+challenge on that path (HTML `403` with `cf-mitigated: challenge`) breaks pairing
+or status and credential refreshes: Luna keeps its local bind state, but
+**tunnel tokens stop refreshing** until the challenge stops. Exempt `/api/v1/*`
+from bot challenges in production. Reproduce locally with
 `luna/scripts/mocks/mock-connect-cf-challenge.py` and
 `luna/scripts/mocks/repro-cf-challenge-403.sh`.
 
 ## Device tokens
- 
-One permanent **device token** per Luna. The **full token** binds on this site and unlocks remote setup on the box — Luna's account-creation step asks for the full token (no 8-char prefix gate). Connect's onboarding links to `/setup?token=` with the full token to prefill it.
- 
-The owner can see the full token again on the Devices page (`POST /api/v1/account/devices/{id}/code`). That needs the account's current password in the request body; wrong passwords count against the same per-network and per-account limits as sign-in, and each reveal writes a log line with the account id and device id (never the token).
- 
-Connect is optional. Local-only / air-gap installs may skip the token at flash time; setup stays open on the LAN, and first registration over the public hostname still asks for the device token — remote first login never fail-opens.
- 
-Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees the name, and returns 403 on status until rebound. Factory reset keeps the on-disk device-token file so a still-bound account auto re-provisions on the next status pull.
+
+The product's **Device token** section contains two separate fields: **Device ID**
+and **Verification code**. The Device ID is public and is stored ungrouped in
+`device-uid`; the reusable Verification code is pairing material and is stored in
+`pairing-code` with mode `0600`. The rolling `auth_token` is stored separately in
+`connect-credential` with mode `0600` and is never shown to a user. The old
+permanent-token files and `first_user_secret` path are removed.
+
+The Verification code is accepted only while the device is unbound or has an
+active pairing attempt. The first valid claim wins and closes pairing. Unbind
+keeps the Device ID and Verification code but revokes the rolling credential;
+account revocation moves the device to `revoked` until account-authorized recovery
+starts a new pairing attempt.
+
+Connect is optional. Local-only or air-gapped installs may skip pairing at flash
+time, and first registration stays open on the LAN. Off-LAN first registration
+requires a separate one-time setup grant: the account creates it with
+`POST /api/v1/devices/{device_id}/setup-grant`, Connect puts it in the setup URL
+fragment (`/setup#<setup_grant>`), and Luna consumes it through
+`POST /api/v1/devices/setup-grant/consume` with its rolling credential before
+creating the first Admin. The Device ID, Verification code, rolling credential,
+and URL query string are not accepted as substitutes.
+
+Unbind on the dashboard archives backups (`User → Backups → Luna*-uuid`), frees
+the name, and invalidates the rolling credential. Factory reset offers **Keep
+Connect** or **Disconnect**. Keep Connect retains the rolling credential and bound
+configuration while clearing local Luna data. Disconnect uses the normal unbind
+flow; if Connect is unavailable, the reset retains pending revocation state and
+blocks remote access and pairing until revocation succeeds.
 
 ## Run
 
@@ -77,9 +108,21 @@ Empty keys refuse paid routes (fail closed). `stripe.enabled: false` by itself d
 
 ## Factory / support
 
-Staff mint official unbound device tokens (single or bulk). DIY mints a token after the $1 payment on `/diyonboarding`. Bulk export is a single-token `TOKENS` list (plus metadata), not a paired setup+device file.
+Staff mint official unbound Device ID and Verification code pairs, singly or in
+bulk. DIY provisioning exports the same pair after its payment step. Each
+`TOKENS` line has exactly two whitespace-separated fields:
 
-Support looks up by order ref or token hint and can reveal or replace the device token. Each support reveal requires the signed-in staff member’s current password and shares the staff sign-in rate limits. Static admin tokens cannot reveal device tokens. Successful reveals log the admin id and device id (never the token). Quick-start print shows one token; that full token unlocks remote setup (paste it when the setup form asks) — not just the first eight characters.
+```text
+7K4M2Q9XR8N36T5W1PZH A3F91C
+```
+
+The installer writes those fields to separate `device-uid` and `pairing-code`
+files. The printable quick-start shows both fields; neither one directly
+unlocks remote first-Admin setup, which uses the one-time setup grant.
+
+Support looks up devices by order reference or Device ID. Treat the Verification
+code as pairing material and never include it in logs. Quick-start printing and
+factory provisioning must keep the Device ID and Verification code separate.
 
 Staff admin: first account via `/admin/seed` (loopback, or `auth.admin_seed_token` + `X-Seed-Token`), then `/admin/login`. Console: Dashboard, Devices, Device tokens, Accounts, Connections, Security.
 

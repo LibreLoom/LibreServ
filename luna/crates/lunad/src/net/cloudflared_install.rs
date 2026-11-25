@@ -152,6 +152,7 @@ pub fn install_cloudflared_to(dest: &Path) -> Result<(), String> {
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
     })?;
+    crate::datadir::sync_parent_directory(dest).map_err(|e| e.to_string())?;
     Ok(())
 }
 

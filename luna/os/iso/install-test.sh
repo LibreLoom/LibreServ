@@ -45,15 +45,15 @@ podman run --rm --security-opt label=disable --memory 3g $DEV \
 	xorriso -osirrox on -indev /iso/$(basename "$ISO") -extract /live/vmlinuz /tmp/vmlinuz -extract /live/initrd.img /tmp/initrd.img >/dev/null 2>&1
 	if [ -z '${SKIP_INSTALL:-}' ]; then
 	truncate -s 6G /out/disk.raw
-	# Writable copy of the stick with a TOKENS magazine on LUNAASSETS (MBR
-	# partition 3, GPT "Appended3"), to prove the factory token path end to end.
+	# Writable copy of the stick with an exact TOKENS pairing line on
+	# LUNAASSETS (MBR partition 3, GPT "Appended3").
 	cp /iso/$(basename "$ISO") /out/stick.iso
 	START=\$(sfdisk -d /out/stick.iso | awk '/Appended3/ { sub(/,/, \"\", \$4); print \$4 }')
-	printf 'ABCDEFGH23456789\\n' >/tmp/TOKENS
+	printf '7K4M2Q9XR8N36T5W1PZH A3F91C\\n' >/tmp/TOKENS
 	MTOOLS_SKIP_CHECK=1 mcopy -i /out/stick.iso@@\$((START * 512)) /tmp/TOKENS ::TOKENS
 	echo '==> installing'
-	# The installer asks for an optional device token at the end: send Enter
-	# presses on the serial console until it moves on and reboots.
+	# The magazine supplies both values. Keep stdin moving only in case the
+	# installer falls back to its optional Device ID prompt.
 	( sleep 50; i=0; while [ \$i -lt 40 ]; do printf '\\n'; sleep 3; i=\$((i + 1)); done ) | qemu-system-x86_64 -machine q35 $KVM -m 2048 -smp 2 -nographic -no-reboot -net none \
 		-drive if=none,id=stick,format=raw,file=/out/stick.iso \
 		-device qemu-xhci -device usb-storage,drive=stick \
@@ -61,11 +61,18 @@ podman run --rm --security-opt label=disable --memory 3g $DEV \
 		-kernel /tmp/vmlinuz -initrd /tmp/initrd.img \
 		-append 'boot=live text nomodeset console=tty0 console=ttyS0 net.ifnames=0 biosdevname=0 init=/usr/lib/luna-installer/init.sh LUNA_TARGET=/dev/vda LUNA_CONFIRM=INSTALL LUNA_OVERRIDE_WAIT=1' \
 		>/out/install-serial.log 2>&1 || true
-	echo '==> checking the factory token'
-	grep -a 'Device token taken from LUNAASSETS' /out/install-serial.log || echo 'MISSING: token not taken from LUNAASSETS'
-	MTOOLS_SKIP_CHECK=1 mtype -i /out/stick.iso@@\$((START * 512)) ::TOKENS | wc -c | sed 's/^/TOKENS bytes left on the stick: /'
+	echo '==> checking the factory pairing material'
+	grep -a 'Device ID and Verification code taken from LUNAASSETS' /out/install-serial.log || { echo 'MISSING: pairing material not taken from LUNAASSETS' >&2; exit 1; }
+	_left=\$(MTOOLS_SKIP_CHECK=1 mtype -i /out/stick.iso@@\$((START * 512)) ::TOKENS | wc -c)
+	[ "\$_left" -eq 0 ] || { echo "FAIL: TOKENS still has \$_left bytes" >&2; exit 1; }
 	dd if=/out/disk.raw of=/tmp/d.img bs=1M skip=2690 count=3400 2>/dev/null
-	debugfs -R 'cat /device-token' /tmp/d.img 2>/dev/null | sed 's/^/device-token on LUNA_DATA: /'
+	_uid=\$(debugfs -R 'cat /device-uid' /tmp/d.img 2>/dev/null)
+	_code=\$(debugfs -R 'cat /pairing-code' /tmp/d.img 2>/dev/null)
+	[ "\$_uid" = '7K4M2Q9XR8N36T5W1PZH' ] || { echo "FAIL: device-uid=\$_uid" >&2; exit 1; }
+	[ "\$_code" = 'A3F91C' ] || { echo "FAIL: pairing-code=\$_code" >&2; exit 1; }
+	debugfs -R 'stat /pairing-code' /tmp/d.img 2>/dev/null | grep -Eq 'Mode:[[:space:]]+0*600' || { echo 'FAIL: pairing-code mode is not 0600' >&2; exit 1; }
+	_legacy=\$(debugfs -R 'cat /device-token' /tmp/d.img 2>/dev/null)
+	[ -z "\$_legacy" ] || { echo 'FAIL: legacy device-token was written' >&2; exit 1; }
 	debugfs -R 'cat /os-image.sha256' /tmp/d.img 2>/dev/null | sed 's/^/os-image.sha256: /'
 	rm -f /out/stick.iso
 	fi

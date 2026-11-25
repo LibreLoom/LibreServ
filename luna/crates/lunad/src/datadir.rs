@@ -1,7 +1,7 @@
 //! The data directory's security boundary.
 //!
-//! The data directory holds the device token, the session signing key, the
-//! user database, and the update binaries the daemon runs. On the Luna OS
+//! The data directory holds the Luna Connect credential, the session signing
+//! key, the user database, and the update binaries the daemon runs. On the Luna OS
 //! image the daemon runs as root, so a data directory that belongs to
 //! somebody else is a way to read those secrets and to swap the binaries.
 //!
@@ -17,6 +17,23 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 /// The mode the data directory carries: only its owner may look inside.
 #[cfg(unix)]
 pub const DATA_DIR_MODE: u32 = 0o700;
+
+/// Make a rename or removal in `path`'s directory durable. Without this, a
+/// crash can resurrect the old secret or a deletion even though the file's own
+/// contents were synced before an atomic replacement.
+#[cfg(unix)]
+pub(crate) fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
+    let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    let directory = std::fs::File::open(parent)?;
+    directory.sync_all()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn sync_parent_directory(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
 
 /// The account the daemon runs as. Root on the Luna OS image, the signed-in
 /// person everywhere else.
@@ -174,10 +191,13 @@ mod tests {
         let data = root.path().join("luna");
         std::fs::create_dir(&data).unwrap();
         std::fs::write(data.join("luna.db"), b"rows").unwrap();
-        std::fs::write(data.join("device-token"), b"SEC-1").unwrap();
+        std::fs::write(data.join("connect-credential"), b"SEC-1").unwrap();
         prepare(&data, current_uid()).unwrap();
         assert_eq!(std::fs::read(data.join("luna.db")).unwrap(), b"rows");
-        assert_eq!(std::fs::read(data.join("device-token")).unwrap(), b"SEC-1");
+        assert_eq!(
+            std::fs::read(data.join("connect-credential")).unwrap(),
+            b"SEC-1"
+        );
     }
 
     /// A directory owned by somebody else is refused — that is the case

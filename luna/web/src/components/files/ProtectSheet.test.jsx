@@ -596,7 +596,7 @@ describe("ProtectSheet", () => {
     expect(screen.getByRole("button", { name: "Back up to the cloud" })).toBeDisabled();
   });
 
-  it("does not ask for a card when the device token is the problem", async () => {
+  it("does not ask for a card when Connect pairing is the problem", async () => {
     stubBackupApi({
       drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
       connect: { connect_active: true, cloud_backup: "not_linked" },

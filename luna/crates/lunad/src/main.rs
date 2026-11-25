@@ -240,8 +240,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 // What the HDMI console shows of Connect; a change asks it to look again.
                 let mut shown = lunad::system::console::ConnectShown::default();
 
-                // Connect turning on (a device token saved) wakes this loop;
-                // the cloud backup key mover sleeps until then.
+                // A successful claim wakes this loop; the cloud backup key
+                // mover sleeps until the device is bound.
                 let mut was_active = false;
                 while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
@@ -254,9 +254,10 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                     // keep (re)starting cloudflared so DNS does not stick on Error 1033.
                     connect.ensure_tunnel_if_needed();
                     shown.note(&connect.status());
-                    // No device token: nothing to pull or watch until one is
-                    // saved, and saving one wakes this loop (D3: no timer).
-                    if !active {
+                    // No identity or recoverable binding: nothing to poll or
+                    // watch until pairing material is saved. Unbound devices
+                    // keep polling the claim route so Connect can finish pairing.
+                    if !connect.poll_needed() {
                         wake.wait_forever();
                         continue;
                     }

@@ -27,7 +27,7 @@ import { buildSystemCheckItems } from "./needsYouChecks.js";
  *   systemChecks: { checks?: Record<string, any> } | null,
  *   backupRows: import("./backupRows.js").BackupRow[],
  *   phrase: { check_due?: boolean } | null,
- *   connect: { device_token_error?: string } | null,
+ *   connect: { connect_error?: string, unbind_pending?: boolean, state?: string } | null,
  *   network: { has_default_route?: boolean } | null,
  *   detected: any[],
  *   now?: number,
@@ -131,9 +131,14 @@ function buildAdminItems(input) {
     if (isAlmostFull(drive, summary)) items.push(driveFullItem(drive, summary));
   }
 
-  const tokenError = input.connect?.device_token_error;
-  const tokenShown = typeof tokenError === "string" && tokenError.trim() !== "";
-  if (tokenShown) items.push(deviceTokenItem(tokenError));
+  const connectError = input.connect?.connect_error
+    || (input.connect?.unbind_pending || input.connect?.state === "pending"
+      ? "Remote access and pairing are off until Luna finishes disconnecting."
+      : input.connect?.state === "revoked"
+        ? "Luna Connect revoked this Luna. Reconnect it from your Connect account."
+        : "");
+  const connectShown = typeof connectError === "string" && connectError.trim() !== "";
+  if (connectShown) items.push(deviceTokenItem(connectError));
 
   const noRouteShown = input.network?.has_default_route === false;
   if (noRouteShown) items.push(noRouteItem());
@@ -226,9 +231,9 @@ function deviceTokenItem(error) {
     id: "device-token",
     rank: 50,
     tone: "problem",
-    title: ["Luna Connect needs a new device token"],
+    title: ["Luna Connect needs attention"],
     detail: error,
-    action: { label: "Change the device token", href: "/settings#about" },
+    action: { label: "Open Device token", href: "/settings#luna_connect" },
   };
 }
 

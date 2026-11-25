@@ -64,6 +64,7 @@ const statusLabels = {
 
 const deviceTokenStatusLabels = {
   unbound: "Unused",
+  pairing: "Pairing",
   bound: "In use",
   revoked: "Revoked",
 };
@@ -72,6 +73,7 @@ const deviceTokenStatusLabels = {
 export function DeviceTokenStatusBadge({ status }) {
   const map = {
     unbound: "warning",
+    pairing: "default",
     bound: "success",
     revoked: "destructive",
   };

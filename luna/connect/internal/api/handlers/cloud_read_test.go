@@ -51,7 +51,7 @@ func cloudAccount(t *testing.T, d Deps, email string) string {
 // cloudLuna gives an account a Luna on a device it owns.
 func cloudLuna(t *testing.T, d Deps, accountID, lunaID, deviceName string) {
 	t.Helper()
-	devID, _ := mintDevice(t, d, "official")
+	devID, _, _ := mintDevice(t, d, "official")
 	if _, err := d.DB.Exec(`UPDATE devices SET account_id = ?, name = ? WHERE id = ?`, accountID, deviceName, devID); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestListLunasReportsPurgeAndIgnoresOtherAccountDevice(t *testing.T) {
 	if _, err := d.DB.Exec(`UPDATE luna_ids SET purge_after = ? WHERE account_id = ? AND luna_id = 'spare-luna'`, purgeAt, owner); err != nil {
 		t.Fatal(err)
 	}
-	foreignDev, _ := mintDevice(t, d, "official")
+	foreignDev, _, _ := mintDevice(t, d, "official")
 	if _, err := d.DB.Exec(`UPDATE devices SET account_id = ?, name = 'Their drive' WHERE id = ?`, other, foreignDev); err != nil {
 		t.Fatal(err)
 	}

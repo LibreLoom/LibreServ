@@ -7,14 +7,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -33,153 +34,12 @@ func (h DeviceHandler) Available(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"available": n == 0, "hostname": domainname.Hostname(name, config.C.Server.PublicZone)})
 }
 
-// Bind attaches an unbound permanent device to the signed-in account (offline).
-func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
-	acct, ok := AccountFrom(r.Context())
-	if !ok {
-		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
-		return
-	}
-	var req struct {
-		Code string `json:"code"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	norm := security.NormalizeToken(req.Code)
-	if norm == "" || !security.IsOfficialShape(norm) {
-		JSONError(w, http.StatusBadRequest, "Type the full device token (****-****-****-****-****).")
-		return
-	}
-	if !allowGuess(h.DB, clientKeyIP(r), 8, 15*60) {
-		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
-		return
-	}
-	if !allowGuess(h.DB, clientKeyAccount(acct.ID), 20, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many tries on this account. Wait an hour, then try again.")
-		return
-	}
-	hash := security.HashToken(norm)
-	var id string
-	var account sql.NullString
-	var revoked int
-	err := h.DB.QueryRow(`SELECT id, account_id, revoked FROM devices WHERE code_hash = ?`, hash).
-		Scan(&id, &account, &revoked)
-	if err != nil {
-		JSONError(w, http.StatusBadRequest, "That device token is wrong or unknown. Check the token that came with your Luna, or the token from this website.")
-		return
-	}
-	if revoked != 0 {
-		JSONError(w, http.StatusBadRequest, "That device token was revoked. Contact support if this is your Luna.")
-		return
-	}
-	if account.Valid && account.String != "" {
-		if account.String == acct.ID {
-			JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": true})
-			return
-		}
-		JSONError(w, http.StatusConflict, "That Luna is already linked to another account. The owner must unbind it first.")
-		return
-	}
-	claimed, err := claimDevice(h.DB, id, acct.ID)
-	if errors.Is(err, errAccountFull) {
-		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
-		return
-	}
-	if errors.Is(err, errDeviceTakenByOther) {
-		JSONError(w, http.StatusConflict, "That Luna is already linked to another account. The owner must unbind it first.")
-		return
-	}
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not link this Luna. Try again.")
-		return
-	}
-	if !claimed {
-		// A parallel request from this same account linked it first.
-		JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": true})
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": false})
-}
-
-// errDeviceTakenByOther means another account linked the device first.
-var errDeviceTakenByOther = errors.New("device is linked to another account")
-
-// errAccountFull means this account already holds its one Luna.
-var errAccountFull = errors.New("account already has a Luna")
-
-// claimDevice links an unlinked device to accountID. The account row is locked
-// for the whole transaction so two concurrent binds for one account cannot both
-// count zero devices and then link two different Lunas. The device UPDATE is
-// still fenced to an unlinked row, so when two accounts race for one device
-// exactly one wins. It reports claimed=true when this call made the link,
-// claimed=false when the device was already this account's,
-// errAccountFull when the account already has its Luna, and
-// errDeviceTakenByOther when another account holds the device.
-func claimDevice(db *database.DB, deviceID, accountID string) (bool, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return false, err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
-	if err := database.LockStorageAccount(tx, accountID); err != nil {
-		return false, err
-	}
-	var owner sql.NullString
-	if err := tx.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
-		return false, err
-	}
-	if owner.Valid && owner.String != "" {
-		if owner.String == accountID {
-			return false, nil
-		}
-		return false, errDeviceTakenByOther
-	}
-	var n int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, accountID).Scan(&n); err != nil {
-		return false, err
-	}
-	if n >= MaxDevicesPerAccount {
-		return false, errAccountFull
-	}
-
-	res, err := tx.Exec(`UPDATE devices SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = '')`, accountID, deviceID)
-	if err != nil {
-		return false, err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	if rows == 1 {
-		if err := tx.Commit(); err != nil {
-			return false, err
-		}
-		committed = true
-		return true, nil
-	}
-	// Another account claimed the device between the read and the write.
-	if err := tx.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, deviceID).Scan(&owner); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	committed = true
-	if owner.Valid && owner.String == accountID {
-		return false, nil
-	}
-	return false, errDeviceTakenByOther
-}
-
-// Unbind clears the account link, frees the domain, archives backup bindings.
-// The permanent device row (code) remains.
+// Unbind invalidates the rolling credential and clears the account link. The
+// device row, public UID, and reusable verification code remain. A revoked Luna
+// also requires the account password so a stolen session cannot finish the
+// emergency disconnect that revocation deliberately left linked to its owner.
 func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -188,9 +48,10 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "deviceID")
 	var d Device
 	var account sql.NullString
-	var sub, tunnelID sql.NullString
-	err := h.DB.QueryRow(`SELECT id, account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,'') FROM devices WHERE id = ?`, id).
-		Scan(&d.ID, &account, &sub, &tunnelID, &d.Name)
+	var sub, tunnelID, state, authHash sql.NullString
+	err := h.DB.QueryRow(`SELECT id, account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,''),
+       COALESCE(state,'unbound'), COALESCE(auth_token_hash,'') FROM devices WHERE id = ?`, id).
+		Scan(&d.ID, &account, &sub, &tunnelID, &d.Name, &state, &authHash)
 	if err != nil || !account.Valid || account.String != acct.ID {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
@@ -198,23 +59,71 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	d.AccountID = account
 	d.Subdomain = sub.String
 	d.TunnelID = tunnelID.String
-	unbindDevice(h.Deps, d, acct.ID)
+	d.State = state.String
+	d.AuthTokenHash = authHash.String
+	if d.State == "revoked" {
+		var req struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+			JSONError(w, http.StatusBadRequest, "Enter your password to disconnect this Luna.")
+			return
+		}
+		if status, message := verifyDeviceDisconnectPassword(h.DB, r, acct, req.Password); status != 0 {
+			JSONError(w, status, message)
+			return
+		}
+	}
+	if err := unbindDevice(h.Deps, d, acct.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Could not disconnect this Luna. Try again.")
+		return
+	}
 	obPath := acct.OnboardingPath
 	if obPath == "" {
 		obPath = "official"
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "status": "unbound"})
 }
 
-func unbindDevice(deps Deps, d Device, accountID string) {
-	providers.RefreshCloudflare()
-	teardownDeviceRemote(deps, d.Subdomain, d.TunnelID)
-	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
+// verifyDeviceDisconnectPassword shares sign-in's persisted limits. A correct
+// password is accepted even when the per-account bucket is full, then clears it;
+// wrong passwords receive the same generic throttle as sign-in.
+func verifyDeviceDisconnectPassword(db *database.DB, r *http.Request, acct Account, password string) (int, string) {
+	email := strings.ToLower(strings.TrimSpace(acct.Email))
+	ip := ClientIP(r)
+	if authBlocked(db, ip, email, authAttemptMax, authAttemptWindow) {
+		return http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again."
+	}
+	accountKey := signInAccountKey("customer", email)
+	accountCapped := guessBlocked(db, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+	var hash string
+	err := db.QueryRow(`SELECT password_hash FROM accounts WHERE id = ?`, acct.ID).Scan(&hash)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return http.StatusInternalServerError, "Could not check your password. Try again."
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		_ = auth.VerifyDummyPassword(password)
+	}
+	if err != nil || auth.VerifyPassword(hash, password) != nil {
+		if accountCapped {
+			return http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again."
+		}
+		_ = allowAuthAttempt(db, ip, email, authAttemptMax, authAttemptWindow)
+		_ = allowGuess(db, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+		return http.StatusForbidden, "That password is wrong. This Luna was not disconnected."
+	}
+	clearSignInAccountAttempts(db, accountKey)
+	return 0, ""
 }
 
 // SetDomain provisions tunnel+DNS for a bound device (account-side).
 func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -227,12 +136,13 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	var account sql.NullString
-	var current string
-	err := h.DB.QueryRow(`SELECT account_id, COALESCE(subdomain, '') FROM devices WHERE id = ?`, id).Scan(&account, &current)
-	if err != nil || !account.Valid || account.String != acct.ID {
+	var current, state, authHash string
+	err := h.DB.QueryRow(`SELECT account_id, COALESCE(subdomain, ''), COALESCE(state,'unbound'), COALESCE(auth_token_hash,'') FROM devices WHERE id = ?`, id).Scan(&account, &current, &state, &authHash)
+	if err != nil || !account.Valid || account.String != acct.ID || state != "bound" {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
 	}
+	expected := Device{ID: id, State: state, AccountID: account, AuthTokenHash: authHash, Subdomain: current}
 	// Moving a Luna that already has an address drives the shared Cloudflare
 	// token, so one account cannot loop it. Choosing the first address is setup.
 	// A name that fails the local check never reaches Cloudflare, so it is not
@@ -242,7 +152,7 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusTooManyRequests, domainChangeMsg)
 		return
 	}
-	out, status, msg := applyDeviceDomain(h.Deps, id, req.Subdomain, req.LocalPort)
+	out, status, msg := applyDeviceDomain(h.Deps, id, req.Subdomain, req.LocalPort, expected)
 	if msg != "" {
 		JSONError(w, status, msg)
 		return
@@ -253,12 +163,18 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 	JSON(w, status, out)
 }
 
-// Status is called by Luna with Bearer = full device token.
-// 200 bound (with tunnel/domain when set); 403 unbound.
+// Status is called by Luna with its current rolling credential. DeviceAuth
+// rejects unbound, pairing, revoked, previous, and legacy tokens before here.
 func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
-	dev, ok := DeviceFrom(r.Context())
+	w.Header().Set("Cache-Control", "no-store")
+	expected, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
+		deviceCredentialError(w)
+		return
+	}
+	dev, err := revalidateDeviceAuth(h.DB, expected)
+	if err != nil {
+		writeDeviceAuthError(w, err)
 		return
 	}
 	if !dev.AccountID.Valid || dev.AccountID.String == "" {
@@ -266,11 +182,17 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().Unix()
-	touchLastSeen(h.DB, dev.ID, now)
+	touchLastSeenForDevice(h.DB, dev, now)
 
 	if portHeader := r.Header.Get("X-Luna-Local-Port"); portHeader != "" {
 		if port, err := strconv.Atoi(portHeader); err == nil {
-			syncDeviceLocalPort(h.Deps, dev.ID, port)
+			if err := syncDeviceLocalPortFenced(h.Deps, dev, port); err != nil {
+				if errors.Is(err, errInvalidDeviceCredential) || errors.Is(err, errDeviceUnbound) || errors.Is(err, errDeviceRevoked) {
+					writeDeviceAuthError(w, err)
+					return
+				}
+				slog.Warn("device status: could not sync local port", "device_id", dev.ID, "err", err)
+			}
 		}
 	}
 
@@ -280,10 +202,23 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, dev.AccountID.String).Scan(&hasCard, &status)
 	unlocked = billing.BackupsUnlocked(hasCard == 1, status)
 
-	var sealed sql.NullString
-	var sub sql.NullString
-	_ = h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices WHERE id = ?`, dev.ID).
-		Scan(&sub, &sealed, &dev.TunnelID)
+	var sealed, sub sql.NullString
+	var tunnelID string
+	err = h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices
+ WHERE id = ? AND account_id = ? AND state = 'bound' AND auth_token_hash = ?`,
+		dev.ID, dev.AccountID.String, dev.AuthTokenHash).Scan(&sub, &sealed, &tunnelID)
+	if err != nil {
+		if current, authErr := revalidateDeviceAuth(h.DB, expected); authErr != nil {
+			writeDeviceAuthError(w, authErr)
+			return
+		} else if current.AuthTokenHash != dev.AuthTokenHash {
+			deviceCredentialError(w)
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "Could not load this Luna's connection. Try again.")
+		return
+	}
+	dev.TunnelID = tunnelID
 
 	out := map[string]any{
 		"device_id":       dev.ID,
@@ -305,7 +240,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 				// Hostname/DNS can exist while Luna has no usable token → Cloudflare Error 1033.
 				slog.Error("device status: tunnel token decrypt failed; regenerating tunnel",
 					"device_id", dev.ID, "subdomain", sub.String, "err", err)
-				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID, dev); st == 200 {
 					if t, ok := healed["tunnel_token"].(string); ok {
 						tok = t
 					}
@@ -319,7 +254,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 			} else if opened == "" {
 				slog.Error("device status: tunnel token decrypted empty; regenerating tunnel",
 					"device_id", dev.ID, "subdomain", sub.String)
-				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+				if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID, dev); st == 200 {
 					if t, ok := healed["tunnel_token"].(string); ok {
 						tok = t
 					}
@@ -336,7 +271,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 		} else {
 			slog.Error("device status: hostname set but tunnel token missing; regenerating tunnel",
 				"device_id", dev.ID, "subdomain", sub.String)
-			if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID); st == 200 {
+			if healed, st, msg := regenerateDeviceTunnel(h.Deps, dev.ID, dev); st == 200 {
 				if t, ok := healed["tunnel_token"].(string); ok {
 					tok = t
 				}
@@ -358,14 +293,10 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
-	providers.RefreshCloudflare()
-	dev, ok := DeviceFrom(r.Context())
+	w.Header().Set("Cache-Control", "no-store")
+	expected, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
-		return
-	}
-	if !dev.AccountID.Valid {
-		JSONError(w, http.StatusForbidden, "This Luna is not linked to a Luna Connect account yet. Finish setup at connect.luna.libreloom.org.")
+		deviceCredentialError(w)
 		return
 	}
 	var req struct {
@@ -377,112 +308,43 @@ func (h DeviceHandler) Domain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if sub == dev.Subdomain {
-		out := map[string]any{"hostname": domainname.Hostname(sub, config.C.Server.PublicZone), "subdomain": sub}
-		var sealed string
-		_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_token,'') FROM devices WHERE id = ?`, dev.ID).Scan(&sealed)
-		if sealed != "" {
-			if tok, err := security.OpenString(sealed); err == nil && tok != "" {
-				out["tunnel_token"] = tok
-			}
-		}
-		JSON(w, http.StatusOK, out)
+	dev, err := revalidateDeviceAuth(h.DB, expected)
+	if err != nil {
+		writeDeviceAuthError(w, err)
 		return
 	}
 	// Moving an address drives the shared Cloudflare token, so one account
 	// cannot loop it. Choosing the first address is setup and is not counted.
-	if dev.Subdomain != "" && !allowDomainChange(h.DB, dev.AccountID.String) {
+	if dev.Subdomain != "" && sub != dev.Subdomain && !allowDomainChange(h.DB, dev.AccountID.String) {
 		JSONError(w, http.StatusTooManyRequests, domainChangeMsg)
 		return
 	}
-	var tunnelID, sealed string
-	var port int
-	_ = h.DB.QueryRow(`SELECT COALESCE(tunnel_id,''), COALESCE(tunnel_token,''), local_port FROM devices WHERE id = ?`, dev.ID).Scan(&tunnelID, &sealed, &port)
-	token, err := security.OpenString(sealed)
-	if err != nil || tunnelID == "" {
-		JSONError(w, http.StatusConflict, "Pick a name on the Luna Connect website first.")
+	out, status, msg := moveDeviceDomain(h.Deps, dev, sub)
+	if msg != "" {
+		JSONError(w, status, msg)
 		return
 	}
-	// Claim the name with a compare-and-set on the subdomain read at request
-	// start. devices.subdomain is UNIQUE, and a concurrent change makes this
-	// UPDATE affect no row, so neither request silently rolls the other back.
-	res, err := h.DB.Exec(`UPDATE devices SET subdomain = ? WHERE id = ? AND COALESCE(subdomain, '') = ?`, sub, dev.ID, dev.Subdomain)
-	if err != nil {
-		if database.IsUniqueViolation(err) {
-			JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
-			return
-		}
-		JSONError(w, http.StatusInternalServerError, "Could not save the address. Try again.")
-		return
-	}
-	if n, err := res.RowsAffected(); err != nil || n != 1 {
-		JSONError(w, http.StatusConflict, "The address changed while it was being set up. Try again.")
-		return
-	}
-	releaseClaim := func() {
-		// Only release our own claim; never write the request-start value back
-		// over a newer one from a concurrent request.
-		_, _ = h.DB.Exec(`UPDATE devices SET subdomain = NULLIF(?, '') WHERE id = ? AND subdomain = ?`, dev.Subdomain, dev.ID, sub)
-	}
-	oldHost := domainname.Hostname(dev.Subdomain, config.C.Server.PublicZone)
-	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
-	cf := config.Cloudflare()
-	if dev.Subdomain != "" && dev.Subdomain != sub {
-		_ = h.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, oldHost)
-	}
-	if err := h.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tunnelID, newHost, "http://127.0.0.1:"+itoa(port)); err != nil {
-		slog.Error("domain: move ingress failed", "device", dev.ID, "subdomain", sub, "err", err)
-		releaseClaim()
-		JSONError(w, providerFailureStatus, "Could not move the address. Try again.")
-		return
-	}
-	if err := h.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, newHost, tunnelID+".cfargotunnel.com"); err != nil {
-		slog.Error("domain: move DNS record failed", "device", dev.ID, "subdomain", sub, "err", err)
-		releaseClaim()
-		JSONError(w, providerFailureStatus, "Could not publish the new address. Try again.")
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE devices SET name = ? WHERE id = ?`, sub, dev.ID)
-	JSON(w, http.StatusOK, map[string]any{"hostname": newHost, "subdomain": sub, "tunnel_token": token})
+	JSON(w, status, out)
 }
 
 func (h DeviceHandler) Unregister(w http.ResponseWriter, r *http.Request) {
-	// Luna-local deactivate: same as unbind if bound; never delete the permanent code row.
+	// Luna-local disconnect uses the same atomic unbind as the account route.
 	dev, ok := DeviceFrom(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
+		JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Pair it again in Settings → Luna Connect.")
 		return
 	}
 	if dev.AccountID.Valid && dev.AccountID.String != "" {
-		unbindDevice(h.Deps, dev, dev.AccountID.String)
+		if err := unbindDevice(h.Deps, dev, dev.AccountID.String); err != nil {
+			if errors.Is(err, errInvalidDeviceCredential) || errors.Is(err, errDeviceUnbound) || errors.Is(err, errDeviceRevoked) || errors.Is(err, sql.ErrNoRows) {
+				deviceCredentialError(w)
+				return
+			}
+			JSONError(w, http.StatusInternalServerError, "Could not disconnect this Luna. Try again.")
+			return
+		}
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (h DeviceHandler) DeviceAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := security.BearerToken(r.Header.Get("Authorization"))
-		norm := security.NormalizeToken(tok)
-		if norm == "" {
-			JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
-			return
-		}
-		var d Device
-		var account sql.NullString
-		var sub, tunnelID, name sql.NullString
-		var revoked int
-		err := h.DB.QueryRow(`SELECT id, account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,''), code_hash, kind, revoked FROM devices WHERE code_hash = ?`,
-			security.HashToken(norm)).Scan(&d.ID, &account, &sub, &tunnelID, &name, &d.CodeHash, &d.Kind, &revoked)
-		if err != nil || revoked != 0 {
-			JSONError(w, http.StatusUnauthorized, "This Luna is not linked to Luna Connect. Add your device token in Settings → About → Advanced.")
-			return
-		}
-		d.AccountID = account
-		d.Subdomain = sub.String
-		d.TunnelID = tunnelID.String
-		d.Name = name.String
-		next.ServeHTTP(w, r.WithContext(WithDevice(r.Context(), d)))
-	})
 }
 
 func itoa(n int) string {
@@ -507,22 +369,27 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// insertPermanentDevice creates an unbound device with the given plaintext code.
-func insertPermanentDevice(db *database.DB, kind, code, orderRef string) (id, grouped string, err error) {
-	norm := security.NormalizeToken(code)
-	if !security.IsOfficialShape(norm) {
-		code = security.OfficialDeviceToken()
-		norm = security.NormalizeToken(code)
-	}
-	grouped = security.GroupCrockford(norm)
-	sealed, sealErr := security.SealString(grouped)
-	if sealErr != nil {
-		sealed = ""
+// insertDeviceIdentity provisions a factory or DIY identity. The UID is public;
+// the reusable verification code is sealed at rest and returned only by the
+// provisioning endpoint or a password-stepped-up reveal.
+func insertDeviceIdentity(db *database.DB, kind, orderRef string) (id, uid, verificationCode string, err error) {
+	uid = security.DeviceUID()
+	verificationCode = security.VerificationCode()
+	sealed, err := security.SealString(verificationCode)
+	if err != nil {
+		return "", "", "", err
 	}
 	id = security.NewID("dev")
-	_, err = db.Exec(`INSERT INTO devices (id, code_hash, code_hint, code_sealed, kind, order_ref, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, 8090, ?)`, id, security.HashToken(norm), security.TokenHint(norm), sealed, kind, nullIfEmpty(orderRef), time.Now().Unix())
-	return id, grouped, err
+	_, err = db.Exec(`INSERT INTO devices (
+ id, code_hash, code_hint, code_sealed, device_uid, verification_code_hash,
+ verification_code_sealed, state, kind, order_ref, local_port, created_at
+) VALUES (?, ?, ?, '', ?, ?, ?, 'unbound', ?, ?, 8090, ?)`,
+		id, security.HashToken(uid), security.TokenHint(uid), uid,
+		security.HashToken(verificationCode), sealed, kind, nullIfEmpty(orderRef), time.Now().Unix())
+	if err != nil {
+		return "", "", "", err
+	}
+	return id, uid, verificationCode, nil
 }
 
 func nullIfEmpty(s string) any {

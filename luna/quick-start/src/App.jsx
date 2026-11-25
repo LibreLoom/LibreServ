@@ -1,19 +1,41 @@
 import { useState } from "react";
 
-const DEFAULT_TOKENS = [
-  "XXXX-XXXX-XXXX-XXXX-XXXX",
-  "YYYY-YYYY-YYYY-YYYY-YYYY",
+/**
+ * @typedef {{ deviceUid: string, verificationCode: string }} Guide
+ */
+
+const DEFAULT_GUIDES = [
+  { deviceUid: "7K4M-2Q9X-R8N3-6T5W-1PZH", verificationCode: "A3F91C" },
+  { deviceUid: "9C2D-7F4H-3J8K-5M6N-1PQR", verificationCode: "B7E42D" },
 ];
 
 const panelH2 = "mb-[0.12in] font-mono text-[16pt] leading-none";
 const panelH3 = "mb-[0.04in] font-mono text-[10pt] leading-[1.08]";
 const chip = "eyebrow mb-[0.06in] inline-block border-[0.75pt] px-[0.07in] pt-[0.065in] pb-[0.06in] leading-none [text-box-trim:trim-both] [text-box-edge:cap_alphabetic]";
 const footnote = "border-t-[0.75pt] border-accent pt-[0.07in]";
+const fieldBox = "block border-[0.75pt] border-ink px-[0.06in] py-[0.055in] text-center font-mono text-[9pt] tracking-[0.025em]";
+
+/** @param {string} value */
+function formatDeviceUid(value) {
+  const raw = value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 20);
+  return raw.match(/.{1,4}/g)?.join("-") ?? "";
+}
+
+/** @param {string} value */
+function formatVerificationCode(value) {
+  return value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(0, 6);
+}
+
+/** @param {Guide} guide */
+function isComplete(guide) {
+  return /^[0-9A-HJKMNP-TV-Z]{20}$/.test(guide.deviceUid.replace(/-/g, ""))
+    && /^[0-9A-F]{6}$/.test(guide.verificationCode);
+}
 
 function LogoMark() {
   return (
     <svg className="mb-[0.16in] size-[0.72in] fill-ink" viewBox="30 30 180 180" aria-hidden="true">
-      <path d="M88.00 44.74 L88.00 99.70 A48 48 0 0 0 136.00 147.70 L197.11 147.70 A3.0 3.0 0 0 1 199.90 151.81 A86.0 86.0 0 1 1 83.73 42.02 A3.0 3.0 0 0 1 88.00 44.74Z" />
+      <path d="M88.00 44.74 L88.00 99.70 A48 48 0 0 0 136.00 147.70 L197.11 147.70 A3.0 3.0 0 0 1 199.90 151.81 A86.0 86.0 1 1 1 83.73 42.02 A3.0 3.0 0 0 1 88.00 44.74Z" />
       <circle cx="136" cy="99.7" r="30" />
     </svg>
   );
@@ -67,18 +89,21 @@ function IndexPanel() {
 }
 
 /**
- * @param {{ token: string }} props
+ * @param {{ deviceUid: string, verificationCode: string }} props
  */
-function ConnectPanel({ token }) {
+function ConnectPanel({ deviceUid, verificationCode }) {
   return (
     <section className="panel panel-c">
       <p className="eyebrow mb-[0.04in]">Recommended</p>
       <h2 className={panelH2}>Set up with Luna Connect</h2>
       <p className="mb-[0.11in]">Go to <strong className="font-semibold">connect.luna.libreloom.org/onboarding</strong> and follow the steps.</p>
-      <p className="mb-[0.06in]">Your device token is</p>
-      <span className="mt-[0.05in] block border-[0.75pt] border-b-0 border-ink px-[0.06in] py-[0.055in] text-center font-mono text-[9pt] tracking-[0.025em]">{token}</span>
-      <p className="bg-ink px-[0.06in] py-[0.035in] text-center text-[7pt] text-paper">Do not share this token.</p>
-      <p className={`${footnote} mt-[0.2in]`}>Your Luna Connect and Luna accounts are separate.</p>
+      <p className="mb-[0.035in]">Your Device ID</p>
+      <span className={fieldBox}>{deviceUid}</span>
+      <p className="mb-[0.1in] mt-[0.035in] text-[7pt]">This identifies your Luna.</p>
+      <p className="mb-[0.035in]">Your Verification code</p>
+      <span className={`${fieldBox} mx-auto w-[1.35in]`}>{verificationCode}</span>
+      <p className="mt-[0.035in] text-center text-[7pt]">Do not share this code.</p>
+      <p className={`${footnote} mt-[0.18in]`}>Your Luna Connect and Luna accounts are separate.</p>
     </section>
   );
 }
@@ -117,10 +142,11 @@ function TroubleshootingPanel() {
         </ul>
       </div>
       <div className="mt-[0.09in] border-t-[0.75pt] border-accent pt-[0.07in]">
-        <h3 className={panelH3}>Token not accepted</h3>
+        <h3 className={panelH3}>Pairing not working</h3>
         <ul className="grid list-disc gap-[0.03in] pl-[0.17in]">
-          <li>Enter all five groups of four. Dashes and capitals do not matter.</li>
-          <li>Check look-alike characters: 5 and S, 8 and B, 2 and Z, 6 and G.</li>
+          <li>Device ID has 20 characters in five groups of four; dashes do not matter.</li>
+          <li>Verification code has six characters: 0-9 and A-F.</li>
+          <li>Make sure Luna is on and waiting to pair, then try again.</li>
           <li>Still refused? Contact support.</li>
         </ul>
       </div>
@@ -146,13 +172,11 @@ function FrontGuide() {
   );
 }
 
-/**
- * @param {{ token: string }} props
- */
-function ReverseGuide({ token }) {
+/** @param {Guide} props */
+function ReverseGuide({ deviceUid, verificationCode }) {
   return (
     <div className="guide guide-reverse">
-      <ConnectPanel token={token} />
+      <ConnectPanel deviceUid={deviceUid} verificationCode={verificationCode} />
       <ReservedPanel />
       <CoverPanel />
     </div>
@@ -160,16 +184,16 @@ function ReverseGuide({ token }) {
 }
 
 /**
- * @param {{ side: "front" | "reverse", tokens: string[] }} props
+ * @param {{ side: "front" | "reverse", guides: Guide[] }} props
  */
-function PrintSheet({ side, tokens }) {
+function PrintSheet({ side, guides }) {
   const isFront = side === "front";
 
   return (
     <section className="sheet" aria-label={`${side} print sheet`}>
-      {tokens.map((token, index) => (
+      {guides.map((guide, index) => (
         <div className="guide-row" key={`${side}-${index}`}>
-          {isFront ? <FrontGuide /> : <ReverseGuide token={token} />}
+          {isFront ? <FrontGuide /> : <ReverseGuide {...guide} />}
         </div>
       ))}
       <div className="cut-line" aria-hidden="true" />
@@ -178,52 +202,78 @@ function PrintSheet({ side, tokens }) {
 }
 
 function App() {
-  const [tokens, setTokens] = useState(DEFAULT_TOKENS);
+  const [guides, setGuides] = useState(DEFAULT_GUIDES);
+  const canPrint = guides.every(isComplete);
 
   /**
    * @param {number} index
+   * @param {"deviceUid" | "verificationCode"} field
    * @param {string} value
    */
-  const updateToken = (index, value) => {
-    setTokens((current) => current.map((token, tokenIndex) => (
-      tokenIndex === index ? value.toUpperCase() : token
-    )));
+  const updateGuide = (index, field, value) => {
+    setGuides((current) => current.map((guide, guideIndex) => {
+      if (guideIndex !== index) return guide;
+      return field === "deviceUid"
+        ? { ...guide, deviceUid: formatDeviceUid(value) }
+        : { ...guide, verificationCode: formatVerificationCode(value) };
+    }));
   };
 
   return (
     <>
-      <header className="sticky top-0 z-10 grid grid-cols-[minmax(18rem,1fr)_auto_auto] items-end gap-6 bg-ink px-5 py-4 text-paper max-[1100px]:static max-[1100px]:grid-cols-1 max-[1100px]:items-start print:hidden">
+      <header className="sticky top-0 z-10 grid grid-cols-[minmax(18rem,1fr)_auto_auto] items-end gap-6 bg-ink px-5 py-4 text-paper max-[1300px]:static max-[1300px]:grid-cols-1 max-[1300px]:items-start print:hidden">
         <div>
           <p className="eyebrow">Luna packaging</p>
           <h1 className="my-[0.2rem] font-mono text-[1.45rem]">Quick-start print layout</h1>
           <p className="max-w-[44rem] text-[0.86rem] text-screen">Letter landscape, two guides per sheet, print at 100%, double-sided, flip on the short edge.</p>
         </div>
-        <div className="flex gap-3 max-[1100px]:flex-wrap">
-          {tokens.map((token, index) => (
-            <label key={`token-${index}`} className="grid gap-1 font-mono text-[0.72rem]">
-              Guide {index + 1} device token
-              <input
-                value={token}
-                onChange={(event) => updateToken(index, event.target.value)}
-                spellCheck="false"
-                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"
-                className="w-[15rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
-              />
-            </label>
+        <div className="flex gap-3 max-[1300px]:flex-wrap">
+          {guides.map((guide, index) => (
+            <div key={`guide-${index}`} className="grid grid-cols-2 gap-2 font-mono text-[0.72rem]">
+              <p className="col-span-2">Guide {index + 1}</p>
+              <label className="grid gap-1">
+                Device ID
+                <input
+                  value={guide.deviceUid}
+                  onChange={(event) => updateGuide(index, "deviceUid", event.target.value)}
+                  spellCheck="false"
+                  autoComplete="off"
+                  maxLength={24}
+                  placeholder="7K4M-2Q9X-R8N3-6T5W-1PZH"
+                  className="w-[15rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
+                />
+              </label>
+              <label className="grid gap-1">
+                Verification code
+                <input
+                  value={guide.verificationCode}
+                  onChange={(event) => updateGuide(index, "verificationCode", event.target.value)}
+                  spellCheck="false"
+                  autoComplete="off"
+                  maxLength={6}
+                  placeholder="A3F91C"
+                  className="w-[8rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
+                />
+              </label>
+            </div>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="cursor-pointer border border-paper bg-paper px-4 py-[0.65rem] font-mono text-ink hover:bg-ink hover:text-paper focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-paper"
-        >
-          Print two guides
-        </button>
+        <div className="grid justify-items-end gap-2 max-[1300px]:justify-items-start">
+          {!canPrint && <p className="text-[0.72rem]">Enter both fields for each guide.</p>}
+          <button
+            type="button"
+            onClick={() => window.print()}
+            disabled={!canPrint}
+            className="cursor-pointer border border-paper bg-paper px-4 py-[0.65rem] font-mono text-ink hover:bg-ink hover:text-paper focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-paper disabled:cursor-not-allowed"
+          >
+            Print two guides
+          </button>
+        </div>
       </header>
 
       <main className="grid justify-center gap-8 overflow-auto p-8 print:block print:overflow-visible print:p-0">
-        <PrintSheet side="front" tokens={tokens} />
-        <PrintSheet side="reverse" tokens={tokens} />
+        <PrintSheet side="front" guides={guides} />
+        <PrintSheet side="reverse" guides={guides} />
       </main>
     </>
   );

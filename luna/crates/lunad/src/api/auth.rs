@@ -15,7 +15,7 @@ struct RegisterBody {
     username: String,
     display_name: Option<String>,
     password: String,
-    setup_secret: Option<String>,
+    setup_grant: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -239,10 +239,9 @@ async fn register(
             ));
         }
         if !is_lan_request(&addr, &headers) {
-            // Setup is open on the LAN. Off it, the first login can only be
-            // created by someone holding the full device token — the flow
-            // Connect's onboarding finishes with.
-            if let Err(msg) = first_user_device_token(&state, &body).await {
+            // Setup is open on the LAN. Off it, Connect must verify and
+            // consume a separate one-time grant before the account is made.
+            if let Err(msg) = first_user_setup_grant(&state, &body).await {
                 return Err(json_error(StatusCode::FORBIDDEN, msg));
             }
         }
@@ -265,8 +264,13 @@ async fn register(
         ));
     }
     let password = body.password.clone();
+    let first_admin = !has_users;
     let (user, breach) = tokio::task::spawn_blocking(move || {
-        auth.register_with_breach_check(&username, &display_name, &password, "user")
+        if first_admin {
+            auth.register_first_admin_with_breach_check(&username, &display_name, &password)
+        } else {
+            auth.register_with_breach_check(&username, &display_name, &password, "user")
+        }
     })
     .await
     .map_err(|_| {
@@ -276,11 +280,6 @@ async fn register(
         )
     })?
     .map_err(|e| map_auth_err(e, "Luna could not create the account. Try again."))?;
-    if !has_users {
-        // One-time cleanup does a Connect round-trip — off the async worker.
-        let connect = state.connect.clone();
-        let _ = tokio::task::spawn_blocking(move || connect.clear_first_user_secret()).await;
-    }
     let mut response = json!({
         "id": user.id,
         "username": user.username,
@@ -495,14 +494,16 @@ pub(crate) fn client_ip(addr: &std::net::SocketAddr, headers: &HeaderMap) -> std
 fn ip_is_lan(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
     }
 }
 
 /// Setup is open on the LAN: the first account may be created only by a
 /// client on Luna's own network. Decided on the *resolved* client IP —
-/// loopback/private/link-local counts, everything else needs the device
-/// token. The Host header is deliberately ignored here: it is
+/// loopback/private/link-local counts, everything else needs a setup grant.
+/// The Host header is deliberately ignored here: it is
 /// client-supplied, so a remote caller claiming `luna.local` (or
 /// `*.local`) must not win LAN trust. Every genuine LAN path — direct
 /// connection, or a local proxy/tunnel forwarding the real address —
@@ -553,80 +554,45 @@ pub(crate) fn login_user_key(username: &str) -> String {
     )
 }
 
-/// Off-LAN first-user registration: allowed only with the full device
-/// token — either the one-time `first_user_secret` Connect hands out during
-/// onboarding or the permanent token on this Luna. Empty secret → a plain
-/// refusal that says where to set up instead.
-async fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
-    // A reset chose to unbind Luna Connect but couldn't reach it. Until the
-    // unbind goes through, the old account may still know this token, so it
-    // proves nothing about who is setting Luna up.
+/// Off-LAN first-user registration requires a separate one-time grant. The
+/// Device ID, Verification code, rolling credential, and query string are not
+/// accepted as substitutes.
+async fn first_user_setup_grant(state: &AppState, body: &RegisterBody) -> Result<(), String> {
     if state.connect.unbind_pending() {
         return Err(
-            "Luna is still unbinding from Luna Connect. Create the first account from the same network as Luna."
+            "Luna is still disconnecting from Luna Connect. Create the first account from the same network as Luna."
                 .into(),
         );
     }
-    // Connect is opt-in: with no device token on this Luna, no pasted token
-    // can ever match, and Connect never polls to hand one out.
-    let has_token = state
-        .connect
-        .first_user_secret()
-        .is_some_and(|s| !s.trim().is_empty())
-        || state
-            .connect
-            .device_code()
-            .is_ok_and(|c| !c.trim().is_empty());
-    if !has_token {
+    if !state.connect.is_connect_active() {
         return Err(
-            "This Luna has no device token. Create the first account from the same network as Luna."
+            "This Luna isn't connected to Luna Connect. Create the first account from the same network as Luna."
                 .into(),
         );
     }
-    let offered = body.setup_secret.as_deref().unwrap_or("").trim();
-    if offered.is_empty() {
+    let Some(grant) = body
+        .setup_grant
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
         return Err(
-            "Create the first account from the same network as Luna, or paste the device token."
+            "Create the first account from the same network as Luna, or use the setup link from Luna Connect."
                 .into(),
         );
-    }
-
-    let norm_offered = crate::net::connect::normalize_device_code(offered);
-
-    // 1. Check against first_user_secret if set by Connect
-    if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::net::connect::normalize_device_code(&want);
-        if offered.eq_ignore_ascii_case(want.trim())
-            || (!norm_offered.is_empty() && norm_offered == norm_want)
-        {
-            return Ok(());
-        }
-    }
-
-    // 2. Check against the device token on disk
-    if let Ok(device_code) = state.connect.device_code() {
-        let norm_code = crate::net::connect::normalize_device_code(&device_code);
-        if offered.eq_ignore_ascii_case(device_code.trim())
-            || (!norm_offered.is_empty() && norm_offered == norm_code)
-        {
-            return Ok(());
-        }
-    }
-
-    // 3. In case Connect just updated, attempt a refresh poll — a blocking
-    // HTTP call, so it runs on the blocking pool, not the async worker.
+    };
     let connect = state.connect.clone();
-    let _ = tokio::task::spawn_blocking(move || connect.poll_status()).await;
-    if let Some(want) = state.connect.first_user_secret() {
-        let norm_want = crate::net::connect::normalize_device_code(&want);
-        if offered.eq_ignore_ascii_case(want.trim())
-            || (!norm_offered.is_empty() && norm_offered == norm_want)
-        {
-            return Ok(());
-        }
-    }
-
-    Err("That device token doesn't match. Check the device token on the quick-start guide or in Luna Connect.".into())
+    let grant = grant.to_string();
+    tokio::task::spawn_blocking(move || connect.consume_setup_grant(&grant))
+        .await
+        .map_err(|_| "Luna couldn't check that setup link. Try again.".to_string())?
+        .map_err(|err| match err {
+            crate::net::connect::ConnectError::Unreachable => {
+                "Luna couldn't check that setup link. Check this Luna's internet connection and try again."
+                    .into()
+            }
+            _ => crate::net::connect::SETUP_GRANT_REJECTED_MSG.into(),
+        })
 }
 
 /// `fallback` names the action that failed, for errors with no message of
@@ -675,16 +641,72 @@ mod tests {
     use tower::ServiceExt;
 
     fn state() -> (tempfile::TempDir, AppState) {
+        state_at("http://127.0.0.1:1")
+    }
+
+    fn state_at(base_url: &str) -> (tempfile::TempDir, AppState) {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         let state = AppState::new(conn, drive_manager, dir.path());
-        // Poll-refreshes must fail fast, not reach the real Connect service.
         let connect = std::sync::Arc::new(crate::net::connect::ConnectService::new(
             dir.path(),
-            Some("http://127.0.0.1:1".into()),
+            Some(base_url.to_string()),
         ));
         (dir, state.with_connect(connect))
+    }
+
+    const CREDENTIAL: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    fn seed_bound(dir: &std::path::Path, state: &AppState) {
+        std::fs::write(
+            dir.join(crate::net::connect::DEVICE_UID_FILE),
+            "7K4M2Q9XR8N36T5W1PZH\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join(crate::net::connect::PAIRING_CODE_FILE), "A3F91C\n").unwrap();
+        std::fs::write(
+            dir.join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
+            format!("{CREDENTIAL}\n"),
+        )
+        .unwrap();
+        state
+            .connect
+            .save(&json!({
+                "state": "bound",
+                "bound": true,
+                "paired": true,
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+                "tunnel_active": true,
+            }))
+            .unwrap();
+    }
+
+    fn serve_setup_grant(
+        status: u16,
+        body: &str,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = body.to_string();
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                seen.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let response = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (format!("http://{addr}"), calls)
     }
 
     fn addr(ip: &str) -> SocketAddr {
@@ -758,12 +780,22 @@ mod tests {
         header_pairs: &[(&str, &str)],
         body: &str,
     ) -> StatusCode {
+        register_status_at(state, peer, header_pairs, "/api/v1/auth/register", body).await
+    }
+
+    async fn register_status_at(
+        state: &AppState,
+        peer: SocketAddr,
+        header_pairs: &[(&str, &str)],
+        uri: &str,
+        body: &str,
+    ) -> StatusCode {
         let router = axum::Router::new()
             .merge(super::router())
             .with_state(state.clone());
         let mut req = axum::http::Request::builder()
             .method(axum::http::Method::POST)
-            .uri("/api/v1/auth/register")
+            .uri(uri)
             .header("content-type", "application/json");
         for (k, v) in header_pairs {
             req = req.header(*k, *v);
@@ -839,7 +871,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_user_from_internet_needs_the_device_token() {
+    async fn first_user_from_internet_needs_a_setup_grant() {
         let (_dir, state) = state();
         // No Connect set up at all → nothing off-LAN can open setup.
         assert_eq!(
@@ -858,7 +890,7 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         // Through the tunnel (loopback peer) the forwarded address is the
-        // real one — a remote client still needs the token.
+        // real one — a remote client still needs a setup grant.
         assert_eq!(
             register_status(
                 &state,
@@ -872,44 +904,96 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_user_off_lan_accepts_the_full_device_token() {
-        let (_dir, state) = state();
-        state
-            .connect
-            .set_oss_code("AAAA-BBBB-CCCC-DDDD-EEEE")
-            .unwrap();
-        let remote = addr("127.0.0.1");
-        let fwd = [("x-forwarded-for", "203.0.113.7")];
-        // Wrong token → refused.
-        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ"}"#;
+    async fn first_user_off_lan_consumes_a_setup_grant() {
+        let (url, calls) = serve_setup_grant(200, r#"{"ok":true}"#);
+        let (dir, state) = state_at(&url);
+        seed_bound(dir.path(), &state);
+        let body = r#"{"username":"max","password":"hunter22hunter1","setup_grant":"grant-one"}"#;
         assert_eq!(
-            register_status(&state, remote, &fwd, body).await,
-            StatusCode::FORBIDDEN
-        );
-        // The full device token → first login created.
-        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"AAAA-BBBB-CCCC-DDDD-EEEE"}"#;
-        assert_eq!(
-            register_status(&state, remote, &fwd, body).await,
+            register_status(
+                &state,
+                addr("127.0.0.1"),
+                &[("x-forwarded-for", "203.0.113.7")],
+                body
+            )
+            .await,
             StatusCode::OK
+        );
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the grant is consumed through Connect before registration"
         );
     }
 
     #[tokio::test]
-    async fn an_owed_connect_unbind_stops_the_device_token_proving_anything() {
-        let (_dir, state) = state();
-        state
-            .connect
-            .set_oss_code("AAAA-BBBB-CCCC-DDDD-EEEE")
-            .unwrap();
-        // A reset chose to unbind, Connect didn't answer, the Admin skipped.
-        state.connect.mark_unbind_pending().unwrap();
+    async fn a_rejected_setup_grant_creates_no_account() {
+        let (url, calls) = serve_setup_grant(400, r#"{"error":"invalid grant"}"#);
+        let (dir, state) = state_at(&url);
+        seed_bound(dir.path(), &state);
+        let body =
+            r#"{"username":"max","password":"hunter22hunter1","setup_grant":"replayed-grant"}"#;
+        assert_eq!(
+            register_status(
+                &state,
+                addr("127.0.0.1"),
+                &[("x-forwarded-for", "203.0.113.7")],
+                body
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(state.auth.count_users().unwrap(), 0);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn setup_query_strings_and_legacy_secrets_are_not_grants() {
+        let (url, calls) = serve_setup_grant(200, r#"{"ok":true}"#);
+        let (dir, state) = state_at(&url);
+        seed_bound(dir.path(), &state);
         let remote = addr("127.0.0.1");
         let fwd = [("x-forwarded-for", "203.0.113.7")];
-        let body = r#"{"username":"max","password":"hunter22hunter1","setup_secret":"AAAA-BBBB-CCCC-DDDD-EEEE"}"#;
         assert_eq!(
-            register_status(&state, remote, &fwd, body).await,
-            StatusCode::FORBIDDEN,
-            "the old account may still know this token"
+            register_status_at(
+                &state,
+                remote,
+                &fwd,
+                "/api/v1/auth/register?setup_grant=grant-one",
+                FIRST_USER
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            register_status(
+                &state,
+                remote,
+                &fwd,
+                r#"{"username":"max","password":"hunter22hunter1","setup_secret":"grant-one"}"#
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(state.auth.count_users().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_owed_connect_unbind_stops_remote_setup_grants() {
+        let (_dir, state) = state();
+        seed_bound(_dir.path(), &state);
+        state.connect.mark_unbind_pending().unwrap();
+        let body = r#"{"username":"max","password":"hunter22hunter1","setup_grant":"grant-one"}"#;
+        assert_eq!(
+            register_status(
+                &state,
+                addr("127.0.0.1"),
+                &[("x-forwarded-for", "203.0.113.7")],
+                body
+            )
+            .await,
+            StatusCode::FORBIDDEN
         );
         // On the LAN, setup still works.
         assert_eq!(

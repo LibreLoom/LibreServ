@@ -47,12 +47,17 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    QEMU automation: add LUNA_CONFIRM=INSTALL on the kernel cmdline.
 #
 #    Factory OEM: the hybrid image includes a writable FAT partition labeled
-#    LUNAASSETS (256 MiB). Mount it after dd and put one official device token
-#    (purchased-from-LibreLoom path) per line in a file named TOKENS. Each flash peels the first line onto the
-#    unit as /var/lib/luna/device-token and rewrites the magazine. Later factory
-#    assets (device photos, etc.) also belong on LUNAASSETS. A one-shot
-#    device-token file next to the ISO payload still works for a single unit
-#    (the old setup-token name is still accepted as a legacy fallback).
+#    LUNAASSETS (256 MiB). Mount it after dd and put one pairing line per unit
+#    in a file named TOKENS. Each line is exactly a 20-character uppercase
+#    Crockford Device ID, one space, and a six-character uppercase hex
+#    Verification code, for example:
+#      7K4M2Q9XR8N36T5W1PZH A3F91C
+#    Each flash peels the first line, writes /var/lib/luna/device-uid and
+#    /var/lib/luna/pairing-code (mode 0600) separately, and rewrites the
+#    magazine. Without a magazine, the installer asks for Device ID and
+#    Verification code separately; an empty Device ID skips Connect. Later
+#    factory assets (device photos, etc.) also belong on LUNAASSETS. The
+#    Device token section in Settings → Luna Connect shows both pairing fields.
 
 # Optional: flash a whole disk attached to this machine
 ./os/flash.sh /dev/sdX                # also /dev/nvme0n1 /dev/mmcblk0

@@ -33,7 +33,8 @@ const adminApiMock = vi.fn(async (path, opts) => {
       created_at: 1700000000,
       devices: [{
         id: "dev_1",
-        hint: "ABCD1234",
+        device_uid: "7K4M-2Q9X-R8N3-6T5W-1PZH",
+        hint: "7K4M-…",
         kind: "official",
         status: "bound",
         subdomain: "myluna",
@@ -53,12 +54,13 @@ const adminApiMock = vi.fn(async (path, opts) => {
       created_at: 1700000000,
       last_seen_at: 1700000000,
       online: true,
-      hint: "…1234",
+      device_uid: "7K4M-2Q9X-R8N3-6T5W-1PZH",
+      hint: "7K4M-…",
       can_reveal: true,
     };
   }
   if (path === "/admin/device-codes/dev_1/reveal") {
-    return { code: "AAAA-BBBB-CCCC-DDDD-EEEE" };
+    return { device_uid: "7K4M-2Q9X-R8N3-6T5W-1PZH", verification_code: "A3F91C" };
   }
   if (path === "/admin/devices/dev_1/regenerate-tunnel") {
     return { hostname: "myluna.luna.servers.libreloom.org", regenerated: true };
@@ -120,15 +122,16 @@ describe("AdminAccountsPage", () => {
     expect(await screen.findByTestId("luna-detail-dev_1")).toBeTruthy();
     expect(await screen.findByText("tnl_test")).toBeTruthy();
     expect(adminApiMock).toHaveBeenCalledWith("/admin/devices/dev_1");
-    expect(screen.getByText("…1234")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
+    expect(screen.getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show pairing details/i }));
     expect(adminApiMock.mock.calls.some(([path]) => path === "/admin/device-codes/dev_1/reveal")).toBe(false);
     fireEvent.change(screen.getByLabelText("Staff password"), { target: { value: "staff-password" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Reveal token$/i }));
-    expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Reveal details$/i }));
+    expect(await screen.findByText("A3F91C")).toBeTruthy();
     expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal", {
       method: "POST",
       body: JSON.stringify({ password: "staff-password" }),
+      cache: "no-store",
     });
   });
 

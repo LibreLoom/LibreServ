@@ -73,6 +73,17 @@ func touchLastSeen(db *database.DB, deviceID string, now int64) {
 		now, deviceID, cutoff)
 }
 
+func touchLastSeenForDevice(db *database.DB, dev Device, now int64) {
+	if db == nil || dev.ID == "" || dev.AuthTokenHash == "" || !dev.AccountID.Valid {
+		return
+	}
+	cutoff := now - LastSeenDebounceSec
+	_, _ = db.Exec(`UPDATE devices SET last_seen_at = ?
+ WHERE id = ? AND account_id = ? AND state = 'bound' AND auth_token_hash = ?
+   AND (last_seen_at IS NULL OR last_seen_at < ?)`,
+		now, dev.ID, dev.AccountID.String, dev.AuthTokenHash, cutoff)
+}
+
 // shouldTouchLastSeen reports whether a write would happen (for tests).
 func shouldTouchLastSeen(lastSeen sql.NullInt64, now int64) bool {
 	if !lastSeen.Valid {

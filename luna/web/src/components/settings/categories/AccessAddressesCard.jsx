@@ -3,6 +3,7 @@ import { MapPin } from "lucide-react";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { getJson } from "../../../lib/api";
+import { isConnectBound } from "../../../lib/connectState.js";
 
 function asHttpsUrl(host) {
   const h = String(host || "").trim();
@@ -32,11 +33,12 @@ export default function AccessAddressesCard({ index = 2 }) {
     retry: false,
   });
 
-  const publicUrl = asHttpsUrl(connect.data?.hostname || connect.data?.domain || "");
+  const bound = isConnectBound(connect.data);
+  const publicUrl = bound ? asHttpsUrl(connect.data?.hostname || connect.data?.domain || "") : "";
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
-  // With a device token set, these local addresses do not reach Luna unless
-  // root has enabled the override. Hide them rather than offer dead links.
-  const lanBlocked = Boolean(connect.data?.connect_active && !connect.data?.lan_override);
+  // Local addresses depend on the reported Connect binding, not on a saved
+  // verification code. Hide them when Luna reports that LAN access is blocked.
+  const lanBlocked = Boolean(bound && !connect.data?.lan_override);
 
   return (
     <SettingsCard icon={MapPin} title="Where to open Luna" padding={false} index={index}>
@@ -72,7 +74,7 @@ export default function AccessAddressesCard({ index = 2 }) {
         ) : null}
         {lanBlocked ? (
           <p className="text-sm text-secondary">
-            Local access is turned off while Luna Connect is on.
+            Local access is turned off while Luna Connect is connected.
           </p>
         ) : null}
         {lanBlocked && !publicUrl ? (

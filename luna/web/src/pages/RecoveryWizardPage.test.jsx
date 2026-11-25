@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RecoveryWizardPage from "./RecoveryWizardPage.jsx";
 
 function renderPage() {
@@ -12,10 +12,6 @@ function fillPasswords(password = "recoveryPassword123") {
   fireEvent.change(screen.getByLabelText("Confirm new password*", { exact: true }), { target: { value: password } });
 }
 
-function deviceTokenInput() {
-  return screen.getByLabelText("Device token*", { exact: true });
-}
-
 function chooseAccount(label) {
   fireEvent.click(screen.getByLabelText("Account to recover"));
   fireEvent.click(screen.getByRole("option", { name: label }));
@@ -25,8 +21,13 @@ describe("RecoveryWizardPage", () => {
   let clicked;
   let clickedAnchor;
   let createObjectURL;
+  let fetchMock;
+
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    fetchMock = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(window, "setTimeout").mockImplementation(() => /** @type {ReturnType<typeof window.setTimeout>} */ (/** @type {unknown} */ (0)));
     clickedAnchor = undefined;
     clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(/** @this {HTMLAnchorElement} */ function () {
@@ -36,24 +37,35 @@ describe("RecoveryWizardPage", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
 
-  it("downloads token-bound JSON for the selected existing user", async () => {
-    renderPage();
-    chooseAccount("One existing account");
-    fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Sam" } });
-    fireEvent.change(deviceTokenInput(), { target: { value: "ABCD-EFGH-JKLM-NPQR" } });
-    fillPasswords();
-    fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(clicked).toHaveBeenCalledOnce();
-    expect(clickedAnchor.download).toBe("luna-recover-abcdefghjk1mnpqr.luna");
-    expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"u-sam","password":"recoveryPassword123"}');
-    expect(screen.getByRole("status")).toHaveTextContent("started to download the recovery file");
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("downloads tokenless recovery JSON for all admins", async () => {
+  it("downloads luna-recover.luna JSON without a Verification code or Connect check", async () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
+    expect(screen.getByText(/USB recovery works whether Luna Connect is on or off/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Verification code*", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("This Luna has a Verification code")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Device token" })).not.toBeInTheDocument();
+
+    chooseAccount("One existing account");
+    fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Sam" } });
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
+    expect(clicked).toHaveBeenCalledOnce();
+    expect(clickedAnchor.download).toBe("luna-recover.luna");
+    expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"u-sam","password":"recoveryPassword123"}');
+    expect(screen.getByRole("status")).toHaveTextContent("started to download the recovery file");
+    expect(screen.getByRole("status")).toHaveTextContent("luna-recover.luna");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("downloads recovery JSON for all admins", async () => {
+    renderPage();
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
     expect(clickedAnchor.download).toBe("luna-recover.luna");
     expect(clickedAnchor.href).toBe("blob:recovery");
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"g-admin","password":"recoveryPassword123"}');
@@ -61,18 +73,18 @@ describe("RecoveryWizardPage", () => {
 
   it("measures password minimum using UTF-8 bytes like the Luna daemon", async () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords(`${"é".repeat(9)}a1`);
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
     expect(clicked).toHaveBeenCalledOnce();
     expect(await createObjectURL.mock.calls[0][0].text()).toBe(`{"user":"g-admin","password":"${"é".repeat(9)}a1"}`);
   });
 
   it("rejects passwords shorter than 12 UTF-8 bytes", () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords(`${"é".repeat(4)}a1`);
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
     expect(screen.getByRole("alert")).toHaveTextContent("at least 12 characters");
     expect(clicked).not.toHaveBeenCalled();
   });
@@ -83,9 +95,10 @@ describe("RecoveryWizardPage", () => {
   ])("supports the %s account selector", async (label, selector) => {
     renderPage();
     chooseAccount(label);
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
+    expect(clicked).toHaveBeenCalledOnce();
     expect(await createObjectURL.mock.calls[0][0].text()).toBe(`{"user":"${selector}","password":"recoveryPassword123"}`);
   });
 
@@ -93,9 +106,10 @@ describe("RecoveryWizardPage", () => {
     renderPage();
     chooseAccount("Create a new Admin account");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Casey" } });
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
+    expect(clicked).toHaveBeenCalledOnce();
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"n-casey","password":"recoveryPassword123"}');
   });
 
@@ -103,9 +117,10 @@ describe("RecoveryWizardPage", () => {
     renderPage();
     chooseAccount("Use an account or create it if missing");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: "Jordan-1" } });
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
+    expect(clicked).toHaveBeenCalledOnce();
     expect(await createObjectURL.mock.calls[0][0].text()).toBe('{"user":"f-jordan-1","password":"recoveryPassword123"}');
   });
 
@@ -113,23 +128,19 @@ describe("RecoveryWizardPage", () => {
     renderPage();
     chooseAccount("Create a new Admin account");
     fireEvent.change(screen.getByLabelText(/^Username/), { target: { value: username } });
-    fireEvent.click(screen.getByLabelText("This Luna has a device token"));
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
     expect(screen.getByRole("alert")).toHaveTextContent("3-32 letters, numbers");
     expect(clicked).not.toHaveBeenCalled();
   });
 
-  it("rejects weak or mismatched passwords and invalid token without downloading", () => {
+  it("rejects weak or mismatched passwords without downloading", () => {
     renderPage();
-    fireEvent.change(deviceTokenInput(), { target: { value: "bad" } });
     fillPasswords("short1");
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("16 to 32 character device token");
-    fireEvent.change(deviceTokenInput(), { target: { value: "ABCDEFGHIJKLMNOP" } });
-    fireEvent.change(screen.getByLabelText("New password*", { exact: true }), { target: { value: "short1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
     expect(screen.getByRole("alert")).toHaveTextContent("at least 12 characters");
+
     fillPasswords("longpassword123");
     fireEvent.change(screen.getByLabelText("Confirm new password*", { exact: true }), { target: { value: "different123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
@@ -137,12 +148,12 @@ describe("RecoveryWizardPage", () => {
     expect(clicked).not.toHaveBeenCalled();
   });
 
-  it("shows a file creation error and allows a retry", () => {
+  it("shows a file creation error and allows a retry", async () => {
     renderPage();
-    fireEvent.change(deviceTokenInput(), { target: { value: "ABCDEFGHIJKLMNOP" } });
     fillPasswords();
     createObjectURL.mockImplementationOnce(() => { throw new Error("local download unavailable"); });
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));
+
     expect(screen.getByRole("alert")).toHaveTextContent("The recovery file could not be created. Try again.");
     expect(clicked).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Download recovery file" }));

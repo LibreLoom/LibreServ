@@ -156,13 +156,38 @@ impl AuthService {
     /// Create a user and say whether the breach service could answer.
     ///
     /// A service that cannot answer leaves the password unchecked — the
-    /// caller reports that instead of letting it pass silently.
+    /// caller reports that instead of letting it pass silently. This trusted
+    /// entry point is for the Admin-approved users route and internal setup;
+    /// anonymous network registration uses `register_first_admin_with_breach_check`.
     pub fn register_with_breach_check(
         &self,
         username: &str,
         display_name: &str,
         password: &str,
         requested_role: &str,
+    ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
+        self.register_authorized(username, display_name, password, requested_role, false)
+    }
+
+    /// Create the first Admin, but only if the user table is still empty when
+    /// the database lock is acquired. The API's earlier anonymous check is only
+    /// an optimization; this is the authorization/insertion fence.
+    pub fn register_first_admin_with_breach_check(
+        &self,
+        username: &str,
+        display_name: &str,
+        password: &str,
+    ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
+        self.register_authorized(username, display_name, password, "admin", true)
+    }
+
+    fn register_authorized(
+        &self,
+        username: &str,
+        display_name: &str,
+        password: &str,
+        requested_role: &str,
+        first_admin_only: bool,
     ) -> Result<(UserRow, crate::hibp::BreachCheck), AuthError> {
         let username = normalize_username(username)?;
         let display_name = display_name.trim();
@@ -192,7 +217,11 @@ impl AuthService {
         {
             return Err(AuthError::Taken);
         }
-        let role = if db::count_users(&conn).map_err(AuthError::Db)? == 0 {
+        let user_count = db::count_users(&conn).map_err(AuthError::Db)?;
+        if first_admin_only && user_count != 0 {
+            return Err(AuthError::Forbidden);
+        }
+        let role = if user_count == 0 {
             "admin".to_string()
         } else {
             match requested_role {
@@ -856,7 +885,7 @@ pub fn luna_unprovisioned(state: &AppState) -> bool {
 }
 
 /// Before the first account exists, only what the setup wizard and the Luna
-/// Connect landing (`/setup?token=`) call answers anonymously:
+/// Connect landing (`/setup#setup_grant=…`) call answers anonymously:
 ///
 /// - the web app and its assets (any path outside `/api/`, `/s/`, `/dav/`
 ///   and the office and diagram editors), plus `GET /health` and
@@ -940,8 +969,9 @@ pub fn strip_untrusted_forwarding_headers(headers: &mut HeaderMap, peer_is_loopb
 /// never report an existing session — it always reads an empty extension —
 /// and the web UI loses the sign-in state on every refresh of the auth
 /// context (after finishing setup, and after every login).
-/// With a device token set, LAN clients are refused unless root has enabled
-/// the override. The Connect tunnel reaches lunad from loopback, so loopback
+/// While a bound rolling credential is active, LAN clients are refused unless
+/// root has enabled the override. Pairing material alone never locks the LAN.
+/// The Connect tunnel reaches lunad from loopback, so loopback
 /// peers keep working — otherwise blocking the LAN would also block the
 /// remote path we recommend. This wraps every route, including auth and the
 /// WebDAV endpoints that sit outside `guard`.

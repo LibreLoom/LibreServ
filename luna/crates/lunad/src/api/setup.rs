@@ -122,12 +122,12 @@ async fn fetch_mag(
         ));
     }
     let connect = state.connect.clone();
-    let outcome = tokio::task::spawn_blocking(move || connect.ensure_device_code_from_mag())
+    let outcome = tokio::task::spawn_blocking(move || connect.ensure_pairing_material_from_mag())
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read the device token from the installer USB.",
+                "Luna couldn't read the Device ID and Verification code from the installer USB.",
             )
         })?;
     Ok(Json(mag_outcome_json(&outcome)))
@@ -137,6 +137,9 @@ fn mag_outcome_json(outcome: &crate::system::factory_mag::MagFetchOutcome) -> Va
     match outcome {
         crate::system::factory_mag::MagFetchOutcome::AlreadyValid => {
             json!({ "ok": true, "source": "existing" })
+        }
+        crate::system::factory_mag::MagFetchOutcome::Incomplete => {
+            json!({ "ok": false, "source": "existing", "attempts": 0 })
         }
         crate::system::factory_mag::MagFetchOutcome::NoMagazine => {
             json!({ "ok": false, "source": "none", "attempts": 0 })
@@ -154,13 +157,13 @@ fn mag_outcome_json(outcome: &crate::system::factory_mag::MagFetchOutcome) -> Va
 /// setup page is public, so a configured Luna must never mount a stick that
 /// carries the magazine's label just because someone opened the page.
 fn maybe_fetch_mag(state: &AppState) {
-    if state.connect.has_valid_device_code() {
+    if state.connect.has_pairing_material() {
         return;
     }
     if state.auth.count_users().unwrap_or(1) > 0 || !crate::auth::setup_wizard_open(state) {
         return;
     }
-    let _ = state.connect.ensure_device_code_from_mag();
+    let _ = state.connect.ensure_pairing_material_from_mag();
 }
 
 fn setup_origin(addr: &std::net::SocketAddr, headers: &HeaderMap) -> &'static str {
@@ -197,7 +200,9 @@ fn client_is_lan(addr: &std::net::SocketAddr, headers: &HeaderMap) -> bool {
     let ip = crate::api::auth::client_ip(addr, headers);
     match ip {
         std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
     }
 }
 
@@ -561,10 +566,10 @@ mod tests {
             .merge(super::router())
             .with_state(state.clone());
 
-        // A malformed token file: reading the magazine deletes it before it
-        // even looks for a stick, so its survival shows none was read.
-        let token = dir.path().join("device-token");
-        std::fs::write(&token, "not-a-code\n").unwrap();
+        // A malformed Device ID: reading the magazine would remove it before
+        // looking for a stick, so its survival shows none was read.
+        let uid = dir.path().join("device-uid");
+        std::fs::write(&uid, "not-a-code\n").unwrap();
         state
             .auth
             .register("max", "Max", "hunter22hunter1", "admin")
@@ -587,6 +592,6 @@ mod tests {
         // Signed out, the page refuses; the point is that it did not reach
         // for the magazine first.
         assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert!(token.exists(), "the magazine was read on a configured Luna");
+        assert!(uid.exists(), "the magazine was read on a configured Luna");
     }
 }

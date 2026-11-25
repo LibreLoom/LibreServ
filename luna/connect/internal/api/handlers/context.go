@@ -29,15 +29,17 @@ const MaxDevicesPerAccount = 1
 const OnlineWithinSec = 10 * 60
 
 type Device struct {
-	ID         string
-	AccountID  sql.NullString
-	Subdomain  string
-	TunnelID   string
-	Name       string
-	CodeHash   string
-	Kind       string
-	LastSeenAt sql.NullInt64
-	Revoked    bool
+	ID            string
+	UID           string
+	State         string
+	AccountID     sql.NullString
+	AuthTokenHash string
+	Subdomain     string
+	TunnelID      string
+	Name          string
+	Kind          string
+	LastSeenAt    sql.NullInt64
+	Revoked       bool
 }
 
 type Account struct {
@@ -80,32 +82,44 @@ type Deps struct {
 }
 
 func ClientIP(r *http.Request) string {
-	remote := remoteHost(r.RemoteAddr)
-	if trustedProxy(remote) {
-		// Cloudflare sets CF-Connecting-IP; the local Caddy passes it through.
-		// Only a proxy may set these headers: trusting them from any other peer
-		// would let that peer pick a new client address per request and reset
-		// the per-IP limits. Peers allowed to speak for a client are loopback
-		// (the shipped Caddy) and whatever trusted_proxies lists.
-		// Prefer CF-Connecting-IP over XFF so we do not bucket everyone on the
-		// edge/proxy IP.
-		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
-			return stripPort(cf)
-		}
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-			return stripPort(xri)
-		}
-		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-			parts := strings.Split(xff, ",")
-			if ip := strings.TrimSpace(parts[0]); ip != "" {
-				return stripPort(ip)
-			}
-		}
+	if ip, ok := trustedProxyClientIP(r); ok {
+		return ip
 	}
+	remote := remoteHost(r.RemoteAddr)
 	if remote != "" {
 		return remote
 	}
 	return r.RemoteAddr
+}
+
+// trustedProxyClientIP resolves forwarding headers only when the direct peer
+// is allowed to speak for a client. The boolean is used by pairing's public-IP
+// relaxation; a header from an untrusted peer never supplies network location.
+func trustedProxyClientIP(r *http.Request) (string, bool) {
+	remote := remoteHost(r.RemoteAddr)
+	if !trustedProxy(remote) {
+		return "", false
+	}
+	candidates := []string{
+		strings.TrimSpace(r.Header.Get("CF-Connecting-IP")),
+		strings.TrimSpace(r.Header.Get("X-Real-IP")),
+	}
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			candidates = append(candidates, strings.TrimSpace(parts[0]))
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		ip := net.ParseIP(strings.Trim(stripPort(candidate), "[]"))
+		if ip != nil {
+			return ip.String(), true
+		}
+	}
+	return "", false
 }
 
 func remoteHost(addr string) string {

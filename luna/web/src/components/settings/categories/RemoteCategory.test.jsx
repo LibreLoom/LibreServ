@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import RemoteCategory from "./RemoteCategory";
 
-// The "Change the device token" link points at About, which only an Admin can open.
+let mockRole = "admin";
 vi.mock("../../../context/AuthContext", () => ({
-  useOptionalAuth: () => ({ user: { id: "1", role: "admin" } }),
+  useOptionalAuth: () => ({ user: { id: "1", role: mockRole } }),
 }));
 
 function renderPage() {
@@ -20,121 +20,87 @@ function renderPage() {
   );
 }
 
+function answer(status) {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(status), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })));
+}
+
 describe("RemoteCategory", () => {
-  it("shows empty public-address state and Open Luna Connect CTA when off", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ enabled: false }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-      ),
-    );
-    renderPage();
-
-    expect(await screen.findByText("No public address yet")).toBeTruthy();
-    expect(screen.getByText("Public address")).toBeTruthy();
-    expect(screen.getByText(/yourname/i)).toBeTruthy();
-    expect(screen.getByText(/\.luna\.servers\.libreloom\.org/)).toBeTruthy();
-    expect(
-      await screen.findByText(/Pick a name on Luna Connect\. The address shows here when it is ready\./i),
-    ).toBeTruthy();
-
-    const cta = screen.getByRole("link", { name: /Open Luna Connect/i });
-    expect(cta).toHaveAttribute("href", "https://connect.luna.libreloom.org");
-
-    expect(screen.getByText("Off")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Sync with Luna Connect/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Change the device token/i })).not.toBeInTheDocument();
+  afterEach(() => {
+    mockRole = "admin";
+    vi.unstubAllGlobals();
   });
 
-  it("shows copyable address and Manage CTA when on", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              enabled: true,
-              hostname: "photos.luna.servers.libreloom.org",
-              domain: "photos.luna.servers.libreloom.org",
-              tunnel_active: true,
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-      ),
+  it("does not treat a saved Verification code as an active Connect binding", async () => {
+    answer({ paired: false, connect_active: true, verification_code: "A3F91C" });
+    renderPage();
+
+    expect(await screen.findByText("Not paired")).toBeInTheDocument();
+    expect(screen.getByText(/Use the Device ID and Verification code/)).toBeInTheDocument();
+    expect(screen.getByText("No public address yet")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/^https:/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toHaveAttribute(
+      "href",
+      "https://connect.luna.libreloom.org",
     );
+  });
+
+  it("shows a copyable address and Manage CTA for a bound Luna", async () => {
+    answer({
+      state: "bound",
+      paired: true,
+      connect_active: true,
+      hostname: "photos.luna.servers.libreloom.org",
+      domain: "photos.luna.servers.libreloom.org",
+      tunnel_active: true,
+    });
     renderPage();
 
     expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
-    expect(screen.getByLabelText("Luna Connect address")).toBeTruthy();
-    expect(screen.getByText("Public address")).toBeTruthy();
-    expect(screen.getByText("On")).toBeTruthy();
-
-    const manage = screen.getByRole("link", { name: /Manage on Luna Connect/i });
-    expect(manage).toHaveAttribute("href", "https://connect.luna.libreloom.org");
-
-    expect(screen.queryByText("No public address yet")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Save new address/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("kitchen")).not.toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Manage on Luna Connect/i })).toHaveAttribute(
+      "href",
+      "https://connect.luna.libreloom.org",
+    );
   });
 
   it("keeps the address visible and warns when the secure tunnel is down", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              enabled: true,
-              hostname: "photos.luna.servers.libreloom.org",
-              domain: "photos.luna.servers.libreloom.org",
-              tunnel_active: false,
-              tunnel_error:
-                "Remote access is set up, but it is not running yet. Luna will keep trying.",
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-      ),
-    );
+    answer({
+      paired: true,
+      connect_active: true,
+      hostname: "photos.luna.servers.libreloom.org",
+      tunnel_active: false,
+      tunnel_error: "Remote access is set up, but it is not running yet. Luna will keep trying.",
+    });
     renderPage();
 
     expect(await screen.findByDisplayValue("https://photos.luna.servers.libreloom.org")).toBeTruthy();
-    expect(
-      screen.getByText(
-        /Remote access is set up, but it is not running yet\. Luna will keep trying\./i,
-      ),
-    ).toBeTruthy();
-    expect(screen.getByText("On")).toBeTruthy();
+    expect(screen.getByText(/Remote access is set up, but it is not running yet/)).toBeTruthy();
   });
 
-  it("shows device token errors with a link to About Advanced", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              enabled: false,
-              device_token_error: "Luna Connect did not accept this device token.",
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-      ),
-    );
+  it("shows pending-disconnect state without offering the old public address", async () => {
+    answer({
+      paired: true,
+      connect_active: false,
+      unbind_pending: true,
+      hostname: "photos.luna.servers.libreloom.org",
+    });
     renderPage();
 
-    expect(
-      await screen.findByText("Luna Connect did not accept this device token."),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: /Change the device token in About\s*Advanced/i }),
-    ).toHaveAttribute("href", "/settings#about");
-    expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeTruthy();
+    expect(await screen.findByText("Disconnect pending")).toBeInTheDocument();
+    expect(screen.getByText(/Remote access and pairing are off/)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("https://photos.luna.servers.libreloom.org")).not.toBeInTheDocument();
+  });
+
+  it("shows Connect errors without sending Members to an Admin-only settings page", async () => {
+    mockRole = "member";
+    answer({ paired: false, connect_active: false, connect_error: "Luna Connect needs attention." });
+    renderPage();
+
+    expect(await screen.findByText("Luna Connect needs attention.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Change the device token/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeInTheDocument();
   });
 });

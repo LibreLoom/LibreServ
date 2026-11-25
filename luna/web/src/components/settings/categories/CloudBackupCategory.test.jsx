@@ -16,6 +16,7 @@ const json = (body) =>
 /** Routes the cloud API calls the card makes; anything else gets an empty object. */
 function stubApi({
   connected = true,
+  state = "bound",
   cardOnFile = true,
   backups = [],
   runResponse = /** @type {any} */ ({ done: true }),
@@ -25,7 +26,7 @@ function stubApi({
     const method = options.method || "GET";
     if (url === "/api/v1/auth/status") return json({ has_admin: true, connect_active: connected });
     if (url === "/api/v1/connect/status") {
-      return json({ connect_active: connected, cloud_backup: !connected ? "not_linked" : cardOnFile ? "ready" : "no_payment" });
+      return json({ state, connect_active: connected, cloud_backup: !connected ? "not_linked" : cardOnFile ? "ready" : "no_payment" });
     }
     if (url === "/api/v1/cloud/phrase" && method === "GET") return json(phrase);
     if (url === "/api/v1/cloud/backups" && method === "GET") return json(backups);
@@ -168,28 +169,48 @@ describe("CloudBackupCategory", () => {
     expect(screen.queryByText("Open Luna Connect")).toBeNull();
   });
 
-  it("with Connect off, an Admin sees the phrase card and a line pointing at the device token, with no list", async () => {
-    const fetchMock = stubApi({ connected: false });
+  it("with Connect off, an Admin sees the phrase card and pairing details, with no list", async () => {
+    const fetchMock = stubApi({ connected: false, state: "unbound" });
     renderCard();
-    expect(await screen.findByText(/Add your device token in/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open Advanced/ })).toHaveAttribute("href", "/settings#about");
+    expect(await screen.findByText(/Pair this Luna with its Device ID and Verification code/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#luna_connect");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));
     expect(asked).not.toContain("/api/v1/cloud/backups");
-    expect(asked).not.toContain("/api/v1/connect/status");
+    expect(asked).toContain("/api/v1/connect/status");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/connect/status",
+      expect.objectContaining({ cache: "no-store" }),
+    ));
+  });
+
+  it("explains a pending disconnect instead of asking to pair again", async () => {
+    stubApi({ connected: false, state: "pending" });
+    renderCard();
+
+    expect(await screen.findByText("Cloud backup stays off until Luna finishes disconnecting.")).toBeInTheDocument();
+    expect(screen.queryByText(/Pair this Luna with its Device ID/)).toBeNull();
+  });
+
+  it("explains revoked recovery instead of asking to pair again", async () => {
+    stubApi({ connected: false, state: "revoked" });
+    renderCard();
+
+    expect(await screen.findByText("Reconnect this Luna in Luna Connect before turning on cloud backup.")).toBeInTheDocument();
+    expect(screen.queryByText(/Pair this Luna with its Device ID/)).toBeNull();
   });
 
   it("with Connect off, a Member is told an Admin can turn it on", async () => {
     mockRole = "member";
-    stubApi({ connected: false });
+    stubApi({ connected: false, state: "unbound" });
     renderCard();
-    expect(await screen.findByText("Cloud backup needs Luna Connect. An Admin can turn it on.")).toBeInTheDocument();
+    expect(await screen.findByText("Cloud backup needs Luna Connect. An Admin can pair this Luna.")).toBeInTheDocument();
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
   });
 
   it("with Connect off, leaves out the restore cards", async () => {
-    stubApi({ connected: false });
+    stubApi({ connected: false, state: "unbound" });
     renderCard();
     await screen.findByText(/Cloud backup needs Luna Connect/);
     expect(screen.queryByText(/Bring back/i)).toBeNull();

@@ -15,12 +15,18 @@ func Migrate(db *DB) error {
 		if _, err := db.Exec(schemaPostgres); err != nil {
 			return fmt.Errorf("migrate postgres schema: %w", err)
 		}
-		return applyAdditiveColumnsPostgres(db)
+		if err := applyAdditiveColumnsPostgres(db); err != nil {
+			return err
+		}
+		return fenceLegacyDevices(db)
 	default:
 		if _, err := db.Exec(schemaSQLite); err != nil {
 			return fmt.Errorf("migrate sqlite schema: %w", err)
 		}
-		return applyAdditiveColumnsSQLite(db)
+		if err := applyAdditiveColumnsSQLite(db); err != nil {
+			return err
+		}
+		return fenceLegacyDevices(db)
 	}
 }
 
@@ -53,7 +59,7 @@ func applyAdditiveColumnsSQLite(db *DB) error {
 	if err := upgradeBucketsTable(db); err != nil {
 		return err
 	}
-	return nil
+	return applyDeviceAuthColumnsSQLite(db)
 }
 
 func applyAdditiveColumnsPostgres(db *DB) error {
@@ -82,7 +88,59 @@ func applyAdditiveColumnsPostgres(db *DB) error {
 			return fmt.Errorf("postgres additive migrate: %w", err)
 		}
 	}
+	cols = []string{
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_uid TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS verification_code_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS verification_code_sealed TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'unbound'`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS auth_token_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS auth_token_sealed TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS previous_auth_token_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS previous_auth_token_valid_until BIGINT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_public_ip TEXT`,
+		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_public_ip_at BIGINT`,
+	}
+	for _, q := range cols {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("postgres device auth migrate: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_uid ON devices(device_uid)`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices(auth_token_hash)`)
+	return err
+}
+
+func applyDeviceAuthColumnsSQLite(db *DB) error {
+	for _, q := range []string{
+		`ALTER TABLE devices ADD COLUMN device_uid TEXT`,
+		`ALTER TABLE devices ADD COLUMN verification_code_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN verification_code_sealed TEXT`,
+		`ALTER TABLE devices ADD COLUMN state TEXT NOT NULL DEFAULT 'unbound'`,
+		`ALTER TABLE devices ADD COLUMN auth_token_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN auth_token_sealed TEXT`,
+		`ALTER TABLE devices ADD COLUMN previous_auth_token_hash TEXT`,
+		`ALTER TABLE devices ADD COLUMN previous_auth_token_valid_until INTEGER`,
+		`ALTER TABLE devices ADD COLUMN last_public_ip TEXT`,
+		`ALTER TABLE devices ADD COLUMN last_public_ip_at INTEGER`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_uid ON devices(device_uid)`,
+		`CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices(auth_token_hash)`,
+	} {
+		_, _ = db.Exec(q)
+	}
 	return nil
+}
+
+// fenceLegacyDevices makes rows created by the permanent-token schema inert.
+// Their old hashes and sealed tokens are never converted into pairing material
+// or accepted as bearer credentials.
+func fenceLegacyDevices(db *DB) error {
+	_, err := db.Exec(`UPDATE devices SET state = 'revoked', revoked = 1,
+ auth_token_hash = NULL, auth_token_sealed = NULL,
+ previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL
+ WHERE device_uid IS NULL OR device_uid = ''`)
+	return err
 }
 
 type columnInfo struct {

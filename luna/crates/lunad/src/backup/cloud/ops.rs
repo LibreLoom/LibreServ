@@ -1191,7 +1191,7 @@ mod tests {
         db: crate::Db,
         admin: CurrentUser,
         src: String,
-        /// Connect with no device token, so no lookup reaches the network.
+        /// Connect with no bound credential, so no lookup reaches the network.
         connect: ConnectService,
     }
 
@@ -1687,14 +1687,21 @@ mod tests {
     #[test]
     fn a_linked_luna_without_payment_cannot_start_a_cloud_backup() {
         let s = setup();
-        // Saving the state first creates the Connect folder the token goes in.
         set_unlocked(&s.connect, false);
         fs::write(
             s._dir
                 .path()
                 .join("connect")
-                .join(crate::net::connect::DEVICE_TOKEN_FILE),
-            "ABCD-EFGH-JKMN-PQRS-TVWX",
+                .join(crate::net::connect::DEVICE_UID_FILE),
+            "7K4M2Q9XR8N36T5W1PZH",
+        )
+        .unwrap();
+        fs::write(
+            s._dir
+                .path()
+                .join("connect")
+                .join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         )
         .unwrap();
         assert!(s.connect.is_connect_active());

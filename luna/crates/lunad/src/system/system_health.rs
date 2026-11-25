@@ -146,7 +146,7 @@ pub struct Probes {
     pub clock: ClockReading,
     /// `None` skips the network check (tests, non-Linux).
     pub network: Option<NetworkStatus>,
-    /// Present only while a device token is on disk — Connect is opt-in.
+    /// Present when Connect is bound or has a pairing/reachability problem.
     pub connect: Option<ConnectStatus>,
     pub usable_update_keys: usize,
     /// True while updates verify against the compiled-in LibreLoom release
@@ -210,9 +210,13 @@ impl Probes {
         Self {
             clock: ClockReading::live(),
             network: Some(network),
-            connect: connect
-                .is_connect_active()
-                .then(|| connect.status_for(false)),
+            connect: (|| {
+                let status = connect.status_for(false);
+                (status.connect_active
+                    || status.connect_error.is_some()
+                    || status.connect_unreachable.is_some())
+                .then_some(status)
+            })(),
             usable_update_keys: updates.usable_key_count(),
             default_update_keys: updates.using_default_keys(),
             on_luna_os: cmdline
@@ -593,7 +597,7 @@ fn add_network_checks(checks: &mut Checks, probes: &Probes) {
     let Some(connect) = &probes.connect else {
         return;
     };
-    if let Some(err) = &connect.device_token_error {
+    if let Some(err) = &connect.connect_error {
         checks
             .add(
                 "connect",

@@ -16,13 +16,9 @@ func domainChangeFixture(t *testing.T, email string) (AccountHandler, DeviceHand
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, email)
 	verifyEmailFor(t, acctH, email)
-	devID, code := mintDevice(t, d, "official")
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	if rec := withVerifiedAccount(acctH, devH.Bind, bindReq); rec.Code != http.StatusOK {
-		t.Fatalf("bind %d %s", rec.Code, rec.Body.String())
-	}
-	return acctH, devH, cookie, devID, code
+	_, uid, code := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	return acctH, devH, cookie, devID, token
 }
 
 func setAddress(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, devID, name string) *httptest.ResponseRecorder {
@@ -41,6 +37,8 @@ func TestDomainChangesAreLimitedPerAccount(t *testing.T) {
 
 	if rec := setAddress(t, acctH, devH, cookie, devID, "firstbox"); rec.Code != http.StatusCreated {
 		t.Fatalf("first address %d %s", rec.Code, rec.Body.String())
+	} else if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("domain cache control=%q", rec.Header().Get("Cache-Control"))
 	}
 	names := []string{"box0", "box1", "box2", "box3", "box4"}
 	for _, name := range names {
@@ -64,13 +62,13 @@ func TestDomainChangesAreLimitedPerAccount(t *testing.T) {
 // The Luna's own POST /domain moves an address on the same shared token, so it
 // draws from the same per-account allowance.
 func TestLunaDomainChangesShareTheAccountLimit(t *testing.T) {
-	acctH, devH, cookie, devID, code := domainChangeFixture(t, "luna-domain-limit@b.co")
+	acctH, devH, cookie, devID, token := domainChangeFixture(t, "luna-domain-limit@b.co")
 	if rec := setAddress(t, acctH, devH, cookie, devID, "firstbox"); rec.Code != http.StatusCreated {
 		t.Fatalf("first address %d %s", rec.Code, rec.Body.String())
 	}
 	change := func(name string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/domain", bytes.NewBufferString(`{"subdomain":"`+name+`"}`))
-		req.Header.Set("Authorization", "Bearer "+code)
+		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		devH.DeviceAuth(http.HandlerFunc(devH.Domain)).ServeHTTP(rec, req)
 		return rec

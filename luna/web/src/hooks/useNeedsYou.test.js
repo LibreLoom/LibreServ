@@ -101,7 +101,7 @@ function adminRoutes(overrides = {}) {
     "/api/v1/drives": answer([DRIVE_OK]),
     "/api/v1/drives/detected": answer([]),
     "/api/v1/network/status": answer({ has_default_route: true }),
-    "/api/v1/connect/status": answer({ device_token_error: "" }),
+    "/api/v1/connect/status": answer({ connect_error: "" }),
     "/api/v1/system/health/check": answer({ checks: {} }),
     "/api/v1/drives/d1/summary": answer(SUMMARY_ROOMY),
     "/api/v1/drives/d1/health": answer(HEALTH_OK),
@@ -164,7 +164,7 @@ describe("useNeedsYou for an Admin", () => {
       adminRoutes({
         "/api/v1/drives": answer([{ id: "d1", label: "Backup drive", state: "as_is", mounted: false }]),
         "/api/v1/backups": answer([backup({ id: "b1", state: "failing", last_error: "Disk full" })]),
-        "/api/v1/connect/status": answer({ device_token_error: "Your device token was revoked." }),
+        "/api/v1/connect/status": answer({ state: "revoked", connect_error: "This Luna's Connect access was revoked." }),
         "/api/v1/network/status": answer({ has_default_route: false }),
         "/api/v1/drives/detected": answer([{ name: "sdb1", model: "USB", size_bytes: 1 }]),
       }),
@@ -187,8 +187,8 @@ describe("useNeedsYou for an Admin", () => {
       action: { label: "Open", intent: "open-backup" },
     });
     expect(result.current.items[2]).toMatchObject({
-      detail: "Your device token was revoked.",
-      action: { label: "Change the device token", href: "/settings#about" },
+      detail: "This Luna's Connect access was revoked.",
+      action: { label: "Open Device token", href: "/settings#luna_connect" },
     });
     expect(result.current.items[3]).toMatchObject({
       detail: "Check that your router or modem is online.",

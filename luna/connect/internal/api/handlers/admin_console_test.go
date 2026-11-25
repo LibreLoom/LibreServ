@@ -17,7 +17,7 @@ import (
 func TestAdminStatsAndDevices(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-1")
+	devID, uid, code, err := insertDeviceIdentity(d.DB, "official", "order-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +61,8 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 	if row["can_reveal"] != true {
 		t.Fatalf("expected can_reveal on list row: %v", row)
 	}
-	if row["device_code_prefix"] != security.DeviceCodePrefix(code) {
-		t.Fatalf("device_code_prefix %v want %v", row["device_code_prefix"], security.DeviceCodePrefix(code))
+	if row["device_code_prefix"] != security.DeviceCodePrefix(uid) {
+		t.Fatalf("device_code_prefix %v want %v", row["device_code_prefix"], security.DeviceCodePrefix(uid))
 	}
 	if row["hint"] == nil || row["hint"] == "" {
 		t.Fatalf("expected hint on list row: %v", row)
@@ -119,8 +119,8 @@ VALUES ('admin_1', ?, ?, 1, ?, ?)`, email, hash, now, now); err != nil {
 	if err := json.Unmarshal(rev.Body.Bytes(), &revealBody); err != nil {
 		t.Fatal(err)
 	}
-	if revealBody["code"] != code {
-		t.Fatal("reveal did not return the expected token")
+	if revealBody["verification_code"] != code || security.NormalizeDeviceUID(revealBody["device_uid"].(string)) != uid {
+		t.Fatalf("reveal did not return the expected pairing details: %v", revealBody)
 	}
 }
 
@@ -128,28 +128,21 @@ func TestDeviceCodesPaginationAndSearch(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
 
-	// Insert 5 tokens: 2 unbound, 2 bound, 1 revoked
-	tok1 := "AAAA-BBBB-CCCC-DDDD-EEE1"
-	tok2 := "AAAA-BBBB-CCCC-DDDD-EEE2"
-	tok3 := "AAAA-BBBB-CCCC-DDDD-EEE3"
-	tok4 := "AAAA-BBBB-CCCC-DDDD-EEE4"
-	tok5 := "AAAA-BBBB-CCCC-DDDD-EEE5"
-
-	id1, _, _ := insertPermanentDevice(d.DB, "official", tok1, "order-alpha")
-	id2, _, _ := insertPermanentDevice(d.DB, "official", tok2, "order-beta")
-	id3, _, _ := insertPermanentDevice(d.DB, "official", tok3, "order-gamma")
-	id4, _, _ := insertPermanentDevice(d.DB, "official", tok4, "order-delta")
-	id5, _, _ := insertPermanentDevice(d.DB, "official", tok5, "order-epsilon")
+	// Insert 5 identities: 2 unbound, 2 bound, 1 revoked.
+	id1, uid1, _, _ := insertDeviceIdentity(d.DB, "official", "order-alpha")
+	id2, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-beta")
+	id3, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-gamma")
+	id4, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-delta")
+	id5, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-epsilon")
 
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 
 	// Bind id3 and id4 to acct_search, set subdomain for id3
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_search', subdomain = 'myluna' WHERE id = ?`, id3)
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_search' WHERE id = ?`, id4)
-	// Revoke id5
-	_, _ = d.DB.Exec(`UPDATE devices SET revoked = 1 WHERE id = ?`, id5)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_search', subdomain = 'myluna' WHERE id = ?`, id3)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_search' WHERE id = ?`, id4)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'revoked', revoked = 1 WHERE id = ?`, id5)
 
 	// Test 1: Pagination (limit=2, offset=0)
 	rec := httptest.NewRecorder()
@@ -168,9 +161,9 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 		t.Fatalf("unexpected pagination: %+v", pag1)
 	}
 
-	// Test 2: Search by full token (tok1)
+	// Test 2: Search by full Device ID (uid1).
 	rec = httptest.NewRecorder()
-	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q="+tok1, nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q="+uid1, nil))
 	var searchRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &searchRes)
 	stList := searchRes["tokens"].([]any)
@@ -245,8 +238,8 @@ VALUES ('acct_p1', 'alpha@domain.com', 'x', 0, 'none', 1, ?),
        ('acct_p3', 'gamma@domain.com', 'x', 0, 'none', 1, ?)`, now, now+1, now+2)
 
 	// Link a device to acct_p2 with subdomain 'box2'
-	devID, _, _ := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-acc")
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_p2', subdomain = 'box2' WHERE id = ?`, devID)
+	devID, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-acc")
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_p2', subdomain = 'box2' WHERE id = ?`, devID)
 
 	// Test 1: Pagination (limit=2, offset=0)
 	rec := httptest.NewRecorder()

@@ -1,17 +1,18 @@
 #!/bin/sh
 # Factory stick helpers: LUNAASSETS partition + TOKENS magazine (dash-safe).
-# Official device tokens (purchased from LibreLoom) live one-per-line in TOKENS on the writable FAT
-# partition labeled LUNAASSETS. Each flash peels the first usable line.
+# Each official pairing line contains a 20-character uppercase Crockford Device
+# ID and a six-character uppercase hexadecimal Verification code, separated by
+# one literal space.
 
-# Print first non-empty, non-# line from $1. Returns 1 if none.
+# Print the first non-empty, non-# line from $1 without normalizing its fields.
+# Returns 1 if none. Only CR from FAT / Windows line endings is removed.
 factory_tokens_first_line() {
 	_file="$1"
 	[ -f "$_file" ] || return 1
 	while IFS= read -r _line || [ -n "$_line" ]; do
-		# Trim CR (FAT / Windows editors) and leading/trailing spaces.
 		_line=$(printf '%s' "$_line" | tr -d '\r')
-		_line=$(printf '%s' "$_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-		case "$_line" in
+		_check=$(printf '%s' "$_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+		case "$_check" in
 		"" | \#*)
 			continue
 			;;
@@ -22,7 +23,7 @@ factory_tokens_first_line() {
 	return 1
 }
 
-# Rewrite $1 without its first usable token line. Keeps blank lines and
+# Rewrite $1 without its first usable pairing line. Keeps blank lines and
 # comments; drops only the first non-empty non-# line. Returns 1 on I/O failure.
 factory_tokens_drop_first() {
 	_file="$1"
@@ -78,110 +79,151 @@ factory_assets_umount() {
 	rmdir "$_fa_mnt" 2>/dev/null || true
 }
 
-# Peel one token from a mounted LUNAASSETS directory ($1).
-# On success prints the token and removes it from TOKENS.
-# Returns: 0 = peeled, 1 = no magazine / empty / invalid top line, 2 = rewrite failed after peel intent.
-factory_peel_token_from_dir() {
-	_assets="$1"
-	_tokens="$_assets/TOKENS"
-	[ -f "$_tokens" ] || return 1
-	_tok="$(factory_tokens_first_line "$_tokens")" || return 1
-	[ -n "$_tok" ] || return 1
-	if ! factory_is_valid_device_token "$_tok"; then
-		return 1
-	fi
-	if ! factory_tokens_drop_first "$_tokens"; then
-		return 2
-	fi
-	printf '%s\n' "$_tok"
-	return 0
-}
-
-# Normalize a device token like lunad (Crockford base32, drop separators).
-factory_normalize_device_token() {
-	_norm=$(printf '%s' "$1" | tr -d '\r' | sed 's/[- _]//g' | tr 'a-z' 'A-Z')
+# Normalize a manually entered Device ID for display-style groups and Crockford
+# look-alikes. TOKENS lines do not use this normalization: their format is exact.
+factory_normalize_device_uid() {
+	_norm=$(printf '%s' "$1" | tr -d '\r' | sed 's/[-_[:space:]]//g' | tr 'a-z' 'A-Z')
 	_norm=$(printf '%s' "$_norm" | sed 's/I/1/g; s/L/1/g; s/O/0/g')
 	printf '%s' "$_norm"
 }
 
-# True when $1 is a plausible Luna Connect device token (16–32 Crockford chars).
-factory_is_valid_device_token() {
-	_norm=$(factory_normalize_device_token "$1")
-	_len=${#_norm}
-	[ "$_len" -ge 16 ] && [ "$_len" -le 32 ] || return 1
-	case "$_norm" in
+# True when $1 is an ungrouped uppercase 20-character Crockford Device ID.
+factory_is_valid_device_uid() {
+	_uid="$1"
+	[ "${#_uid}" -eq 20 ] || return 1
+	case "$_uid" in
 	*[!0123456789ABCDEFGHJKMNPQRSTVWXYZ]*) return 1 ;;
 	esac
 	return 0
 }
 
-# Write device token onto the mounted LUNA_DATA volume ($1).
-# At runtime that volume is mounted at /var/lib/luna → /var/lib/luna/device-token.
-factory_write_device_token() {
-	_root="$1"
-	_tok="$2"
-	mkdir -p "$_root" || return 1
-	printf '%s\n' "$_tok" >"$_root/device-token" || return 1
-	chmod 600 "$_root/device-token" || return 1
+# True when $1 is an uppercase six-character hexadecimal Verification code.
+factory_is_valid_pairing_code() {
+	_code="$1"
+	[ "${#_code}" -eq 6 ] || return 1
+	case "$_code" in
+	*[!0123456789ABCDEF]*) return 1 ;;
+	esac
 	return 0
 }
 
-# TTY prompt: valid token saved, empty Enter skips, invalid re-prompts.
-factory_prompt_device_token() {
+# Validate one exact TOKENS line and print it in canonical form. The line must
+# be "<20-character Crockford Device ID> <6-hex Verification code>" with one
+# literal space, no grouping, and no leading or trailing whitespace.
+factory_pairing_line() {
+	_line=$(printf '%s' "$1" | tr -d '\r')
+	_pair=$(printf '%s\n' "$_line" | awk 'NF == 2 && $0 ~ /^[^[:space:]]+ [^[:space:]]+$/ { print $1, $2; found = 1 } END { if (!found) exit 1 }') || return 1
+	_uid="${_pair% *}"
+	_code="${_pair#* }"
+	factory_is_valid_device_uid "$_uid" || return 1
+	factory_is_valid_pairing_code "$_code" || return 1
+	printf '%s %s\n' "$_uid" "$_code"
+}
+
+# Peel the first valid pairing line from a mounted LUNAASSETS directory ($1).
+# Malformed lines are consumed and skipped so one bad export does not block the
+# next unit. On success prints "<Device ID> <Verification code>".
+# Returns: 0 = peeled, 1 = no usable line, 2 = rewrite failed after peel intent.
+factory_peel_pairing_line_from_dir() {
+	_assets="$1"
+	_tokens="$_assets/TOKENS"
+	[ -f "$_tokens" ] || return 1
+	while _line=$(factory_tokens_first_line "$_tokens"); do
+		if ! factory_tokens_drop_first "$_tokens"; then
+			return 2
+		fi
+		if _pair=$(factory_pairing_line "$_line"); then
+			printf '%s\n' "$_pair"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Write the public Device ID and secret Verification code as separate files on
+# the mounted LUNA_DATA volume ($1), which is /var/lib/luna at runtime.
+factory_write_pairing_material() {
+	_root="$1"
+	_uid="$2"
+	_code="$3"
+	factory_is_valid_device_uid "$_uid" || return 1
+	factory_is_valid_pairing_code "$_code" || return 1
+	mkdir -p "$_root" || return 1
+	# Write the code first: a crash between the two writes leaves no Device ID,
+	# so a later setup attempt can safely consume another magazine line.
+	(umask 077; printf '%s\n' "$_code" >"$_root/pairing-code") || return 1
+	chmod 600 "$_root/pairing-code" || return 1
+	printf '%s\n' "$_uid" >"$_root/device-uid" || return 1
+	chmod 644 "$_root/device-uid" || return 1
+	return 0
+}
+
+# TTY prompt: collect Device ID and Verification code separately. Empty Enter at
+# Device ID skips Connect; invalid values re-prompt only the field that was wrong.
+factory_prompt_pairing_material() {
 	_root="$1"
 	printf '%s\n' \
 		"" \
-		"Type your device token from Luna Connect and press enter now for the best experience." \
-		"Go to https://connect.luna.libreloom.org to get started." \
-		"Luna is offline-first, though, so all functionality is available without our service, which is open-source and exists to make remote access & cloud backup configuration easy." \
-		"If you would like to opt-out for now, you can just press enter, leaving the field empty."
+		"Enter the Device ID and Verification code from your Luna Connect quick-start card." \
+		"Open connect.luna.libreloom.org/onboarding in a browser on the same network, or press Enter at Device ID to set up without Connect."
 	while :; do
-		printf '%s' ">>> "
-		# shellcheck disable=SC2162
-		read _tok || _tok=""
-		_tok=$(printf '%s' "$_tok" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-		if [ -z "$_tok" ]; then
-			echo "Skipped. Luna Connect is off until you add a device token in Luna."
+		printf '%s' "Device ID: "
+		read -r _uid || _uid=""
+		_uid=$(printf '%s' "$_uid" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+		if [ -z "$_uid" ]; then
+			echo "Skipped. You can connect Luna later in Settings > Luna Connect."
 			return 0
 		fi
-		if ! factory_is_valid_device_token "$_tok"; then
-			printf '%s\n' \
-				"Check your token. If you meant to skip this step, press enter without typing anything."
-			continue
+		_uid=$(factory_normalize_device_uid "$_uid")
+		if factory_is_valid_device_uid "$_uid"; then
+			break
 		fi
-		if ! factory_write_device_token "$_root" "$_tok"; then
-			echo "Could not save the device token onto Luna." >&2
+		printf '%s\n' "Check the Device ID. It has 20 characters, usually shown in five groups of four."
+	done
+	while :; do
+		printf '%s' "Verification code: "
+		if ! read -r _code; then
+			echo "No Verification code entered." >&2
 			return 1
 		fi
-		echo "Device token saved."
-		return 0
+		_code=$(printf '%s' "$_code" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr 'a-f' 'A-F')
+		if factory_is_valid_pairing_code "$_code"; then
+			break
+		fi
+		printf '%s\n' "Check the Verification code. It is six characters long and uses only 0-9 and A-F."
 	done
+	if ! factory_write_pairing_material "$_root" "$_uid" "$_code"; then
+		echo "Could not save the Device ID and Verification code onto Luna." >&2
+		return 1
+	fi
+	echo "Device ID and Verification code saved."
+	return 0
 }
 
-# Full post-flash path: peel from LUNAASSETS, else legacy device-token paths, else TTY paste.
-# $1 = mounted LUNA_DATA volume. $2 = HERE (installer payload dir).
-# Returns 0 on success/skip; 1 on hard failure (e.g. mag rewrite failed).
-factory_apply_device_token() {
+# Full post-flash path: peel from LUNAASSETS, else prompt on a TTY.
+# Returns 0 on success/skip; 1 on hard failure (e.g. magazine rewrite failed).
+factory_apply_pairing_material() {
 	_root="$1"
-	_here="${2:-}"
 	_assets_mnt="$(mktemp -d)" || return 1
 	if factory_assets_mount "$_assets_mnt"; then
-		_peel_rc=0
 		_first=$(factory_tokens_first_line "$_assets_mnt/TOKENS") || _first=""
-		if [ -n "$_first" ] && factory_is_valid_device_token "$_first"; then
-			_tok=$(factory_peel_token_from_dir "$_assets_mnt") || _peel_rc=$?
+		if [ -n "$_first" ]; then
+			_peel_rc=0
+			_pair=$(factory_peel_pairing_line_from_dir "$_assets_mnt") || _peel_rc=$?
 			if [ "$_peel_rc" -eq 2 ]; then
 				factory_assets_umount "$_assets_mnt"
-				echo "Could not update the TOKENS magazine on LUNAASSETS. Stopped so the same code is not used twice." >&2
+				echo "Could not update the TOKENS magazine on LUNAASSETS. Stopped so the same pairing code is not used twice." >&2
 				return 1
 			fi
-			if [ "$_peel_rc" -eq 0 ] && [ -n "$_tok" ]; then
+			if [ "$_peel_rc" -eq 0 ] && [ -n "$_pair" ]; then
+				_uid="${_pair% *}"
+				_code="${_pair#* }"
 				factory_assets_umount "$_assets_mnt"
-				if ! factory_write_device_token "$_root" "$_tok"; then
-					echo "Could not save the device token onto Luna." >&2
+				if ! factory_write_pairing_material "$_root" "$_uid" "$_code"; then
+					echo "Could not save the Device ID and Verification code onto Luna." >&2
 					return 1
 				fi
-				echo "Device token taken from LUNAASSETS magazine."
+				echo "Device ID and Verification code taken from LUNAASSETS magazine."
 				return 0
 			fi
 		fi
@@ -190,26 +232,8 @@ factory_apply_device_token() {
 		rmdir "$_assets_mnt" 2>/dev/null || true
 	fi
 
-	_token_src=""
-	for _c in "$_here/device-token" "$_here/setup-token" /src/device-token /src/setup-token /iso/device-token /iso/setup-token; do
-		if [ -f "$_c" ]; then
-			_token_src="$_c"
-			break
-		fi
-	done
-	if [ -n "$_token_src" ]; then
-		_legacy=$(cat "$_token_src")
-		if factory_is_valid_device_token "$_legacy"; then
-			mkdir -p "$_root" || return 1
-			cp "$_token_src" "$_root/device-token" || return 1
-			chmod 600 "$_root/device-token" || return 1
-			echo "Device token saved from the installer USB."
-			return 0
-		fi
-	fi
-
 	if [ -t 0 ]; then
-		factory_prompt_device_token "$_root" || return 1
+		factory_prompt_pairing_material "$_root" || return 1
 	fi
 	return 0
 }

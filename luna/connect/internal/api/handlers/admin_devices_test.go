@@ -18,11 +18,11 @@ func TestAdminGetAccountIncludesTunnelFields(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_tunnel', 'tunnel@b.co', 'x', 1, 'active', 1, ?)`, now)
 
-	id, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-tunnel")
+	id, _, _, err := insertDeviceIdentity(d.DB, "official", "order-tunnel")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_tunnel', subdomain = 'mybox', tunnel_id = 'tnl_old', last_seen_at = ? WHERE id = ?`, now, id)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_tunnel', subdomain = 'mybox', tunnel_id = 'tnl_old', last_seen_at = ? WHERE id = ?`, now, id)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/accounts/acct_tunnel", nil)
 	req = withChiParam(req, "accountID", "acct_tunnel")
@@ -57,14 +57,8 @@ func TestAdminRegenerateTunnel(t *testing.T) {
 
 	cookie := registerAccount(t, acctH, "regen@b.co")
 	verifyEmailFor(t, acctH, "regen@b.co")
-	devID, code := mintDevice(t, d, "official")
-
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	bindRec := withVerifiedAccount(acctH, devH.Bind, bindReq)
-	if bindRec.Code != http.StatusOK {
-		t.Fatalf("bind %d %s", bindRec.Code, bindRec.Body.String())
-	}
+	_, uid, code := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
 
 	domReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"regenbox"}`))
 	domReq.AddCookie(cookie)
@@ -119,11 +113,8 @@ func TestAdminSetDeviceDomain(t *testing.T) {
 
 	cookie := registerAccount(t, acctH, "admindom@b.co")
 	verifyEmailFor(t, acctH, "admindom@b.co")
-	devID, code := mintDevice(t, d, "official")
-
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	withVerifiedAccount(acctH, devH.Bind, bindReq)
+	_, uid, code := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
 
 	first := httptest.NewRequest(http.MethodPost, "/admin/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"firstbox"}`))
 	first = withChiParam(first, "deviceID", devID)
@@ -159,11 +150,11 @@ func TestAdminGetDeviceDetail(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	id, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	id, uid, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_view', subdomain = 'viewbox', tunnel_id = 'tnl_view', last_seen_at = ? WHERE id = ?`, now, id)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_view', subdomain = 'viewbox', tunnel_id = 'tnl_view', last_seen_at = ? WHERE id = ?`, now, id)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/devices/"+id, nil)
 	req = withChiParam(req, "deviceID", id)
@@ -189,8 +180,8 @@ VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 	if body["can_reveal"] != true {
 		t.Fatalf("expected can_reveal on detail: %v", body["can_reveal"])
 	}
-	if body["device_code_prefix"] != security.DeviceCodePrefix(code) {
-		t.Fatalf("device_code_prefix %v want %v", body["device_code_prefix"], security.DeviceCodePrefix(code))
+	if body["device_code_prefix"] != security.DeviceCodePrefix(uid) {
+		t.Fatalf("device_code_prefix %v want %v", body["device_code_prefix"], security.DeviceCodePrefix(uid))
 	}
 	hint, _ := body["hint"].(string)
 	if hint == "" {
@@ -205,11 +196,11 @@ func TestAdminRegenerateTunnelRequiresSubdomain(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_nosub', 'nosub@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	id, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	id, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_nosub' WHERE id = ?`, id)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_nosub' WHERE id = ?`, id)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/devices/"+id+"/regenerate-tunnel", nil)
 	req = withChiParam(req, "deviceID", id)

@@ -16,7 +16,7 @@ type BoundDevice struct {
 
 func loadBoundDevice(db *database.DB, accountID string) BoundDevice {
 	var id, sub string
-	err := db.QueryRow(`SELECT id, COALESCE(subdomain,'') FROM devices WHERE account_id = ? LIMIT 1`, accountID).
+	err := db.QueryRow(`SELECT id, COALESCE(subdomain,'') FROM devices WHERE account_id = ? AND state = 'bound' LIMIT 1`, accountID).
 		Scan(&id, &sub)
 	if err != nil {
 		return BoundDevice{}

@@ -1,11 +1,10 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { LunaMark } from "@libreloom/ui/components/common/ProductMark.jsx";
 import { getJson, postJson, ApiError } from "../lib/api";
-import { isPublicLunaHost } from "../lib/publicHost";
 import {
   PASSWORD_POLICY_HINT,
   PASSWORD_FIELD_PLACEHOLDER,
@@ -19,14 +18,14 @@ import {
   usernamePolicyError,
 } from "../lib/usernamePolicy";
 import {
-  readDeviceCodeFromSearch,
-  stripDeviceCodeFromSearch,
-} from "../lib/deviceCodeParam.js";
+  hasSetupGrantInHash,
+  readSetupGrantFromHash,
+  stripSetupGrantFromHash,
+} from "../lib/setupGrantParam.js";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useAnimatedHeight } from "@libreloom/ui/hooks/useAnimatedHeight.jsx";
 import useSetupProgress from "../hooks/useSetupProgress";
-import useConnectActive from "../hooks/useConnectActive";
 import { StepTransitionContext } from "@libreloom/ui/components/setup/StepTransitionContext.js";
 import { StepTransitionProvider } from "@libreloom/ui/components/setup/StepTransition.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -327,31 +326,29 @@ FormField.propTypes = {
 // Focus is sent immediately to the visible text entry box on mount and
 // on every substep transition.
 
-function AccountStep({ hasAdmin, onContinue, connectActive }) {
+function AccountStep({ hasAdmin, onContinue, setupGrant }) {
   const { user, register, login } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const needsDeviceToken = isPublicLunaHost() && connectActive;
   const [form, setForm] = useState({
     display_name:     "",
     username:         "",
     password:         "",
     confirm_password: "",
-    setup_secret:     "",
+    setup_grant:     setupGrant,
   });
   const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir]   = useState("right");
-  // When Connect linked with ?token=, skip the device-token substep (still send it on register).
-  const [hideSetupSecretStep, setHideSetupSecretStep] = useState(false);
+  // A grant in the setup-link fragment skips this substep; it is still sent
+  // with registration. Luna decides whether the request is on or off its LAN.
+  const [hideSetupGrantStep, setHideSetupSecretStep] = useState(Boolean(setupGrant));
   // Only animate field swaps after the user moves between substeps — not on
   // the initial mount (parent SetupCard already owns that entrance).
   const authSubAnimatedRef = useRef(false);
   const fieldInputRef = useRef(null);
-  const consumedQueryTokenRef = useRef(false);
 
   const pw       = form.password;
   const confirm  = form.confirm_password;
@@ -360,23 +357,9 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   const displayNameOk = isValidDisplayName(form.display_name);
   const usernameOk  = isValidUsername(form.username);
   const confirmOk   = confirm === pw && pw !== "";
-  const setupSecretOk = !needsDeviceToken || form.setup_secret.trim().length > 0;
-  const showSetupSecretField = needsDeviceToken && !hideSetupSecretStep;
+  const showSetupSecretField = !hideSetupGrantStep;
   const usernameFieldError = usernamePolicyError(form.username);
   const displayNameFieldError = displayNamePolicyError(form.display_name);
-
-  // Consume ?token= once: prefill setup_secret, hide that substep, strip from the URL
-  // so the full device token does not linger in the address bar / history entry.
-  useEffect(() => {
-    if (consumedQueryTokenRef.current) return;
-    const fromQuery = readDeviceCodeFromSearch(searchParams);
-    if (!fromQuery) return;
-    consumedQueryTokenRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot ?token= seed from URL
-    setForm((f) => ({ ...f, setup_secret: fromQuery }));
-    setHideSetupSecretStep(true);
-    setSearchParams(stripDeviceCodeFromSearch(searchParams), { replace: true });
-  }, [searchParams, setSearchParams]);
 
   const setField = (name, value) => {
     setForm((f) => ({ ...f, [name]: value }));
@@ -432,14 +415,14 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
   ];
   if (showSetupSecretField) {
     authFields.push({
-      id: "setup_secret",
-      question: "Your device token",
-      hint: "Use the device token from the quick-start guide or from Luna Connect. It proves you own this Luna, so nobody else on the internet can create the first account.",
-      name: "setup_secret",
+      id: "setup_grant",
+      question: "One-time setup key (optional)",
+      hint: "Paste the key from a setup link in Luna Connect, or leave it blank when setting up on your home network. It expires after 10 minutes.",
+      name: "setup_grant",
       type: "text",
-      placeholder: "Paste or type the device token",
+      placeholder: "Paste the one-time setup key",
       autoComplete: "off",
-      valid: setupSecretOk,
+      valid: true,
     });
   }
 
@@ -493,7 +476,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     setFieldError(null);
     try {
       const displayName = form.display_name.trim() || form.username.trim();
-      const created = await register(form.username.trim(), displayName, pw, needsDeviceToken ? form.setup_secret.trim() : undefined);
+      const created = await register(form.username.trim(), displayName, pw, form.setup_grant.trim() || undefined);
       // Luna could not check the password against known breaches (no
       // internet, or the breach service is down). The account is created —
       // say so, so the first password is not an unchecked one by accident.
@@ -505,8 +488,8 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
     } catch (err) {
       const message = err?.message || "Couldn't create your account. Try again.";
       setFieldError(message);
-      // Silent token failed — reveal the device-token field so the user can paste a new one.
-      if (hideSetupSecretStep && needsDeviceToken) {
+      // The one-time grant failed — reveal the field so a new setup link can be used.
+      if (hideSetupGrantStep) {
         setHideSetupSecretStep(false);
         authSubAnimatedRef.current = true;
         setAuthSubDir("right");
@@ -691,10 +674,10 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
                 onChange={(e) => setField(currentAuthField.name, e.target.value)}
                 disabled={submitting}
                 autoFocus
-                spellCheck={currentAuthField.name === "setup_secret" ? false : undefined}
+                spellCheck={currentAuthField.name === "setup_grant" ? false : undefined}
                 className={WIZARD_INPUT_CLASS}
                 aria-invalid={Boolean(
-                  (currentAuthField.name === "setup_secret" && fieldError) ||
+                  (currentAuthField.name === "setup_grant" && fieldError) ||
                   currentAuthField.inlineError,
                 )}
               />
@@ -775,7 +758,7 @@ function AccountStep({ hasAdmin, onContinue, connectActive }) {
 AccountStep.propTypes = {
   hasAdmin: PropTypes.bool.isRequired,
   onContinue: PropTypes.func.isRequired,
-  connectActive: PropTypes.bool.isRequired,
+  setupGrant: PropTypes.string,
 };
 
 // ─── STEP: Name ───────────────────────────────────────────────────────────────
@@ -941,6 +924,7 @@ const STEP_ORDER = [
 export default function SetupPage() {
   usePageTitle("Set up");
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, refresh } = useAuth();
   // null until saved progress is loaded — avoids flashing Welcome over a resume.
   const [step, setStep] = useState(null);
@@ -953,9 +937,33 @@ export default function SetupPage() {
   const savingRef = useRef(false);
   const [saveError, setSaveError] = useState(null);
   const [hydrated, setHydrated] = useState(false);
-  const connectActive = useConnectActive();
+  const [setupGrant] = useState(() => readSetupGrantFromHash(location.hash));
+  const consumedSetupGrantRef = useRef(false);
 
-  // During setup, ask lunad to peel a token from the installer USB magazine when needed.
+  // Read the one-time grant before the wizard renders and remove it from the
+  // visible URL immediately. Query-string secrets are stripped, never accepted.
+  useEffect(() => {
+    if (consumedSetupGrantRef.current) return;
+    const grant = readSetupGrantFromHash(location.hash);
+    const hasGrantFragment = hasSetupGrantInHash(location.hash);
+    const legacyParams = new URLSearchParams(location.search);
+    const hasLegacyToken = legacyParams.has("token");
+    const hasLegacyGrant = legacyParams.has("setup_grant");
+    legacyParams.delete("token");
+    legacyParams.delete("setup_grant");
+    if (!grant && !hasGrantFragment && !hasLegacyToken && !hasLegacyGrant) return;
+    consumedSetupGrantRef.current = true;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: legacyParams.toString() ? `?${legacyParams.toString()}` : "",
+        hash: stripSetupGrantFromHash(location.hash),
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
+
+  // During setup, ask lunad to read pairing details from the installer USB magazine when needed.
   useEffect(() => {
     if (!hydrated) return;
     postJson("/api/v1/setup/fetch-mag", {}).catch(() => {});
@@ -1149,7 +1157,7 @@ export default function SetupPage() {
       <AccountStep
         hasAdmin={hasAdmin}
         onContinue={handleAccountContinue}
-        connectActive={connectActive}
+        setupGrant={setupGrant}
       />
     );
   } else if (shownStep === STEP.NAME) {

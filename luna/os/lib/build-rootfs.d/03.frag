@@ -133,7 +133,7 @@ mkdir -p "$ROOTFS/var/lib/luna"
 
 
 
-# Seed console issue file (lunad overwrites with live IP / device token).
+# Seed console issue file (lunad overwrites with live IP / Device ID / Verification code).
 cat > "$ROOTFS/var/lib/luna/issue" <<'ISSUE'
 
 ============================================================

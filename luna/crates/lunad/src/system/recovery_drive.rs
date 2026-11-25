@@ -1,10 +1,9 @@
 //! USB flash drive password recovery.
 //!
 //! When a user plugs in a **dedicated** USB flash drive whose only file is
-//! `luna-recover-<device_token>.luna` (or `luna-recover.luna` if no device
-//! token is configured on Luna) at its root, lunad validates the device
-//! token, parses the JSON configuration, and resets or provisions accounts
-//! accordingly.
+//! `luna-recover.luna` at its root, lunad parses the JSON configuration and
+//! resets or provisions accounts accordingly. Recovery is local and does not
+//! depend on Luna Connect or any pairing material.
 //!
 //! Recovery is only honoured at boot, before the network listener binds —
 //! there is no runtime polling. A stick is only accepted when it is a
@@ -14,9 +13,9 @@
 //!   junk (`System Volume Information`, `.DS_Store`, …), and
 //! - the drive carries no `.luna-*` marker (it was never adopted by any Luna).
 //!
-//! That means a member who merely knows the device token cannot escalate:
-//! they cannot produce a clean foreign stick through the file/WebDAV APIs —
-//! adopted drives always carry a marker and user content.
+//! A member cannot produce a clean foreign stick through the file/WebDAV APIs:
+//! adopted drives always carry a marker and user content. Physical possession
+//! of a dedicated recovery stick is therefore required in every Connect state.
 //!
 //! Format (JSON):
 //! ```json
@@ -51,7 +50,6 @@ use crate::auth::hash_password;
 use crate::db;
 use crate::drives::DriveManager;
 use crate::drives::detect::DetectedDrive;
-use crate::net::connect::{DEVICE_TOKEN_FILE, normalize_device_code};
 
 #[derive(Debug, Deserialize)]
 pub struct RecoveryPayload {
@@ -100,20 +98,10 @@ const OS_JUNK: &[&str] = &[
     "desktop.ini",
 ];
 
-/// Checks if a file name matches `luna-recover-<token>.luna` or
-/// `luna-recover.luna`. Returns `Some(offered_token)` if it matches.
-pub fn parse_recovery_filename(name: &str) -> Option<String> {
-    let lower = name.to_ascii_lowercase();
-    if lower == "luna-recover.luna" {
-        return Some(String::new());
-    }
-    if let Some(rest) = lower.strip_prefix("luna-recover-")
-        && let Some(token) = rest.strip_suffix(".luna")
-        && !token.is_empty()
-    {
-        return Some(token.to_string());
-    }
-    None
+/// The active recovery file has a fixed, token-free name. Matching is
+/// case-insensitive so sticks formatted on case-folding filesystems still work.
+pub fn is_recovery_filename(name: &str) -> bool {
+    name.eq_ignore_ascii_case("luna-recover.luna")
 }
 
 /// True for a recovery file that was already applied on a previous boot and
@@ -122,36 +110,6 @@ pub fn parse_recovery_filename(name: &str) -> Option<String> {
 fn is_spent_recovery_file(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.starts_with("luna-recover") && (lower.ends_with(".done") || lower.ends_with(".applied"))
-}
-
-/// Verify that the offered token from the filename matches the device token on disk.
-///
-/// Consults the legacy `setup-token` file too: this check runs at boot,
-/// before Connect has had a chance to migrate it to `device-token`. Mirrors
-/// `ConnectService::read_device_token` — the first file whose contents parse
-/// as a device token wins; malformed files are ignored rather than vetoing.
-pub fn verify_device_token(data_dir: &Path, offered_token: &str) -> bool {
-    let expected = [
-        DEVICE_TOKEN_FILE,
-        crate::net::connect::LEGACY_DEVICE_TOKEN_FILE,
-    ]
-    .iter()
-    .filter_map(|f| fs::read_to_string(data_dir.join(f)).ok())
-    .map(|s| s.trim().to_string())
-    .map(|raw| normalize_device_code(&raw))
-    .find(|norm| crate::net::connect::is_device_token_format(norm));
-
-    match expected {
-        Some(norm_expected) => {
-            let norm_offered = normalize_device_code(offered_token);
-            !norm_offered.is_empty() && norm_offered == norm_expected
-        }
-        None => {
-            // No device token configured on this unit yet.
-            // Accept luna-recover.luna (empty token) or any offered token.
-            true
-        }
-    }
 }
 
 /// Apply a single user selector against the SQLite database.
@@ -259,7 +217,6 @@ pub fn execute_recovery(
 /// other directory) disqualifies it.
 pub fn process_recovery_in_dir(
     dir: &Path,
-    data_dir: &Path,
     conn: &Connection,
 ) -> anyhow::Result<Option<RecoveryReport>> {
     // A drive any Luna has adopted can never be a recovery stick.
@@ -281,7 +238,7 @@ pub fn process_recovery_in_dir(
             Some(n) => n.to_string(),
             None => return Ok(None), // non-UTF-8 name: not a dedicated stick
         };
-        if parse_recovery_filename(&name).is_some() {
+        if is_recovery_filename(&name) {
             if !entry.path().is_file() {
                 return Ok(None);
             }
@@ -306,18 +263,6 @@ pub fn process_recovery_in_dir(
         return Ok(None);
     }
     let path = recovery_files.remove(0);
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let offered_token = parse_recovery_filename(name).unwrap_or_default();
-
-    if !verify_device_token(data_dir, &offered_token) {
-        // The filename carries the offered token — never log it.
-        tracing::warn!(
-            dir = %dir.display(),
-            "USB recovery file ignored: device token did not match this Luna"
-        );
-        return Ok(None);
-    }
-
     let content = fs::read_to_string(&path)
         .map_err(|e| anyhow::anyhow!("Could not read recovery file {}: {e}", path.display()))?;
     let payload: RecoveryPayload = serde_json::from_str(&content)
@@ -411,7 +356,7 @@ pub fn scan_at_boot(
 
     for dir in &candidate_dirs {
         if dir.is_dir()
-            && let Ok(Some(report)) = process_recovery_in_dir(dir, data_dir, conn)
+            && let Ok(Some(report)) = process_recovery_in_dir(dir, conn)
         {
             return Some(report);
         }
@@ -424,7 +369,7 @@ pub fn scan_at_boot(
             continue;
         }
         if let Some(Some(report)) = drives.with_temp_ro_mount(device, |root| {
-            process_recovery_in_dir(root, data_dir, conn).ok().flatten()
+            process_recovery_in_dir(root, conn).ok().flatten()
         }) {
             return Some(report);
         }
@@ -447,91 +392,74 @@ mod tests {
     }
 
     #[test]
-    fn parse_recovery_filename_works() {
-        assert_eq!(
-            parse_recovery_filename("luna-recover.luna"),
-            Some("".into())
-        );
-        assert_eq!(
-            parse_recovery_filename("LUNA-RECOVER.LUNA"),
-            Some("".into())
-        );
-        assert_eq!(
-            parse_recovery_filename("luna-recover-1234-abcd.luna"),
-            Some("1234-abcd".into())
-        );
-        assert_eq!(
-            parse_recovery_filename("LUNA-RECOVER-ABC123XYZ.LUNA"),
-            Some("abc123xyz".into())
-        );
-        assert_eq!(parse_recovery_filename("other.luna"), None);
-        assert_eq!(parse_recovery_filename("luna-recover-1234.txt"), None);
-        // Old scheme must no longer match.
-        assert_eq!(parse_recovery_filename("pwreset.luna"), None);
-        assert_eq!(parse_recovery_filename("pwreset-abc.luna"), None);
-        // Token must not be empty in the suffixed form.
-        assert_eq!(parse_recovery_filename("luna-recover-.luna"), None);
+    fn only_the_generic_recovery_filename_matches() {
+        assert!(is_recovery_filename("luna-recover.luna"));
+        assert!(is_recovery_filename("LUNA-RECOVER.LUNA"));
+        for name in [
+            "luna-recover-a3f91c.luna",
+            "luna-recover-abcd-efgh-jklm-npqr.luna",
+            "luna-recover-.luna",
+            "luna-recover.luna.done",
+            "luna-recover-1234.txt",
+            "pwreset.luna",
+            "pwreset-abc.luna",
+            "other.luna",
+        ] {
+            assert!(!is_recovery_filename(name), "{name} must not match");
+        }
     }
 
     #[test]
-    fn verify_device_token_matches_normalized() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join(DEVICE_TOKEN_FILE), "ABCD-EFGH-JKLM-NPQR\n").unwrap();
+    fn recovery_payload_keeps_its_envelope_and_selectors() {
+        let single: RecoveryPayload =
+            serde_json::from_str(r#"{"user":"g-admin","password":"newpassword1"}"#).unwrap();
+        assert_eq!(single.user.selectors(), vec!["g-admin"]);
+        assert_eq!(single.password, "newpassword1");
 
-        assert!(verify_device_token(dir.path(), "abcd-efgh-jklm-npqr"));
-        assert!(verify_device_token(dir.path(), "abcdefghjklmnpqr"));
-        assert!(verify_device_token(dir.path(), "ABCD-EFGH-JKLM-NPQR"));
-        assert!(!verify_device_token(dir.path(), "WRONG-TOKEN-VALUE-123"));
-        assert!(!verify_device_token(dir.path(), ""));
+        let multiple: RecoveryPayload = serde_json::from_str(
+            r#"{"users":["u-admin","n-backup","f-restore"],"password":"newpassword1"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            multiple.user.selectors(),
+            vec!["u-admin", "n-backup", "f-restore"]
+        );
+        assert_eq!(multiple.password, "newpassword1");
     }
 
     #[test]
-    fn verify_device_token_reads_legacy_setup_token() {
-        let dir = TempDir::new().unwrap();
-        // Unit set up before the device-token rename: only setup-token exists.
+    fn code_named_and_token_named_recovery_files_are_rejected() {
+        let (data_dir, conn) = test_db();
+        let old_hash = hash_password_unchecked("oldpass").unwrap();
+        db::insert_user(&conn, "1", "admin", "Admin", &old_hash, "admin").unwrap();
+        // Even matching local material must not turn a suffixed filename into
+        // a recovery credential.
+        fs::write(data_dir.path().join("pairing-code"), "A3F91C\n").unwrap();
         fs::write(
-            dir.path()
-                .join(crate::net::connect::LEGACY_DEVICE_TOKEN_FILE),
+            data_dir.path().join("device-token"),
             "ABCD-EFGH-JKLM-NPQR\n",
         )
         .unwrap();
+        fs::write(data_dir.path().join("setup-token"), "ABCD-EFGH-JKLM-NPQR\n").unwrap();
 
-        assert!(verify_device_token(dir.path(), "abcd-efgh-jklm-npqr"));
-        assert!(!verify_device_token(dir.path(), "WRONG-TOKEN-VALUE-123"));
-        assert!(!verify_device_token(dir.path(), ""));
-    }
+        for name in [
+            "luna-recover-a3f91c.luna",
+            "luna-recover-abcd-efgh-jklm-npqr.luna",
+        ] {
+            let usb_dir = TempDir::new().unwrap();
+            let recovery_file = usb_dir.path().join(name);
+            fs::write(
+                &recovery_file,
+                r#"{"user":"g-admin","password":"recoveredpassword1"}"#,
+            )
+            .unwrap();
 
-    #[test]
-    fn verify_device_token_malformed_canonical_falls_back_to_legacy() {
-        let dir = TempDir::new().unwrap();
-        // Malformed device-token (e.g. truncated write) must not veto a valid
-        // legacy setup-token — same precedence as read_device_token.
-        fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
-        fs::write(
-            dir.path()
-                .join(crate::net::connect::LEGACY_DEVICE_TOKEN_FILE),
-            "ABCD-EFGH-JKLM-NPQR\n",
-        )
-        .unwrap();
-
-        assert!(verify_device_token(dir.path(), "abcd-efgh-jklm-npqr"));
-        assert!(!verify_device_token(dir.path(), "WRONG-TOKEN-VALUE-123"));
-    }
-
-    #[test]
-    fn verify_device_token_malformed_only_treated_as_unconfigured() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
-        // No usable binding on the unit — same as no token configured.
-        assert!(verify_device_token(dir.path(), "any-token"));
-    }
-
-    #[test]
-    fn verify_device_token_when_unconfigured_accepts_blank_or_offered() {
-        let dir = TempDir::new().unwrap();
-        // File does not exist
-        assert!(verify_device_token(dir.path(), ""));
-        assert!(verify_device_token(dir.path(), "any-token"));
+            let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
+            assert!(res.is_none(), "suffixed recovery file must be ignored");
+            assert!(recovery_file.exists());
+            let admin = db::get_user_by_username(&conn, "admin").unwrap().unwrap();
+            assert_eq!(admin.password_hash, old_hash);
+        }
     }
 
     #[test]
@@ -651,71 +579,73 @@ mod tests {
     }
 
     #[test]
-    fn process_recovery_applies_on_dedicated_stick_and_renames() {
-        let (data_dir, conn) = test_db();
-        fs::write(data_dir.path().join(DEVICE_TOKEN_FILE), "SEC-TOKEN-123\n").unwrap();
-
-        let hash = hash_password_unchecked("oldpass").unwrap();
-        db::insert_user(&conn, "1", "admin", "Admin", &hash, "admin").unwrap();
-
-        let usb_dir = TempDir::new().unwrap();
-        let recovery_file = usb_dir.path().join("luna-recover-sec-token-123.luna");
-        fs::write(
-            &recovery_file,
-            r#"{"user": "g-admin", "password": "recoveredpassword"}"#,
-        )
-        .unwrap();
-        // OS junk is tolerated on a dedicated stick.
-        fs::create_dir(usb_dir.path().join("System Volume Information")).unwrap();
-        fs::write(usb_dir.path().join(".DS_Store"), b"").unwrap();
-
-        let res = process_recovery_in_dir(usb_dir.path(), data_dir.path(), &conn).unwrap();
-        let report = res.expect("dedicated stick must be honoured");
-        assert_eq!(report.updated, vec!["admin"]);
-
-        // File must be renamed to .luna.done
-        assert!(!recovery_file.exists());
-        assert!(
-            usb_dir
-                .path()
-                .join("luna-recover-sec-token-123.luna.done")
-                .exists()
-        );
-
-        let admin = db::get_user_by_username(&conn, "admin").unwrap().unwrap();
-        assert!(
-            crate::auth::verify_password_hash(
-                "recoveredpassword",
-                &argon2::PasswordHash::new(&admin.password_hash).unwrap()
+    fn generic_recovery_applies_in_every_connect_state() {
+        let old_hash = hash_password_unchecked("oldpass").unwrap();
+        for state in ["unbound", "pairing", "bound", "revoked"] {
+            let (data_dir, conn) = test_db();
+            db::insert_user(&conn, "1", "admin", "Admin", &old_hash, "admin").unwrap();
+            fs::write(
+                data_dir.path().join("connect.json"),
+                format!(r#"{{"state":"{state}","bound":false}}"#),
             )
-            .is_ok()
-        );
+            .unwrap();
+            // None of these files authorizes or blocks physical recovery.
+            fs::write(data_dir.path().join("pairing-code"), "A3F91C\n").unwrap();
+            fs::write(data_dir.path().join("connect-credential"), "credential").unwrap();
+            fs::write(data_dir.path().join("connect-unbind-pending"), "{}").unwrap();
+
+            let usb_dir = TempDir::new().unwrap();
+            let recovery_file = usb_dir.path().join("luna-recover.luna");
+            fs::write(
+                &recovery_file,
+                r#"{"user":"g-admin","password":"recoveredpassword1"}"#,
+            )
+            .unwrap();
+            // OS junk is tolerated on a dedicated stick.
+            fs::create_dir(usb_dir.path().join("System Volume Information")).unwrap();
+            fs::write(usb_dir.path().join(".DS_Store"), b"").unwrap();
+
+            let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
+            let report = res.expect("dedicated stick must be honoured in every Connect state");
+            assert_eq!(report.updated, vec!["admin"]);
+
+            assert!(!recovery_file.exists());
+            assert!(usb_dir.path().join("luna-recover.luna.done").exists());
+
+            let admin = db::get_user_by_username(&conn, "admin").unwrap().unwrap();
+            assert_ne!(admin.password_hash, old_hash);
+            assert!(
+                crate::auth::verify_password_hash(
+                    "recoveredpassword1",
+                    &argon2::PasswordHash::new(&admin.password_hash).unwrap()
+                )
+                .is_ok()
+            );
+        }
     }
 
     #[test]
     fn stick_with_user_files_is_rejected() {
-        let (data_dir, conn) = test_db();
-        fs::write(data_dir.path().join(DEVICE_TOKEN_FILE), "SEC-TOKEN-123\n").unwrap();
+        let (_data_dir, conn) = test_db();
         db::insert_user(&conn, "1", "admin", "Admin", "h", "admin").unwrap();
 
         let usb_dir = TempDir::new().unwrap();
         fs::write(
-            usb_dir.path().join("luna-recover-sec-token-123.luna"),
+            usb_dir.path().join("luna-recover.luna"),
             r#"{"user": "n-evil", "password": "password123"}"#,
         )
         .unwrap();
         // Any other file disqualifies the stick.
         fs::write(usb_dir.path().join("vacation.jpg"), b"jpeg").unwrap();
 
-        let res = process_recovery_in_dir(usb_dir.path(), data_dir.path(), &conn).unwrap();
+        let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
         assert!(res.is_none(), "non-dedicated stick must be ignored");
         assert!(db::get_user_by_username(&conn, "evil").unwrap().is_none());
     }
 
     #[test]
     fn adopted_drive_is_rejected() {
-        let (data_dir, conn) = test_db();
-        fs::write(data_dir.path().join(DEVICE_TOKEN_FILE), "SEC-TOKEN-123\n").unwrap();
+        let (_data_dir, conn) = test_db();
         db::insert_user(&conn, "1", "admin", "Admin", "h", "admin").unwrap();
 
         let usb_dir = TempDir::new().unwrap();
@@ -729,52 +659,47 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            usb_dir.path().join("luna-recover-sec-token-123.luna"),
+            usb_dir.path().join("luna-recover.luna"),
             r#"{"user": "n-evil", "password": "password123"}"#,
         )
         .unwrap();
 
-        let res = process_recovery_in_dir(usb_dir.path(), data_dir.path(), &conn).unwrap();
+        let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
         assert!(res.is_none(), "adopted drive must be ignored");
         assert!(db::get_user_by_username(&conn, "evil").unwrap().is_none());
     }
 
     #[test]
     fn spent_recovery_file_is_allowed_beside_fresh_one() {
-        let (data_dir, conn) = test_db();
-        fs::write(data_dir.path().join(DEVICE_TOKEN_FILE), "SEC-TOKEN-123\n").unwrap();
+        let (_data_dir, conn) = test_db();
         db::insert_user(&conn, "1", "admin", "Admin", "h", "admin").unwrap();
 
         let usb_dir = TempDir::new().unwrap();
         fs::write(
-            usb_dir.path().join("luna-recover-old-token.luna.done"),
+            usb_dir.path().join("luna-recover.luna.applied"),
             "applied earlier",
         )
         .unwrap();
         fs::write(
-            usb_dir.path().join("luna-recover-sec-token-123.luna"),
+            usb_dir.path().join("luna-recover.luna"),
             r#"{"user": "u-admin", "password": "newpassword1"}"#,
         )
         .unwrap();
 
-        let res = process_recovery_in_dir(usb_dir.path(), data_dir.path(), &conn).unwrap();
+        let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
         assert!(
             res.is_some(),
-            "spent .done file must not disqualify the stick"
+            "spent .applied file must not disqualify the stick"
         );
     }
 
     #[test]
     fn two_active_recovery_files_are_rejected() {
-        let (data_dir, conn) = test_db();
-        fs::write(data_dir.path().join(DEVICE_TOKEN_FILE), "SEC-TOKEN-123\n").unwrap();
+        let (_data_dir, conn) = test_db();
         db::insert_user(&conn, "1", "admin", "Admin", "h", "admin").unwrap();
 
         let usb_dir = TempDir::new().unwrap();
-        for name in [
-            "luna-recover-sec-token-123.luna",
-            "luna-recover-anything.luna",
-        ] {
+        for name in ["luna-recover.luna", "LUNA-RECOVER.LUNA"] {
             fs::write(
                 usb_dir.path().join(name),
                 r#"{"user": "n-evil", "password": "password123"}"#,
@@ -782,7 +707,7 @@ mod tests {
             .unwrap();
         }
 
-        let res = process_recovery_in_dir(usb_dir.path(), data_dir.path(), &conn).unwrap();
+        let res = process_recovery_in_dir(usb_dir.path(), &conn).unwrap();
         assert!(res.is_none(), "ambiguous stick must be ignored");
         assert!(db::get_user_by_username(&conn, "evil").unwrap().is_none());
     }

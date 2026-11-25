@@ -626,20 +626,20 @@ describe("Needs you on the dashboard", () => {
     });
   });
 
-  describe("device token and internet route (Admin)", () => {
-    it("says Luna Connect needs a new device token, with the error and a link to About", async () => {
+  describe("Connect state and internet route (Admin)", () => {
+    it("says Luna Connect needs attention, with the error and a Device token link", async () => {
       const fetchMock = stubDashboardFetch({
-        connect: { enabled: true, device_token_error: "The device token was not accepted." },
+        connect: { enabled: true, connect_error: "This Luna's Connect access was revoked." },
       });
       renderDashboard();
       await settle(fetchMock, ADMIN_QUERIES);
       const zone = needsYouZone();
       const row = within(zone).getByRole("listitem");
-      expect(within(row).getByText("Luna Connect needs a new device token")).toBeInTheDocument();
-      expect(within(row).getByText("The device token was not accepted.")).toBeInTheDocument();
-      expect(within(zone).getByRole("link", { name: "Change the device token" })).toHaveAttribute(
+      expect(within(row).getByText("Luna Connect needs attention")).toBeInTheDocument();
+      expect(within(row).getByText("This Luna's Connect access was revoked.")).toBeInTheDocument();
+      expect(within(zone).getByRole("link", { name: "Open Device token" })).toHaveAttribute(
         "href",
-        "/settings#about",
+        "/settings#luna_connect",
       );
     });
 
@@ -720,7 +720,7 @@ describe("Needs you on the dashboard", () => {
             disk_space: { status: "failed", message: "Low space on the Luna data drive.", category: "storage" },
           },
         },
-        connect: { enabled: true, device_token_error: "The device token was not accepted." },
+        connect: { state: "revoked", enabled: false, connect_error: "This Luna's Connect access was revoked." },
         network: { ethernet_connected: true, has_default_route: false },
         detected: [NEW_DRIVE],
       });
@@ -737,7 +737,7 @@ describe("Needs you on the dashboard", () => {
       expect(screen.queryByText(/almost full/)).not.toBeInTheDocument();
       expect(screen.queryByText(/internet/)).not.toBeInTheDocument();
       expect(screen.queryByText("Luna's own storage")).not.toBeInTheDocument();
-      expect(screen.queryByText("Luna Connect needs a new device token")).not.toBeInTheDocument();
+      expect(screen.queryByText("Luna Connect needs attention")).not.toBeInTheDocument();
 
       const paths = requestedPaths(fetchMock);
       expect(paths).not.toContain("/api/v1/drives/detected");

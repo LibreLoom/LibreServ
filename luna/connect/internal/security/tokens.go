@@ -2,6 +2,7 @@ package security
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"io"
 	"strings"
 	"unicode"
@@ -10,21 +11,74 @@ import (
 // Crockford base32 without I, L, O, U.
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// OfficialDeviceToken is a factory device token for Lunas purchased from LibreLoom
-// (grouped Crockford; same shape as connect.luna.libreloom.org codes).
-func OfficialDeviceToken() string {
-	raw := randomCrockford(20)
-	return GroupCrockford(raw)
+// DeviceUID is the public, ungrouped identifier printed on a Luna.
+func DeviceUID() string {
+	return randomCrockford(20)
 }
 
-func randomCrockford(n int) string {
+// VerificationCode is the reusable six-hex-character pairing code.
+func VerificationCode() string {
+	b := make([]byte, 3)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		panic(err)
+	}
+	const hex = "0123456789ABCDEF"
+	out := make([]byte, 6)
+	for i, v := range b {
+		out[2*i] = hex[v>>4]
+		out[2*i+1] = hex[v&0x0f]
+	}
+	return string(out)
+}
+
+// AuthToken is Luna's rolling 256-bit Connect credential.
+func AuthToken() string {
+	return randomURLToken(32)
+}
+
+// SetupGrant is a separate, one-time credential for remote first-Admin setup.
+func SetupGrant() string {
+	return randomURLToken(32)
+}
+
+func randomURLToken(n int) string {
 	b := make([]byte, n)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
 		panic(err)
 	}
-	out := make([]byte, n)
-	for i := 0; i < n; i++ {
-		out[i] = crockford[int(b[i])%len(crockford)]
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// ValidAuthToken reports whether token is an unpadded base64url encoding of
+// exactly 32 bytes. Shape validation keeps legacy Crockford bearer tokens out
+// before any database lookup.
+func ValidAuthToken(token string) bool {
+	if token == "" || strings.ContainsAny(token, "=+/") {
+		return false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(token)
+	return err == nil && len(b) == 32
+}
+
+func randomCrockford(n int) string {
+	// Rejection sampling avoids the modulo bias of mapping each byte directly
+	// into the 32-character alphabet.
+	const limit = 256 - (256 % len(crockford))
+	buf := make([]byte, n*2)
+	out := make([]byte, 0, n)
+	for len(out) < n {
+		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+			panic(err)
+		}
+		for _, b := range buf {
+			if int(b) >= limit {
+				continue
+			}
+			out = append(out, crockford[int(b)%len(crockford)])
+			if len(out) == n {
+				break
+			}
+		}
 	}
 	return string(out)
 }
@@ -62,8 +116,14 @@ func NormalizeToken(s string) string {
 	return b.String()
 }
 
-func IsOfficialShape(norm string) bool {
-	if len(norm) < 16 || len(norm) > 32 {
+// NormalizeDeviceUID accepts the grouped display form and returns the
+// ungrouped uppercase identifier stored locally and in Connect.
+func NormalizeDeviceUID(s string) string {
+	return NormalizeToken(s)
+}
+
+func IsDeviceUIDShape(norm string) bool {
+	if len(norm) != 20 {
 		return false
 	}
 	for _, c := range norm {
@@ -74,7 +134,23 @@ func IsOfficialShape(norm string) bool {
 	return true
 }
 
-// TokenHint returns a short uppercase suffix for admin lists (plaintext is not stored).
+func NormalizeVerificationCode(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
+func IsVerificationCodeShape(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, c := range code {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// TokenHint returns a short uppercase suffix for admin lists.
 func TokenHint(norm string) string {
 	norm = NormalizeToken(norm)
 	if norm == "" {
@@ -86,21 +162,12 @@ func TokenHint(norm string) string {
 	return "…" + norm[len(norm)-4:]
 }
 
-// DeviceCodePrefix returns the first two Crockford groups (8 chars) used to unlock
-// remote Luna setup. Empty if the normalized code is too short.
+// DeviceCodePrefix returns the first two Crockford groups (8 chars) of the
+// public Device ID. It is an identifier hint, never authentication proof.
 func DeviceCodePrefix(normOrGrouped string) string {
 	norm := NormalizeToken(normOrGrouped)
 	if len(norm) < 8 {
 		return ""
 	}
 	return GroupCrockford(norm[:8])
-}
-
-// DeviceCodePrefixNorm returns the ungrouped 8-char prefix for constant-time compare.
-func DeviceCodePrefixNorm(normOrGrouped string) string {
-	norm := NormalizeToken(normOrGrouped)
-	if len(norm) < 8 {
-		return ""
-	}
-	return norm[:8]
 }

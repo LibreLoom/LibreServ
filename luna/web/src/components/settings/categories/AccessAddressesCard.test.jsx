@@ -43,6 +43,9 @@ describe("AccessAddressesCard", () => {
       stubFetch({
         connect: {
           enabled: true,
+          paired: true,
+          connect_active: true,
+          lan_override: true,
           hostname: "kitchen.luna.servers.libreloom.org",
         },
       }),
@@ -65,6 +68,15 @@ describe("AccessAddressesCard", () => {
     expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
     expect(screen.queryByText(/None yet/i)).toBeNull();
     expect(screen.getByRole("heading", { name: "On your local network" })).toBeTruthy();
+  });
+
+  it("keeps local addresses when only pairing material is saved", async () => {
+    renderCard(stubFetch({
+      connect: { paired: false, connect_active: true, verification_code: "A3F91C" },
+    }));
+    expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();
+    expect(screen.queryByText(/Local access is turned off/)).toBeNull();
   });
 
   it("omits the LAN IP when none is available", async () => {

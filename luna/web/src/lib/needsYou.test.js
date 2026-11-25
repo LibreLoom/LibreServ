@@ -124,7 +124,7 @@ function fullAdminInput(overrides = {}) {
     },
     backupRows: [failingDriveRow(), healthyCloudRow()],
     phrase: { check_due: true },
-    connect: { device_token_error: "Your device token was revoked." },
+    connect: { state: "revoked", connect_error: "This Luna's Connect access was revoked." },
     network: { has_default_route: false },
     detected: [{ id: "usb-1" }],
     ...overrides,
@@ -504,25 +504,25 @@ describe("system check rows (Admin)", () => {
   });
 });
 
-describe("device token, no route, new drive, and no drives (Admin)", () => {
-  it("gives a device token error an exact row with the error as detail", () => {
+describe("Connect state, no route, new drive, and no drives (Admin)", () => {
+  it("gives a Connect error an exact row with the error as detail", () => {
     const items = buildNeedsYouItems(
-      emptyInput({ connect: { device_token_error: "Your device token was revoked." } }),
+      emptyInput({ connect: { state: "revoked", connect_error: "This Luna's Connect access was revoked." } }),
     );
     expect(items).toStrictEqual([
       {
         id: "device-token",
         rank: 50,
         tone: "problem",
-        title: ["Luna Connect needs a new device token"],
-        detail: "Your device token was revoked.",
-        action: { label: "Change the device token", href: "/settings#about" },
+        title: ["Luna Connect needs attention"],
+        detail: "This Luna's Connect access was revoked.",
+        action: { label: "Open Device token", href: "/settings#luna_connect" },
       },
     ]);
   });
 
   it("shows no token row for a blank, non-text, or missing error", () => {
-    const malformed = /** @type {any[]} */ ([null, {}, { device_token_error: "" }, { device_token_error: "   " }, { device_token_error: 42 }]);
+    const malformed = /** @type {any[]} */ ([null, {}, { connect_error: "" }, { connect_error: "   " }, { connect_error: 42 }]);
     for (const connect of malformed) {
       expect(buildNeedsYouItems(emptyInput({ connect }))).toEqual([]);
     }
@@ -612,7 +612,7 @@ describe("ordering", () => {
         },
         backupRows: [failingDriveRow(), healthyCloudRow()],
         phrase: { check_due: true },
-        connect: { device_token_error: "Revoked." },
+        connect: { connect_error: "Revoked." },
         network: { has_default_route: false },
         detected: [],
       }),

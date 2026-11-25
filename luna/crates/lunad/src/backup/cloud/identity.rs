@@ -94,7 +94,7 @@ const REGISTERED_KEY: &str = "cloud_identity_registered";
 /// is registered on the first load after Connect becomes reachable, and then never again
 /// for that id. No DB lock is held across the network call.
 fn ensure_registered(db: &crate::Db, connect: &ConnectService, identity: &Identity) {
-    if !connect.has_valid_device_code() {
+    if !connect.is_connect_active() {
         return;
     }
     let registered = {
@@ -155,7 +155,7 @@ mod tests {
     use super::*;
     use crate::backup::cloud::crypto;
     use crate::drives::drive_db;
-    use crate::net::connect::DEVICE_TOKEN_FILE;
+    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, DEVICE_UID_FILE, PAIRING_CODE_FILE};
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
@@ -331,11 +331,25 @@ mod tests {
         format!("http://{addr}")
     }
 
-    /// A Connect client with a device token, under `dir`, pointed at `base_url`.
+    /// A bound Connect client under `dir`, pointed at `base_url`.
     fn connect_to(dir: &Path, base_url: &str) -> ConnectService {
         std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join(DEVICE_TOKEN_FILE), "ABCD-EFGH-JKMN-PQRS\n").unwrap();
-        ConnectService::new(dir, Some(base_url.to_string()))
+        std::fs::write(dir.join(DEVICE_UID_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
+        std::fs::write(dir.join(PAIRING_CODE_FILE), "A3F91C\n").unwrap();
+        std::fs::write(
+            dir.join(CONNECT_CREDENTIAL_FILE),
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+        )
+        .unwrap();
+        let service = ConnectService::new(dir, Some(base_url.to_string()));
+        service
+            .save(&serde_json::json!({
+                "state": "bound",
+                "bound": true,
+                "paired": true,
+            }))
+            .unwrap();
+        service
     }
 
     #[test]
@@ -438,11 +452,11 @@ mod tests {
     }
 
     #[test]
-    fn no_device_token_means_no_registration_attempt() {
+    fn no_bound_credential_means_no_registration_attempt() {
         let dir = tempfile::tempdir().unwrap();
         let db = db_at(&dir.path().join("luna.db"));
         let (url, seen) = fake_connect(1);
-        // Connect is off: no device token, so nothing is sent even though a URL is set.
+        // Connect is off: pairing material alone is not a bound credential.
         std::fs::create_dir_all(dir.path().join("connect")).unwrap();
         let off = ConnectService::new(&dir.path().join("connect"), Some(url));
         load_or_create_connected(&db, &off, 1).unwrap();

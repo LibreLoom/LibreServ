@@ -57,6 +57,13 @@ func CSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Luna has no browser session or CSRF cookie while polling an online
+		// pairing claim. This route authenticates only with Device ID + code
+		// and has no ambient cookie authority to protect.
+		if r.URL.Path == "/api/v1/devices/pair/claim" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/api/v1/billing/webhook" {
 			next.ServeHTTP(w, r)
 			return

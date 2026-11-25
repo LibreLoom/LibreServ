@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 
-/** True when `{data_dir}/device-token` exists with a valid device token (Connect active). */
+/** True when Luna reports an active Connect binding, not merely saved pairing material. */
 export default function useConnectActive() {
   const status = useQuery({
     queryKey: ["auth-status"],

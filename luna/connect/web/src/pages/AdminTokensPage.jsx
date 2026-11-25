@@ -41,7 +41,7 @@ function kindLabel(kind) {
 }
 
 export default function AdminTokensPage() {
-  const [token, setToken] = useState("");
+  const [minted, setMinted] = useState(null);
   const [error, setError] = useState("");
   const [bulkCount, setBulkCount] = useState("100");
   const [bulkTokens, setBulkTokens] = useState([]);
@@ -108,7 +108,7 @@ export default function AdminTokensPage() {
   };
 
   const revoke = async (id) => {
-    if (!window.confirm("Revoke this unused device token? Nobody can link a Luna with it after this.")) return;
+    if (!window.confirm("Revoke this unused Luna? It can no longer be paired after this.")) return;
     setRevokeBusy(id);
     setError("");
     try {
@@ -122,8 +122,8 @@ export default function AdminTokensPage() {
   };
 
   const unlink = async (row) => {
-    const label = row.device_hostname || row.hint || row.id;
-    if (!window.confirm(`Unlink ${label} from ${row.account_email || "its account"}? Remote access stops, the token stays, and the Luna can be linked again.`)) return;
+    const label = row.device_hostname || row.device_uid || row.id;
+    if (!window.confirm(`Disconnect ${label} from ${row.account_email || "its account"}? Remote access stops, the pairing details stay, and the Luna can be paired again.`)) return;
     setUnlinkBusy(row.id);
     setError("");
     try {
@@ -137,11 +137,11 @@ export default function AdminTokensPage() {
   };
 
   const purge = async (row) => {
-    const label = row.device_hostname || row.hint || row.id;
+    const label = row.device_hostname || row.device_uid || row.id;
     const bound = row.status === "bound";
     const msg = bound
-      ? `Purge ${label}? This unlinks the Luna from its account, stops remote access, and deletes the token. Cloud backups stay in storage.`
-      : `Purge ${label}? This deletes the token permanently, and Luna Connect stops accepting it.`;
+      ? `Purge ${label}? This disconnects the Luna, stops remote access, and deletes its pairing details. Cloud backups stay in storage.`
+      : `Purge ${label}? This deletes the pairing details permanently, and this Luna can no longer be paired.`;
     if (!window.confirm(msg)) return;
     setPurgeBusy(row.id);
     setError("");
@@ -157,15 +157,15 @@ export default function AdminTokensPage() {
 
   return (
     <AdminLayout>
-      <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
+      <h2 className="font-mono text-2xl mb-2">Device identities</h2>
       <p className="text-muted-foreground mb-8">
-        Each device token belongs to one Luna. Create tokens here for factory USB sticks, retail boxes, or a one-off token for support.
+        Each Luna has a Device ID and Verification code. Create them here for factory USB sticks, retail boxes, or support.
       </p>
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Single device token</CardTitle>
-          <CardDescription>Create one token for a retail box or for support. To see it again later, use Show full token in the table.</CardDescription>
+          <CardTitle>Single device identity</CardTitle>
+          <CardDescription>Create one for a retail box or support. To see it again later, use Show pairing details in the table.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button
@@ -174,8 +174,11 @@ export default function AdminTokensPage() {
               setError("");
               setSingleBusy(true);
               try {
-                const data = await adminApi("/admin/device-codes", { method: "POST", body: "{}" });
-                setToken(data.code);
+                const data = await adminApi("/admin/device-codes", { method: "POST", body: "{}", cache: "no-store" });
+                if (!data.device_uid || !data.verification_code) {
+                  throw new Error("Luna Connect did not return the Device ID and Verification code. Try again.");
+                }
+                setMinted({ deviceUid: data.device_uid, verificationCode: data.verification_code });
                 await loadTokens();
               } catch (err) {
                 setError(err.message);
@@ -184,17 +187,24 @@ export default function AdminTokensPage() {
               }
             }}
           >
-            New token
+            New identity
           </Button>
-          {token && <p className="font-mono text-xl tracking-widest break-all">{token}</p>}
+          {minted ? (
+            <div className="space-y-2 rounded-large-element bg-muted border border-border p-4">
+              <p className="text-sm text-muted-foreground">Device ID</p>
+              <p className="font-mono text-xl tracking-widest break-all">{minted.deviceUid}</p>
+              <p className="text-sm text-muted-foreground">Verification code</p>
+              <p className="font-mono text-xl tracking-widest break-all">{minted.verificationCode}</p>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       <Card className="mb-6" data-testid="bulk-tokens">
         <CardHeader>
-          <CardTitle>Bulk factory tokens</CardTitle>
+          <CardTitle>Bulk factory identities</CardTitle>
           <CardDescription>
-            Create up to 500 device tokens for the installer USB. Download the TOKENS file (one token per line) and put that file on the LUNAASSETS partition.
+            Create up to 500 for the installer USB. Each TOKENS line has a Device ID and Verification code separated by a space.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -223,6 +233,7 @@ export default function AdminTokensPage() {
                   const data = await adminApi("/admin/device-codes/bulk", {
                     method: "POST",
                     body: JSON.stringify({ count: n }),
+                    cache: "no-store",
                   });
                   setBulkTokens(data.tokens || []);
                   await loadTokens();
@@ -246,7 +257,7 @@ export default function AdminTokensPage() {
           {bulkTokens.length > 0 && (
             <div className="rounded-large-element border border-border bg-background p-4">
               <p className="font-mono text-sm text-muted-foreground mb-2">
-                {bulkTokens.length} tokens · file name TOKENS
+                {bulkTokens.length} Lunas · file name TOKENS
               </p>
               <pre className="font-mono text-sm max-h-64 overflow-auto whitespace-pre-wrap break-all">
                 {bulkTokens.join("\n")}
@@ -258,9 +269,9 @@ export default function AdminTokensPage() {
 
       <Card data-testid="device-tokens-table">
         <CardHeader>
-          <CardTitle>All device tokens</CardTitle>
+          <CardTitle>All device identities</CardTitle>
           <CardDescription>
-            Every device token on this Luna Connect site. Tokens in use show the customer account and the Luna&apos;s address.
+            Every Luna on this site. Identities in use show the customer account and the Luna&apos;s address.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -269,6 +280,7 @@ export default function AdminTokensPage() {
               {[
                 { id: "all", label: "All" },
                 { id: "unbound", label: "Unused" },
+                { id: "pairing", label: "Pairing" },
                 { id: "bound", label: "In use" },
                 { id: "revoked", label: "Revoked" },
               ].map((f) => (
@@ -290,11 +302,11 @@ export default function AdminTokensPage() {
               <div className="relative flex-1 sm:w-72">
                 <Input
                   type="text"
-                  placeholder="Search hint, token, email…"
+                  placeholder="Search Device ID, email, address…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pr-8"
-                  aria-label="Search tokens"
+                  aria-label="Search devices"
                 />
                 {searchQuery && (
                   <button
@@ -315,19 +327,19 @@ export default function AdminTokensPage() {
           </div>
 
           {listLoading ? (
-            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device tokens…</p>
+            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device identities…</p>
           ) : listError ? (
             <p className="text-sm text-error">{listError}</p>
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {appliedQuery ? "No device tokens match your search." : "No device tokens in this filter."}
+              {appliedQuery ? "No device identities match your search." : "No device identities in this filter."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-large-element border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-card border-b border-border">
                   <tr className="text-left font-mono text-xs text-muted-foreground">
-                    <th className="px-3 py-2">Token</th>
+                    <th className="px-3 py-2">Device ID</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Account</th>
@@ -341,7 +353,7 @@ export default function AdminTokensPage() {
                     <tr key={r.id} className="border-b border-border last:border-0 align-top">
                       <td className="px-3 py-2">
                         <TokenReveal
-                          hint={r.hint}
+                          hint={r.device_uid || r.hint}
                           deviceId={r.can_reveal ? r.id : null}
                         />
                       </td>
@@ -407,7 +419,7 @@ export default function AdminTokensPage() {
                 setPage(1);
               }}
               pageSizeOptions={[25, 50, 100]}
-              itemLabel="tokens"
+              itemLabel="devices"
               loading={listLoading}
             />
           )}

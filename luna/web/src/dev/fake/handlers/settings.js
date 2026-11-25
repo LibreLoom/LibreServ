@@ -1,13 +1,22 @@
-// Settings and setup extras: access tokens, Luna Connect device token, cloud
+// Settings and setup extras: access tokens, Luna Connect pairing, cloud
 // identity and recovery phrase.
 import { del, fail, get, post, put } from "../engine.js";
 import { isAdmin, requireAdmin } from "../policy.js";
-import { DEVICE_TOKEN_REJECTED } from "./core.js";
 import { nextId } from "../world.js";
 import { SIG_PUBLIC_LEN } from "@libreloom/ui/lib/cloud/backupCrypto.js";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 const b64 = (n) => btoa(String.fromCharCode(...new Uint8Array(n).fill(7)));
+const CONNECT_STATES = new Set(["unbound", "pairing", "bound", "revoked"]);
+const CONNECT_PENDING_ERROR = "Luna is still disconnecting from Luna Connect. Remote access and pairing are stopped until it finishes.";
+const normalizeDeviceUid = (value) => String(value || "")
+  .replace(/[-_\s]/g, "")
+  .toUpperCase()
+  .replace(/[IL]/g, "1")
+  .replace(/O/g, "0");
+const fakeConnectState = (world) => CONNECT_STATES.has(world.connect?.state)
+  ? world.connect.state
+  : world.connect?.paired ? "bound" : "unbound";
 
 // ── Access tokens (api/device_tokens.rs): each person sees their own ────────
 const tokenJson = (t) => ({ id: t.id, name: t.name, created_at: t.created_at, last_used_at: t.last_used_at ?? 0, expires_at: t.expires_at ?? null, revoked: Boolean(t.revoked) });
@@ -39,34 +48,81 @@ del("/api/v1/device-tokens/:id", ({ world, user, params }) => {
   return { ok: true };
 });
 
-// ── Luna Connect device token ───────────────────────────────────────────────
+// ── Luna Connect pairing material ───────────────────────────────────────────
 post("/api/v1/connect/device-token", ({ world, user, body }) => {
-  if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can enter a device token.");
-  const token = String(body.token || body.code || "");
-  if (!token) return fail(400, "Paste the device token first.");
-  if (token === "bad") return fail(401, DEVICE_TOKEN_REJECTED);
-  const { device_token_error: _gone, ...rest } = world.connect;
-  // The fake Connect account already has a payment card, so cloud backup works right away.
-  world.connect = { backup_unlocked: true, ...rest, enabled: true, connect_active: true };
-  world.connectActive = true;
-  return {};
+  if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can change the Device token.");
+  const deviceUid = normalizeDeviceUid(body.device_uid);
+  const verificationCode = String(body.verification_code || "").trim().toUpperCase();
+  if (!/^[0-9A-HJKMNP-TV-Z]{20}$/.test(deviceUid)) return fail(400, "Enter the 20-character Device ID from Luna.");
+  if (!/^[0-9A-F]{6}$/.test(verificationCode)) return fail(400, "Enter the six-character Verification code from Luna.");
+  if (world.connect.unbind_pending) return fail(400, CONNECT_PENDING_ERROR);
+  const state = fakeConnectState(world);
+  const existingUid = normalizeDeviceUid(world.connect.device_uid);
+  const hasExistingUid = /^[0-9A-HJKMNP-TV-Z]{20}$/.test(existingUid);
+  if (hasExistingUid && existingUid !== deviceUid) {
+    return fail(400, "This Luna already has a different Device ID. Restore the original Device ID.");
+  }
+  if (!hasExistingUid && state !== "unbound") {
+    return fail(400, "This Luna's Device ID is missing. Restore the original Device ID before reconnecting.");
+  }
+  if (world.connect.verification_code && String(world.connect.verification_code).trim().toUpperCase() !== verificationCode) {
+    return fail(400, "That Verification code does not match the one already saved on this Luna. Restore the saved code instead.");
+  }
+  world.connect = {
+    ...world.connect,
+    state,
+    device_uid: deviceUid,
+    verification_code: verificationCode,
+  };
+  return { ok: true };
 });
 del("/api/v1/connect/device-token", ({ world, user }) => {
-  requireAdmin(user, "Only an Admin can remove the device token.");
-  world.connect = { ...world.connect, enabled: false, connect_active: false };
-  world.connectActive = false;
-  return {};
+  requireAdmin(user, "Only an Admin can remove the Verification code.");
+  // Local-only: the Connect binding, remote access and backups do not change.
+  world.connect = { ...world.connect, verification_code: null };
+  return { ok: true };
 });
 
-// The reset flow's unbind step (api/connect.rs unbind). `world.unbindFails`
-// makes Connect not answer, for the Retry / Skip state.
+// Disconnect cancels pairing, revokes a bound Luna, or clears a revoked
+// account link after password step-up. A revoked failure stays revoked rather
+// than pretending there is an ordinary pending revocation to retry.
 post("/api/v1/connect/unbind", ({ world, user, body }) => {
-  requireAdmin(user, "Only an Admin can unbind Luna Connect.");
-  if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to unbind Luna Connect.");
-  if (body.password === "wrong") return fail(401, "That password is wrong. Luna Connect was not unbound.");
-  if (!world.connect.device_code && !world.connect.enabled) return fail(400, "This Luna has no device token, so it isn't linked to Luna Connect.");
-  if (world.unbindFails) return fail(504, "Luna Connect didn't answer, or had a problem. Check this Luna's internet connection, then try again.");
-  world.connect = { ...world.connect, paired: false, hostname: null, domain: null, subdomain: null, tunnel_active: false };
+  requireAdmin(user, "Only an Admin can disconnect Luna Connect.");
+  if (!String(body.password ?? "").trim()) return fail(400, "Type your current password to disconnect Luna Connect.");
+  if (body.password === "wrong") return fail(401, "That password is wrong. Luna Connect was not disconnected.");
+  const state = fakeConnectState(world);
+  if (state === "unbound" && !world.connect.unbind_pending) return fail(400, "This Luna is not paired with Luna Connect.");
+  if (world.unbindFails) {
+    world.connect = {
+      ...world.connect,
+      state,
+      paired: false,
+      unbind_pending: state !== "revoked",
+      tunnel_active: false,
+      backup_unlocked: false,
+      backup_sources: [],
+    };
+    world.connectActive = false;
+    return fail(504, "Luna Connect didn't answer, or had a problem. Check this Luna's internet connection, then try again.");
+  }
+  world.connect = {
+    ...world.connect,
+    state: "unbound",
+    revoked: false,
+    account_id: null,
+    pairing_id: null,
+    paired: false,
+    unbind_pending: false,
+    hostname: null,
+    domain: null,
+    subdomain: null,
+    tunnel_active: false,
+    backup_unlocked: false,
+    backup_sources: [],
+    connect_error: null,
+    setup_grant: null,
+  };
+  world.connectActive = false;
   return { ok: true };
 });
 

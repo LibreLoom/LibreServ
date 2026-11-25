@@ -1,5 +1,6 @@
 //! Cloud backups: list, start, run, check, delete (plan §5). The copies live in
 //! Luna Connect, so anything that talks to the cloud needs Connect set up.
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{Extension, Path, State};
@@ -310,13 +311,12 @@ async fn check(
     Ok(Json(answer))
 }
 
-/// The Connect store for this Luna, or `None` when Luna Connect is not set up.
-/// Blocking: reads the device token and this Luna's identity.
-pub fn connect_store(connect: &ConnectService, db: &crate::Db) -> Option<HttpStore> {
+/// The Connect store for this Luna, or `None` when it has no bound credential.
+/// Blocking: loads this Luna's identity; requests read the current credential.
+pub fn connect_store(connect: &Arc<ConnectService>, db: &crate::Db) -> Option<HttpStore> {
     if !connect.is_connect_active() {
         return None;
     }
-    let token = connect.token().ok()?;
     let base_url = connect.status().base_url;
     // A fresh Luna mints its identity here, so the first cloud job can run without a setup step.
     let identity = match identity::load_or_create_connected(db, connect, db::now_unix()) {
@@ -326,7 +326,11 @@ pub fn connect_store(connect: &ConnectService, db: &crate::Db) -> Option<HttpSto
             return None;
         }
     };
-    Some(HttpStore::new(&base_url, &token, identity.luna_id()))
+    Some(HttpStore::with_connect(
+        &base_url,
+        connect.clone(),
+        identity.luna_id(),
+    ))
 }
 
 fn check_json(report: &CheckReport) -> Value {

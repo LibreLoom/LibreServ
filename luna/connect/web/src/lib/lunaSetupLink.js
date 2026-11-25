@@ -1,13 +1,15 @@
+export const SETUP_GRANT_FRAGMENT = "setup_grant";
+
 /**
  * Build the Luna setup link shown at the end of Connect onboarding.
- * Display is hostname-only (no /setup, no query); href still targets /setup
- * and includes ?token= when available for click and copy.
+ * Display is hostname-only. The one-time grant goes in the fragment so it is
+ * never sent to a web server in the URL.
  *
  * @param {string} hostname Public hostname or absolute URL for the Luna
- * @param {string} [deviceToken] Full device token to embed for silent WAN auth
+ * @param {string} [setupGrant] One-time grant for off-LAN first-Admin setup
  * @returns {{ display: string, href: string }}
  */
-export function buildLunaSetupLink(hostname, deviceToken = "") {
+export function buildLunaSetupLink(hostname, setupGrant = "") {
   const raw = String(hostname || "").trim();
   if (!raw) return { display: "", href: "" };
 
@@ -19,7 +21,9 @@ export function buildLunaSetupLink(hostname, deviceToken = "") {
   try {
     const u = new URL(base);
     if (u.pathname.replace(/\/+$/, "") === "/setup") {
-      setupUrl = base;
+      u.search = "";
+      u.hash = "";
+      setupUrl = u.toString().replace(/\/+$/, "");
     } else {
       u.pathname = "/setup";
       u.search = "";
@@ -30,15 +34,19 @@ export function buildLunaSetupLink(hostname, deviceToken = "") {
     /* keep setupUrl from string concat */
   }
 
-  // Visible label: hostname only. /setup stays on the href for click/copy.
-  const display = raw
+  let display = raw
     .replace(/^https?:\/\//i, "")
     .replace(/\/+$/, "")
     .replace(/\/setup$/i, "");
+  try {
+    display = new URL(base).host;
+  } catch {
+    /* keep the string fallback for an incomplete hostname */
+  }
 
-  const token = String(deviceToken || "").trim();
-  const href = token
-    ? `${setupUrl}?token=${encodeURIComponent(token)}`
+  const grant = String(setupGrant || "").trim();
+  const href = grant
+    ? `${setupUrl}#${SETUP_GRANT_FRAGMENT}=${encodeURIComponent(grant)}`
     : setupUrl;
 
   return { display, href };

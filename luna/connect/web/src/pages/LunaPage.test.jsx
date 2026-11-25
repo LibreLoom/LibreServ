@@ -6,6 +6,8 @@ import { api } from "../api.js";
 
 const refreshMe = vi.fn();
 const authState = vi.hoisted(() => ({ me: { email: "owner@example.com", email_verified: true } }));
+const UID = "7K4M2Q9XR8N36T5W1PZH";
+const CODE = "A3F91C";
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -31,6 +33,17 @@ function mount() {
   );
 }
 
+function boundDevice(overrides = {}) {
+  return {
+    id: "dev_1",
+    state: "bound",
+    hostname: "photos.luna.servers.libreloom.org",
+    online: true,
+    device_uid: UID,
+    ...overrides,
+  };
+}
+
 describe("LunaPage one Luna", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,7 +55,7 @@ describe("LunaPage one Luna", () => {
     mount();
     expect(await screen.findByRole("heading", { name: "Devices" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Devices" })).toBeTruthy();
-    expect(await screen.findByText(/No Luna linked yet/i)).toBeTruthy();
+    expect(await screen.findByText(/No Luna paired yet/i)).toBeTruthy();
     expect(screen.getByRole("heading", { name: /My Luna/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Start setup/i }).getAttribute("href")).toBe("/onboarding");
     expect(screen.getByRole("link", { name: /I installed Luna myself/i }).getAttribute("href")).toBe(
@@ -65,11 +78,11 @@ describe("LunaPage one Luna", () => {
     expect(screen.getByRole("link", { name: /Resume setup/i }).getAttribute("href")).toBe("/diyonboarding");
   });
 
-  it("shows one Luna and never a device list or connect another", async () => {
+  it("shows one bound Luna and never a device list or connect another", async () => {
     api.mockResolvedValue({
       devices: [
-        { id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true, code_hint: "ABCD••••" },
-        { id: "dev_2", hostname: "extra.luna.servers.libreloom.org", online: false },
+        boundDevice(),
+        boundDevice({ id: "dev_2", hostname: "extra.luna.servers.libreloom.org", online: false }),
       ],
     });
     mount();
@@ -82,87 +95,180 @@ describe("LunaPage one Luna", () => {
     expect(screen.queryByText("extra.luna.servers.libreloom.org")).toBeNull();
     expect(screen.queryByText(/Connect another Luna/i)).toBeNull();
     expect(screen.queryByText(/Your Lunas/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /Unbind Luna/i })).toBeTruthy();
+    expect(screen.getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Disconnect/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Show token/i })).toBeNull();
   });
 
-  it("asks for the password before revealing the device token, and can unbind", async () => {
+  it("shows pairing state without a stale address and cancels only that pairing attempt", async () => {
     api.mockImplementation(async (path, opts) => {
       if (path === "/api/v1/account/devices") {
-        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: false }] };
+        return { devices: [boundDevice({
+          state: "pairing",
+          hostname: "stale.luna.servers.libreloom.org",
+          online: false,
+        })] };
       }
-      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
-        expect(JSON.parse(opts.body)).toEqual({ password: "correct horse 1" });
-        return { code: "AAAA-BBBB-CCCC-DDDD-EEEE" };
-      }
-      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") {
-        return { ok: true };
-      }
+      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") return { ok: true };
       return {};
     });
     mount();
+    expect(await screen.findByText("Pairing")).toBeTruthy();
+    expect(screen.getByText(/Waiting for Luna to finish pairing/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "stale.luna.servers.libreloom.org" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Disconnect$/ })).toBeNull();
 
-    async function revealWithPassword() {
-      fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Show token/i }));
-      const form = await screen.findByTestId("luna-reveal-token");
-      expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
-      const field = within(form).getByLabelText(/Your Luna Connect password/i);
-      expect(field.getAttribute("type")).toBe("password");
-      fireEvent.change(field, { target: { value: "correct horse 1" } });
-      fireEvent.click(within(form).getByRole("button", { name: /Show token/i }));
-      expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
-      expect(screen.queryByTestId("luna-reveal-token")).toBeNull();
-    }
+    fireEvent.click(within(screen.getByTestId("luna-device-toolbar")).getByRole("button", { name: "Cancel pairing" }));
+    const confirm = screen.getByTestId("luna-disconnect-confirm");
+    expect(within(confirm).getByText(/cancels the pairing attempt/i)).toBeTruthy();
+    expect(within(confirm).getByText(/pair it again later/i)).toBeTruthy();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel pairing" }));
 
-    await revealWithPassword();
-
-    fireEvent.click(screen.getByRole("button", { name: /Hide token/i }));
-    expect(screen.queryByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeNull();
-
-    // Showing it again asks for the password again.
-    await revealWithPassword();
-    expect(api.mock.calls.filter(([p]) => p === "/api/v1/account/devices/dev_1/code")).toHaveLength(2);
-
-    fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
-    expect(screen.getByText(/The public address stops working/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Unbind Luna/i }));
-
-    await waitFor(() => {
-      expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" });
-    });
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" }));
+    expect(await screen.findByText(/No Luna paired yet/i)).toBeTruthy();
     expect(refreshMe).toHaveBeenCalled();
   });
 
-  it("shows a wrong password inside the form and never the token", async () => {
+  it.each([undefined, "unknown-state"])("fails closed for missing or unknown production state %s", async (state) => {
+    api.mockResolvedValue({ devices: [boundDevice({ state, hostname: "stale.luna.servers.libreloom.org" })] });
+    mount();
+
+    expect(await screen.findByTestId("luna-state-unavailable")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "stale.luna.servers.libreloom.org" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Disconnect/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show pairing details/i })).toBeNull();
+  });
+
+  it("recovers a revoked Luna with account password step-up", async () => {
+    let current = boundDevice({ state: "revoked", online: false });
     api.mockImplementation(async (path, opts) => {
-      if (path === "/api/v1/account/devices") {
-        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true }] };
-      }
-      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
-        const err = /** @type {Error & { status?: number }} */ (
-          new Error("That password is wrong. The device token was not shown.")
-        );
-        err.status = 403;
-        throw err;
+      if (path === "/api/v1/account/devices") return { devices: [current] };
+      if (path === "/api/v1/devices/dev_1/recover" && opts?.method === "POST") {
+        current = boundDevice({ state: "pairing", hostname: null, online: false });
+        return { pairing_id: "pair_1" };
       }
       return {};
     });
     mount();
-    fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Show token/i }));
-    const form = await screen.findByTestId("luna-reveal-token");
-    fireEvent.change(within(form).getByLabelText(/Your Luna Connect password/i), { target: { value: "nope nope 1" } });
-    fireEvent.click(within(form).getByRole("button", { name: /Show token/i }));
 
-    const alert = await within(form).findByRole("alert");
-    expect(alert.textContent).toMatch(/That password is wrong/i);
-    expect(screen.queryByTestId("luna-device-token")).toBeNull();
+    expect(await screen.findByText("Reconnect required")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "photos.luna.servers.libreloom.org" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Disconnect$/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    const form = screen.getByTestId("luna-recover-form");
+    const confirm = within(form).getByRole("button", { name: "Reconnect" });
+    expect(confirm).toBeDisabled();
+    expect(api.mock.calls.some(([path]) => String(path).endsWith("/recover"))).toBe(false);
+
+    fireEvent.change(within(form).getByLabelText("Luna Connect password"), { target: { value: "hunter22" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1/recover", {
+      method: "POST",
+      body: JSON.stringify({ password: "hunter22" }),
+      cache: "no-store",
+    }));
+    expect(await screen.findByText("Pairing")).toBeTruthy();
+    expect(screen.getByText(/Reconnect started/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "photos.luna.servers.libreloom.org" })).toBeNull();
+    expect(refreshMe).toHaveBeenCalled();
+  });
+
+  it("keeps a revoked Luna disconnected when recovery password is refused", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice({ state: "revoked", online: false })] };
+      if (path === "/api/v1/devices/dev_1/recover" && opts?.method === "POST") {
+        throw new Error("That password is wrong. This Luna was not recovered.");
+      }
+      return {};
+    });
+    mount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+    const form = screen.getByTestId("luna-recover-form");
+    fireEvent.change(within(form).getByLabelText("Luna Connect password"), { target: { value: "wrong" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Reconnect" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/password is wrong/i);
+    expect(alert.querySelector("p")).toHaveClass("text-foreground");
+    expect(alert.querySelector("p")).not.toHaveClass("text-error");
+    expect(screen.getByText("Reconnect required")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "photos.luna.servers.libreloom.org" })).toBeNull();
+  });
+
+  it("reveals Device ID and Verification code only after account password step-up", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice()] };
+      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
+        return { device_uid: "7K4M-2Q9X-R8N3-6T5W-1PZH", verification_code: CODE };
+      }
+      return {};
+    });
+    mount();
+
+    expect(await screen.findByRole("button", { name: "Show pairing details" })).toBeTruthy();
+    expect(screen.queryByText(CODE)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show pairing details" }));
+    expect(api.mock.calls.some(([path]) => String(path).endsWith("/code"))).toBe(false);
+    fireEvent.change(screen.getByLabelText("Luna Connect password"), { target: { value: "hunter22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reveal pairing details" }));
+
+    expect(await screen.findByText(CODE)).toBeTruthy();
+    expect(screen.getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
+    expect(screen.getByText(/Settings → Luna Connect → Device token/)).toBeTruthy();
+    expect(api).toHaveBeenCalledWith("/api/v1/account/devices/dev_1/code", {
+      method: "POST",
+      body: JSON.stringify({ password: "hunter22" }),
+      cache: "no-store",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Hide pairing details" }));
+    expect(screen.queryByText(CODE)).toBeNull();
+  });
+
+  it("confirms a reversible Disconnect without exposing a permanent token", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice({ online: false })] };
+      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") return { ok: true };
+      return {};
+    });
+    mount();
+
+    fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Disconnect/i }));
+    const confirm = screen.getByTestId("luna-disconnect-confirm");
+    expect(within(confirm).getByText(/pair it again later/i)).toBeTruthy();
+    expect(within(confirm).getByText(/Device ID and Verification code/i)).toBeTruthy();
+    expect(api.mock.calls.some(([path]) => String(path).includes("/code"))).toBe(false);
+    fireEvent.click(within(confirm).getByRole("button", { name: /Disconnect/i }));
+
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", { method: "DELETE" }));
+    expect(refreshMe).toHaveBeenCalled();
+  });
+
+  it("keeps a failed Disconnect inside the confirmation", async () => {
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice()] };
+      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") {
+        throw new Error("Luna Connect could not disconnect this Luna. Try again.");
+      }
+      return {};
+    });
+    mount();
+    fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Disconnect/i }));
+    const confirm = screen.getByTestId("luna-disconnect-confirm");
+    fireEvent.click(within(confirm).getByRole("button", { name: /Disconnect/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not disconnect this Luna/i);
+    expect(alert.querySelector("p")).toHaveClass("text-foreground");
+    expect(confirm).toBeInTheDocument();
   });
 
   it("changes the address from the Luna page", async () => {
     let hostname = "photos.luna.servers.libreloom.org";
     api.mockImplementation(async (path, opts) => {
-      if (path === "/api/v1/account/devices") {
-        return { devices: [{ id: "dev_1", hostname, online: true }] };
-      }
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice({ hostname })] };
       if (path === "/api/v1/devices/dev_1/domain" && opts?.method === "POST") {
         hostname = `${JSON.parse(opts.body).subdomain}.luna.servers.libreloom.org`;
         return { hostname };
@@ -187,9 +293,7 @@ describe("LunaPage one Luna", () => {
 
   it("shows the reason when the new address is refused", async () => {
     api.mockImplementation(async (path, opts) => {
-      if (path === "/api/v1/account/devices") {
-        return { devices: [{ id: "dev_1", hostname: "photos.luna.servers.libreloom.org", online: true }] };
-      }
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice()] };
       if (opts?.method === "POST") throw new Error("That name is already taken.");
       return {};
     });
@@ -198,6 +302,8 @@ describe("LunaPage one Luna", () => {
     fireEvent.change(screen.getByLabelText(/New address/i), { target: { value: "taken" } });
     const save = within(screen.getByTestId("luna-change-address")).getByRole("button", { name: /^Change address$/i });
     fireEvent.click(save);
-    expect((await screen.findByRole("alert")).textContent).toMatch(/already taken/i);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/already taken/i);
+    expect(alert.querySelector("p")).toHaveClass("text-foreground");
   });
 });

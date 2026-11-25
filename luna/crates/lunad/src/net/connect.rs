@@ -1,4 +1,4 @@
-//! Luna Connect client — permanent device token, status pull, then cloudflared.
+//! Luna Connect client: device pairing, rolling credentials, status, and cloudflared.
 
 // Extracted on-demand installer (pinned release / HTTPS / ELF). Keep this file from
 // growing when the install path is hardened — see cloudflared_install.rs.
@@ -6,40 +6,84 @@
 mod cloudflared_install;
 use cloudflared_install::{MIN_CLOUDFLARED_BYTES, install_cloudflared_to};
 
-use serde::Serialize;
+#[path = "connect_auth.rs"]
+mod auth;
+pub use auth::{
+    CONNECT_CREDENTIAL_FILE, CREDENTIAL_MALFORMED_MSG, CREDENTIAL_REJECTED_MSG, ConnectError,
+    ConnectService, ConnectState, ConnectStatus, DEVICE_UID_FILE, DEVICE_UID_MALFORMED_MSG,
+    LAN_OVERRIDE_FILE, PAIRING_CODE_FILE, PAIRING_CODE_MALFORMED_MSG, SETUP_GRANT_REJECTED_MSG,
+    UNBIND_PENDING_FILE, UNBIND_PENDING_MSG,
+};
+pub(crate) use auth::{
+    is_device_uid_format, is_verification_code_format, normalize_device_uid,
+    normalize_verification_code,
+};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
-const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
-
-/// Steady-state Connect status pull (boot + every 5 minutes after setup).
+pub(crate) const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 pub const STEADY_POLL_SECS: u64 = 300;
+pub const AGGRESSIVE_POLL_SECS: u64 = 10;
 
-/// Cuts the Connect poll loop's wait short (link came up, device token
-/// saved). The loop blocks on it instead of waking every second.
+#[cfg(not(test))]
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
+
+#[cfg(not(test))]
+pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
+pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub const CONNECT_UNREACHABLE_MSG: &str = "Luna can't reach Luna Connect, or Luna Connect has a problem. Check this Luna's internet connection. Luna will keep trying.";
+pub const CONNECT_CHALLENGED_MSG: &str =
+    "Luna Connect blocked a request from this Luna. Luna will keep trying.";
+pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote access helper. Check this Luna's internet connection. Luna will keep trying.";
+pub const TUNNEL_START_FAILED_MSG: &str =
+    "Luna could not start remote access. Luna will keep trying.";
+pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
+pub const TUNNEL_NOT_RUNNING_MSG: &str =
+    "Remote access is set up, but it is not running yet. Luna will keep trying.";
+
+pub const CLOUD_BACKUP_NOT_LINKED: &str = "not_linked";
+pub const CLOUD_BACKUP_NO_PAYMENT: &str = "no_payment";
+pub const CLOUD_BACKUP_READY: &str = "ready";
+
+/// Cuts the Connect poll loop's wait short. A reconnect wake also asks the
+/// next cycle to rotate the credential before normal status work.
 #[derive(Default)]
 pub struct PollWake {
     woken: Mutex<bool>,
+    reconnect: AtomicBool,
     cv: std::sync::Condvar,
 }
 
 impl PollWake {
-    /// Make the next pull happen now.
     pub fn wake(&self) {
         *self.woken.lock().unwrap_or_else(|e| e.into_inner()) = true;
         self.cv.notify_all();
     }
 
-    /// True when a wake is waiting to be taken.
+    pub fn wake_reconnect(&self) {
+        self.reconnect.store(true, Ordering::Release);
+        self.wake();
+    }
+
+    pub fn take_reconnect(&self) -> bool {
+        self.reconnect.swap(false, Ordering::AcqRel)
+    }
+
     pub fn is_set(&self) -> bool {
         *self.woken.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Wait with no time limit until woken, and take the wake.
     pub fn wait_forever(&self) {
         let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
         let mut woken = self
@@ -49,7 +93,6 @@ impl PollWake {
         *woken = false;
     }
 
-    /// Wait up to `timeout`. True (and the wake is taken) when woken.
     pub fn wait(&self, timeout: Duration) -> bool {
         let guard = self.woken.lock().unwrap_or_else(|e| e.into_inner());
         let (mut woken, _) = self
@@ -59,985 +102,8 @@ impl PollWake {
         std::mem::take(&mut *woken)
     }
 }
-/// Fast pull while setup is open and the tunnel is not running yet.
-pub const AGGRESSIVE_POLL_SECS: u64 = 10;
-
-/// End-to-end Connect HTTP budget. ureq 3 defaults to *no* timeout — without this,
-/// wedged DNS/TCP during late network bring-up can freeze the Connect poll thread
-/// until reboot (sticky "Luna will keep trying").
-#[cfg(not(test))]
-const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
-/// Tests talk to local servers that answer in milliseconds; the hanging-peer
-/// test waits out the whole budget, so a short one keeps it from setting the
-/// floor for the whole suite.
-#[cfg(test)]
-const CONNECT_HTTP_TIMEOUT: Duration = Duration::from_secs(4);
-/// TCP/TLS connect budget inside the global timeout.
-const CONNECT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Cap on Connect reply bodies — status JSON is small, and a hostile or
-/// broken peer must not fill memory.
-const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
-
-/// Permanent Luna Connect device token (`{data_dir}/device-token`).
-/// Connect is inactive until this file holds a valid token.
-pub const DEVICE_TOKEN_FILE: &str = "device-token";
-
-/// Connect rejected the on-disk token (HTTP 401 / revoked / unknown).
-pub const DEVICE_TOKEN_REJECTED_MSG: &str = "Luna Connect did not accept this device token. It may be mistyped, revoked, or for a different Luna. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
-/// On-disk token file is present but not a valid Crockford device token.
-pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. On a phone or computer, open Luna and paste a new device token in Settings → About → Advanced.";
-/// Connect was unreachable, or answered with an error, on the last status
-/// pull (sticky while token is present).
-pub const CONNECT_UNREACHABLE_MSG: &str = "Luna can't reach Luna Connect, or Luna Connect has a problem. Check this Luna's internet connection. Luna will keep trying.";
-/// Connect replied with a Cloudflare (or similar) browser challenge instead of JSON.
-pub const CONNECT_CHALLENGED_MSG: &str =
-    "Luna Connect blocked a request from this Luna. Luna will keep trying.";
-/// cloudflared is missing and Luna could not download it.
-pub const TUNNEL_HELPER_MISSING_MSG: &str = "Luna could not download the remote access helper. Check this Luna's internet connection. Luna will keep trying.";
-/// cloudflared was found (or installed) but would not stay running.
-pub const TUNNEL_START_FAILED_MSG: &str =
-    "Luna could not start remote access. Luna will keep trying.";
-/// Hostname is set but Connect has not given Luna a tunnel secret yet.
-pub const TUNNEL_TOKEN_MISSING_MSG: &str = "A remote address is set, but Luna does not have a connection key from Luna Connect yet. Luna will keep trying.";
-/// Hostname/token exist but lunad does not see a live connector yet.
-pub const TUNNEL_NOT_RUNNING_MSG: &str =
-    "Remote access is set up, but it is not running yet. Luna will keep trying.";
-
-pub(crate) const LEGACY_DEVICE_TOKEN_FILE: &str = "setup-token";
-
-/// Present while an unbind from Luna Connect is still owed: an Admin chose to
-/// unbind during a reset, but Connect could not be reached and they went on
-/// without it. Holds a fingerprint of the device token it is for. It lives
-/// outside `connect.json` and the database, so the reset never clears it.
-/// Until an unbind succeeds Luna retries it, starts no tunnel, and does not
-/// take the device token as proof for creating the first account remotely.
-pub const UNBIND_PENDING_FILE: &str = "connect-unbind-pending";
-
-/// How long an Admin waits for Luna Connect's answer to an unbind.
-#[cfg(not(test))]
-pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(15);
-/// Tests wait out the whole budget against a peer that never answers.
-#[cfg(test)]
-pub const UNBIND_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// TODO: We need to add remote access options for non-connect users.
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConnectError {
-    /// No answer, or an answer that was not a success (5xx, non-JSON 403).
-    #[error(
-        "Luna couldn't reach Luna Connect, or Luna Connect had a problem. Check your internet connection, then try again."
-    )]
-    Unreachable,
-    /// HTML/gateway challenge (e.g. Cloudflare managed challenge) — not an authentic unbind.
-    #[error("{msg}", msg = CONNECT_CHALLENGED_MSG)]
-    GatewayChallenge,
-    #[error("That name is already in use. Pick another.")]
-    Conflict,
-    #[error("{msg}", msg = DEVICE_TOKEN_REJECTED_MSG)]
-    InvalidToken,
-    /// Authentic Connect 403: the device token is fine, but no account has
-    /// this Luna linked right now.
-    #[error(
-        "This Luna isn't linked to a Luna Connect account right now. Link it again on Luna Connect, then try again."
-    )]
-    Unbound,
-    #[error("{0}")]
-    Other(String),
-}
-
-/// Outcome of asking Connect whether a device token is real.
-enum TokenCheck {
-    Recognized,
-    Rejected,
-    Unknown,
-}
-
-pub const CLOUD_BACKUP_NOT_LINKED: &str = "not_linked";
-pub const CLOUD_BACKUP_NO_PAYMENT: &str = "no_payment";
-pub const CLOUD_BACKUP_READY: &str = "ready";
-
-/// Root-console escape hatch for local access. Only a root-owned file in the
-/// data directory can allow LAN traffic while a device token is set.
-pub const LAN_OVERRIDE_FILE: &str = "lan-override";
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ConnectStatus {
-    /// True when `{data_dir}/device-token` exists and holds a valid device token.
-    pub connect_active: bool,
-    /// True when root has created the LAN-override file, allowing LAN access
-    /// even while a device token is set.
-    pub lan_override: bool,
-    pub enabled: bool,
-    pub base_url: String,
-    pub hostname: Option<String>,
-    pub domain: Option<String>,
-    pub subdomain: Option<String>,
-    pub tunnel_active: bool,
-    pub backup_unlocked: bool,
-    /// Whether cloud backup can store anything: `not_linked` (no working device token),
-    /// `no_payment` (linked, but Luna Connect has no active payment card), or `ready`.
-    pub cloud_backup: &'static str,
-    pub paired: bool,
-    pub unclaimed: bool,
-    pub device_code: Option<String>,
-    /// Present when the on-disk token is malformed or Connect rejected it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub device_token_error: Option<String>,
-    /// Sticky when Connect could not be reached while a device token is present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_unreachable: Option<String>,
-    /// Sticky when the secure tunnel helper is missing or will not start.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_error: Option<String>,
-    pub backup_sources: Vec<Value>,
-}
-
-pub struct ConnectService {
-    state_path: PathBuf,
-    token_path: PathBuf,
-    unbind_pending_path: PathBuf,
-    legacy_token_path: PathBuf,
-    base_url: String,
-    child: Arc<Mutex<Option<Child>>>,
-    active_tunnel_token: Arc<Mutex<Option<String>>>,
-    /// Serializes ensure/stop so concurrent poll + supervisor ticks cannot drop a
-    /// live `Child` handle and leave an orphaned connector Luna thinks is down.
-    tunnel_mu: Mutex<()>,
-    /// Sticky until a later poll succeeds or the token is replaced/removed.
-    rejected_token: Mutex<bool>,
-    /// Sticky user-facing reachability/challenge message while a device token is present.
-    connect_unreachable: Mutex<Option<&'static str>>,
-    /// Sticky user-facing tunnel helper / start failure while Connect expects a tunnel.
-    tunnel_error: Mutex<Option<String>>,
-    cached_wan_ip: Mutex<Option<std::net::IpAddr>>,
-    /// Set to cut the poll loop's sleep short (link came up, device token saved).
-    poll_wake: Arc<PollWake>,
-    /// Watch number of the cloudflared child a thread is waiting on, 0 when
-    /// none is (see [`watch_child_exit`]).
-    tunnel_watch: Arc<std::sync::atomic::AtomicU64>,
-    /// Set by the watch when the managed cloudflared exits on its own.
-    tunnel_exited: Arc<std::sync::atomic::AtomicBool>,
-    local_port: u16,
-}
 
 impl ConnectService {
-    pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
-        // Legacy opt-out marker — Connect is off by default now; drop the file if present.
-        let _ = std::fs::remove_file(data_dir.join("disable-connect"));
-        let state_path = data_dir.join("connect.json");
-        let cached_wan_ip = if state_path.exists() {
-            std::fs::read_to_string(&state_path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                .and_then(|val| {
-                    val.get("wan_ip")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
-                })
-        } else {
-            None
-        };
-        Self {
-            state_path,
-            token_path: data_dir.join(DEVICE_TOKEN_FILE),
-            unbind_pending_path: data_dir.join(UNBIND_PENDING_FILE),
-            legacy_token_path: data_dir.join(LEGACY_DEVICE_TOKEN_FILE),
-            base_url: base_url
-                .filter(|u| !u.is_empty())
-                .map(sanitize_base_url)
-                .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
-            child: Arc::new(Mutex::new(None)),
-            active_tunnel_token: Arc::new(Mutex::new(None)),
-            tunnel_mu: Mutex::new(()),
-            rejected_token: Mutex::new(false),
-            connect_unreachable: Mutex::new(None),
-            tunnel_error: Mutex::new(None),
-            cached_wan_ip: Mutex::new(cached_wan_ip),
-            poll_wake: Arc::new(PollWake::default()),
-            tunnel_watch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            tunnel_exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            local_port: 8090,
-        }
-    }
-
-    pub fn with_local_port(mut self, port: u16) -> Self {
-        if port > 0 {
-            self.local_port = port;
-        }
-        self
-    }
-
-    pub fn status(&self) -> ConnectStatus {
-        self.status_for(true)
-    }
-
-    /// Pairing codes and backup folder lists are admin-only after setup.
-    pub fn status_for(&self, reveal_secrets: bool) -> ConnectStatus {
-        let mut status = self.status_inner();
-        let token_error = self.device_token_error();
-        let unreachable = self.connect_unreachable_message();
-        let mut tunnel_err = self.tunnel_error_message();
-        if token_error.is_some() {
-            status.enabled = false;
-            status.paired = false;
-            status.unclaimed = false;
-            status.tunnel_active = false;
-            status.hostname = None;
-            status.domain = None;
-            status.subdomain = None;
-            status.device_code = None;
-        }
-        // HDMI console and the web UI both read tunnel_error — synthesize the
-        // "not running yet" case so they stay in sync when the connector is down.
-        if tunnel_err.is_none()
-            && status.connect_active
-            && status.enabled
-            && status.hostname.is_some()
-            && !status.tunnel_active
-            && token_error.is_none()
-        {
-            tunnel_err = Some(TUNNEL_NOT_RUNNING_MSG.to_string());
-        }
-        status.cloud_backup = if !status.connect_active || token_error.is_some() {
-            CLOUD_BACKUP_NOT_LINKED
-        } else if !status.backup_unlocked {
-            CLOUD_BACKUP_NO_PAYMENT
-        } else {
-            CLOUD_BACKUP_READY
-        };
-        status.device_token_error = token_error;
-        status.connect_unreachable = unreachable;
-        status.tunnel_error = tunnel_err;
-        if !reveal_secrets {
-            status.device_code = None;
-            status.backup_sources = Vec::new();
-        }
-        status
-    }
-
-    /// True while a thread waits on the managed cloudflared child and will
-    /// wake the poll loop the moment it exits, so the loop need not look.
-    pub fn tunnel_watched(&self) -> bool {
-        self.tunnel_watch.load(std::sync::atomic::Ordering::Acquire) != 0
-    }
-
-    /// True once after the watched cloudflared exited on its own (not
-    /// stopped or replaced by Luna): the poll loop's wake was for that.
-    pub fn take_tunnel_exit(&self) -> bool {
-        self.tunnel_exited
-            .swap(false, std::sync::atomic::Ordering::AcqRel)
-    }
-
-    /// Wakes the poll loop; waking it makes the next pull happen now.
-    pub fn poll_wake(&self) -> Arc<PollWake> {
-        self.poll_wake.clone()
-    }
-
-    /// True when `{data_dir}/device-token` exists and holds a valid device token.
-    pub fn has_valid_device_code(&self) -> bool {
-        self.device_code().is_ok()
-    }
-
-    /// Alias for API clarity.
-    pub fn is_connect_active(&self) -> bool {
-        self.has_valid_device_code()
-    }
-
-    /// Root's LAN escape hatch. The file lives beside the device token in the
-    /// data directory, so only someone with root on this Luna can allow LAN
-    /// traffic while a device token is set.
-    pub fn lan_override(&self) -> bool {
-        self.token_path
-            .parent()
-            .is_some_and(|data_dir| data_dir.join(LAN_OVERRIDE_FILE).exists())
-    }
-
-    /// Luna's known external/WAN IP address if learned from Connect or fallback check.
-    pub fn wan_ip(&self) -> Option<std::net::IpAddr> {
-        *self.cached_wan_ip.lock().unwrap()
-    }
-
-    /// Set or override the cached external/WAN IP address (used by tests or direct discovery).
-    pub fn set_cached_wan_ip(&self, ip: std::net::IpAddr) {
-        *self.cached_wan_ip.lock().unwrap() = Some(ip);
-    }
-
-    /// During setup: peel from LUNAASSETS when the on-disk token is missing or invalid.
-    /// A token it saves wakes the poll loop, which sleeps while there is none.
-    pub fn ensure_device_code_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
-        let outcome = crate::system::factory_mag::fetch_device_token_from_mag(
-            &self.token_path,
-            &crate::system::factory_mag::MagFetchOptions::default(),
-        );
-        if matches!(
-            outcome,
-            crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
-        ) {
-            self.poll_wake.wake();
-        }
-        outcome
-    }
-
-    fn inactive_status(&self) -> ConnectStatus {
-        ConnectStatus {
-            connect_active: false,
-            lan_override: self.lan_override(),
-            enabled: false,
-            base_url: self.base_url.clone(),
-            domain: None,
-            hostname: None,
-            subdomain: None,
-            tunnel_active: false,
-            backup_unlocked: false,
-            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
-            paired: false,
-            unclaimed: true,
-            device_code: None,
-            device_token_error: None,
-            connect_unreachable: None,
-            tunnel_error: None,
-            backup_sources: Vec::new(),
-        }
-    }
-
-    fn status_inner(&self) -> ConnectStatus {
-        if !self.has_valid_device_code() {
-            return self.inactive_status();
-        }
-        let state = self.load();
-        let enabled = state
-            .get("tunnel_token")
-            .and_then(|v| v.as_str())
-            .is_some_and(|k| !k.is_empty())
-            || state
-                .get("hostname")
-                .and_then(|v| v.as_str())
-                .is_some_and(|h| !h.is_empty());
-        let hostname = state
-            .get("hostname")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        let token = state
-            .get("tunnel_token")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        // Real tunnels: only a live child counts. The persisted tunnel_active flag is for
-        // mock tokens in tests/dev — trusting it for real tokens falsely reports "up".
-        let tunnel_active = self.tunnel_running()
-            || (token.starts_with("mock-")
-                && state
-                    .get("tunnel_active")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false));
-        ConnectStatus {
-            connect_active: true,
-            lan_override: self.lan_override(),
-            enabled,
-            base_url: self.base_url.clone(),
-            domain: hostname.clone(),
-            hostname: hostname.clone(),
-            subdomain: state
-                .get("subdomain")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            tunnel_active,
-            backup_unlocked: state
-                .get("backup_unlocked")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            cloud_backup: CLOUD_BACKUP_NOT_LINKED,
-            paired: enabled,
-            unclaimed: !enabled,
-            // Permanent device token stays available after claim so HDMI (and
-            // admin status) can still show it for recovery / re-bind.
-            device_code: self.display_device_code(),
-            device_token_error: None,
-            connect_unreachable: None,
-            tunnel_error: None,
-            backup_sources: state
-                .get("backup_sources")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default(),
-        }
-    }
-
-    fn display_device_code(&self) -> Option<String> {
-        self.read_device_token()
-    }
-
-    fn connect_inactive_err() -> ConnectError {
-        ConnectError::Other(
-            "Luna Connect is not set up on this Luna. Add a device token in Settings → About → Advanced.".into(),
-        )
-    }
-
-    /// `set_oss_code` for tokens entered through the API. `require_verified`
-    /// (anonymous setup callers) means Connect must recognize the token
-    /// before Luna stores it — otherwise a fabricated token would pass
-    /// first-user registration. A signed-in Admin may still save while
-    /// Connect can't be reached; an authentic rejection fails either way.
-    pub fn set_oss_code_checked(
-        &self,
-        code: &str,
-        require_verified: bool,
-    ) -> Result<(), ConnectError> {
-        let norm = normalize_device_code(code);
-        if !is_device_token_format(&norm) {
-            return Err(ConnectError::Other(
-                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
-            ));
-        }
-        match self.check_device_token(&group_device_token(&norm)) {
-            TokenCheck::Recognized => {}
-            TokenCheck::Rejected => return Err(ConnectError::InvalidToken),
-            TokenCheck::Unknown if require_verified => {
-                return Err(ConnectError::Unreachable);
-            }
-            TokenCheck::Unknown => {}
-        }
-        self.set_oss_code(code)
-    }
-
-    /// Ask Connect whether it knows this device token. An unbound answer
-    /// counts — the token is genuine, no account has linked this Luna yet.
-    /// A challenge or dead connection proves nothing → `Unknown`.
-    fn check_device_token(&self, grouped: &str) -> TokenCheck {
-        match self.call_device_status(grouped) {
-            Ok(_) | Err(ConnectError::Unbound) => TokenCheck::Recognized,
-            Err(ConnectError::InvalidToken) => TokenCheck::Rejected,
-            Err(_) => TokenCheck::Unknown,
-        }
-    }
-
-    pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
-        let norm = normalize_device_code(code);
-        if !is_device_token_format(&norm) {
-            return Err(ConnectError::Other(
-                "That is not a valid device token. Copy it from connect.luna.libreloom.org or from the card that came with Luna.".into(),
-            ));
-        }
-        let grouped = group_device_token(&norm);
-        std::fs::write(&self.token_path, format!("{grouped}\n")).map_err(|_| {
-            ConnectError::Other("Could not save the device token on this Luna. Try again.".into())
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                std::fs::set_permissions(&self.token_path, std::fs::Permissions::from_mode(0o600));
-        }
-        let _ = std::fs::remove_file(&self.legacy_token_path);
-        self.set_rejected_token(false);
-        self.clear_connect_unreachable();
-        self.clear_tunnel_error();
-        self.poll_wake.wake();
-        Ok(())
-    }
-
-    pub fn apply_claimed(&self, claimed: &Value) -> Result<(), ConnectError> {
-        if !self.has_valid_device_code() {
-            return Err(Self::connect_inactive_err());
-        }
-        let mut state = self.load();
-        if let Some(t) = claimed.get("device_token") {
-            state["device_token"] = t.clone();
-        }
-        if let Some(h) = claimed.get("hostname") {
-            state["hostname"] = h.clone();
-        }
-        if let Some(s) = claimed.get("subdomain") {
-            state["subdomain"] = s.clone();
-        }
-        if let Some(t) = claimed.get("tunnel_token") {
-            state["tunnel_token"] = t.clone();
-        }
-        if let Some(s) = claimed.get("setup_secret") {
-            state["first_user_secret"] = s.clone();
-        }
-        self.save(&state)?;
-        let _ = self.ensure_tunnel();
-        Ok(())
-    }
-
-    pub fn first_user_secret(&self) -> Option<String> {
-        self.load()
-            .get("first_user_secret")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    }
-
-    /// One-time: drop the public-hostname first-user code after it is used.
-    pub fn clear_first_user_secret(&self) -> Result<(), ConnectError> {
-        let mut state = self.load();
-        let Some(obj) = state.as_object_mut() else {
-            return Ok(());
-        };
-        if obj.remove("first_user_secret").is_none() {
-            return Ok(());
-        }
-        self.save(&state)?;
-        if let Ok(token) = self.token() {
-            let _ = self.call_json("POST", "/api/v1/first-user", Some(&token), None);
-        }
-        Ok(())
-    }
-
-    pub fn public_hostname(&self) -> Option<String> {
-        self.load()
-            .get("hostname")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    }
-
-    fn read_device_token(&self) -> Option<String> {
-        if let Some(raw) = read_trimmed_token_file(&self.token_path) {
-            let norm = normalize_device_code(&raw);
-            if is_device_token_format(&norm) {
-                return Some(raw);
-            }
-        }
-        if let Some(raw) = read_trimmed_token_file(&self.legacy_token_path) {
-            let norm = normalize_device_code(&raw);
-            if is_device_token_format(&norm) {
-                let grouped = group_device_token(&norm);
-                let _ = std::fs::write(&self.token_path, format!("{grouped}\n"));
-                let _ = std::fs::remove_file(&self.legacy_token_path);
-                return Some(grouped);
-            }
-        }
-        None
-    }
-
-    /// True when Connect handed us a tunnel token and cloudflared is running (or mock tunnel).
-    pub fn tunnel_ready(&self) -> bool {
-        if !self.has_valid_device_code() {
-            return false;
-        }
-        let state = self.load();
-        let token = state
-            .get("tunnel_token")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if token.is_empty() {
-            return false;
-        }
-        if token.starts_with("mock-") {
-            return true;
-        }
-        self.tunnel_running()
-    }
-
-    /// Seconds until the next status pull. Aggressive while the tunnel connector is not
-    /// healthy yet (setup wizard open, or Connect already assigned a hostname/token),
-    /// or while the last pull reported Connect unreachable/challenged.
-    /// Steady 5 minutes once cloudflared is running (or Connect is inactive).
-    pub fn poll_interval_secs(&self, setup_wizard_open: bool) -> u64 {
-        // No device token: a pull does nothing, and saving one wakes the loop.
-        if !self.has_valid_device_code() {
-            return STEADY_POLL_SECS;
-        }
-        if self.tunnel_ready() && self.connect_unreachable_msg().is_none() {
-            return STEADY_POLL_SECS;
-        }
-        if setup_wizard_open
-            || self.expects_tunnel_connector()
-            || self.connect_unreachable_msg().is_some()
-        {
-            AGGRESSIVE_POLL_SECS
-        } else {
-            STEADY_POLL_SECS
-        }
-    }
-
-    /// True when Connect has bound this Luna and we should be running
-    /// cloudflared, so the poll loop keeps checking it is still alive.
-    pub fn expects_tunnel(&self) -> bool {
-        self.expects_tunnel_connector()
-    }
-
-    /// True when Connect has bound this Luna and we should be running cloudflared.
-    fn expects_tunnel_connector(&self) -> bool {
-        if !self.has_valid_device_code() {
-            return false;
-        }
-        let state = self.load();
-        let has_token = state
-            .get("tunnel_token")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty());
-        let has_hostname = state
-            .get("hostname")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty());
-        let paired = state
-            .get("paired")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-            || state
-                .get("bound")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-        has_token || has_hostname || paired
-    }
-
-    /// Start cloudflared from on-disk connect.json (e.g. right after lunad boot).
-    pub fn restore_tunnel_from_disk(&self) {
-        if !self.has_valid_device_code() {
-            return;
-        }
-        let _ = self.ensure_tunnel();
-    }
-
-    /// Restart cloudflared when Connect already assigned a hostname/token but the child is down.
-    /// Safe to call after a failed status poll — does not clear claim state.
-    pub fn ensure_tunnel_if_needed(&self) {
-        if self.expects_tunnel_connector() && !self.tunnel_ready() {
-            tracing::info!(
-                "ensuring cloudflared despite Connect poll failure (local tunnel credentials present)"
-            );
-            let _ = self.ensure_tunnel();
-        }
-    }
-
-    /// Pull Connect status with the permanent device token. Call on boot and on the poll loop.
-    /// Returns true when bound (200). On authentic JSON 403 unbound, clears local claim state but
-    /// keeps the token file. Cloudflare/HTML gateway challenges keep the claim and set a sticky error.
-    ///
-    /// On GatewayChallenge / Unreachable / other transport errors, still calls `ensure_tunnel`
-    /// when local credentials exist so a Connect flap cannot leave DNS on Error 1033 forever.
-    pub fn poll_status(&self) -> bool {
-        if !self.has_valid_device_code() {
-            return false;
-        }
-        // An unbind is still owed: retry it before anything else, and never
-        // adopt an address or tunnel from Connect until it succeeds.
-        if self.unbind_pending() {
-            if let Err(err) = self.unbind_now() {
-                tracing::info!(error = %err, "Luna Connect unbind still pending; will retry");
-                self.stop_tunnel();
-                return false;
-            }
-            tracing::info!("owed Luna Connect unbind went through");
-        }
-        let Ok(code) = self.device_code() else {
-            return false;
-        };
-        match self.call_device_status(&code) {
-            Ok(remote) => {
-                self.set_rejected_token(false);
-                self.clear_connect_unreachable();
-                let mut state = self.load();
-                if let Some(h) = remote.get("hostname") {
-                    state["hostname"] = h.clone();
-                }
-                if let Some(s) = remote.get("subdomain") {
-                    state["subdomain"] = s.clone();
-                }
-                if let Some(t) = remote.get("tunnel_token") {
-                    state["tunnel_token"] = t.clone();
-                }
-                if let Some(s) = remote.get("setup_secret") {
-                    state["first_user_secret"] = s.clone();
-                }
-                if let Some(w) = remote.get("wan_ip").and_then(|v| v.as_str()) {
-                    if let Ok(parsed) = w.trim().parse::<std::net::IpAddr>() {
-                        state["wan_ip"] = json!(w.trim());
-                        *self.cached_wan_ip.lock().unwrap() = Some(parsed);
-                    }
-                } else if self.cached_wan_ip.lock().unwrap().is_none()
-                    && let Some(parsed) = detect_public_ip_fallback()
-                {
-                    state["wan_ip"] = json!(parsed.to_string());
-                    *self.cached_wan_ip.lock().unwrap() = Some(parsed);
-                }
-                state["backup_unlocked"] = json!(
-                    remote
-                        .get("backup_unlocked")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                );
-                state["paired"] = json!(true);
-                state["bound"] = json!(true);
-                let _ = self.save(&state);
-                let _ = self.ensure_tunnel();
-                true
-            }
-            Err(ConnectError::Unbound) => {
-                self.set_rejected_token(false);
-                self.clear_connect_unreachable();
-                self.clear_claim_keep_code();
-                false
-            }
-            Err(ConnectError::InvalidToken) => {
-                self.set_rejected_token(true);
-                self.clear_connect_unreachable();
-                self.stop_tunnel();
-                false
-            }
-            Err(ConnectError::GatewayChallenge) => {
-                self.set_connect_unreachable(CONNECT_CHALLENGED_MSG);
-                if self.expects_tunnel_connector() {
-                    tracing::info!(
-                        "ensuring cloudflared despite Connect gateway challenge (local tunnel credentials present)"
-                    );
-                    let _ = self.ensure_tunnel();
-                }
-                false
-            }
-            Err(ConnectError::Unreachable) => {
-                self.set_connect_unreachable(CONNECT_UNREACHABLE_MSG);
-                if self.expects_tunnel_connector() {
-                    tracing::info!(
-                        "ensuring cloudflared despite Connect unreachable (local tunnel credentials present)"
-                    );
-                    let _ = self.ensure_tunnel();
-                }
-                false
-            }
-            Err(err) => {
-                if self.expects_tunnel_connector() {
-                    tracing::info!(
-                        error = %err,
-                        "ensuring cloudflared despite Connect poll error (local tunnel credentials present)"
-                    );
-                    let _ = self.ensure_tunnel();
-                }
-                false
-            }
-        }
-    }
-
-    fn clear_claim_keep_code(&self) {
-        self.stop_tunnel();
-        self.clear_tunnel_error();
-        *self.cached_wan_ip.lock().unwrap() = None;
-        let _ = std::fs::remove_file(&self.state_path);
-    }
-
-    /// Turn Connect off on this Luna and tell the cloud this Luna has left.
-    ///
-    /// Turning it off here always works, online or not: the tunnel stops and the
-    /// claim state clears first. The cloud notice comes last and is best effort,
-    /// so an unreachable or rejecting Connect never blocks it. The device token
-    /// stays on disk so this Luna can rejoin later.
-    pub fn deactivate(&self) {
-        let token = self.token().ok();
-        self.clear_claim_keep_code();
-        if let Some(token) = token {
-            let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
-        }
-    }
-
-    /// Forget what Connect last said (address, tunnel) and stop the tunnel,
-    /// without telling Connect anything. The device token stays.
-    pub fn forget_claim(&self) {
-        self.clear_claim_keep_code();
-    }
-
-    /// Ask Luna Connect to unbind this Luna from its account, and wait up to
-    /// [`UNBIND_TIMEOUT`] for the answer. On success the tunnel stops, the
-    /// local claim clears and any owed unbind is settled. The device token
-    /// stays: it is this Luna's identity, not the account's.
-    pub fn unbind_now(&self) -> Result<(), ConnectError> {
-        let token = self.device_code()?;
-        self.call_json_status_within(
-            "POST",
-            "/api/v1/unregister",
-            Some(&token),
-            None,
-            UNBIND_TIMEOUT,
-        )?;
-        let _ = std::fs::remove_file(&self.unbind_pending_path);
-        self.clear_claim_keep_code();
-        Ok(())
-    }
-
-    /// Remember that an unbind is still owed for the current device token
-    /// (see [`UNBIND_PENDING_FILE`]) and stop the tunnel now.
-    pub fn mark_unbind_pending(&self) -> Result<(), ConnectError> {
-        let token = self.device_code()?;
-        let saved = || {
-            ConnectError::Other(
-                "Luna couldn't save that Luna Connect still needs unbinding. Try again.".into(),
-            )
-        };
-        std::fs::write(
-            &self.unbind_pending_path,
-            format!("{}\n", token_fingerprint(&token)),
-        )
-        .map_err(|_| saved())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &self.unbind_pending_path,
-                std::fs::Permissions::from_mode(0o600),
-            );
-        }
-        self.stop_tunnel();
-        Ok(())
-    }
-
-    /// True while an unbind is owed for this Luna's device token. A marker
-    /// left for a different token than the one on disk now is stale and is
-    /// dropped: a new token belongs to whoever entered it.
-    pub fn unbind_pending(&self) -> bool {
-        let Some(want) = read_trimmed_token_file(&self.unbind_pending_path) else {
-            return false;
-        };
-        match self.read_device_token() {
-            Some(token) if token_fingerprint(&token) != want => {
-                let _ = std::fs::remove_file(&self.unbind_pending_path);
-                false
-            }
-            _ => true,
-        }
-    }
-
-    /// Turn Connect off (see [`Self::deactivate`]), then forget the device token.
-    /// Stops polling immediately.
-    pub fn remove_device_token(&self) -> Result<(), ConnectError> {
-        self.deactivate();
-        let _ = std::fs::remove_file(&self.token_path);
-        let _ = std::fs::remove_file(&self.legacy_token_path);
-        self.set_rejected_token(false);
-        self.clear_connect_unreachable();
-        Ok(())
-    }
-
-    pub fn refresh_remote(&self, state: &mut Value) -> Result<(), ConnectError> {
-        let token = self.device_code()?;
-        let remote = self.call_json("GET", "/api/v1/status", Some(&token), None)?;
-        if let Some(h) = remote.get("hostname") {
-            state["hostname"] = h.clone();
-        }
-        if let Some(s) = remote.get("subdomain") {
-            state["subdomain"] = s.clone();
-        }
-        if let Some(t) = remote.get("tunnel_token") {
-            state["tunnel_token"] = t.clone();
-        }
-        state["backup_unlocked"] = json!(
-            remote
-                .get("backup_unlocked")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        );
-        state["paired"] = json!(
-            remote
-                .get("paired")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        );
-        Ok(())
-    }
-
-    pub fn sync_status_from_cloud(&self) {
-        if !self.has_valid_device_code() {
-            return;
-        }
-        let _ = self.poll_status();
-    }
-
-    /// Permanent device token from disk (Bearer for Connect).
-    pub fn device_code(&self) -> Result<String, ConnectError> {
-        self.read_device_token()
-            .ok_or_else(|| ConnectError::Other("This Luna has no device token yet.".into()))
-    }
-
-    pub fn token(&self) -> Result<String, ConnectError> {
-        self.device_code()
-    }
-
-    /// User-facing error when the on-disk token cannot be used with Connect.
-    pub fn device_token_error(&self) -> Option<String> {
-        if self.token_file_malformed() {
-            return Some(DEVICE_TOKEN_MALFORMED_MSG.to_string());
-        }
-        if self.rejected_token() {
-            return Some(DEVICE_TOKEN_REJECTED_MSG.to_string());
-        }
-        None
-    }
-
-    fn connect_unreachable_message(&self) -> Option<String> {
-        if self.device_token_error().is_some() {
-            return None;
-        }
-        if !self.has_valid_device_code() {
-            return None;
-        }
-        self.connect_unreachable_msg().map(str::to_string)
-    }
-
-    fn token_file_present(&self) -> bool {
-        self.token_path.is_file() || self.legacy_token_path.is_file()
-    }
-
-    fn token_file_malformed(&self) -> bool {
-        self.token_file_present() && self.read_device_token().is_none()
-    }
-
-    fn rejected_token(&self) -> bool {
-        *self
-            .rejected_token
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-    }
-
-    fn set_rejected_token(&self, rejected: bool) {
-        *self
-            .rejected_token
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = rejected;
-    }
-
-    fn connect_unreachable_msg(&self) -> Option<&'static str> {
-        *self
-            .connect_unreachable
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-    }
-
-    fn set_connect_unreachable(&self, msg: &'static str) {
-        *self
-            .connect_unreachable
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(msg);
-    }
-
-    fn clear_connect_unreachable(&self) {
-        *self
-            .connect_unreachable
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-    }
-
-    fn tunnel_error_message(&self) -> Option<String> {
-        if self.device_token_error().is_some() {
-            return None;
-        }
-        if !self.has_valid_device_code() {
-            return None;
-        }
-        self.tunnel_error
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
-
-    fn set_tunnel_error(&self, msg: impl Into<String>) {
-        *self.tunnel_error.lock().unwrap_or_else(|e| e.into_inner()) = Some(msg.into());
-    }
-
-    fn clear_tunnel_error(&self) {
-        *self.tunnel_error.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    }
-
     /// Streams the body — pass `&[u8]` for small objects or `&File` for files
     /// so multi-MiB backup objects never sit in RAM whole.
     pub fn put_backup_object(
@@ -1079,12 +145,9 @@ impl ConnectService {
             .limit(MAX_REPLY_BYTES)
             .read_to_string()
             .unwrap_or_default();
-        Err(classify_backup_reply(
-            status,
-            &content_type,
-            &body_text,
-            cf_mitigated.as_deref(),
-        ))
+        let err = classify_backup_reply(status, &content_type, &body_text, cf_mitigated.as_deref());
+        self.settle_explicit_auth_failure(&token, &err);
+        Err(err)
     }
 
     /// Registers this Luna's signing public key (64 hex characters) with
@@ -1130,16 +193,13 @@ impl ConnectService {
             .limit(MAX_REPLY_BYTES)
             .read_to_string()
             .unwrap_or_default();
-        match status {
-            401 => Err(ConnectError::InvalidToken),
-            403 => Err(classify_403(
-                status,
-                &content_type,
-                &body_text,
-                cf_mitigated.as_deref(),
-            )),
-            _ => Err(map_transport_error(ureq::Error::StatusCode(status))),
-        }
+        let err = match status {
+            401 => ConnectError::InvalidToken,
+            403 => classify_403(status, &content_type, &body_text, cf_mitigated.as_deref()),
+            _ => map_transport_error(ureq::Error::StatusCode(status)),
+        };
+        self.settle_explicit_auth_failure(&token, &err);
+        Err(err)
     }
 
     pub fn delete_backup_object(&self, rel: &str) -> Result<(), ConnectError> {
@@ -1149,15 +209,39 @@ impl ConnectService {
             self.base_url.trim_end_matches('/'),
             encode_object_key(rel.trim_start_matches('/'))
         );
-        ureq::delete(&url)
+        let mut response = ureq::delete(&url)
             .config()
+            .http_status_as_error(false)
             .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
             .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
             .build()
             .header("Authorization", format!("Bearer {token}"))
             .call()
-            .map(|_| ())
-            .map_err(map_transport_error)
+            .map_err(map_transport_error)?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let cf_mitigated = response
+            .headers()
+            .get("cf-mitigated")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let body = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REPLY_BYTES)
+            .read_to_string()
+            .unwrap_or_default();
+        let err = classify_backup_reply(status, &content_type, &body, cf_mitigated.as_deref());
+        self.settle_explicit_auth_failure(&token, &err);
+        Err(err)
     }
 
     pub fn backup_unlocked(&self) -> bool {
@@ -1170,26 +254,29 @@ impl ConnectService {
     /// Record that Luna Connect refused to store a cloud copy for a missing payment card, so
     /// the UI says so before the next status pull confirms it.
     pub fn mark_backup_locked(&self) {
-        let mut state = self.load();
-        if state.get("backup_unlocked").and_then(|v| v.as_bool()) == Some(false) {
-            return;
-        }
-        state["backup_unlocked"] = json!(false);
-        if let Err(err) = self.save(&state) {
+        if let Err(err) = self.update_state(|state| {
+            if state.get("backup_unlocked").and_then(|v| v.as_bool()) == Some(false) {
+                return;
+            }
+            state["backup_unlocked"] = json!(false);
+        }) {
             tracing::warn!(error = ?err, "could not record that cloud backup needs a payment card");
         }
     }
 
     fn ensure_tunnel(&self) -> Result<(), ConnectError> {
-        // No tunnel while an unbind is owed: the old account's address must
-        // not come back.
-        if self.unbind_pending() {
-            self.stop_tunnel();
+        // The state check belongs under the same lock as process start/stop.
+        // Otherwise a supervisor can pass the check before an unbind, wait for
+        // this lock, and start the old account's tunnel after revocation.
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
+        // No tunnel without a currently bound credential, or while an unbind is
+        // owed: the old account's address must not come back.
+        if !self.is_connect_active() || self.unbind_pending() {
+            self.stop_tunnel_unlocked();
             return Err(ConnectError::Other(
-                "Luna is still unbinding from Luna Connect.".into(),
+                "Luna is still disconnecting from Luna Connect.".into(),
             ));
         }
-        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.load();
         let token = state
             .get("tunnel_token")
@@ -1233,6 +320,14 @@ impl ConnectService {
         reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
 
         let bin = self.resolve_or_install_cloudflared()?;
+        // Installation can take a while. An unbind may have made its marker
+        // durable while this start was waiting for the helper.
+        if !self.is_connect_active() || self.unbind_pending() {
+            self.stop_tunnel_unlocked();
+            return Err(ConnectError::Other(
+                "Luna is still disconnecting from Luna Connect.".into(),
+            ));
+        }
 
         // Token mode: no config.yml and no OpenRC/systemd unit. The token goes
         // only in env — argv is world-readable through /proc/*/cmdline.
@@ -1289,6 +384,18 @@ impl ConnectService {
             Err(e) => {
                 tracing::warn!(error = %e, "could not check cloudflared child status");
             }
+        }
+
+        // The unbind path writes its durable marker before waiting for this
+        // lock. Do not publish a child that has already been revoked; the
+        // unbind thread will reap any process still alive after we release.
+        if !self.is_connect_active() || self.unbind_pending() {
+            let _ = child.kill();
+            let _ = child.wait();
+            self.stop_tunnel_unlocked();
+            return Err(ConnectError::Other(
+                "Luna is still disconnecting from Luna Connect.".into(),
+            ));
         }
 
         self.clear_tunnel_error();
@@ -1369,6 +476,35 @@ impl ConnectService {
         Err(ConnectError::Other(TUNNEL_HELPER_MISSING_MSG.into()))
     }
 
+    /// Whether a managed connector or an orphan from an earlier lunad is
+    /// alive. Status uses this so HDMI does not report a false failure after a
+    /// hard restart; startup/supervision still reaps orphans before replacing
+    /// them with a connector whose token this process owns.
+    pub(super) fn tunnel_running(&self) -> bool {
+        let _guard = self.tunnel_mu.lock().unwrap_or_else(|e| e.into_inner());
+        if self.managed_tunnel_running() {
+            return true;
+        }
+        let data_dir = self
+            .state_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let local = data_dir.join("bin").join("cloudflared");
+        external_cloudflared_running(&cloudflared_candidate_paths(&local))
+    }
+
+    fn managed_tunnel_running(&self) -> bool {
+        let mut g = self.child.lock().unwrap();
+        if let Some(child) = g.as_mut() {
+            match child.try_wait() {
+                Ok(None) => return true,
+                Ok(Some(_)) | Err(_) => *g = None,
+            }
+        }
+        false
+    }
+
     fn tunnel_running_with_token(&self, token: &str) -> bool {
         let mut g = self.child.lock().unwrap();
         if let Some(child) = g.as_mut() {
@@ -1377,12 +513,7 @@ impl ConnectService {
                     let active = self.active_tunnel_token.lock().unwrap();
                     return active.as_deref() == Some(token);
                 }
-                Ok(Some(_)) => {
-                    *g = None;
-                }
-                Err(_) => {
-                    *g = None;
-                }
+                Ok(Some(_)) | Err(_) => *g = None,
             }
         }
         false
@@ -1412,238 +543,6 @@ impl ConnectService {
         // Pairing off / token revoke must also clear orphans, or remote access
         // stays up after Luna thinks Connect is gone.
         reap_stale_cloudflared(&cloudflared_candidate_paths(&local));
-    }
-
-    /// Status pull reports Luna's HTTP listen port so Connect can aim the tunnel at the right origin.
-    fn call_device_status(&self, code: &str) -> Result<Value, ConnectError> {
-        let url = format!(
-            "{}{}",
-            self.base_url.trim_end_matches('/'),
-            "/api/v1/status"
-        );
-        // http_status_as_error(false): read body/headers on 4xx so we can distinguish
-        // Cloudflare managed challenges from authentic Connect unbound JSON.
-        let mut req = ureq::get(&url)
-            .config()
-            .http_status_as_error(false)
-            .timeout_global(Some(CONNECT_HTTP_TIMEOUT))
-            .timeout_connect(Some(CONNECT_HTTP_CONNECT_TIMEOUT))
-            .build()
-            .header("Authorization", format!("Bearer {code}"));
-        if self.local_port > 0 {
-            req = req.header("X-Luna-Local-Port", self.local_port.to_string());
-        }
-        let mut response = match req.call() {
-            Ok(r) => r,
-            Err(e) => return Err(map_transport_error(e)),
-        };
-        let status = response.status().as_u16();
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let cf_mitigated = response
-            .headers()
-            .get("cf-mitigated")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        let body = response
-            .body_mut()
-            .with_config()
-            .limit(MAX_REPLY_BYTES)
-            .read_to_string()
-            .unwrap_or_default();
-        if status == 401 {
-            return Err(ConnectError::InvalidToken);
-        }
-        if status == 403 {
-            return Err(classify_403(
-                status,
-                &content_type,
-                &body,
-                cf_mitigated.as_deref(),
-            ));
-        }
-        if !(200..300).contains(&status) {
-            return Err(ConnectError::Unreachable);
-        }
-        serde_json::from_str(&body).map_err(|_| {
-            ConnectError::Other(
-                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
-                    .into(),
-            )
-        })
-    }
-
-    fn tunnel_running(&self) -> bool {
-        let mut g = self.child.lock().unwrap();
-        if let Some(child) = g.as_mut() {
-            match child.try_wait() {
-                Ok(None) => return true,
-                _ => {
-                    *g = None;
-                }
-            }
-        }
-        drop(g);
-        // Child handle can be lost (prior race / hard restart) while cloudflared
-        // keeps the tunnel up. Count those unmanaged connectors so HDMI/API match
-        // reality until ensure_tunnel reaps and re-owns them.
-        let data_dir = self
-            .state_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let local = data_dir.join("bin").join("cloudflared");
-        external_cloudflared_running(&cloudflared_candidate_paths(&local))
-    }
-
-    fn call_json(
-        &self,
-        method: &str,
-        path: &str,
-        key: Option<&str>,
-        body: Option<Value>,
-    ) -> Result<Value, ConnectError> {
-        self.call_json_status(method, path, key, body)
-    }
-
-    /// Like call_json, but maps an authentic Connect JSON 403 to
-    /// `ConnectError::Unbound` and Cloudflare/HTML
-    /// challenges to `GatewayChallenge` (keep local claim).
-    fn call_json_status(
-        &self,
-        method: &str,
-        path: &str,
-        key: Option<&str>,
-        body: Option<Value>,
-    ) -> Result<Value, ConnectError> {
-        self.call_json_status_within(method, path, key, body, CONNECT_HTTP_TIMEOUT)
-    }
-
-    /// [`Self::call_json_status`] with its own end-to-end time budget.
-    fn call_json_status_within(
-        &self,
-        method: &str,
-        path: &str,
-        key: Option<&str>,
-        body: Option<Value>,
-        timeout: Duration,
-    ) -> Result<Value, ConnectError> {
-        let connect_timeout = timeout.min(CONNECT_HTTP_CONNECT_TIMEOUT);
-        let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
-        let auth = key.map(|k| format!("Bearer {k}"));
-        // Allow reading non-2xx bodies (CF challenge HTML vs Connect JSON).
-        let result = match (method, body) {
-            ("GET", _) => {
-                let mut req = ureq::get(&url)
-                    .config()
-                    .http_status_as_error(false)
-                    .timeout_global(Some(timeout))
-                    .timeout_connect(Some(connect_timeout))
-                    .build();
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.call()
-            }
-            ("POST", Some(body)) => {
-                let mut req = ureq::post(&url)
-                    .config()
-                    .http_status_as_error(false)
-                    .timeout_global(Some(timeout))
-                    .timeout_connect(Some(connect_timeout))
-                    .build();
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.send_json(body)
-            }
-            ("POST", None) => {
-                let mut req = ureq::post(&url)
-                    .config()
-                    .http_status_as_error(false)
-                    .timeout_global(Some(timeout))
-                    .timeout_connect(Some(connect_timeout))
-                    .build();
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.send(&[] as &[u8])
-            }
-            _ => return Err(ConnectError::Other("unsupported method".into())),
-        };
-        let mut response = match result {
-            Ok(r) => r,
-            Err(e) => return Err(map_transport_error(e)),
-        };
-        let status = response.status().as_u16();
-        let content_type = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let cf_mitigated = response
-            .headers()
-            .get("cf-mitigated")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
-        let body_text = response
-            .body_mut()
-            .with_config()
-            .limit(MAX_REPLY_BYTES)
-            .read_to_string()
-            .unwrap_or_default();
-        if status == 401 {
-            return Err(ConnectError::InvalidToken);
-        }
-        if status == 403 {
-            return Err(classify_403(
-                status,
-                &content_type,
-                &body_text,
-                cf_mitigated.as_deref(),
-            ));
-        }
-        if !(200..300).contains(&status) {
-            return Err(map_transport_error(ureq::Error::StatusCode(status)));
-        }
-        serde_json::from_str(&body_text).map_err(|_| {
-            ConnectError::Other(
-                "Luna Connect answered, but Luna could not use the reply. Luna will try again."
-                    .into(),
-            )
-        })
-    }
-
-    fn load(&self) -> Value {
-        let Some(bytes) = std::fs::read(&self.state_path).ok() else {
-            return json!({ "base_url": self.base_url });
-        };
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({ "base_url": self.base_url }))
-    }
-
-    pub(crate) fn save(&self, state: &Value) -> Result<(), ConnectError> {
-        if let Some(parent) = self.state_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        // Plain JSON, readable only by lunad (0600) — same as `device-token`.
-        let json = serde_json::to_vec(state).map_err(|_| {
-            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
-        })?;
-        std::fs::write(&self.state_path, json).map_err(|_| {
-            ConnectError::Other("Luna couldn't save its Luna Connect settings. Try again.".into())
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                std::fs::set_permissions(&self.state_path, std::fs::Permissions::from_mode(0o600));
-        }
-        Ok(())
     }
 }
 
@@ -1927,7 +826,8 @@ fn cloudflared_looks_runnable(path: &Path) -> bool {
 }
 
 /// Classify an HTTP 403 from Connect or a fronting gateway.
-/// Authentic Connect unbind is JSON. Cloudflare managed challenges are HTML (+ cf-mitigated).
+/// Only Connect's explicit machine codes may change the local binding. Generic
+/// JSON errors and gateway blocks leave the existing binding in place.
 fn classify_403(
     status: u16,
     content_type: &str,
@@ -1937,10 +837,20 @@ fn classify_403(
     if looks_like_cf_challenge(status, content_type, body, cf_mitigated) {
         return ConnectError::GatewayChallenge;
     }
-    if is_json_connect_body(content_type, body) {
-        return ConnectError::Unbound;
+    if is_json_connect_body(content_type, body)
+        && let Some(code) = serde_json::from_str::<Value>(body).ok().and_then(|value| {
+            value
+                .get("code")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+    {
+        match code.as_str() {
+            "device_unbound" => return ConnectError::Unbound,
+            "device_revoked" => return ConnectError::Revoked,
+            _ => {}
+        }
     }
-    // Non-JSON gateway block (WAF plain text, empty body, etc.) — keep local claim.
     ConnectError::Unreachable
 }
 
@@ -1955,6 +865,12 @@ fn classify_backup_reply(
 ) -> ConnectError {
     if status == 401 {
         return ConnectError::InvalidToken;
+    }
+    if status == 403 {
+        let err = classify_403(status, content_type, body, cf_mitigated);
+        if !matches!(err, ConnectError::Unreachable) {
+            return err;
+        }
     }
     if looks_like_cf_challenge(status, content_type, body, cf_mitigated) {
         return ConnectError::GatewayChallenge;
@@ -2003,1307 +919,6 @@ fn looks_like_cf_challenge(
         || lower.contains("cdn-cgi/challenge-platform")
 }
 
-/// Crockford base32 without I, L, O, U (same alphabet as Luna Connect).
-const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-/// What [`UNBIND_PENDING_FILE`] stores: a hash of the normalized device
-/// token, so the marker names its token without holding a copy of it.
-fn token_fingerprint(token: &str) -> String {
-    blake3::hash(normalize_device_code(token).as_bytes())
-        .to_hex()
-        .to_string()
-}
-
-fn read_trimmed_token_file(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-pub(crate) fn normalize_device_code(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for c in raw.chars() {
-        if matches!(c, '-' | ' ' | '_') {
-            continue;
-        }
-        let c = c.to_ascii_uppercase();
-        let c = match c {
-            'I' | 'L' => '1',
-            'O' => '0',
-            _ => c,
-        };
-        out.push(c);
-    }
-    out
-}
-
-pub(crate) fn is_device_token_format(norm: &str) -> bool {
-    let len = norm.len();
-    if !(16..=32).contains(&len) {
-        return false;
-    }
-    norm.bytes().all(|b| CROCKFORD.contains(&b))
-}
-
-pub(crate) fn group_device_token(norm: &str) -> String {
-    let mut parts = Vec::new();
-    let bytes = norm.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let end = (i + 4).min(bytes.len());
-        parts.push(std::str::from_utf8(&bytes[i..end]).unwrap_or(""));
-        i = end;
-    }
-    parts.join("-")
-}
-
-pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
-    now_unix.saturating_sub(last_io_unix) >= 30
-}
-
-pub fn detect_public_ip_fallback() -> Option<std::net::IpAddr> {
-    const URLS: &[&str] = &["https://api64.ipify.org", "https://icanhazip.com"];
-    for url in URLS {
-        let resp = ureq::get(*url)
-            .config()
-            .timeout_global(Some(Duration::from_secs(3)))
-            .timeout_connect(Some(Duration::from_secs(2)))
-            .build()
-            .call();
-        if let Ok(mut r) = resp
-            && let Ok(text) = r
-                .body_mut()
-                .with_config()
-                .limit(MAX_REPLY_BYTES)
-                .read_to_string()
-            && let Ok(ip) = text.trim().parse::<std::net::IpAddr>()
-        {
-            return Some(ip);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
-mod tests {
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_watched_child_reports_its_exit_without_polling() {
-        let mut child = std::process::Command::new("sleep")
-            .arg("0.2")
-            .spawn()
-            .unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        assert!(super::watch_child_exit(child.id(), move || {
-            let _ = tx.send(());
-        }));
-        assert!(
-            rx.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
-            "the exit is reported"
-        );
-        // The watch does not reap: the owner's wait still gets the status.
-        assert!(child.wait().unwrap().success());
-    }
-
-    #[test]
-    fn poll_wake_cuts_the_wait_short_once() {
-        let wake = std::sync::Arc::new(super::PollWake::default());
-        let short = std::time::Duration::from_millis(20);
-        assert!(!wake.wait(short), "nothing woke it");
-        wake.wake();
-        assert!(wake.is_set());
-        assert!(wake.wait(std::time::Duration::from_secs(5)));
-        assert!(!wake.is_set(), "the wake is taken");
-        let waker = wake.clone();
-        let t = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            waker.wake();
-        });
-        let started = std::time::Instant::now();
-        assert!(wake.wait(std::time::Duration::from_secs(30)));
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
-        t.join().unwrap();
-    }
-
-    #[test]
-    fn poll_wake_without_a_time_limit_takes_the_wake() {
-        let wake = std::sync::Arc::new(super::PollWake::default());
-        wake.wake();
-        wake.wait_forever();
-        assert!(!wake.is_set(), "a wake that came first is taken at once");
-        let waker = wake.clone();
-        let t = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            waker.wake();
-        });
-        wake.wait_forever();
-        assert!(!wake.is_set());
-        t.join().unwrap();
-    }
-
-    #[test]
-    fn stat_start_time_survives_awkward_command_names() {
-        let stat = "4242 (cloud (flared) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 9 0 \
-                    987654 1000000 500 18446744073709551615";
-        assert_eq!(parse_stat_start_time(stat), Some(987654));
-        assert_eq!(parse_stat_start_time("garbage"), None);
-        assert_eq!(parse_stat_start_time("1 (x) S 1 2"), None);
-    }
-
-    use super::*;
-
-    #[test]
-    fn apply_claimed_persists_secret_and_starts_mock_tunnel() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .apply_claimed(&json!({
-                "device_token": "tok-1",
-                "hostname": "photos.luna.servers.libreloom.org",
-                "subdomain": "photos",
-                "tunnel_token": "mock-token",
-                "setup_secret": "secret-abc"
-            }))
-            .unwrap();
-        let st = service.status();
-        assert!(st.connect_active);
-        assert_eq!(
-            st.hostname.as_deref(),
-            Some("photos.luna.servers.libreloom.org")
-        );
-        assert_eq!(service.first_user_secret().as_deref(), Some("secret-abc"));
-        assert!(st.enabled);
-        assert!(!st.unclaimed);
-        assert_eq!(
-            st.device_code.as_deref(),
-            Some("ABCD-EFGH-JKMN-PQRS-TVWX"),
-            "claimed Luna must still expose the device token for HDMI / admin status"
-        );
-        assert!(
-            service.status_for(false).device_code.is_none(),
-            "non-admin must never see a live pairing token"
-        );
-        service.clear_first_user_secret().unwrap();
-        assert!(service.first_user_secret().is_none());
-    }
-
-    #[test]
-    fn connect_inactive_without_device_token() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        let st = service.status();
-        assert!(!st.connect_active);
-        assert!(!st.enabled);
-        assert!(!service.has_valid_device_code());
-        assert!(!service.poll_status());
-    }
-
-    #[test]
-    fn legacy_setup_token_migrates_to_device_token() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join(LEGACY_DEVICE_TOKEN_FILE),
-            "ABCD-EFGH-JKMN-PQRS-TVWX\n",
-        )
-        .unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(service.has_valid_device_code());
-        assert!(dir.path().join(DEVICE_TOKEN_FILE).is_file());
-        assert!(!dir.path().join(LEGACY_DEVICE_TOKEN_FILE).exists());
-    }
-
-    #[test]
-    fn device_code_persists_to_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("3097-v4yk-3hyx-2e3p-v4b3").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join(DEVICE_TOKEN_FILE))
-                .unwrap()
-                .trim(),
-            "3097-V4YK-3HYX-2E3P-V4B3"
-        );
-        assert!(service.status().connect_active);
-        assert_eq!(
-            service.status().device_code.as_deref(),
-            Some("3097-V4YK-3HYX-2E3P-V4B3")
-        );
-        assert!(
-            service.status_for(false).device_code.is_none(),
-            "non-admin must never see a live pairing code"
-        );
-        assert!(
-            service.set_oss_code("a1b2c3").is_err(),
-            "short hex must be rejected"
-        );
-        assert!(service.has_valid_device_code());
-    }
-
-    #[test]
-    fn missing_device_code_invalid() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(!service.has_valid_device_code());
-        assert!(service.device_code().is_err());
-    }
-
-    #[test]
-    fn malformed_device_code_invalid() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(!service.has_valid_device_code());
-    }
-
-    #[test]
-    fn poll_skips_without_device_token() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert!(!service.poll_status());
-    }
-
-    #[test]
-    fn deactivate_keeps_device_code_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .apply_claimed(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock-token",
-            }))
-            .unwrap();
-        service.deactivate();
-        assert!(
-            !dir.path().join("connect.json").exists(),
-            "claim state must clear"
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join(DEVICE_TOKEN_FILE))
-                .unwrap()
-                .trim(),
-            "ABCD-EFGH-JKMN-PQRS-TVWX"
-        );
-    }
-
-    #[test]
-    fn deactivate_works_without_a_device_token() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        std::fs::write(dir.path().join("connect.json"), "{}").unwrap();
-        service.deactivate();
-        assert!(!dir.path().join("connect.json").exists());
-    }
-
-    #[test]
-    fn remove_device_token_clears_everything_when_connect_is_unreachable() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .apply_claimed(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock-token",
-            }))
-            .unwrap();
-        service.remove_device_token().unwrap();
-        assert!(!dir.path().join("connect.json").exists());
-        assert!(!dir.path().join(DEVICE_TOKEN_FILE).exists());
-        assert!(!service.is_connect_active());
-    }
-
-    #[test]
-    fn hello_uses_configured_listen_port() {
-        let dir = tempfile::tempdir().unwrap();
-        let service =
-            ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into())).with_local_port(80);
-        assert_eq!(service.local_port, 80);
-    }
-
-    #[test]
-    fn cloudflared_looks_runnable_rejects_tiny_or_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("nope");
-        assert!(!cloudflared_looks_runnable(&missing));
-
-        let tiny = dir.path().join("tiny");
-        std::fs::write(&tiny, b"x").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tiny, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        assert!(!cloudflared_looks_runnable(&tiny));
-    }
-
-    #[test]
-    fn cloudflared_looks_runnable_accepts_version_script() {
-        let dir = tempfile::tempdir().unwrap();
-        let fake = dir.path().join("cloudflared");
-        // Pad past MIN_CLOUDFLARED_BYTES and answer --version successfully.
-        let mut body = String::from("#!/bin/sh\necho cloudflared version fake\nexit 0\n");
-        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
-            body.push('#');
-        }
-        std::fs::write(&fake, body).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        assert!(cloudflared_looks_runnable(&fake));
-    }
-
-    #[test]
-    fn resolve_prefers_existing_runnable_system_bin() {
-        let system = Path::new("/usr/local/bin/cloudflared");
-        if !cloudflared_looks_runnable(system) {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        let resolved = service.resolve_or_install_cloudflared().unwrap();
-        assert_eq!(resolved, system);
-    }
-
-    #[test]
-    fn ensure_tunnel_hostname_without_token_sets_sticky_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .save(&json!({
-                "hostname": "missing-token.luna.servers.libreloom.org",
-                "subdomain": "missing-token",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        assert!(service.ensure_tunnel().is_ok());
-        assert_eq!(
-            service.status().tunnel_error.as_deref(),
-            Some(TUNNEL_TOKEN_MISSING_MSG)
-        );
-    }
-
-    #[test]
-    fn tunnel_error_messages_are_plain_language() {
-        for msg in [
-            TUNNEL_HELPER_MISSING_MSG,
-            TUNNEL_START_FAILED_MSG,
-            TUNNEL_TOKEN_MISSING_MSG,
-            TUNNEL_NOT_RUNNING_MSG,
-        ] {
-            assert!(msg.contains("keep trying"), "{msg}");
-            assert!(!msg.contains("cloudflared"), "{msg}");
-            assert!(!msg.contains("1033"), "{msg}");
-        }
-    }
-
-    #[test]
-    fn status_synthesizes_tunnel_not_running_when_hostname_without_connector() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .save(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "subdomain": "photos",
-                "tunnel_token": "real-looking-token-not-mock",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        let st = service.status();
-        assert!(st.enabled);
-        assert!(!st.tunnel_active);
-        assert_eq!(st.tunnel_error.as_deref(), Some(TUNNEL_NOT_RUNNING_MSG));
-    }
-
-    #[test]
-    fn stale_cloudflared_cmdline_matches_token_and_env_forms() {
-        let bin = PathBuf::from("/var/lib/luna/bin/cloudflared");
-        assert!(stale_cloudflared_cmdline(
-            "/var/lib/luna/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
-            &bin
-        ));
-        assert!(stale_cloudflared_cmdline(
-            "/var/lib/luna/bin/cloudflared tunnel --no-autoupdate run",
-            &bin
-        ));
-        assert!(!stale_cloudflared_cmdline(
-            "/usr/bin/cloudflared\0tunnel\0--no-autoupdate\0run\0--token\0abc",
-            &bin
-        ));
-        assert!(!stale_cloudflared_cmdline(
-            "/var/lib/luna/bin/cloudflared\0tunnel\0run",
-            &bin
-        ));
-    }
-
-    #[test]
-    fn tunnel_active_when_unmanaged_cloudflared_still_alive() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin_dir = dir.path().join("bin");
-        std::fs::create_dir_all(&bin_dir).unwrap();
-        let fake = bin_dir.join("cloudflared");
-        let mut body = String::from(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\nsleep 3600\n",
-        );
-        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
-            body.push('#');
-        }
-        std::fs::write(&fake, body).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-
-        let mut orphan = Command::new(&fake)
-            .args([
-                "tunnel",
-                "--no-autoupdate",
-                "run",
-                "--token",
-                "orphan-token",
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn fake cloudflared");
-
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .save(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "orphan-token",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-
-        // Give /proc a moment; then HDMI/API must see the unmanaged connector.
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let st = service.status();
-        let _ = orphan.kill();
-        let _ = orphan.wait();
-        assert!(
-            st.tunnel_active,
-            "unmanaged cloudflared must count as tunnel_active so HDMI does not false-alarm"
-        );
-        assert!(st.tunnel_error.is_none());
-    }
-
-    #[test]
-    fn candidate_paths_end_with_data_dir_bin() {
-        let local = PathBuf::from("/tmp/luna-data/bin/cloudflared");
-        let paths = cloudflared_candidate_paths(&local);
-        assert_eq!(paths[0], PathBuf::from("/usr/local/bin/cloudflared"));
-        assert_eq!(paths.last().unwrap(), &local);
-    }
-
-    #[test]
-    fn idle_requires_quiet_window() {
-        assert!(!is_idle(100, 110));
-        assert!(is_idle(100, 140));
-    }
-
-    #[test]
-    fn tunnel_ready_with_mock_token_without_process() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .apply_claimed(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock-token",
-            }))
-            .unwrap();
-        assert!(service.tunnel_ready());
-    }
-
-    #[test]
-    fn poll_interval_aggressive_during_setup_without_tunnel() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert_eq!(
-            service.poll_interval_secs(true),
-            AGGRESSIVE_POLL_SECS,
-            "setup open without tunnel should poll fast"
-        );
-        assert_eq!(
-            service.poll_interval_secs(false),
-            STEADY_POLL_SECS,
-            "unbound device with setup closed can use steady interval"
-        );
-    }
-
-    #[test]
-    fn poll_interval_steady_without_a_device_token_even_during_setup() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        assert_eq!(service.poll_interval_secs(true), STEADY_POLL_SECS);
-    }
-
-    #[test]
-    fn poll_interval_aggressive_after_domain_assigned_setup_closed() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .save(&json!({
-                "hostname": "arst.luna.servers.libreloom.org",
-                "subdomain": "arst",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        assert!(!service.tunnel_ready());
-        assert_eq!(
-            service.poll_interval_secs(false),
-            AGGRESSIVE_POLL_SECS,
-            "paired hostname without a live connector must keep polling fast after setup closes"
-        );
-    }
-
-    #[test]
-    fn poll_interval_steady_when_tunnel_ready_during_setup() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .apply_claimed(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock-token",
-            }))
-            .unwrap();
-        assert_eq!(
-            service.poll_interval_secs(true),
-            STEADY_POLL_SECS,
-            "tunnel ready during setup should slow polling"
-        );
-    }
-
-    #[test]
-    fn poll_interval_aggressive_while_connect_unreachable() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(!service.poll_status());
-        assert_eq!(
-            service.status().connect_unreachable.as_deref(),
-            Some(CONNECT_UNREACHABLE_MSG)
-        );
-        assert_eq!(
-            service.poll_interval_secs(false),
-            AGGRESSIVE_POLL_SECS,
-            "after a failed reachability check Luna must keep trying quickly once the network is up"
-        );
-    }
-
-    #[test]
-    fn poll_hanging_peer_times_out_instead_of_blocking_forever() {
-        use std::time::Instant;
-        // Accept the TCP handshake in the kernel backlog but never speak HTTP.
-        // Without CONNECT_HTTP_TIMEOUT this used to freeze luna-connect-status.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let _keeper = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(60));
-            drop(listener);
-        });
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(format!("http://{addr}")));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        let started = Instant::now();
-        assert!(!service.poll_status());
-        let elapsed = started.elapsed();
-        assert!(
-            elapsed < CONNECT_HTTP_TIMEOUT + Duration::from_secs(10),
-            "poll must return within the HTTP timeout budget, got {elapsed:?}"
-        );
-        assert!(
-            elapsed >= Duration::from_secs(1),
-            "expected the hanging peer to consume some of the timeout, got {elapsed:?}"
-        );
-        assert_eq!(
-            service.status().connect_unreachable.as_deref(),
-            Some(CONNECT_UNREACHABLE_MSG)
-        );
-    }
-
-    #[test]
-    fn unbind_now_settles_an_owed_unbind_and_keeps_the_token() {
-        let url = serve_once(200, r#"{"ok":true}"#);
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service
-            .save(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock-token",
-            }))
-            .unwrap();
-        service.mark_unbind_pending().unwrap();
-        assert!(service.unbind_pending());
-        assert!(dir.path().join(UNBIND_PENDING_FILE).exists());
-
-        service.unbind_now().unwrap();
-        assert!(!service.unbind_pending());
-        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
-        assert!(
-            !dir.path().join("connect.json").exists(),
-            "the claim clears"
-        );
-        assert_eq!(
-            service.device_code().unwrap(),
-            "ABCD-EFGH-JKMN-PQRS-TVWX",
-            "the device token is this Luna's identity and stays"
-        );
-    }
-
-    #[test]
-    fn unbind_now_gives_up_within_its_own_budget() {
-        use std::time::Instant;
-        // Accepts the connection, never answers.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let _keeper = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(60));
-            drop(listener);
-        });
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(format!("http://{addr}")));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service.mark_unbind_pending().unwrap();
-        let started = Instant::now();
-        let err = service.unbind_now().unwrap_err();
-        let elapsed = started.elapsed();
-        assert!(matches!(err, ConnectError::Unreachable), "{err:?}");
-        assert!(
-            elapsed < UNBIND_TIMEOUT + Duration::from_secs(3),
-            "unbind must stop waiting at its budget, took {elapsed:?}"
-        );
-        assert!(service.unbind_pending(), "a failed unbind is still owed");
-    }
-
-    #[test]
-    fn an_owed_unbind_keeps_the_old_address_and_tunnel_away() {
-        // Connect has a problem: the retried unregister fails.
-        let url = serve_once(500, r#"{"error":"down"}"#);
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service.mark_unbind_pending().unwrap();
-        assert!(!service.poll_status());
-        assert!(
-            service.public_hostname().is_none(),
-            "no address is adopted while the unbind is owed"
-        );
-        assert!(service.unbind_pending());
-
-        // Even credentials already on disk don't bring the tunnel back.
-        service
-            .save(&json!({
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "tok",
-            }))
-            .unwrap();
-        assert!(service.ensure_tunnel().is_err());
-        assert!(service.child.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn the_poll_loop_retries_an_owed_unbind_and_clears_it() {
-        // First the retried unregister, then the status pull after it.
-        let url = serve_sequence(vec![
-            r#"{"ok":true}"#.into(),
-            r#"{"paired":false,"wan_ip":"203.0.113.1"}"#.into(),
-        ]);
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service.mark_unbind_pending().unwrap();
-        let _ = service.poll_status();
-        assert!(!service.unbind_pending());
-        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
-    }
-
-    #[test]
-    fn an_owed_unbind_for_another_token_is_dropped() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        service.mark_unbind_pending().unwrap();
-        // Lowercase and without dashes is the same token.
-        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "abcdefghjkmnpqrstvwx\n").unwrap();
-        assert!(service.unbind_pending());
-        // A new token belongs to whoever entered it.
-        service.set_oss_code("1234-5678-9ABC-DEFG-HJKM").unwrap();
-        assert!(!service.unbind_pending());
-        assert!(!dir.path().join(UNBIND_PENDING_FILE).exists());
-    }
-
-    fn serve_once(status: u16, body: &str) -> String {
-        serve_raw(status, "application/json", body, &[])
-    }
-
-    fn serve_raw(
-        status: u16,
-        content_type: &str,
-        body: &str,
-        extra_headers: &[(&str, &str)],
-    ) -> String {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let body = body.to_string();
-        let content_type = content_type.to_string();
-        let extra: Vec<(String, String)> = extra_headers
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-            .collect();
-        std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut buf = [0u8; 2048];
-                let _ = stream.read(&mut buf);
-                let mut resp = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n",
-                    body.len()
-                );
-                for (k, v) in &extra {
-                    resp.push_str(&format!("{k}: {v}\r\n"));
-                }
-                resp.push_str("\r\n");
-                resp.push_str(&body);
-                let _ = stream.write_all(resp.as_bytes());
-            }
-        });
-        format!("http://{addr}")
-    }
-
-    #[test]
-    fn register_signing_public_accepts_a_2xx_reply() {
-        let url = serve_once(200, "{\"ok\":true}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        let key = "ab".repeat(32);
-        assert!(
-            service
-                .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn register_signing_public_reports_a_refused_key() {
-        let url = serve_once(403, "{\"error\":\"another device owns this Luna\"}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        let key = "ab".repeat(32);
-        assert!(
-            service
-                .register_signing_public("luna-ABCDEFGHJKMNPQRSTVWXYZ2345", &key)
-                .is_err()
-        );
-    }
-
-    fn seed_claim(service: &ConnectService) {
-        service
-            .save(&json!({
-                "hostname": "repro.luna.servers.libreloom.org",
-                "subdomain": "repro",
-                "tunnel_token": "mock-preexisting-tunnel-token",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        assert!(service.state_path.is_file());
-    }
-
-    #[test]
-    fn malformed_device_token_sets_status_error() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(DEVICE_TOKEN_FILE), "not-a-code").unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        let st = service.status();
-        assert!(!st.connect_active);
-        assert_eq!(
-            st.device_token_error.as_deref(),
-            Some(DEVICE_TOKEN_MALFORMED_MSG)
-        );
-        assert!(
-            st.device_token_error
-                .as_deref()
-                .unwrap()
-                .contains("Settings → About → Advanced")
-        );
-    }
-
-    #[test]
-    fn poll_401_sets_rejected_token_error() {
-        let url = serve_once(
-            401,
-            "{\"error\":\"This Luna is not signed in to Connect.\"}",
-        );
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(!service.poll_status());
-        let st = service.status();
-        assert!(st.connect_active);
-        assert!(!st.enabled);
-        assert_eq!(
-            st.device_token_error.as_deref(),
-            Some(DEVICE_TOKEN_REJECTED_MSG)
-        );
-        assert!(st.device_code.is_none());
-    }
-
-    #[test]
-    fn poll_403_json_unbound_clears_claim() {
-        let url = serve_once(403, "{\"error\":\"unbound\"}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        seed_claim(&service);
-        assert!(!service.poll_status());
-        assert!(
-            !service.state_path.is_file(),
-            "authentic Connect unbound must clear connect.json"
-        );
-        assert!(service.status().device_token_error.is_none());
-        assert!(service.status().connect_unreachable.is_none());
-        assert!(dir.path().join(DEVICE_TOKEN_FILE).is_file());
-    }
-
-    #[test]
-    fn poll_403_cf_challenge_keeps_claim_and_ensures_tunnel() {
-        let html = "<!DOCTYPE html><html><head><title>Just a moment...</title></head>\
-            <body class=\"cf-browser-verification\">Just a moment...\
-            <script src=\"https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page\"></script>\
-            </body></html>";
-        let url = serve_raw(
-            403,
-            "text/html; charset=UTF-8",
-            html,
-            &[("cf-mitigated", "challenge")],
-        );
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        seed_claim(&service);
-        assert!(
-            !service
-                .load()
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            "seed must not mark tunnel active before ensure"
-        );
-        assert!(!service.poll_status());
-        assert!(
-            service.state_path.is_file(),
-            "CF challenge must not wipe connect.json"
-        );
-        let st = service.status();
-        assert_eq!(
-            st.connect_unreachable.as_deref(),
-            Some(CONNECT_CHALLENGED_MSG)
-        );
-        assert!(st.device_token_error.is_none());
-        let state = service.load();
-        assert_eq!(
-            state.get("tunnel_token").and_then(|v| v.as_str()),
-            Some("mock-preexisting-tunnel-token")
-        );
-        assert!(
-            state
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            "challenge poll must still call ensure_tunnel for local mock token"
-        );
-        assert!(service.tunnel_ready());
-        assert!(st.tunnel_active);
-    }
-
-    #[test]
-    fn poll_403_non_json_gateway_keeps_claim_and_ensures_tunnel() {
-        let url = serve_raw(403, "text/plain", "blocked by gateway", &[]);
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        seed_claim(&service);
-        assert!(!service.poll_status());
-        assert!(service.state_path.is_file());
-        assert_eq!(
-            service.status().connect_unreachable.as_deref(),
-            Some(CONNECT_UNREACHABLE_MSG)
-        );
-        assert!(
-            service
-                .load()
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            "unreachable poll must still call ensure_tunnel for local mock token"
-        );
-        assert!(service.tunnel_ready());
-    }
-
-    #[test]
-    fn poll_401_does_not_ensure_tunnel_after_invalid_token() {
-        let url = serve_once(401, "{}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        seed_claim(&service);
-        assert!(!service.poll_status());
-        assert!(
-            !service
-                .load()
-                .get("tunnel_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            "invalid token must stop_tunnel and must not ensure"
-        );
-    }
-
-    #[test]
-    fn ensure_tunnel_if_needed_starts_when_not_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        // Hostname without token: expects connector, not ready.
-        service
-            .save(&json!({
-                "hostname": "waiting.luna.servers.libreloom.org",
-                "subdomain": "waiting",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        assert!(!service.tunnel_ready());
-        service.ensure_tunnel_if_needed();
-        assert_eq!(
-            service.status().tunnel_error.as_deref(),
-            Some(TUNNEL_TOKEN_MISSING_MSG)
-        );
-
-        // With mock token: ensure marks ready/active.
-        service
-            .save(&json!({
-                "hostname": "waiting.luna.servers.libreloom.org",
-                "subdomain": "waiting",
-                "tunnel_token": "mock-supervisor-token",
-                "paired": true,
-                "bound": true,
-            }))
-            .unwrap();
-        // mock- tokens report tunnel_ready immediately; clear that by using ensure_tunnel_if_needed
-        // only when not ready — so call ensure_tunnel directly to arm mock active, then verify
-        // ensure_tunnel_if_needed is a no-op when already ready.
-        assert!(service.tunnel_ready());
-        service.ensure_tunnel_if_needed();
-        let _ = service.ensure_tunnel();
-        assert!(service.status().tunnel_active);
-    }
-
-    #[test]
-    fn poll_200_bound_applies_tunnel_token() {
-        let url = serve_once(
-            200,
-            r#"{"hostname":"repro.luna.servers.libreloom.org","subdomain":"repro","tunnel_token":"mock-repro-tunnel-token","backup_unlocked":false,"paired":true,"bound":true}"#,
-        );
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(service.poll_status());
-        let st = service.status();
-        assert!(st.enabled);
-        assert_eq!(
-            st.hostname.as_deref(),
-            Some("repro.luna.servers.libreloom.org")
-        );
-        assert!(st.connect_unreachable.is_none());
-        let state = service.load();
-        assert_eq!(
-            state.get("tunnel_token").and_then(|v| v.as_str()),
-            Some("mock-repro-tunnel-token")
-        );
-        assert!(service.tunnel_ready());
-    }
-
-    /// Answers each connection with the next body in `bodies`, then stops.
-    fn serve_sequence(bodies: Vec<String>) -> String {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        std::thread::spawn(move || {
-            for body in bodies {
-                let Ok((mut stream, _)) = listener.accept() else {
-                    return;
-                };
-                let mut buf = [0u8; 2048];
-                let _ = stream.read(&mut buf);
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = stream.write_all(resp.as_bytes());
-            }
-        });
-        format!("http://{addr}")
-    }
-
-    /// Changing the address on Luna Connect hands Luna a new hostname and
-    /// tunnel token on its next check. Luna must save both and restart the
-    /// tunnel with the new token, not keep serving the old address.
-    #[cfg(unix)]
-    #[test]
-    fn a_new_address_from_connect_restarts_the_tunnel_on_the_new_token() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let bin_dir = dir.path().join("bin");
-        std::fs::create_dir_all(&bin_dir).unwrap();
-        let log = dir.path().join("cloudflared-starts.log");
-        let fake = bin_dir.join("cloudflared");
-        // Log argv and the env token separately: the token must ride
-        // TUNNEL_TOKEN, never argv (world-readable via /proc/*/cmdline).
-        let mut body = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo cloudflared version fake; exit 0; fi\necho \"$*|$TUNNEL_TOKEN\" >> {}\nsleep 3600\n",
-            log.display()
-        );
-        while body.len() < MIN_CLOUDFLARED_BYTES as usize {
-            body.push('#');
-        }
-        std::fs::write(&fake, body).unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let reply = |sub: &str, token: &str| {
-            format!(
-                r#"{{"hostname":"{sub}.luna.servers.libreloom.org","subdomain":"{sub}","tunnel_token":"{token}","backup_unlocked":false,"paired":true,"bound":true}}"#
-            )
-        };
-        let url = serve_sequence(vec![
-            reply("old", "real-token-old"),
-            reply("old", "real-token-old"),
-            reply("fresh", "real-token-new"),
-        ]);
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        let starts = || {
-            std::fs::read_to_string(&log)
-                .unwrap_or_default()
-                .lines()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        };
-
-        assert!(service.poll_status());
-        assert_eq!(
-            service.status().hostname.as_deref(),
-            Some("old.luna.servers.libreloom.org")
-        );
-        assert_eq!(starts().len(), 1);
-        assert!(starts()[0].ends_with("|real-token-old"));
-        assert!(
-            !starts()[0]
-                .split('|')
-                .next()
-                .unwrap()
-                .contains("real-token"),
-            "tunnel token must not appear on cloudflared's argv: {:?}",
-            starts()[0]
-        );
-
-        // The same address again leaves the running tunnel alone.
-        assert!(service.poll_status());
-        assert_eq!(starts().len(), 1, "an unchanged address must not restart");
-
-        // The address changed on Connect.
-        assert!(service.poll_status());
-        let st = service.status();
-        assert_eq!(
-            st.hostname.as_deref(),
-            Some("fresh.luna.servers.libreloom.org")
-        );
-        assert_eq!(st.subdomain.as_deref(), Some("fresh"));
-        assert!(st.tunnel_active);
-        let after = starts();
-        assert_eq!(after.len(), 2, "the tunnel restarts once for a new address");
-        assert!(after[1].ends_with("|real-token-new"), "{after:?}");
-        service.stop_tunnel();
-    }
-
-    #[test]
-    fn looks_like_cf_challenge_detects_markers() {
-        assert!(looks_like_cf_challenge(
-            403,
-            "text/html",
-            "Just a moment...",
-            Some("challenge")
-        ));
-        assert!(looks_like_cf_challenge(
-            403,
-            "application/octet-stream",
-            "cdn-cgi/challenge-platform",
-            None
-        ));
-        assert!(!looks_like_cf_challenge(
-            403,
-            "application/json",
-            "{\"error\":\"unbound\"}",
-            None
-        ));
-        assert!(!looks_like_cf_challenge(
-            200,
-            "text/html",
-            "Just a moment...",
-            Some("challenge")
-        ));
-    }
-
-    #[test]
-    fn classify_403_distinguishes_challenge_from_unbound() {
-        match classify_403(403, "text/html", "Just a moment...", Some("challenge")) {
-            ConnectError::GatewayChallenge => {}
-            other => panic!("expected GatewayChallenge, got {other:?}"),
-        }
-        match classify_403(403, "application/json", "{\"error\":\"unbound\"}", None) {
-            ConnectError::Unbound => {}
-            other => panic!("expected Unbound, got {other:?}"),
-        }
-        match classify_403(403, "text/plain", "nope", None) {
-            ConnectError::Unreachable => {}
-            other => panic!("expected Unreachable, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn backup_refusals_keep_connects_message() {
-        let full = classify_backup_reply(
-            413,
-            "application/json",
-            "{\"error\":\"Cloud backup for this account is full. Remove some files, then try again.\"}",
-            None,
-        );
-        assert_eq!(
-            full.to_string(),
-            "Cloud backup for this account is full. Remove some files, then try again."
-        );
-        assert!(matches!(
-            classify_backup_reply(502, "text/html", "<html>Bad gateway</html>", None),
-            ConnectError::Unreachable
-        ));
-        assert!(matches!(
-            classify_backup_reply(401, "application/json", "{}", None),
-            ConnectError::InvalidToken
-        ));
-    }
-
-    #[test]
-    fn poll_403_unbound_is_not_a_token_failure() {
-        let url = serve_once(403, "{\"error\":\"unbound\"}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(!service.poll_status());
-        assert!(service.status().device_token_error.is_none());
-    }
-
-    #[test]
-    fn replacing_device_token_clears_rejected_error() {
-        let url = serve_once(401, "{}");
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(!service.poll_status());
-        assert!(service.status().device_token_error.is_some());
-        service.set_oss_code("ZZZZ-YYYY-XXXX-WWWW-VVVV").unwrap();
-        assert!(service.status().device_token_error.is_none());
-    }
-
-    #[test]
-    fn base_url_requires_https_or_a_local_http_host() {
-        for url in [
-            "https://connect.luna.libreloom.org",
-            "https://connect.example.com/path",
-            "http://127.0.0.1:18765",
-            "http://localhost:18765",
-            "http://[::1]:18765",
-            "http://10.0.0.5",
-            "http://192.168.1.10",
-            "http://169.254.1.1",
-            "http://luna.local",
-            "http://connect.lan.local:8080",
-        ] {
-            assert!(base_url_allowed(url), "{url}");
-        }
-        for url in [
-            "http://8.8.8.8",
-            "http://203.0.113.10",
-            "http://connect.example.com",
-            "http://evil.localhost.evil.com",
-            "ftp://127.0.0.1",
-            "127.0.0.1:18765",
-            "not a url",
-        ] {
-            assert!(!base_url_allowed(url), "{url}");
-        }
-    }
-
-    #[test]
-    fn object_key_segments_are_percent_encoded() {
-        assert_eq!(encode_object_key("a/b/c.txt"), "a/b/c.txt");
-        // `?`/`#`/`%` inside a segment encode; `/` stays a separator.
-        assert_eq!(
-            encode_object_key("dir/what?.txt#/frag%20"),
-            "dir/what%3F.txt%23/frag%2520"
-        );
-        assert_eq!(
-            encode_object_key("weiß öl/+.dat"),
-            "wei%C3%9F%20%C3%B6l/%2B.dat"
-        );
-    }
-}
-
-#[cfg(test)]
-mod plain_state_tests {
-    use super::*;
-
-    #[test]
-    fn connect_json_is_plain_private_json_and_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service
-            .save(&json!({ "hostname": "kitchen.example" }))
-            .unwrap();
-        let raw = std::fs::read_to_string(dir.path().join("connect.json")).unwrap();
-        assert_eq!(
-            serde_json::from_str::<Value>(&raw).unwrap()["hostname"],
-            "kitchen.example"
-        );
-        assert_eq!(service.load()["hostname"], "kitchen.example");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(dir.path().join("connect.json"))
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
-        // Nothing else is written beside it.
-        assert!(!dir.path().join("device_key").exists());
-    }
-}
+#[path = "connect_tests.rs"]
+mod tests;

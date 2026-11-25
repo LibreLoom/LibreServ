@@ -16,7 +16,7 @@ func TestAdminDevicesPagination(t *testing.T) {
 	h := AdminConsoleHandler{Deps: d}
 	now := time.Now().Unix()
 	for i := 0; i < 3; i++ {
-		_, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+		_, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,13 +47,19 @@ func TestStatusDebouncesLastSeen(t *testing.T) {
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_seen', 'seen@b.co', 'x', 1, 'active', 1, ?)`, now)
-	id, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	id, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_seen', last_seen_at = ? WHERE id = ?`, now, id)
+	token := security.AuthToken()
+	sealed, err := security.SealString(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_seen', auth_token_hash = ?, auth_token_sealed = ?, last_seen_at = ? WHERE id = ?`,
+		security.HashToken(token), sealed, now, id)
 
-	dev := Device{ID: id, AccountID: sql.NullString{String: "acct_seen", Valid: true}}
+	dev := Device{ID: id, State: "bound", AccountID: sql.NullString{String: "acct_seen", Valid: true}, AuthTokenHash: security.HashToken(token)}
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	req = req.WithContext(WithDevice(req.Context(), dev))
 	rec := httptest.NewRecorder()

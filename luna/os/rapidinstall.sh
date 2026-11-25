@@ -248,7 +248,7 @@ fi
 echo
 echo "Installation complete."
 
-# Official device token + OS hash live on LUNA_DATA, not on an OS slot.
+# Device ID, Verification code, and OS hash live on LUNA_DATA, not on an OS slot.
 # Mount at /mnt/luna-data (not mktemp under /tmp). Missing hash = failed install.
 _datap="$(partition_data "$TARGET")"
 # Distinct name: sourced factory-assets used to assign _mnt and clobber this
@@ -261,11 +261,11 @@ if ! mount -o rw "$_datap" "$_data_mnt"; then
 	echo "The OS image checksum is missing. This install did not finish."
 	exit 1
 fi
-if ! factory_apply_device_token "$_data_mnt" "$HERE"; then
+if ! factory_apply_pairing_material "$_data_mnt"; then
 	umount "$_data_mnt" 2>/dev/null || true
 	echo
-	echo "Install wrote the disk, but the official device token step failed."
-	echo "Fix the TOKENS magazine on LUNAASSETS (or use device-token), then re-run."
+	echo "Install wrote the disk, but the Device ID and Verification code step failed."
+	echo "Fix the TOKENS magazine on LUNAASSETS, or re-run and enter both values when prompted."
 	exit 1
 fi
 # os-image.sha256 = sha256 of the exact luna-os-*.img.xz written to both slots
@@ -281,5 +281,6 @@ fi
 umount "$_data_mnt" 2>/dev/null || true
 
 echo "Remove the USB stick if you used one."
-echo "Luna will reboot and show its address on the screen. Open it from a phone or computer on the same network."
+echo "Connect Luna to your router or modem with the included RJ45 (ethernet) cable."
+echo "Luna will reboot and show its address on the screen. Open it in a browser on the same network."
 echo

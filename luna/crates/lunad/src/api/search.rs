@@ -27,29 +27,24 @@ struct SearchQuery {
 const DEFAULT_LIMIT: usize = 60;
 const MAX_LIMIT: usize = 200;
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct FactoryResetBody {
     #[serde(default)]
     confirm: bool,
     #[serde(default)]
     password: String,
-    /// What the reset's unbind step settled for Luna Connect.
-    #[serde(default)]
+    /// Factory reset always asks whether to keep or disconnect Connect.
     connect: ConnectChoice,
 }
 
-/// The reset flow asks first whether to unbind Luna Connect.
-#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 enum ConnectChoice {
-    /// Not linked, or they chose to stay linked: Connect is left alone.
-    #[default]
     Keep,
-    /// `POST /api/v1/connect/unbind` went through.
-    Unbound,
-    /// They chose to unbind, Connect didn't answer, and they skipped: Luna
-    /// owes the unbind (`net::connect::UNBIND_PENDING_FILE`).
-    Pending,
+    /// The UI calls this choice Disconnect. Its reset flow may report that an
+    /// earlier unbind already succeeded (`unbound`) or remains owed (`pending`).
+    #[serde(alias = "unbound", alias = "pending")]
+    Disconnect,
 }
 
 fn reset_failed() -> (StatusCode, Json<Value>) {
@@ -341,8 +336,8 @@ fn match_label(tier: Tier) -> &'static str {
 }
 
 /// Wipe all accounts, shares, and settings and return the box to first-run,
-/// leaving the actual files on the drives untouched. Luna Connect is handled
-/// by the choice the reset flow's unbind step made (`connect` in the body).
+/// leaving the actual files on the drives untouched. The body always chooses
+/// Keep Connect or Disconnect; a failed disconnect remains pending.
 async fn factory_reset(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
@@ -373,29 +368,15 @@ async fn factory_reset(
         "That password is wrong. Reset was not started.",
     )
     .await?;
-    // What happens to Luna Connect was chosen in the reset's unbind step
-    // (`POST /api/v1/connect/unbind` already ran if they unbound). The
-    // device token always stays: it is this Luna's identity.
-    match body.connect {
-        ConnectChoice::Keep => {}
-        ConnectChoice::Unbound => state.connect.forget_claim(),
-        ConnectChoice::Pending => {
-            // They chose to unbind, but Connect didn't answer and they went on.
-            // Owe the unbind before anything else is wiped, so a failure here
-            // leaves Luna as it was.
-            let connect = state.connect.clone();
-            tokio::task::spawn_blocking(move || {
-                if connect.has_valid_device_code() {
-                    connect.mark_unbind_pending()?;
-                }
-                connect.forget_claim();
-                Ok::<(), crate::net::connect::ConnectError>(())
-            })
-            .await
-            .map_err(|_| reset_failed())?
-            .map_err(|_| reset_failed())?;
-        }
-    }
+    // Keep Connect leaves its rolling credential and bound configuration alone.
+    // Disconnect revokes first; an unavailable Connect leaves a durable pending
+    // marker, so the local reset may finish without deleting the only credential.
+    let disconnect = body.connect == ConnectChoice::Disconnect;
+    let connect = state.connect.clone();
+    tokio::task::spawn_blocking(move || connect.prepare_factory_reset(disconnect))
+        .await
+        .map_err(|_| reset_failed())?
+        .map_err(|_| reset_failed())?;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -784,18 +765,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factory_reset_requires_confirm_and_keeps_the_device_token() {
+    async fn factory_reset_requires_a_connect_choice() {
         let dir = tempfile::tempdir().unwrap();
-        let connect =
-            crate::net::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        connect
-            .apply_claimed(&serde_json::json!({
-                "device_token": "tok",
-                "hostname": "photos.luna.servers.libreloom.org",
-                "tunnel_token": "mock"
-            }))
-            .unwrap();
+        linked(dir.path());
         assert!(dir.path().join("connect.json").exists());
         let app = test_app(dir.path());
 
@@ -830,7 +802,7 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":false}"#,
+                r#"{"confirm":false,"connect":"keep"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -839,12 +811,26 @@ mod tests {
         assert_eq!(denied.status(), 400);
         assert!(dir.path().join("connect.json").exists());
 
+        let missing_choice = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(missing_choice.status(), 422);
+        assert!(dir.path().join("connect.json").exists());
+
         let ok = call(
             &app,
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true,"password":"hunter22hunter1","connect":"unbound"}"#,
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"keep"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -852,15 +838,20 @@ mod tests {
         .await;
         assert_eq!(ok.status(), 200, "reset failed");
         assert!(
-            !dir.path().join("connect.json").exists(),
-            "after an unbind the old address is forgotten"
+            dir.path().join("connect.json").exists(),
+            "Keep Connect leaves the bound configuration in place"
+        );
+        assert!(
+            dir.path()
+                .join(crate::net::connect::CONNECT_CREDENTIAL_FILE)
+                .exists(),
+            "Keep Connect retains the rolling credential"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("device-token"))
+            std::fs::read_to_string(dir.path().join(crate::net::connect::DEVICE_UID_FILE))
                 .unwrap()
                 .trim(),
-            "ABCD-EFGH-JKMN-PQRS-TVWX",
-            "device token must survive factory reset"
+            "7K4M2Q9XR8N36T5W1PZH"
         );
     }
 
@@ -908,7 +899,7 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"keep"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -942,13 +933,27 @@ mod tests {
     }
 
     fn linked(dir: &std::path::Path) {
+        std::fs::write(
+            dir.join(crate::net::connect::DEVICE_UID_FILE),
+            "7K4M2Q9XR8N36T5W1PZH\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join(crate::net::connect::PAIRING_CODE_FILE), "A3F91C\n").unwrap();
+        std::fs::write(
+            dir.join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+        )
+        .unwrap();
         let connect =
             crate::net::connect::ConnectService::new(dir, Some("http://127.0.0.1:1".into()));
-        connect.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
         connect
             .save(&serde_json::json!({
-                "hostname": "photos.luna.servers.libreloom.org",
+                "state": "bound",
+                "bound": true,
                 "paired": true,
+                "hostname": "photos.luna.servers.libreloom.org",
+                "tunnel_token": "mock-token",
+                "tunnel_active": true,
             }))
             .unwrap();
     }
@@ -973,6 +978,12 @@ mod tests {
         assert_eq!(ok.status(), 200, "reset failed");
         assert!(dir.path().join("connect.json").exists(), "the link stays");
         assert!(
+            dir.path()
+                .join(crate::net::connect::CONNECT_CREDENTIAL_FILE)
+                .exists(),
+            "the rolling credential stays"
+        );
+        assert!(
             !dir.path()
                 .join(crate::net::connect::UNBIND_PENDING_FILE)
                 .exists()
@@ -980,7 +991,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factory_reset_with_a_skipped_unbind_owes_it_across_the_reset() {
+    async fn factory_reset_disconnect_keeps_a_pending_revocation_across_the_reset() {
         let dir = tempfile::tempdir().unwrap();
         linked(dir.path());
         let state = test_state(dir.path());
@@ -991,7 +1002,7 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true,"password":"hunter22hunter1","connect":"pending"}"#,
+                r#"{"confirm":true,"password":"hunter22hunter1","connect":"disconnect"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),
@@ -1004,17 +1015,20 @@ mod tests {
                 .join(crate::net::connect::UNBIND_PENDING_FILE)
                 .exists()
         );
-        assert!(!dir.path().join("connect.json").exists());
-        assert_eq!(
-            state.connect.device_code().unwrap(),
-            "ABCD-EFGH-JKMN-PQRS-TVWX"
+        assert!(dir.path().join("connect.json").exists());
+        assert!(
+            dir.path()
+                .join(crate::net::connect::CONNECT_CREDENTIAL_FILE)
+                .exists(),
+            "the only revocation credential is retained while Connect may still be bound"
         );
+        assert_eq!(state.connect.device_uid().unwrap(), "7K4M2Q9XR8N36T5W1PZH");
 
-        // Off Luna's network, the token no longer creates the first account.
+        // Off Luna's network, no setup grant is accepted while disconnecting.
         let mut remote = req(
             Method::POST,
             "/api/v1/auth/register",
-            r#"{"username":"eve","password":"hunter22hunter1","setup_secret":"ABCD-EFGH-JKMN-PQRS-TVWX"}"#,
+            r#"{"username":"eve","password":"hunter22hunter1","setup_grant":"grant-one"}"#,
             None,
             None,
         );
@@ -1039,7 +1053,7 @@ mod tests {
             req(
                 Method::POST,
                 "/api/v1/system/factory-reset",
-                r#"{"confirm":true,"password":"wrong-password-1","connect":"pending"}"#,
+                r#"{"confirm":true,"password":"wrong-password-1","connect":"disconnect"}"#,
                 Some(&cookie),
                 Some(&csrf),
             ),

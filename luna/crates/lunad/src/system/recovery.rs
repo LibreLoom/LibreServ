@@ -1,18 +1,18 @@
 //! USB flash drive admin password recovery.
 //!
 //! If an admin forgets their Luna web password, they place a recovery file
-//! `luna-recover-<device_token>.luna` (or `luna-recover.luna` when no device
-//! token is configured) on the root of a **dedicated** USB flash drive — the
-//! file must be the only thing on it. Luna checks the stick once at boot:
-//! it must carry no Luna marker and no other files, so a password reset
-//! requires physical possession of a clean stick, not just the token.
+//! `luna-recover.luna` on the root of a **dedicated** USB flash drive — the file
+//! must be the only thing on it. Luna checks the stick once at boot: it must
+//! carry no Luna marker and no other files, so a password reset requires
+//! physical possession of a clean stick. Recovery is local and does not depend
+//! on Luna Connect or any pairing material.
 //!
 //! These steps are **not** shown in the Luna web UI (Settings/Login tests
 //! assert that). Keep this block as the source of truth for the printed
 //! recovery card and future docs:
 //!
 //!   If you forget your password
-//!   1. Create a password recovery file (luna-recover-<device_token>.luna, or luna-recover.luna if no device token is configured).
+//!   1. Create a password recovery file (luna-recover.luna).
 //!   2. Save the file to the root of an empty USB flash drive used only for recovery.
 //!   3. Plug the USB flash drive into Luna and restart Luna.
 //!   4. Luna applies the new password while it starts up (the file is renamed to .done).
@@ -44,7 +44,7 @@ pub const SEQUENCE: &[u16] = &[KEY_ESC, KEY_L, KEY_U, KEY_N, KEY_A, KEY_ENTER];
 /// Not rendered in the Luna web UI — keep in sync with the module comment above.
 pub const CARD_TITLE: &str = "If you forget your password";
 pub const CARD_STEPS: &[&str] = &[
-    "Create a password recovery file (luna-recover-<device_token>.luna, or luna-recover.luna if no device token is configured) using the recovery wizard.",
+    "Create a password recovery file (luna-recover.luna) using the recovery wizard.",
     "Save the file directly onto an empty USB flash drive used only for recovery (not inside a folder, and with no other files on it).",
     "Plug the USB flash drive into Luna, then restart Luna.",
     "Luna applies the new password while it starts up (the file is renamed to .done).",

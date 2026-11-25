@@ -8,7 +8,6 @@ import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
-import ConnectDeviceCodeForm from "../ConnectDeviceCodeForm.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson, putJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -51,7 +50,6 @@ export default function UpdateSourceCard({ index = 3 }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
-  const [connectModalOpen, setConnectModalOpen] = useState(false);
   const source = useQuery({
     queryKey: ["updates-source"],
     queryFn: () => getJson("/api/v1/system/updates/source"),
@@ -80,22 +78,6 @@ export default function UpdateSourceCard({ index = 3 }) {
   return (
     <SettingsCard icon={AlertTriangle} title="Advanced" padding={false} index={index}>
       <div className="px-5 py-4 space-y-4">
-        <CollapsibleSection title="Luna Connect" mono pill>
-          <div className="space-y-3 mb-1">
-            <p className="text-sm text-primary leading-relaxed">
-              Set or remove the Luna Connect device token here.
-            </p>
-            <Button
-              type="button"
-              variant="danger"
-              surface="secondary"
-              onClick={() => setConnectModalOpen(true)}
-            >
-              Change device token
-            </Button>
-          </div>
-        </CollapsibleSection>
-
         {/* One section for everything about updates: the channel the release
             comes down from and where Luna reads it. Each control is its own
             pill row, so the two never read as one line. */}
@@ -150,14 +132,6 @@ export default function UpdateSourceCard({ index = 3 }) {
           </div>
         </CollapsibleSection>
       </div>
-
-      <ModalCard
-        open={connectModalOpen}
-        title="Device token"
-        onClose={() => setConnectModalOpen(false)}
-      >
-        <ConnectDeviceCodeForm />
-      </ModalCard>
 
       {source.data && (
         <UpdateSourceModal

@@ -97,11 +97,15 @@ func (s *Server) routes() {
 				r.Post("/share/private/challenge", priv.ShareChallenge)
 				r.Post("/share/private/open", priv.ShareOpen)
 
+				r.Post("/devices/pair/claim", dev.ClaimPair)
+				r.Post("/token/refresh", dev.RefreshToken)
+
 				r.Group(func(r chi.Router) {
 					r.Use(dev.DeviceAuth)
 					r.Get("/status", dev.Status)
 					r.Post("/domain", dev.Domain)
 					r.Post("/unregister", dev.Unregister)
+					r.Post("/devices/setup-grant/consume", dev.ConsumeSetupGrant)
 				})
 
 				r.Group(func(r chi.Router) {
@@ -129,8 +133,13 @@ func (s *Server) routes() {
 						r.Get("/cloud/share-links", share.List)
 						r.Post("/cloud/share-links", share.Create)
 						r.Delete("/cloud/share-links/{id}", share.Revoke)
-						r.Post("/devices/bind", dev.Bind)
+						r.Post("/devices/pair", dev.StartPair)
+						r.Get("/devices/pair/{pairingID}", dev.PairStatus)
+						r.Delete("/devices/pair/{pairingID}", dev.CancelPair)
 						r.Delete("/devices/{deviceID}", dev.Unbind)
+						r.Post("/devices/{deviceID}/revoke", dev.Revoke)
+						r.Post("/devices/{deviceID}/recover", dev.Recover)
+						r.Post("/devices/{deviceID}/setup-grant", dev.IssueSetupGrant)
 						r.Post("/devices/{deviceID}/domain", dev.SetDomain)
 						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)

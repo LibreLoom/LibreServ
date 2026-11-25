@@ -14,6 +14,7 @@ function stubFetch({ network = {}, connect = /** @type {Record<string, unknown>}
       return jsonResponse({
         connect_active: Boolean(connect.hostname || connect.domain),
         enabled: Boolean(connect.hostname || connect.domain),
+        paired: Boolean(connect.hostname || connect.domain),
         hostname: null,
         domain: null,
         ...connect,
@@ -50,11 +51,11 @@ describe("DiscoveryPaths", () => {
       "fetch",
       stubFetch({
         network: { ipv4: ["192.168.1.118"] },
-        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true },
+        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true, lan_override: true },
       }),
     );
     renderPaths();
-    expect(await screen.findByText("From anywhere (when Luna Connect is on):")).toBeTruthy();
+    expect(await screen.findByText("From anywhere:")).toBeTruthy();
     const remoteLink = screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
     expect(remoteLink.getAttribute("href")).toBe("https://kitchen.luna.servers.libreloom.org");
     expect(remoteLink.getAttribute("target")).toBe("_blank");
@@ -76,12 +77,22 @@ describe("DiscoveryPaths", () => {
     );
     renderPaths();
     expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
-    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
+    expect(screen.queryByText("From anywhere:")).toBeNull();
     expect(screen.getByText("On your local network:")).toBeTruthy();
     expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
   });
 
-  it("hides remote access when the device token was rejected", async () => {
+  it("keeps LAN access when only a human Verification code is saved", async () => {
+    vi.stubGlobal("fetch", stubFetch({
+      network: { ipv4: ["192.168.1.20"] },
+      connect: { paired: false, connect_active: true, verification_code: "A3F91C" },
+    }));
+    renderPaths();
+    expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
+    expect(screen.queryByText("From anywhere:")).toBeNull();
+  });
+
+  it("hides remote access when the Connect credential was rejected", async () => {
     vi.stubGlobal(
       "fetch",
       stubFetch({
@@ -89,13 +100,14 @@ describe("DiscoveryPaths", () => {
         connect: {
           hostname: "kitchen.luna.servers.libreloom.org",
           enabled: false,
-          device_token_error: "Connect did not accept this device token.",
+          paired: false,
+          connect_error: "Connect did not accept this Luna's credential.",
         },
       }),
     );
     renderPaths();
     expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
-    expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
+    expect(screen.queryByText("From anywhere:")).toBeNull();
     expect(screen.queryByRole("link", { name: "kitchen.luna.servers.libreloom.org" })).toBeNull();
   });
 });

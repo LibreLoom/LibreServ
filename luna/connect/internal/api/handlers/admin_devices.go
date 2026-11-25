@@ -32,6 +32,7 @@ func (h AdminConsoleHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h AdminConsoleHandler) RegenerateDeviceTunnel(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
 	if deviceID == "" {
 		JSONError(w, http.StatusBadRequest, "Luna id is required.")
@@ -46,6 +47,7 @@ func (h AdminConsoleHandler) RegenerateDeviceTunnel(w http.ResponseWriter, r *ht
 }
 
 func (h AdminConsoleHandler) SetDeviceDomain(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	deviceID := strings.TrimSpace(chi.URLParam(r, "deviceID"))
 	if deviceID == "" {
 		JSONError(w, http.StatusBadRequest, "Luna id is required.")
@@ -65,19 +67,18 @@ func (h AdminConsoleHandler) SetDeviceDomain(w http.ResponseWriter, r *http.Requ
 }
 
 func (h AdminConsoleHandler) loadDeviceDetail(deviceID string) (map[string]any, error) {
-	var id, name, sub, tunnelID, hint, kind, orderRef, sealed string
+	var id, uid, state, name, sub, tunnelID, hint, kind, orderRef, sealed string
 	var accountID sql.NullString
 	var accountEmail sql.NullString
 	var lastSeen, created int64
-	var revoked int
 	err := h.DB.QueryRow(`
-SELECT d.id, COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''),
-  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.revoked, d.created_at,
-  COALESCE(d.code_sealed, '')
+SELECT d.id, COALESCE(d.device_uid, ''), COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''),
+  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.created_at,
+  COALESCE(d.verification_code_sealed, '')
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 WHERE d.id = ?`, deviceID).
-		Scan(&id, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &revoked, &created, &sealed)
+		Scan(&id, &uid, &state, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &created, &sealed)
 	if err != nil {
 		return nil, err
 	}
@@ -96,17 +97,15 @@ WHERE d.id = ?`, deviceID).
 	if accountEmail.Valid {
 		email = accountEmail.String
 	}
-	status := "bound"
-	if revoked != 0 {
-		status = "revoked"
-	} else if acctID == "" {
-		status = "unbound"
+	if state == "" {
+		state = "unbound"
 	}
-	online := lastSeen > 0 && now-lastSeen <= OnlineWithinSec
+	online := state == "bound" && lastSeen > 0 && now-lastSeen <= OnlineWithinSec
 	hasTunnel := tunnelID != ""
 
 	out := map[string]any{
 		"id":                 id,
+		"device_uid":         security.GroupCrockford(uid),
 		"name":               name,
 		"subdomain":          sub,
 		"device_hostname":    hostname,
@@ -115,41 +114,41 @@ WHERE d.id = ?`, deviceID).
 		"has_tunnel":         hasTunnel,
 		"hint":               hint,
 		"kind":               kind,
-		"status":             status,
+		"status":             state,
 		"order_ref":          orderRef,
 		"account_id":         acctID,
 		"account_email":      email,
 		"last_seen_at":       lastSeen,
 		"online":             online,
-		"revoked":            revoked != 0,
+		"revoked":            state == "revoked",
 		"created_at":         created,
 		"can_reveal":         false,
 		"device_code_prefix": "",
 	}
-	// The full device token never ships in a detail response either; reveal
-	// goes through POST /admin/device-codes/{id}/reveal like the list rows.
-	if sealed != "" {
-		if code, err := security.OpenString(sealed); err == nil && code != "" {
+	// The verification code never ships in a detail response; reveal goes
+	// through POST /admin/device-codes/{id}/reveal like the list rows.
+	if sealed != "" && uid != "" {
+		if code, err := security.OpenString(sealed); err == nil && security.IsVerificationCodeShape(code) {
 			out["can_reveal"] = true
-			out["device_code_prefix"] = security.DeviceCodePrefix(code)
+			out["device_code_prefix"] = security.DeviceCodePrefix(uid)
 		}
 	}
 	return out, nil
 }
 
-func deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef string, lastSeen, created int64, revoked int, zone string, now int64) map[string]any {
-	status := "bound"
-	if revoked != 0 {
-		status = "revoked"
+func deviceListFields(id, uid, name, sub, tunnelID, hint, kind, orderRef string, lastSeen, created int64, state, zone string, now int64) map[string]any {
+	if state == "" {
+		state = "unbound"
 	}
 	hostname := ""
 	if sub != "" {
 		hostname = domainname.Hostname(sub, zone)
 	}
 	hasTunnel := tunnelID != ""
-	online := lastSeen > 0 && now-lastSeen <= OnlineWithinSec
+	online := state == "bound" && lastSeen > 0 && now-lastSeen <= OnlineWithinSec
 	return map[string]any{
 		"id":              id,
+		"device_uid":      security.GroupCrockford(uid),
 		"name":            name,
 		"subdomain":       sub,
 		"device_hostname": hostname,
@@ -157,11 +156,11 @@ func deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef string, last
 		"has_tunnel":      hasTunnel,
 		"hint":            hint,
 		"kind":            kind,
-		"status":          status,
+		"status":          state,
 		"order_ref":       orderRef,
 		"last_seen_at":    lastSeen,
 		"online":          online,
-		"revoked":         revoked != 0,
+		"revoked":         state == "revoked",
 		"created_at":      created,
 	}
 }

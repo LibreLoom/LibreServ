@@ -16,7 +16,7 @@ import {
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/tokens", label: "Device tokens", icon: KeyRound },
+  { to: "/admin/tokens", label: "Device identities", icon: KeyRound },
   { to: "/admin/accounts", label: "Accounts", icon: Users },
   { to: "/admin/providers", label: "Connections", icon: Cloud },
   { to: "/admin/security", label: "Security", icon: Shield },

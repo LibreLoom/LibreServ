@@ -69,6 +69,10 @@ func allowGuess(db *database.DB, key string, max int, windowSec int64) bool {
 
 // guessBlocked reports whether key is at/over max for the window without recording a try.
 func guessBlocked(db *database.DB, key string, max int, windowSec int64) bool {
+	return guessBlockedAt(db, key, max, windowSec, time.Now().Unix())
+}
+
+func guessBlockedAt(db *database.DB, key string, max int, windowSec int64, now int64) bool {
 	if db == nil || key == "" || max <= 0 {
 		return true
 	}
@@ -78,7 +82,7 @@ func guessBlocked(db *database.DB, key string, max int, windowSec int64) bool {
 	if err != nil {
 		return false
 	}
-	if time.Now().Unix()-start >= windowSec {
+	if now-start >= windowSec {
 		return false
 	}
 	return count >= int64(max)

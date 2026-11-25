@@ -397,7 +397,7 @@ export default [
   },
   {
     id: "files/protect-new", area: A, title: "Protect a folder for the first time", url: "/files/d1",
-    seed: (w) => { demo(w); withBackupDrive(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; },
+    seed: (w) => { demo(w); withBackupDrive(w); w.connect = { paired: true, enabled: true, backup_unlocked: true }; w.connectActive = true; },
     check: ["Pick Backup drive → Back up → toast, row appears as starting", "Back up now makes it 'up to date'", "Delete asks first"],
   },
   {
@@ -412,12 +412,12 @@ export default [
   },
   {
     id: "files/protect-cloud-on", area: A, title: "Cloud backup with Luna Connect on", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
+    seed: (w) => { demo(w); w.connect = { paired: true, enabled: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {
     id: "files/protect-cloud-no-phrase", area: A, title: "Cloud backup before any recovery phrase", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
+    seed: (w) => { demo(w); w.connect = { paired: true, enabled: true, backup_unlocked: true }; w.connectActive = true; w.phrase = { ...w.phrase, set: false }; },
     check: [
       "Photos offers 'Back up to the cloud'",
       "Pressing it asks for a recovery phrase first, in a dialog, instead of failing",
@@ -426,7 +426,7 @@ export default [
   },
   {
     id: "files/protect-cloud-no-card", area: A, title: "Cloud backup, no payment card", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { enabled: true, backup_unlocked: false }; w.connectActive = true; },
+    seed: (w) => { demo(w); w.connect = { paired: true, enabled: true, backup_unlocked: false }; w.connectActive = true; },
     check: ["Says a card is needed, and where to add it"],
   },
   {
@@ -440,7 +440,7 @@ export default [
     seed: (w) => {
       demo(w);
       withBackupDrive(w);
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
+      w.connect = { paired: true, enabled: true, connect_active: true, backup_unlocked: true };
       w.connectActive = true;
       addDir(w, "d1", "Diary/2025", { private: false });
       w.fs.d1.nodes.Diary.private = true;

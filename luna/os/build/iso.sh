@@ -128,7 +128,7 @@ menuentry "Luna rapidinstall (failsafe)" {
 GRUBCFG
 
 # --- hybrid ISO -------------------------------------------------------------
-# Writable factory FAT (LUNAASSETS): the TOKENS magazine + later device photos.
+# Writable factory FAT (LUNAASSETS): the TOKENS pairing-line magazine + later device photos.
 # ISO9660 is read-only after dd; this appended partition is mountable rw.
 ASSETS="$WORK/lunaassets.img"
 rm -f "$ASSETS"

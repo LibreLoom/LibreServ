@@ -197,60 +197,14 @@ describe("AboutCategory", () => {
     );
   });
 
-  it("keeps Luna Connect closed and opens a device-token modal from Advanced", async () => {
-    const user = userEvent.setup();
+  it("keeps Advanced focused on updates, with Device token in Luna Connect", async () => {
     renderPage(stubFetch());
     await screen.findByText("Update source");
 
-    expect(screen.getByText("Set or remove the Luna Connect device token here.")).toBeTruthy();
+    expect(screen.queryByText("Set or remove the Luna Connect device token here.")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Change device token/i })).toBeNull();
     expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Save device token/i })).toBeNull();
-
-    const lunaConnectToggle = screen.getByRole("button", { name: /^Luna Connect$/i });
-    expect(lunaConnectToggle).toHaveAttribute("aria-expanded", "false");
-
-    await user.click(lunaConnectToggle);
-    expect(lunaConnectToggle).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(screen.getByRole("button", { name: /Change device token/i }));
-
-    expect(
-      await screen.findByText(/Paste your device token from/i),
-    ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "connect.luna.libreloom.org" })).toHaveAttribute(
-      "href",
-      "https://connect.luna.libreloom.org",
-    );
-    expect(screen.getByLabelText("Device token from Luna Connect")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Save device token/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
-  });
-
-  it("offers remove in the device-token modal when Connect is active", async () => {
-    const user = userEvent.setup();
-    const baseFetch = stubFetch();
-    const fetchImpl = vi.fn(async (path, options) => {
-      if (path.startsWith("/api/v1/connect/status")) {
-        return new Response(
-          JSON.stringify({
-            enabled: true,
-            connect_active: true,
-            hostname: "kitchen.luna.servers.libreloom.org",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return baseFetch(path, options);
-    });
-    renderPage(fetchImpl);
-    await screen.findByText("Update source");
-
-    await user.click(screen.getByRole("button", { name: /^Luna Connect$/i }));
-    await user.click(screen.getByRole("button", { name: /Change device token/i }));
-
-    expect(await screen.findByRole("button", { name: /Remove device token/i })).toBeTruthy();
-    expect(screen.getByLabelText("Device token from Luna Connect")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Turn Luna Connect off/i })).toBeNull();
+    expect(screen.getByText("Updates")).toBeTruthy();
   });
 
   it("opens a custom source with its own address and the custom-key hint", async () => {

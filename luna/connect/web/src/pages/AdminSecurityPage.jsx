@@ -257,7 +257,7 @@ export default function AdminSecurityPage() {
           <CardTitle className="flex items-center gap-2">
             <Users className="h-4 w-4" /> Admin accounts
           </CardTitle>
-          <CardDescription>People who can create device tokens and manage this Luna Connect site.</CardDescription>
+          <CardDescription>People who can create device identities and manage this Luna Connect site.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {adminsError && <p className="text-sm text-error">{adminsError}</p>}

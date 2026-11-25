@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -89,12 +90,13 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 		t.Fatalf("count %d", len(tokens))
 	}
 	for _, raw := range tokens {
-		s, _ := raw.(string)
-		if !security.IsOfficialShape(security.NormalizeToken(s)) {
-			t.Fatalf("token shape %q", s)
+		line, _ := raw.(string)
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !security.IsDeviceUIDShape(fields[0]) || !security.IsVerificationCodeShape(fields[1]) {
+			t.Fatalf("factory line shape %q", line)
 		}
-		if s != toUpperASCII(s) {
-			t.Fatalf("not upper %q", s)
+		if line != toUpperASCII(line) {
+			t.Fatalf("not upper %q", line)
 		}
 	}
 }

@@ -191,7 +191,7 @@ pub fn watch_link_up(
                 if should_wake_connect_poll(rising, acquired_ipv4)
                     && let Some(wake) = &wake_connect
                 {
-                    wake.wake();
+                    wake.wake_reconnect();
                 }
                 if !carrier {
                     last_attempt.remove(&name);

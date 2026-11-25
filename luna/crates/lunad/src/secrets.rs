@@ -28,6 +28,7 @@ fn write_secret_file(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
+    crate::datadir::sync_parent_directory(path)?;
     Ok(())
 }
 

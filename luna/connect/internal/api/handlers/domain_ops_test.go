@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,10 +17,11 @@ func TestSyncDeviceLocalPortUpdatesIngress(t *testing.T) {
 	config.C.Cloudflare.APIToken = "token"
 	config.C.Cloudflare.ZoneID = "zone"
 
-	devID, _ := mintDevice(t, d, "official")
+	devID, _, _ := mintDevice(t, d, "official")
+	insertBareAccount(t, d, "acct_sync")
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(
-		`UPDATE devices SET account_id = 'acct_sync', subdomain = 'syncbox', tunnel_id = 'tnl_sync', local_port = 8090, last_seen_at = ? WHERE id = ?`,
+		`UPDATE devices SET state = 'bound', account_id = 'acct_sync', subdomain = 'syncbox', tunnel_id = 'tnl_sync', local_port = 8090, last_seen_at = ? WHERE id = ?`,
 		now, devID,
 	)
 
@@ -43,13 +43,8 @@ func TestStatusSyncsLocalPortFromHeader(t *testing.T) {
 	cookie := registerAccount(t, acctH, "port@b.co")
 	verifyEmailFor(t, acctH, "port@b.co")
 
-	devID, code := mintDevice(t, d, "official")
-	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
-	bindReq.AddCookie(cookie)
-	bindRec := withVerifiedAccount(acctH, devH.Bind, bindReq)
-	if bindRec.Code != http.StatusOK {
-		t.Fatalf("bind %d %s", bindRec.Code, bindRec.Body.String())
-	}
+	_, uid, code := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
 
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(
@@ -58,7 +53,7 @@ func TestStatusSyncsLocalPortFromHeader(t *testing.T) {
 	)
 
 	stReq := httptest.NewRequest(http.MethodGet, "/status", nil)
-	stReq.Header.Set("Authorization", "Bearer "+code)
+	stReq.Header.Set("Authorization", "Bearer "+token)
 	stReq.Header.Set("X-Luna-Local-Port", "80")
 	stRec := httptest.NewRecorder()
 	devH.DeviceAuth(http.HandlerFunc(devH.Status)).ServeHTTP(stRec, stReq)

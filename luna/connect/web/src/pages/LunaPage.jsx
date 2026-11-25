@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { AlertCircle, Check, Copy, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api.js";
+import AccountPairingDetails from "../components/AccountPairingDetails.jsx";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
+import { formatDeviceUid } from "../lib/devicePairing.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const PUBLIC_ZONE = "luna.servers.libreloom.org";
+const DEVICE_STATES = new Set(["unbound", "pairing", "bound", "revoked"]);
 
 function subdomainOf(hostname) {
   const suffix = `.${PUBLIC_ZONE}`;
@@ -69,9 +72,10 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
         Use 3 to 32 letters, numbers, or dashes. The old address stops working at once, and Luna moves to the new one within about 5 minutes.
       </p>
       {error && (
-        <p className="text-sm text-error" role="alert">
-          {error}
-        </p>
+        <div className="rounded-large-element border border-error/30 bg-error/10 px-3 py-3 flex items-start gap-2" role="alert">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
+          <p className="text-sm text-foreground">{error}</p>
+        </div>
       )}
       <div className="flex flex-col sm:flex-row gap-2">
         <Button type="submit" loading={busy} disabled={trimmed.length < 3 || trimmed === current}>
@@ -85,71 +89,17 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
   );
 }
 
-function RevealTokenForm({ deviceId, onRevealed, onCancel }) {
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  async function reveal(e) {
-    e.preventDefault();
-    setError("");
-    setBusy(true);
-    try {
-      const res = await api(`/api/v1/account/devices/${encodeURIComponent(deviceId)}/code`, {
-        method: "POST",
-        body: JSON.stringify({ password }),
-      });
-      setPassword("");
-      onRevealed(res);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form
-      className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
-      data-testid="luna-reveal-token"
-      onSubmit={reveal}
-    >
-      <label htmlFor="luna-reveal-password" className="block font-mono text-xs text-muted-foreground">
-        Your Luna Connect password
-      </label>
-      <ShakeTarget shake={error} loading={busy}>
-        <Input
-          id="luna-reveal-password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoFocus
-          aria-invalid={error ? "true" : undefined}
-          aria-describedby="luna-reveal-hint"
-        />
-      </ShakeTarget>
-      <p id="luna-reveal-hint" className="text-sm leading-relaxed text-muted-foreground">
-        Anyone with the device token can take over this Luna's public address, so we check your password first.
-      </p>
-      {error && (
-        <p className="text-sm text-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <Button type="submit" loading={busy} disabled={!password}>
-          Show token
-        </Button>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function DeviceStatusRow({ online, codeHint }) {
+function DeviceStatusRow({ online, deviceUid, status }) {
+  const uid = formatDeviceUid(deviceUid || "");
+  const label = status === "pairing"
+    ? "Pairing"
+    : status === "revoked"
+      ? "Reconnect required"
+      : status === "bound"
+        ? online
+          ? "Online"
+          : "Offline"
+        : "Not paired";
   return (
     <div
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground"
@@ -157,16 +107,16 @@ function DeviceStatusRow({ online, codeHint }) {
     >
       <span
         className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-mono ${
-          online
+          status === "bound" && online
             ? "bg-success/20 border border-success/30 text-success"
             : "bg-accent/20 border border-border text-muted-foreground"
         }`}
       >
-        {online ? "Online" : "Offline"}
+        {label}
       </span>
-      {codeHint ? (
+      {uid ? (
         <span className="font-mono text-xs">
-          Device token <span className="text-foreground">{codeHint}</span>
+          Device ID <span className="text-foreground">{uid}</span>
         </span>
       ) : null}
     </div>
@@ -205,7 +155,7 @@ function HostnameHero({ hostname, copied, onCopy }) {
   );
 }
 
-function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnbindClick, onChangeAddress }) {
+function DeviceToolbar({ hostname, action, onChangeAddress }) {
   return (
     <div
       className="flex flex-wrap items-center gap-2 pt-4 border-t border-border"
@@ -224,12 +174,13 @@ function DeviceToolbar({ hostname, shownCode, confirmUnbind, onToggleCode, onUnb
           Change address
         </Button>
       ) : null}
-      <Button variant="outline" size="sm" onClick={onToggleCode}>
-        {shownCode ? "Hide token" : "Show token"}
-      </Button>
-      {!confirmUnbind ? (
-        <Button variant="outline" size="sm" onClick={onUnbindClick}>
-          Unbind Luna
+      {action ? (
+        <Button
+          variant={action.tone === "danger" ? "destructive" : "outline"}
+          size="sm"
+          onClick={action.onClick}
+        >
+          {action.label}
         </Button>
       ) : null}
     </div>
@@ -240,20 +191,27 @@ export default function LunaPage() {
   const { me, refreshMe } = useAuth();
   const [devices, setDevices] = useState([]);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [shownCode, setShownCode] = useState("");
-  const [unbinding, setUnbinding] = useState(false);
-  const [confirmUnbind, setConfirmUnbind] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoverPassword, setRecoverPassword] = useState("");
   const [copied, setCopied] = useState(null);
   const [changingAddress, setChangingAddress] = useState(false);
   const [addressNotice, setAddressNotice] = useState("");
-  const [tokenNotice, setTokenNotice] = useState("");
-  const [revealing, setRevealing] = useState(false);
 
   const load = useCallback(() => {
     return api("/api/v1/account/devices")
-      .then((d) => setDevices(d.devices || []))
-      .catch((err) => setError(err.message));
+      .then((data) => {
+        if (!Array.isArray(data?.devices)) {
+          throw new Error("Luna Connect could not read this account's Lunas. Try again.");
+        }
+        setDevices(data.devices);
+        setLoadError("");
+      })
+      .catch((err) => setLoadError(err.message));
   }, []);
 
   useEffect(() => {
@@ -265,32 +223,70 @@ export default function LunaPage() {
   }, [load]);
 
   const luna = devices[0] || null;
+  const state = luna && DEVICE_STATES.has(luna.state) ? luna.state : null;
+  const stateUnavailable = Boolean(luna && !state);
+  const disconnectState = state === "pairing" || state === "bound" ? state : null;
+  const publicHostname = state === "bound" ? (luna?.hostname || "") : "";
   const resumePath = me?.onboarding_path;
   const resumeStep = me?.onboarding_step;
-  const needsResume = resumePath && resumeStep && resumeStep !== "done" && !luna?.hostname;
+  const setupPath = resumePath === "diy" ? "/diyonboarding" : "/onboarding";
+  const needsResume = !loading && resumePath && resumeStep && resumeStep !== "done"
+    && !publicHostname && state !== "pairing" && state !== "revoked" && !stateUnavailable;
 
-  function onRevealed(res) {
-    setRevealing(false);
-    setShownCode(res.code || "");
-    setTokenNotice(
-      res.code ? "" : res.message || "The full device token is on the card that came with Luna.",
-    );
+  useEffect(() => {
+    if (!disconnectState) setConfirmDisconnect(false);
+    if (state !== "revoked") {
+      setRecoverOpen(false);
+      setRecoverPassword("");
+    }
+  }, [disconnectState, state]);
+
+  function reload() {
+    setLoading(true);
+    return load().finally(() => setLoading(false));
   }
 
-  async function unbind() {
-    if (!luna) return;
+  async function disconnect() {
+    if (!luna || !disconnectState) return;
     setError("");
-    setUnbinding(true);
+    setDisconnecting(true);
     try {
-      await api(`/api/v1/devices/${luna.id}`, { method: "DELETE" });
+      await api(`/api/v1/devices/${encodeURIComponent(luna.id)}`, { method: "DELETE" });
       setDevices([]);
-      setConfirmUnbind(false);
-      setShownCode("");
+      setConfirmDisconnect(false);
+      setChangingAddress(false);
+      setAddressNotice("");
       await refreshMe?.();
     } catch (err) {
       setError(err.message);
     } finally {
-      setUnbinding(false);
+      setDisconnecting(false);
+    }
+  }
+
+  async function recover(event) {
+    event.preventDefault();
+    if (!luna || state !== "revoked" || !recoverPassword) return;
+    setError("");
+    setRecovering(true);
+    try {
+      const result = await api(`/api/v1/devices/${encodeURIComponent(luna.id)}/recover`, {
+        method: "POST",
+        body: JSON.stringify({ password: recoverPassword }),
+        cache: "no-store",
+      });
+      if (!result?.pairing_id) {
+        throw new Error("Luna Connect did not start recovery. Try again.");
+      }
+      setRecoverOpen(false);
+      setRecoverPassword("");
+      setAddressNotice("Reconnect started. Luna needs to finish pairing on your home network.");
+      await load();
+      await refreshMe?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRecovering(false);
     }
   }
 
@@ -304,6 +300,39 @@ export default function LunaPage() {
     }
   }
 
+  const description = !luna
+    ? "One Luna on this account. Pair it with its Device ID and Verification code, then Luna picks up its address when it comes online."
+    : state === "pairing"
+      ? "Luna is waiting to finish pairing."
+      : state === "revoked"
+        ? "Reconnect this Luna to use remote access and cloud backup again."
+        : state === "bound"
+          ? "This Luna is connected to your account."
+          : "Luna Connect could not read this Luna's status.";
+
+  const toolbarAction = recoverOpen
+    ? null
+    : disconnectState
+      ? {
+          label: disconnectState === "pairing" ? "Cancel pairing" : "Disconnect",
+          tone: disconnectState === "bound" ? "danger" : "default",
+          onClick: () => {
+            setError("");
+            setConfirmDisconnect(true);
+          },
+        }
+      : state === "revoked"
+        ? {
+            label: "Reconnect",
+            tone: "default",
+            onClick: () => {
+              setError("");
+              setRecoverPassword("");
+              setRecoverOpen(true);
+            },
+          }
+        : null;
+
   return (
     <Layout>
       <h1 className="font-mono text-3xl mb-2">Devices</h1>
@@ -316,7 +345,7 @@ export default function LunaPage() {
               You still have setup to finish.
             </p>
             <Button asChild>
-              <Link to={resumePath === "diy" ? "/diyonboarding" : "/onboarding"}>Resume setup</Link>
+              <Link to={setupPath}>Resume setup</Link>
             </Button>
           </CardContent>
         </Card>
@@ -325,16 +354,22 @@ export default function LunaPage() {
       <Card className="animate-fade-in-up" data-testid="luna-device-card">
         <CardHeader>
           <CardTitle>My Luna</CardTitle>
-          <CardDescription>
-            One Luna on this account. Link it with your device token, then Luna picks up its address when it comes online.
-          </CardDescription>
+          <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
             <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading…</p>
+          ) : loadError ? (
+            <div className="rounded-large-element border border-error/30 bg-error/10 px-4 py-4 space-y-3" role="alert">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
+                <p className="text-sm text-foreground">{loadError}</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={reload}>Try again</Button>
+            </div>
           ) : !luna ? (
             <div className="rounded-large-element border border-dashed border-border px-6 py-10 text-center space-y-3">
-              <p className="font-mono text-sm">No Luna linked yet.</p>
+              <p className="font-mono text-sm">No Luna paired yet.</p>
               <div className="flex flex-col sm:flex-row gap-2 justify-center">
                 <Button asChild>
                   <Link to="/onboarding">Start setup</Link>
@@ -344,13 +379,21 @@ export default function LunaPage() {
                 </Button>
               </div>
             </div>
+          ) : stateUnavailable ? (
+            <div className="rounded-large-element border border-error/30 bg-error/10 px-4 py-4 space-y-3" role="alert" data-testid="luna-state-unavailable">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
+                <p className="text-sm text-foreground">Luna Connect could not read this Luna&apos;s status. Refresh and try again.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={reload}>Try again</Button>
+            </div>
           ) : (
             <div className="space-y-4">
-              <DeviceStatusRow online={luna.online} codeHint={luna.code_hint} />
+              <DeviceStatusRow online={luna.online} deviceUid={luna.device_uid} status={state} />
 
-              {luna.hostname ? (
+              {publicHostname ? (
                 <HostnameHero
-                  hostname={luna.hostname}
+                  hostname={publicHostname}
                   copied={copied}
                   onCopy={copyText}
                 />
@@ -360,53 +403,45 @@ export default function LunaPage() {
                   data-testid="luna-hostname-pending"
                 >
                   <p className="text-sm text-muted-foreground">
-                    Linked, but no address yet.{" "}
-                    <Link className="underline text-foreground" to="/onboarding">
-                      Finish setup
-                    </Link>
+                    {state === "revoked"
+                      ? "Reconnect this Luna before using remote access or cloud backup."
+                      : state === "pairing"
+                        ? "Waiting for Luna to finish pairing. Keep Luna on and connected to the internet."
+                        : state === "bound"
+                          ? "Paired, but no address yet."
+                          : "This Luna is not paired to your account."}
+                    {state === "bound" ? (
+                      <>
+                        {" "}<Link className="underline text-foreground" to={setupPath}>Finish setup</Link>
+                      </>
+                    ) : null}
                   </p>
                 </div>
               )}
 
+              {state === "pairing" || state === "bound" || state === "revoked" ? (
+                <AccountPairingDetails key={luna.id} deviceId={luna.id} />
+              ) : null}
+
               <DeviceToolbar
-                hostname={luna.hostname}
-                shownCode={shownCode || tokenNotice}
-                confirmUnbind={confirmUnbind}
-                onToggleCode={() => {
-                  if (shownCode || tokenNotice) {
-                    setShownCode("");
-                    setTokenNotice("");
-                    setCopied(null);
-                    return;
-                  }
-                  setError("");
-                  setRevealing((open) => !open);
-                }}
-                onUnbindClick={() => setConfirmUnbind(true)}
+                hostname={publicHostname}
+                action={toolbarAction}
                 onChangeAddress={() => {
                   setAddressNotice("");
                   setChangingAddress(true);
                 }}
               />
 
-              {revealing && !shownCode && !tokenNotice && (
-                <RevealTokenForm
-                  deviceId={luna.id}
-                  onRevealed={onRevealed}
-                  onCancel={() => setRevealing(false)}
-                />
-              )}
-
               {addressNotice && !changingAddress && (
-                <p className="text-sm leading-relaxed" role="status">
+                <p className="text-sm leading-relaxed text-foreground" role="status">
                   {addressNotice}
                 </p>
               )}
 
-              {changingAddress && luna.hostname && (
+              {changingAddress && publicHostname && (
                 <ChangeAddressForm
                   deviceId={luna.id}
-                  hostname={luna.hostname}
+                  hostname={publicHostname}
                   onCancel={() => setChangingAddress(false)}
                   onSaved={async (newHostname) => {
                     await load();
@@ -416,50 +451,72 @@ export default function LunaPage() {
                 />
               )}
 
-              {confirmUnbind && (
+              {confirmDisconnect && disconnectState && (
                 <div
                   className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
-                  data-testid="luna-unbind-confirm"
+                  data-testid="luna-disconnect-confirm"
                 >
-                  <p className="text-sm leading-relaxed">
-                    The public address stops working. Cloud backups stay on this account, and you pay for them until you turn off payment in Cloud backups. Anyone with this device token can link this Luna again later.
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {disconnectState === "pairing"
+                      ? "This cancels the pairing attempt. Luna keeps its Device ID and Verification code, and you can pair it again later."
+                      : "This disconnects Luna from your account, and you can pair it again later with its Device ID and Verification code. Cloud backups stay on this account, and you keep paying for them until you turn off payment in Cloud backups."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Button variant="destructive" loading={unbinding} onClick={unbind}>
-                      Unbind Luna
+                    <Button variant="destructive" loading={disconnecting} onClick={disconnect}>
+                      {disconnectState === "pairing" ? "Cancel pairing" : "Disconnect"}
                     </Button>
-                    <Button variant="outline" onClick={() => setConfirmUnbind(false)}>
-                      Keep this Luna
+                    <Button variant="outline" disabled={disconnecting} onClick={() => setConfirmDisconnect(false)}>
+                      {disconnectState === "pairing" ? "Keep pairing" : "Keep this Luna"}
                     </Button>
                   </div>
                 </div>
               )}
+
+              {recoverOpen && state === "revoked" ? (
+                <form
+                  className="rounded-large-element bg-muted border border-border px-4 py-4 space-y-3"
+                  data-testid="luna-recover-form"
+                  onSubmit={recover}
+                >
+                  <p className="text-sm leading-relaxed text-foreground">
+                    Enter your Luna Connect account password to start pairing again. If Luna&apos;s Verification code was removed, restore it in Settings → Luna Connect → Device token first.
+                  </p>
+                  <label htmlFor="luna-recover-password" className="block text-sm">
+                    Luna Connect password
+                  </label>
+                  <Input
+                    id="luna-recover-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={recoverPassword}
+                    onChange={(event) => setRecoverPassword(event.target.value)}
+                    required
+                    disabled={recovering}
+                    autoFocus
+                  />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button type="submit" loading={recovering} disabled={!recoverPassword}>
+                      Reconnect
+                    </Button>
+                    <Button type="button" variant="outline" disabled={recovering} onClick={() => {
+                      setRecoverOpen(false);
+                      setRecoverPassword("");
+                      setError("");
+                    }}>
+                      Keep disconnected
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
             </div>
           )}
 
-          {shownCode && (
-            <div
-              className="rounded-large-element bg-muted border border-border px-5 py-4 space-y-3"
-              data-testid="luna-device-token"
-            >
-              <p className="font-mono text-xs text-muted-foreground">
-                Device token
-              </p>
-              <p className="font-mono text-xl tracking-widest break-all">{shownCode}</p>
-              <Button variant="secondary" onClick={() => copyText(shownCode, "token")}>
-                <Copy className="h-4 w-4" />
-                {copied === "token" ? "Copied" : "Copy token"}
-              </Button>
+          {error && (
+            <div className="rounded-large-element border border-error/30 bg-error/10 px-3 py-3 flex items-start gap-2" role="alert">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
+              <p className="text-sm text-foreground">{error}</p>
             </div>
           )}
-
-          {tokenNotice && (
-            <p className="text-sm leading-relaxed" role="status">
-              {tokenNotice}
-            </p>
-          )}
-
-          {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>
     </Layout>

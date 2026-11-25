@@ -125,7 +125,8 @@ pub struct ConsoleSnapshot {
     pub ipv4: Vec<String>,
     pub cable_in: bool,
     pub has_default_route: bool,
-    pub device_code: Option<String>,
+    pub device_uid: Option<String>,
+    pub verification_code: Option<String>,
     pub connect_hostname: Option<String>,
     /// User-facing problems, highest priority first. Empty means healthy.
     pub problems: Vec<String>,
@@ -178,7 +179,14 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         lines.push("  into your router or modem.".into());
     }
     let token_problem = snap.problems.iter().any(|p| {
-        p.contains("device token") || p.contains("Device token") || p.contains("Settings → About")
+        let lower = p.to_ascii_lowercase();
+        lower.contains("device token")
+            || lower.contains("device id")
+            || lower.contains("verification code")
+            || lower.contains("settings → about")
+            || lower.contains("no longer accepts")
+            || lower.contains("reconnect")
+            || lower.contains("disconnecting")
     });
 
     if !snap.ipv4.is_empty() && snap.cable_in && !snap.has_default_route {
@@ -202,13 +210,23 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
         }
     }
 
-    // Keep showing the device token after setup / Connect claim — HDMI is
-    // local-only, and the token is the durable identity for recovery and re-bind.
-    if !token_problem && let Some(code) = &snap.device_code {
+    // HDMI is local-only. Show the two pairing fields, never the rolling
+    // credential, so someone can pair or recover this Luna in Luna Connect.
+    if !token_problem && snap.device_uid.is_some() {
         lines.push(String::new());
         lines.push("  Device token (for Luna Connect):".into());
-        lines.push(format!("    {}", console_safe(code)));
-        lines.push("  Type it at connect.luna.libreloom.org".into());
+        if let Some(uid) = &snap.device_uid {
+            lines.push(format!("    Device ID: {}", console_safe(uid)));
+        }
+        if let Some(code) = &snap.verification_code {
+            lines.push(format!("    Verification code: {}", console_safe(code)));
+            lines.push("  Enter both at connect.luna.libreloom.org".into());
+        } else {
+            lines.push(
+                "  Verification code removed. Recover it in Luna Connect before pairing again."
+                    .into(),
+            );
+        }
     }
 
     lines.push(String::new());
@@ -218,7 +236,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     );
     lines.push("  Local shell: type root, press Enter at password.".into());
     lines.push(
-        "  Forgot the Luna password? Start Luna with a USB flash drive that holds only luna-recover-<token>.luna.".into(),
+        "  Forgot the Luna password? Start Luna with a USB flash drive that holds only luna-recover.luna.".into(),
     );
     lines.push("============================================================".into());
     lines.push(String::new());
@@ -339,14 +357,15 @@ pub fn watch_db(conn: &mut rusqlite::Connection) {
 /// The Connect fields the screen shows. The Connect poll loop keeps the last
 /// one and asks for a look when it changes.
 #[derive(Default)]
-pub struct ConnectShown(Option<[Option<String>; 5]>);
+pub struct ConnectShown(Option<[Option<String>; 6]>);
 
 impl ConnectShown {
     pub fn note(&mut self, st: &crate::net::connect::ConnectStatus) {
         let now = [
-            st.device_code.clone(),
+            st.device_uid.clone(),
+            st.verification_code.clone(),
             st.hostname.clone(),
-            st.device_token_error.clone(),
+            st.connect_error.clone(),
             st.connect_unreachable.clone(),
             st.tunnel_error.clone(),
         ];
@@ -413,7 +432,7 @@ pub fn snapshot(
     let st = connect.status();
     let mut problems: Vec<String> = Vec::new();
 
-    if let Some(err) = st.device_token_error.clone() {
+    if let Some(err) = st.connect_error.clone() {
         problems.push(err);
     }
     if let Some(err) = st.connect_unreachable.clone() {
@@ -481,7 +500,8 @@ pub fn snapshot(
         ipv4: net.ipv4,
         cable_in: net.ethernet_connected,
         has_default_route: net.has_default_route,
-        device_code: st.device_code,
+        device_uid: st.device_uid,
+        verification_code: st.verification_code,
         connect_hostname: st.hostname,
         problems,
     }
@@ -497,7 +517,7 @@ mod tests {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            device_code: Some("ABCD-EFGH".into()),
+            device_uid: Some("ABCD-EFGH".into()),
             connect_hostname: None,
             problems: vec![],
         });
@@ -505,6 +525,8 @@ mod tests {
         assert!(text.contains("http://luna.local"));
         assert!(text.contains("ABCD-EFGH"));
         assert!(text.contains(BANNER_OK));
+        assert!(text.contains("luna-recover.luna"));
+        assert!(!text.contains("luna-recover-<"));
         assert!(!text.contains("169.254.42.42"));
         assert!(!text.contains("Luna Setup"));
     }
@@ -564,46 +586,38 @@ mod tests {
     }
 
     #[test]
-    fn device_token_error_hides_device_code_and_remote() {
+    fn connect_error_hides_pairing_fields_and_remote() {
         let text = help_text(&ConsoleSnapshot {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            device_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            device_uid: Some("7K4M-2Q9X-R8N3-6T5W-1PZH".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
-            problems: vec![crate::net::connect::DEVICE_TOKEN_REJECTED_MSG.into()],
+            problems: vec![crate::net::connect::CREDENTIAL_REJECTED_MSG.into()],
         });
         let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            flat.contains("did not accept this device token"),
-            "flat={flat}"
-        );
-        assert!(
-            flat.contains("Settings") && flat.contains("About") && flat.contains("Advanced"),
+            flat.contains("no longer accepts this Luna's connection"),
             "flat={flat}"
         );
         assert!(flat.contains("192.168.1.20"));
-        assert!(
-            !text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"),
-            "rejected token must not be shown as a working device token"
-        );
-        assert!(
-            !text.contains("photos.luna.servers.libreloom.org"),
-            "rejected token must not advertise remote access"
-        );
+        assert!(!text.contains("7K4M-2Q9X-R8N3-6T5W-1PZH"));
+        assert!(!text.contains("photos.luna.servers.libreloom.org"));
     }
 
     #[test]
-    fn device_token_still_shown_after_connect_claim() {
+    fn pairing_fields_are_still_shown_after_connect_claim() {
         let text = help_text(&ConsoleSnapshot {
             ipv4: vec!["192.168.1.20".into()],
             cable_in: true,
             has_default_route: true,
-            device_code: Some("ABCD-EFGH-JKMN-PQRS-TVWX".into()),
+            device_uid: Some("7K4M-2Q9X-R8N3-6T5W-1PZH".into()),
+            verification_code: Some("A3F91C".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
             problems: vec![],
         });
-        assert!(text.contains("ABCD-EFGH-JKMN-PQRS-TVWX"));
+        assert!(text.contains("7K4M-2Q9X-R8N3-6T5W-1PZH"));
+        assert!(text.contains("Verification code: A3F91C"));
         assert!(text.contains("Device token (for Luna Connect)"));
         assert!(text.contains("connect.luna.libreloom.org"));
         assert!(text.contains("photos.luna.servers.libreloom.org"));

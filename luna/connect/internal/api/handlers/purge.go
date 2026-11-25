@@ -14,8 +14,8 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
 
-// purgeDeviceToken disconnects a Luna from its account, tears down tunnel/DNS,
-// archives active backup bindings, and removes the device row. Cloud backup
+// purgeDeviceToken invalidates the Luna's credential, disconnects it from its
+// account, tears down tunnel/DNS, and removes the device row. Cloud backup
 // objects and archived bindings are kept for retention.
 func purgeDeviceToken(deps Deps, deviceID string) error {
 	var account sql.NullString
@@ -32,13 +32,15 @@ FROM devices WHERE id = ?`, deviceID).
 	}
 
 	if account.Valid && account.String != "" {
-		unbindDevice(deps, Device{
+		if err := unbindDevice(deps, Device{
 			ID:        deviceID,
 			AccountID: account,
 			Subdomain: sub,
 			TunnelID:  tunnelID,
 			Name:      name,
-		}, account.String)
+		}, account.String); err != nil {
+			return err
+		}
 	} else {
 		teardownDeviceRemote(deps, sub, tunnelID)
 	}
@@ -55,7 +57,7 @@ FROM devices WHERE id = ?`, deviceID).
 }
 
 // unlinkDeviceFromAccount frees a Luna from its account and tears down its
-// tunnel and address, but keeps the device token row.
+// tunnel and address, but keeps its UID and verification code.
 func unlinkDeviceFromAccount(deps Deps, deviceID string) error {
 	var account sql.NullString
 	var sub, tunnelID, name string
@@ -68,12 +70,15 @@ FROM devices WHERE id = ?`, deviceID).Scan(&account, &sub, &tunnelID, &name)
 	if err != nil {
 		return err
 	}
-	unbindDevice(deps, Device{ID: deviceID, AccountID: account, Subdomain: sub, TunnelID: tunnelID, Name: name}, account.String)
-	return nil
+	return unbindDevice(deps, Device{ID: deviceID, AccountID: account, Subdomain: sub, TunnelID: tunnelID, Name: name}, account.String)
 }
 
 func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	providers.RefreshCloudflare()
+	teardownDeviceRemoteWithConfig(deps, subdomain, tunnelID)
+}
+
+func teardownDeviceRemoteWithConfig(deps Deps, subdomain, tunnelID string) {
 	cf := config.Cloudflare()
 	if deps.Tunnel != nil && tunnelID != "" {
 		if err := deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tunnelID); err != nil {
@@ -88,7 +93,7 @@ func teardownDeviceRemote(deps Deps, subdomain, tunnelID string) {
 	}
 }
 
-// deleteCustomerAccount unlinks every Luna (their device tokens stay), clears
+// deleteCustomerAccount unlinks every Luna (their identities stay), clears
 // sign-in sessions and billing metadata, deletes the account's cloud storage and
 // removes the account row.
 func deleteCustomerAccount(deps Deps, accountID string) error {
@@ -129,8 +134,8 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 	}
 	rows.Close()
 
-	// A device token belongs to the Luna, not the account: unlink each Luna
-	// (tunnel, DNS, account link) but keep its token so it can be linked again.
+	// A device identity belongs to the Luna, not the account: unlink each Luna
+	// (tunnel, DNS, account link) but keep its UID and verification code.
 	for _, id := range deviceIDs {
 		if err := unlinkDeviceFromAccount(deps, id); err != nil {
 			return err

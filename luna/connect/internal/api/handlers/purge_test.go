@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestPurgeDeviceCodeBoundDevice(t *testing.T) {
@@ -21,11 +20,11 @@ func TestPurgeDeviceCodeBoundDevice(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_purge', 'purge@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "order-purge")
+	devID, uid, _, err := insertDeviceIdentity(d.DB, "official", "order-purge")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_purge', subdomain = 'purgebox', tunnel_id = 'tnl_test' WHERE id = ?`, devID)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_purge', subdomain = 'purgebox', tunnel_id = 'tnl_test' WHERE id = ?`, devID)
 	_, _ = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES ('acct_purge', 'luna-purge', ?, '', 0, ?)`, devID, now)
 	_, _ = d.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend) VALUES ('acct_purge', 'luna-purge', ?, '', 42, ?, 'local')`, strings.Repeat("a", 64), now)
 	_, _ = d.DB.Exec(`INSERT INTO device_backup_buckets (device_id, bucket_name, bucket_id, endpoint, key_id, application_key_sealed, provisioned_at)
@@ -66,7 +65,7 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 	}
 
 	stReq := httptest.NewRequest(http.MethodGet, "/status", nil)
-	stReq.Header.Set("Authorization", "Bearer "+code)
+	stReq.Header.Set("Authorization", "Bearer "+uid)
 	stRec := httptest.NewRecorder()
 	devH.DeviceAuth(http.HandlerFunc(devH.Status)).ServeHTTP(stRec, stReq)
 	if stRec.Code != http.StatusUnauthorized {
@@ -77,7 +76,7 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 func TestPurgeDeviceCodeUnboundRevokesInsteadOfConflict(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +96,6 @@ func TestPurgeDeviceCodeUnboundRevokesInsteadOfConflict(t *testing.T) {
 	if count != 0 {
 		t.Fatal("unbound token row should be deleted")
 	}
-	_ = code
 }
 
 func TestDeleteAccountRemovesStorage(t *testing.T) {
@@ -110,11 +108,11 @@ VALUES ('acct_del', 'del@b.co', 'x', 0, 'none', 1, ?)`, now)
 	_, _ = d.DB.Exec(`INSERT INTO sessions (token_hash, account_id, expires_at) VALUES ('hash1', 'acct_del', ?)`, now+3600)
 	_, _ = d.DB.Exec(`INSERT INTO billing_storage_samples (account_id, period_ym, sampled_at, stored_bytes) VALUES ('acct_del', '2026-01', ?, 100)`, now)
 
-	devID, _, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_del' WHERE id = ?`, devID)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_del' WHERE id = ?`, devID)
 	_, _ = d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at) VALUES ('acct_del', 'luna-del', ?, '', 0, ?)`, devID, now)
 	_, _ = d.DB.Exec(`INSERT INTO storage_packs (account_id, luna_id, id, scope, size, created_at, storage_backend) VALUES ('acct_del', 'luna-del', ?, '', 9, ?, 'local')`, strings.Repeat("b", 64), now)
 
@@ -189,11 +187,11 @@ func TestUnlinkDeviceCodeKeepsToken(t *testing.T) {
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_unlink', 'unlink@b.co', 'x', 0, 'none', 1, ?)`, now)
-	devID, code, err := insertPermanentDevice(d.DB, "official", security.OfficialDeviceToken(), "")
+	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET account_id = 'acct_unlink', subdomain = 'unlinkbox' WHERE id = ?`, devID)
+	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_unlink', subdomain = 'unlinkbox' WHERE id = ?`, devID)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/unlink", nil)
 	rctx := chi.NewRouteContext()
@@ -212,7 +210,6 @@ VALUES ('acct_unlink', 'unlink@b.co', 'x', 0, 'none', 1, ?)`, now)
 	if acct != nil || sub != nil || revoked != 0 {
 		t.Fatalf("want unlinked and usable, got account=%v sub=%v revoked=%d", acct, sub, revoked)
 	}
-	_ = code
 
 	rec = httptest.NewRecorder()
 	h.UnlinkDeviceCode(rec, req)

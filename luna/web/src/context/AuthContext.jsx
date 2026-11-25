@@ -115,11 +115,10 @@ export function AuthProvider({ children }) {
     return () => {
       alive = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
 
   // Any API call that comes back 401 lands here. Ask /auth/me whether the
-  // session really ended (a 401 can also be a wrong password or device token);
+  // session really ended (a 401 can also be a wrong password or setup grant);
   // if it did, drop the user so RequireAuth shows the sign-in form in place of
   // this page — the URL never moves, so every open tab keeps its place and
   // returns to it after signing in.
@@ -156,13 +155,13 @@ export function AuthProvider({ children }) {
     return me;
   }, []);
 
-  const register = useCallback(async (username, displayName, password, setupSecret) => {
+  const register = useCallback(async (username, displayName, password, setupGrant) => {
     const body = {
       username,
       display_name: displayName,
       password,
     };
-    if (setupSecret) body.setup_secret = setupSecret;
+    if (setupGrant) body.setup_grant = setupGrant;
     const created = await postJson("/api/v1/auth/register", body);
     return created;
   }, []);

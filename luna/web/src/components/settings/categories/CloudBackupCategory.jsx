@@ -5,7 +5,6 @@ import { Link } from "react-router-dom";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
-import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
@@ -14,6 +13,7 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
 import { backupWaitingReason } from "../../../lib/backupRows.js";
+import { connectState } from "../../../lib/connectState.js";
 import { formatBytes } from "../../../lib/formatBytes.js";
 import { useOptionalAuth } from "../../../context/AuthContext";
 import useConnectActive from "../../../hooks/useConnectActive";
@@ -126,13 +126,15 @@ export default function CloudBackupCategory() {
 
   const auth = useOptionalAuth();
   const isAdmin = auth?.user?.role === "admin";
-  // Members can't read /connect/status, so "linked" comes from the status everyone can read.
+  // The public status carries the state needed to explain pending and revoked
+  // Cloud backup hints; only an Admin receives the Verification code in it.
   const connected = useConnectActive();
   const connect = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
-    enabled: isAdmin && connected,
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
+    retry: false,
   });
+  const state = connectState(connect.data);
   const cloudQuery = useQuery({
     queryKey: ["cloud-backups"],
     queryFn: () => getJson("/api/v1/cloud/backups"),
@@ -242,19 +244,20 @@ export default function CloudBackupCategory() {
           {!connected ? (
             <div className="space-y-2">
               <p className="text-primary text-sm">
-                {isAdmin ? (
-                  <>
-                    Cloud backup needs Luna Connect. Add your device token in{" "}
-                    <PathTrail steps={["Settings", "About", "Advanced"]} />.
-                  </>
-                ) : (
-                  "Cloud backup needs Luna Connect. An Admin can turn it on."
-                )}
+                {state === "loading"
+                  ? "Checking Luna Connect…"
+                  : state === "pending"
+                    ? "Cloud backup stays off until Luna finishes disconnecting."
+                  : state === "revoked"
+                    ? "Reconnect this Luna in Luna Connect before turning on cloud backup."
+                    : isAdmin
+                      ? "Cloud backup needs Luna Connect. Pair this Luna with its Device ID and Verification code."
+                      : "Cloud backup needs Luna Connect. An Admin can pair this Luna."}
               </p>
               {isAdmin && (
                 <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to="/settings#about">
-                    <span>Open Advanced</span>
+                  <Link to="/settings#luna_connect">
+                    <span>Open Device token</span>
                     <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
                   </Link>
                 </Button>

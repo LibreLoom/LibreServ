@@ -26,7 +26,7 @@ describe("AdminLayout", () => {
     expect(screen.getByTestId("admin-layout")).toBeTruthy();
     expect(screen.getByText("Admin")).toBeTruthy();
     expect(screen.getByText("Dashboard")).toBeTruthy();
-    expect(screen.getByText("Device tokens")).toBeTruthy();
+    expect(screen.getByText("Device identities")).toBeTruthy();
     expect(screen.queryByText("Devices")).toBeNull();
     expect(screen.getByText("Accounts")).toBeTruthy();
     expect(screen.getByText("Security")).toBeTruthy();

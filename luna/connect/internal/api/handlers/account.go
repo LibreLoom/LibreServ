@@ -388,7 +388,7 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT id, COALESCE(name,''), COALESCE(subdomain,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
+	rows, err := h.DB.Query(`SELECT id, COALESCE(device_uid,''), COALESCE(state,'unbound'), COALESCE(name,''), COALESCE(subdomain,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not load this Luna.")
 		return
@@ -397,16 +397,18 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, sub, hint, kind string
+		var id, uid, state, name, sub, hint, kind string
 		var lastSeen int64
-		_ = rows.Scan(&id, &name, &sub, &hint, &lastSeen, &kind)
+		_ = rows.Scan(&id, &uid, &state, &name, &sub, &hint, &lastSeen, &kind)
 		item := map[string]any{
 			"id":           id,
+			"device_uid":   security.GroupCrockford(uid),
+			"state":        state,
 			"name":         name,
 			"kind":         kind,
 			"code_hint":    hint,
 			"last_seen_at": lastSeen,
-			"online":       lastSeen > 0 && now-lastSeen <= OnlineWithinSec,
+			"online":       state == "bound" && lastSeen > 0 && now-lastSeen <= OnlineWithinSec,
 			"subdomain":    sub,
 		}
 		if sub != "" {
@@ -418,15 +420,14 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 }
 
 // revealWrongPassword is the answer when the step-up password does not match.
-const revealWrongPassword = "That password is wrong. The device token was not shown."
+const revealWrongPassword = "That password is wrong. The pairing details were not shown."
 
-// RevealDeviceCode returns the full device token of a Luna on this account.
-// The token unlocks the Luna's tunnel, so a session alone is not enough: the
-// request is a POST (so CSRF and Origin checks apply) and carries the
-// account's current password. Wrong passwords are charged to the same
-// per-address and per-account buckets as sign-in, so this route is never a
-// cheaper way to guess a password than /account/login.
+// RevealDeviceCode returns the public Device ID and reusable verification code
+// for a Luna on this account. The rolling credential is never returned. The
+// request is a POST (so CSRF and Origin checks apply) and carries the account's
+// current password; wrong passwords share sign-in's persisted limits.
 func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
 	if !ok {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
@@ -437,7 +438,7 @@ func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request)
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "Enter your password to see the device token.")
+		JSONError(w, http.StatusBadRequest, "Enter your password to see the pairing details.")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(acct.Email))
@@ -473,28 +474,24 @@ func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request)
 	clearSignInAccountAttempts(h.DB, accountKey)
 
 	id := chi.URLParam(r, "deviceID")
-	var hint, sealed string
+	var hint, sealed, uid string
 	var account sql.NullString
-	err = h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(code_sealed,''), account_id FROM devices WHERE id = ?`, id).Scan(&hint, &sealed, &account)
+	err = h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(verification_code_sealed,''), COALESCE(device_uid,''), account_id FROM devices WHERE id = ?`, id).Scan(&hint, &sealed, &uid, &account)
 	if err != nil || !account.Valid || account.String != acct.ID {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
 	}
-	if sealed == "" {
-		// Older records keep only a hint; the full token is on the card.
-		JSON(w, http.StatusOK, map[string]any{
-			"code_hint": hint,
-			"message":   "The full device token is on your quick-start card. We only keep a short hint here for older records.",
-		})
+	if sealed == "" || uid == "" {
+		JSONError(w, http.StatusConflict, "This Luna needs new pairing details from support.")
 		return
 	}
 	code, err := security.OpenString(sealed)
-	if err != nil || code == "" {
-		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Contact support.")
+	if err != nil || !security.IsVerificationCodeShape(code) {
+		JSONError(w, http.StatusInternalServerError, "Could not read the pairing details. Contact support.")
 		return
 	}
-	slog.Info("device token revealed", "account_id", acct.ID, "device_id", id)
-	JSON(w, http.StatusOK, map[string]any{"code": code, "code_hint": hint})
+	slog.Info("device pairing details revealed", "account_id", acct.ID, "device_id", id)
+	JSON(w, http.StatusOK, map[string]any{"device_uid": security.GroupCrockford(uid), "verification_code": code, "code_hint": hint})
 }
 
 func (h AccountHandler) setSession(w http.ResponseWriter, accountID string) {

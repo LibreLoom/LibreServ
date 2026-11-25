@@ -99,13 +99,13 @@ func (h AccountHandler) DeviceSetupReadiness(w http.ResponseWriter, r *http.Requ
 	}
 	deviceID := chi.URLParam(r, "deviceID")
 	var accountID string
-	var sub, tunnelID string
+	var sub, tunnelID, state string
 	var lastSeen int64
 	err := h.DB.QueryRow(
-		`SELECT account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(last_seen_at,0) FROM devices WHERE id = ?`,
+		`SELECT account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(last_seen_at,0), COALESCE(state,'unbound') FROM devices WHERE id = ?`,
 		deviceID,
-	).Scan(&accountID, &sub, &tunnelID, &lastSeen)
-	if err != nil || accountID != acct.ID {
+	).Scan(&accountID, &sub, &tunnelID, &lastSeen, &state)
+	if err != nil || accountID != acct.ID || state != "bound" {
 		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
 		return
 	}
