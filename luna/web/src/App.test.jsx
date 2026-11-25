@@ -7,7 +7,7 @@ import {
 import { LunaUnreachableNotice } from "./App.jsx";
 
 describe("LunaUnreachableNotice", () => {
-  it("explains the outage and skips to the notice, not the main landmark it sits in", () => {
+  it("explains the outage and skips to the focusable main landmark", () => {
     const { container } = render(<LunaUnreachableNotice />);
 
     expect(screen.getByText("Luna")).toBeInTheDocument();
@@ -17,12 +17,12 @@ describe("LunaUnreachableNotice", () => {
 
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(skip).toHaveAttribute("href", "#unreachable-content");
-    // The link is outside <main>, and its target is the inner notice content
-    // rather than the <main> landmark the link used to point at.
-    expect(screen.getByRole("main")).not.toContainElement(skip);
-    const target = container.querySelector("#unreachable-content");
-    expect(target).toBeInTheDocument();
-    expect(target).not.toBe(screen.getByRole("main"));
+    // The link is outside <main>, and its target is the focusable <main>
+    // landmark itself so keyboard and screen-reader focus really moves.
+    const main = screen.getByRole("main");
+    expect(main).not.toContainElement(skip);
+    expect(container.querySelector("#unreachable-content")).toBe(main);
+    expect(main).toHaveAttribute("tabindex", "-1");
   });
 
   it("renders the notice with no surface or contrast mismatch", () => {

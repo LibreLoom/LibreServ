@@ -51,15 +51,16 @@ const queryClient = new QueryClient({
 export function LunaUnreachableNotice() {
   return (
     <>
-      {/* Skip link sits before <main> and lands on the notice, not the
-          landmark it already lives in — see AppShell for the same shape. */}
+      {/* Skip link sits before <main> and lands on the focusable landmark,
+          the same shape every other page in the app uses. */}
       <a href="#unreachable-content" className="skip-link">Skip to main content</a>
       <main
+        id="unreachable-content"
         data-slot="luna-unreachable"
         className="fixed inset-0 grid place-items-center surface-primary px-4"
         tabIndex={-1}
       >
-        <div id="unreachable-content" className="w-full max-w-lg">
+        <div className="w-full max-w-lg">
           <PageNotice variant="info" surface="secondary">
             <p className="text-primary font-mono text-xl font-normal text-center mb-2">Luna</p>
             <p className="text-primary text-sm text-center">
