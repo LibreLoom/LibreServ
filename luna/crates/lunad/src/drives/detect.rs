@@ -64,12 +64,24 @@ impl DetectedDrive {
 }
 
 pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
+    let live_root = root_block_device();
+    scan_with_live_root(sys_block, proc_mounts, live_root.as_deref())
+}
+
+/// `scan`, with the device backing `/` supplied instead of looked up here:
+/// tests scan a made-up sysfs, and the machine running them boots from
+/// whatever disk it happens to boot from.
+pub fn scan_with_live_root(
+    sys_block: &Path,
+    proc_mounts: &str,
+    live_root: Option<&str>,
+) -> Vec<DetectedDrive> {
     let mounts = parse_mounts(proc_mounts);
     // The device that carries the running OS (the `/` mount and its parent
     // disk) must never be offered up for adoption — adopting it would let Luna
     // write a `.luna` marker at the system root and then recursively walk,
     // hash, protect and thumbnail the whole OS. Same for anything mounted at `/`.
-    let system_devices = system_devices(proc_mounts);
+    let system_devices = system_devices(proc_mounts, live_root);
     let mut drives = Vec::new();
     let Ok(entries) = std::fs::read_dir(sys_block) else {
         return drives;
@@ -146,8 +158,23 @@ fn merge_mock_drives(
 
 /// Names of the block devices backing the running OS root (`/`) — the exact
 /// device and its parent disk (so `sda1` → `sda` is covered).
-fn system_devices(proc_mounts: &str) -> Vec<String> {
-    let mut out = Vec::new();
+///
+/// A root mounted by label or PARTLABEL (`root=PARTLABEL=LUNA_A`, what the
+/// Luna OS image ships) has no name for the kernel to report there: it reads
+/// `/dev/root`. `live_root`, resolved by `root_block_device`, fills that gap.
+fn system_devices(proc_mounts: &str, live_root: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let push = |dev: &str, out: &mut Vec<String>| {
+        if dev.is_empty() || out.iter().any(|d| d == dev) {
+            return;
+        }
+        out.push(dev.to_string());
+        if let Some(parent) = parent_device(dev).filter(|p| p != dev)
+            && !out.iter().any(|d| d == &parent)
+        {
+            out.push(parent);
+        }
+    };
     for line in proc_mounts.lines() {
         let mut fields = line.split_whitespace();
         let Some(device) = fields.next() else {
@@ -161,16 +188,34 @@ fn system_devices(proc_mounts: &str) -> Vec<String> {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| device.to_string());
-        if !out.contains(&dev) {
-            out.push(dev.clone());
-        }
-        if let Some(parent) = parent_device(&dev).filter(|p| p != &dev)
-            && !out.contains(&parent)
-        {
-            out.push(parent);
-        }
+        push(&dev, &mut out);
+    }
+    if let Some(dev) = live_root {
+        push(dev, &mut out);
     }
     out
+}
+
+/// The block device that backs `/` right now, named the way sysfs names it
+/// (`sda3`, `nvme0n1p2`, or a whole disk such as `sdb`).
+///
+/// `/proc/mounts` names the root device only when the kernel cmdline used
+/// `root=/dev/...`; for a root found by PARTLABEL it says `/dev/root` and no
+/// part of the OS can tell which disk it is running from. The kernel still
+/// knows the device number behind `/`, and sysfs turns that back into a name.
+pub fn root_block_device() -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let dev = std::fs::metadata("/").ok()?.dev();
+    block_name_for(dev, Path::new("/sys/dev/block"))
+}
+
+/// `sda3` for the device number of the filesystem mounted at `dev`'s major:
+/// minor, read out of sysfs. Split out so tests can point it at a fake tree.
+fn block_name_for(dev: u64, sys_dev_block: &Path) -> Option<String> {
+    let major = libc::major(dev as libc::dev_t);
+    let minor = libc::minor(dev as libc::dev_t);
+    let link = std::fs::read_link(sys_dev_block.join(format!("{major}:{minor}"))).ok()?;
+    link.file_name().map(|n| n.to_string_lossy().into_owned())
 }
 
 fn is_block_name(name: &str) -> bool {
@@ -365,7 +410,7 @@ mod tests {
         std::os::unix::fs::symlink(&sata, sys.join("sdc/device")).unwrap();
         fs::write(sys.join("sdc/size"), "1000\n").unwrap();
         fs::write(sys.join("sdc/removable"), "0\n").unwrap();
-        let drives = scan(&sys, "");
+        let drives = scan_with_live_root(&sys, "", None);
         assert!(drives.iter().find(|d| d.name == "sdb").unwrap().usb);
         assert!(!drives.iter().find(|d| d.name == "sdc").unwrap().usb);
     }
@@ -374,9 +419,10 @@ mod tests {
     fn scans_fake_sysfs() {
         let root = tempfile::tempdir().unwrap();
         let sys = fake_sysfs(root.path());
-        let drives = scan(
+        let drives = scan_with_live_root(
             &sys,
             "/dev/sda1 /mnt/photos ext4 rw 0 0\nproc /proc proc rw 0 0\n",
+            None,
         );
         assert_eq!(drives.len(), 2);
         let sda = drives.iter().find(|d| d.name == "sda").unwrap();
@@ -462,7 +508,7 @@ mod tests {
         fs::write(sys.join("nvme0n1/removable"), "0\n").unwrap();
         let mounts = "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sda1 /mnt/photos ext4 rw 0 0\nproc /proc proc rw 0 0\n";
 
-        let drives = scan(&sys, mounts);
+        let drives = scan_with_live_root(&sys, mounts, None);
         assert!(
             drives.iter().all(|d| d.name != "nvme0n1"),
             "the OS boot disk must not be offered for adoption"
@@ -470,6 +516,44 @@ mod tests {
         assert!(
             drives.iter().any(|d| d.name == "sda"),
             "an unrelated USB drive must still be offered"
+        );
+    }
+
+    #[test]
+    fn system_root_found_by_partlabel_is_never_adoptable() {
+        let root = tempfile::tempdir().unwrap();
+        let sys = fake_sysfs(root.path());
+        fs::create_dir_all(sys.join("sda/device")).unwrap();
+        fs::write(sys.join("sda/size"), "999999\n").unwrap();
+        fs::write(sys.join("sda/removable"), "0\n").unwrap();
+        fs::create_dir_all(sys.join("sdb/device")).unwrap();
+        fs::write(sys.join("sdb/size"), "524288\n").unwrap();
+        fs::write(sys.join("sdb/removable"), "1\n").unwrap();
+        // `root=PARTLABEL=LUNA_A` leaves no device name in the mounts table.
+        let mounts = "/dev/root / ext4 ro 0 0\n/dev/sda5 /var/lib/luna ext4 rw 0 0\n";
+
+        let drives = scan_with_live_root(&sys, mounts, Some("sda3"));
+        assert!(
+            drives.iter().all(|d| d.name != "sda"),
+            "the disk carrying / must not be offered, whatever the mounts table says"
+        );
+        assert!(drives.iter().any(|d| d.name == "sdb"));
+    }
+
+    #[test]
+    fn block_name_comes_from_the_device_number() {
+        let root = tempfile::tempdir().unwrap();
+        let dev_block = root.path().join("dev/block");
+        fs::create_dir_all(dev_block.join("block")).unwrap();
+        let target = dev_block.join("block/sda/sda3");
+        fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(&target, dev_block.join("8:3")).unwrap();
+
+        let dev = libc::makedev(8, 3) as u64;
+        assert_eq!(block_name_for(dev, &dev_block).as_deref(), Some("sda3"));
+        assert_eq!(
+            block_name_for(libc::makedev(8, 99) as u64, &dev_block),
+            None
         );
     }
 }

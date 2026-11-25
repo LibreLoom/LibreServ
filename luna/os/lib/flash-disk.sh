@@ -30,12 +30,22 @@ _find_boot_images() {
 		echo "The Luna system image has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
+	# The slot image must carry the storage initramfs: root=UUID is resolved
+	# there before root is mounted, and it carries controllers outside the
+	# kernel's built-in common path.
+	if [ -z "$_i" ] || [ "$_i" = "." ] || [ ! -e "$_rootmnt/boot/$_i" ]; then
+		echo "The Luna system image has no storage initramfs. Refusing to write a bootloader that cannot start." >&2
+		return 1
+	fi
 	printf '%s\n' "$_k" "$_i"
 }
 
 # Dual-slot GRUB menu with tryboot. Lives on the ESP so rewriting a slot
 # cannot erase the bootloader config. grubenv keys:
 #   luna_slot=A|B  luna_boot_ok=0|1  luna_tries=0|1|2|3
+# Slots are named by their filesystem UUID, which the storage initramfs can
+# resolve. Luna supports one installed OS disk; an update keeps each slot's UUID
+# across a write.
 _write_grub_cfg() {
 	_cfgpath="$1"
 	_uuid_a="$2"
@@ -45,7 +55,9 @@ _write_grub_cfg() {
 
 	mkdir -p "$(dirname "$_cfgpath")"
 	{
-		echo 'set timeout=2'
+		# No waiting on the menu: the box has no screen and nobody to press a key,
+		# and a wrong slot rolls back on its own through fallback=1 and tryboot.
+		echo 'set timeout=0'
 		echo 'set default=0'
 		echo 'set fallback=1'
 		echo 'insmod part_gpt'
@@ -85,26 +97,28 @@ _write_grub_cfg() {
 		# Two entries: the slot GRUB picked, and the other one as a fallback. If the
 		# first cannot start at all (its filesystem is not found, or the kernel
 		# will not load), GRUB moves on by itself instead of waiting at an error
-		# for a key nobody is there to press.
+		# for a key nobody is there to press. Keep rootflags=ro: userspace mount
+		# accepts noatime, but the kernel's direct root-mount path rejects it. A
+		# read-only root has no atimes to update, so ro is all it needs.
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 		echo 'menuentry "Luna (other system)" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 	} >"$_cfgpath"
 }
@@ -373,16 +387,19 @@ PART
 		echo "Writing Luna to slot B failed." >&2
 		return 1
 	}
-	# Both slots come from one image, so they share a filesystem UUID; GRUB and
-	# the kernel pick a slot by UUID, so slot B needs its own.
-	e2fsck -fy "$_root_b" >/dev/null 2>&1 || [ $? -le 1 ] || {
-		echo "Slot B did not check clean after writing." >&2
-		return 1
-	}
-	tune2fs -U random "$_root_b" >/dev/null || {
-		echo "Could not give slot B its own identity." >&2
-		return 1
-	}
+	# Both slots come from one image, so they share its filesystem UUID. Give
+	# each slot a random identity: GRUB searches these UUIDs to load kernels,
+	# and the initramfs uses the same UUID to find root.
+	for _slot in "$_root_a" "$_root_b"; do
+		e2fsck -fy "$_slot" >/dev/null 2>&1 || [ $? -le 1 ] || {
+			echo "An OS slot did not check clean after writing." >&2
+			return 1
+		}
+		tune2fs -U random "$_slot" >/dev/null || {
+			echo "Could not give an OS slot its own identity." >&2
+			return 1
+		}
+	done
 	# Relabel in case the image carried a generic label.
 	e2label "$_root_a" LUNA_A 2>/dev/null || true
 	e2label "$_root_b" LUNA_B 2>/dev/null || true
@@ -393,7 +410,6 @@ PART
 		echo "Could not read the Luna slot UUIDs for GRUB." >&2
 		return 1
 	fi
-
 	_mnt_a="$(mktemp -d /tmp/luna-a.XXXXXX)" || return 1
 	_mnt_b="$(mktemp -d /tmp/luna-b.XXXXXX)" || {
 		rmdir "$_mnt_a" 2>/dev/null || true

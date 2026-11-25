@@ -278,6 +278,20 @@ func TestOSSpecs(t *testing.T) {
 			t.Errorf("%s differs from luna/os/build/%s", n, cf)
 		}
 	}
+	// luna-os copies kernel-build.sh out of luna/os/build, which is only in
+	// the context: without it podman build fails at the COPY.
+	osImg, err := engine.LoadImage(filepath.Join(repoRoot(t), "infra", "release", "images"), "luna-os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(osImg.Context) != filepath.Join(repoRoot(t), "luna", "os", "build") {
+		t.Errorf("luna-os build context is %q, want luna/os/build", osImg.Context)
+	}
+	for _, f := range []string{"Containerfile.os", "kernel-build.sh"} {
+		if _, err := os.Stat(filepath.Join(osImg.Context, f)); err != nil {
+			t.Errorf("luna-os context is missing %s: %v", f, err)
+		}
+	}
 }
 
 func TestOSScriptsParse(t *testing.T) {

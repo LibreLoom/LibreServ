@@ -1,6 +1,7 @@
 //! Box lifecycle: updates, recovery drive, factory provisioning, console,
 //! health, and the embedded web bundle.
 
+mod boot_menu;
 pub mod console;
 pub mod factory_mag;
 pub mod recovery;

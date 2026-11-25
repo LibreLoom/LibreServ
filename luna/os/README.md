@@ -28,6 +28,13 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    rebuild both steps. LUNA_OS_FORCE=1 rebuilds
 #    anyway — and a changed lunad always needs one, because the daemon is
 #    inside the image.
+#    build/Containerfile.os also builds the image's kernel
+#    (build/kernel-build.sh): Alpine's linux-lts config, with the common storage
+#    path switched to built-in. The rootfs step then builds a storage-only
+#    initramfs for the remaining root-disk controllers, so installation keeps
+#    broad root-disk support. The kernel stage is slow once and
+#    cached with the image: it downloads the pinned 6.18.65 source and needs
+#    about 12 GB of scratch, so budget 20-40 minutes on four cores.
 
 # 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
 #    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
@@ -112,9 +119,23 @@ OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
 `/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.
 GRUB is installed for `i386-pc` and `x86_64-efi`.
 
-This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system. The
-rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
-support, then flashes the Alpine OS slots above.
+Luna supports one installed OS disk. Additional drives are storage, not another
+Luna installation.
+
+The startup menu names each slot by its filesystem UUID (`root=UUID=`) next to
+the same UUID in `luna.fsuuid=`, and carries an `initrd` line for the storage
+initramfs. Updates preserve the slot UUIDs, and an update renders and writes
+this menu before it arms the other slot.
+
+The 0.0.11 menu already uses `root=UUID=` and an initramfs, so its boot shape
+remains compatible. Its daemon does not rewrite the menu, but it does not need
+to for root mounting.
+
+This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system: built
+here from Alpine's linux-lts config and upstream source. The common storage path
+is built into the kernel; a storage-only initramfs carries the remaining
+root-disk controllers. The rapidinstall USB boots a pinned **Debian 12 live**
+image for reliable hardware support, then flashes the Alpine OS slots above.
 
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem.
 Open the address shown on Luna's screen, or try `luna.local`.
