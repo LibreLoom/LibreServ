@@ -444,7 +444,8 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           </p>
         ) : null}
         {locked ? (
-          <div className="mt-3">
+          <div className="space-y-3">
+            <h3 className="-ml-3 -mt-3 font-mono text-lg font-normal">Unlock this drive</h3>
             <UnlockPrompt driveId={drive.id} surface="primary" />
           </div>
         ) : null}
@@ -485,7 +486,6 @@ function driveStatusMessage(drive) {
   if (drive.state === "missing") return "Unplugged. Plug it in. If it is already plugged in, unplug it and plug it in again.";
   if (drive.state === "ejected") return "Ejected. To use its files again, unplug it and plug it back in.";
   if (drive.formatting) return ERASING_MESSAGE;
-  if (isLocked(drive)) return "Locked. Enter the password to open its files.";
   if (isUnopenable(drive)) return CANT_OPEN_MESSAGE;
   if (drive.state === "readonly") {
     return "Read only: Luna tried to save a test file here and could not. A write-lock switch on the drive or a file system error can cause this.";
