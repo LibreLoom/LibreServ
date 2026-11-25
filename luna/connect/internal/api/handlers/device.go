@@ -61,8 +61,9 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	var id string
 	var account sql.NullString
 	var revoked int
-	err := h.DB.QueryRow(`SELECT id, account_id, revoked FROM devices WHERE code_hash = ?`, hash).
-		Scan(&id, &account, &revoked)
+	var kind sql.NullString
+	err := h.DB.QueryRow(`SELECT id, account_id, revoked, kind FROM devices WHERE code_hash = ?`, hash).
+		Scan(&id, &account, &revoked, &kind)
 	if err != nil {
 		JSONError(w, http.StatusBadRequest, "That device token is wrong or unknown. Check the token that came with your Luna, or the token from this website.")
 		return
@@ -81,7 +82,7 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 	}
 	claimed, err := claimDevice(h.DB, id, acct.ID)
 	if errors.Is(err, errAccountFull) {
-		JSONError(w, http.StatusConflict, "This account already has a Luna. Unbind it first to link a different Luna.")
+		JSONError(w, http.StatusConflict, "This account already has "+strconv.Itoa(MaxLunasPerAccount)+" Lunas. Unbind a Luna, then link another.")
 		return
 	}
 	if errors.Is(err, errDeviceTakenByOther) {
@@ -97,6 +98,15 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": true})
 		return
 	}
+	// The device's own kind decides its path. The account mirror may describe
+	// a different Luna and would give a retail token someone else's DIY path.
+	path := "official"
+	if kind.Valid && kind.String == "diy" {
+		path = "diy"
+	}
+	saveDeviceOnboarding(h.DB, id, acct.ID, path, "domain")
+	// The account row mirrors older clients. The CASE leaves an established
+	// Luna's progress alone when another one is linked.
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code') THEN 'domain' ELSE onboarding_step END WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"device_id": id, "already_bound": false})
 }
@@ -104,8 +114,8 @@ func (h DeviceHandler) Bind(w http.ResponseWriter, r *http.Request) {
 // errDeviceTakenByOther means another account linked the device first.
 var errDeviceTakenByOther = errors.New("device is linked to another account")
 
-// errAccountFull means this account already holds its one Luna.
-var errAccountFull = errors.New("account already has a Luna")
+// errAccountFull means this account holds as many Lunas as it can.
+var errAccountFull = errors.New("account has reached its Luna limit")
 
 // claimDevice links an unlinked device to accountID. The account row is locked
 // for the whole transaction so two concurrent binds for one account cannot both
@@ -113,7 +123,7 @@ var errAccountFull = errors.New("account already has a Luna")
 // still fenced to an unlinked row, so when two accounts race for one device
 // exactly one wins. It reports claimed=true when this call made the link,
 // claimed=false when the device was already this account's,
-// errAccountFull when the account already has its Luna, and
+// errAccountFull when the account has reached its Luna limit, and
 // errDeviceTakenByOther when another account holds the device.
 func claimDevice(db *database.DB, deviceID, accountID string) (bool, error) {
 	tx, err := db.Begin()
@@ -144,7 +154,7 @@ func claimDevice(db *database.DB, deviceID, accountID string) (bool, error) {
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE account_id = ?`, accountID).Scan(&n); err != nil {
 		return false, err
 	}
-	if n >= MaxDevicesPerAccount {
+	if n >= MaxLunasPerAccount {
 		return false, errAccountFull
 	}
 
@@ -199,17 +209,22 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	d.Subdomain = sub.String
 	d.TunnelID = tunnelID.String
 	unbindDevice(h.Deps, d, acct.ID)
-	obPath := acct.OnboardingPath
-	if obPath == "" {
-		obPath = "official"
+	if n, err := countBoundDevices(h.DB, acct.ID); err == nil && n == 0 {
+		obPath := acct.OnboardingPath
+		if obPath == "" {
+			obPath = "official"
+		}
+		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
 	JSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func unbindDevice(deps Deps, d Device, accountID string) {
 	providers.RefreshCloudflare()
 	teardownDeviceRemote(deps, d.Subdomain, d.TunnelID)
+	// Every unlink path goes through here: website unbind, device unregister
+	// and account purge. Progress must not outlive the account that owned it.
+	_, _ = deps.DB.Exec(`DELETE FROM device_onboarding WHERE device_id = ?`, d.ID)
 	_, _ = deps.DB.Exec(`UPDATE devices SET account_id = NULL, subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL WHERE id = ?`, d.ID)
 }
 
@@ -248,7 +263,14 @@ func (h DeviceHandler) SetDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status == http.StatusCreated {
-		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = CASE WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','domain') THEN 'backup' ELSE onboarding_step END WHERE id = ?`, acct.ID)
+		dev := loadBoundDevice(h.DB, acct.ID, id)
+		step := dev.Step
+		if step == "" {
+			step = acct.OnboardingStep
+		}
+		if step == "" || step == "verify" || step == "domain" || isOnboardingCodeStep(step) {
+			setOnboardingStep(h.DB, acct.ID, id, "", "backup")
+		}
 	}
 	JSON(w, status, out)
 }

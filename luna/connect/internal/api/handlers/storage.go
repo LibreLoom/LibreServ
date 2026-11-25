@@ -24,13 +24,10 @@ import (
 )
 
 const (
-	maxStoragePackBytes   = 64 << 20
-	maxStorageRecordBytes = 1 << 20
-	identityKind          = "identity"
-	identityPublicName    = "public"
-	// maxLunasPerAccount caps the Luna IDs one account can claim. Each Luna that stores
-	// something gets its own Backblaze bucket, and the Backblaze account allows only so many.
-	maxLunasPerAccount       = 25
+	maxStoragePackBytes      = 64 << 20
+	maxStorageRecordBytes    = 1 << 20
+	identityKind             = "identity"
+	identityPublicName       = "public"
 	maxStorageRecordPageSize = 256
 )
 
@@ -132,7 +129,7 @@ func bindLuna(exec storageQueryExec, accountID, lunaID, deviceID string) (boundD
 SELECT ?, ?, ?, '', ?
 WHERE (SELECT COUNT(*) FROM luna_ids WHERE account_id = ?) < ?
 ON CONFLICT(account_id, luna_id) DO NOTHING`, accountID, lunaID, deviceID, time.Now().Unix(),
-			accountID, maxLunasPerAccount); err != nil {
+			accountID, MaxLunasPerAccount); err != nil {
 			return "", err
 		}
 		err = exec.QueryRow(query, accountID, lunaID).Scan(&boundDevice)
@@ -154,13 +151,13 @@ func lookupLuna(d Deps, accountID, lunaID string) (boundDevice, signingHex strin
 	return boundDevice, signingHex, err == nil, err
 }
 
-// errLunaLimit means the account already holds maxLunasPerAccount Luna IDs.
+// errLunaLimit means the account already holds MaxLunasPerAccount Luna IDs.
 var errLunaLimit = errors.New("too many Lunas on this account")
 
 // writeLunaBindError answers a failed bindLuna: the cap gets its own sentence, anything else is a retry.
 func writeLunaBindError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errLunaLimit) {
-		JSONError(w, http.StatusConflict, "This account already has 25 Lunas with cloud backups. Delete the backups of one you no longer use, then try again.")
+		JSONError(w, http.StatusConflict, "This account already has "+strconv.Itoa(MaxLunasPerAccount)+" Lunas with cloud backups. Delete the backups of one you no longer use, then try again.")
 		return
 	}
 	JSONError(w, http.StatusInternalServerError, "Cloud storage could not check this Luna. Try again.")

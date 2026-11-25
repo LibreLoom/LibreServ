@@ -25,6 +25,7 @@ var migrateTables = []string{
 	"accounts",
 	"email_verification_tokens",
 	"devices",
+	"device_onboarding",
 	"sessions",
 	"register_attempts",
 	"guess_attempts",

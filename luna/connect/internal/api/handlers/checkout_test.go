@@ -122,6 +122,45 @@ func TestClaimCancelsOnlyADifferentSubscription(t *testing.T) {
 	}
 }
 
+func TestLosingOnboardingCheckoutDoesNotCloseSetup(t *testing.T) {
+	devStripe(t)
+	d := testDeps(t)
+	id := checkoutAccount(t, d, "losing@b.co")
+	stubCancel(t)
+	_, _ = d.DB.Exec(`UPDATE accounts SET stripe_subscription_id = 'sub_first', onboarding_step = 'backup' WHERE id = ?`, id)
+	c := billing.Checkout{
+		ID: "cs_lose", Kind: billing.CheckoutBackup, AccountID: id,
+		SubscriptionID: "sub_second", Done: true, From: "onboarding",
+	}
+	if err := claimSubscription(d, c, ""); err != nil {
+		t.Fatal(err)
+	}
+	var step string
+	_ = d.DB.QueryRow(`SELECT onboarding_step FROM accounts WHERE id = ?`, id).Scan(&step)
+	if step != "backup" {
+		t.Fatalf("a cancelled extra checkout closed setup: %q", step)
+	}
+}
+
+func TestRepeatedOnboardingClaimRepairsTheMirror(t *testing.T) {
+	devStripe(t)
+	d := testDeps(t)
+	id := checkoutAccount(t, d, "repeat@b.co")
+	_, _ = d.DB.Exec(`UPDATE accounts SET stripe_subscription_id = 'sub_repeat', onboarding_step = 'backup' WHERE id = ?`, id)
+	c := billing.Checkout{
+		ID: "cs_repeat", Kind: billing.CheckoutBackup, AccountID: id,
+		SubscriptionID: "sub_repeat", Done: true, From: "onboarding",
+	}
+	if err := claimSubscription(d, c, "sub_repeat"); err != nil {
+		t.Fatal(err)
+	}
+	var step string
+	_ = d.DB.QueryRow(`SELECT onboarding_step FROM accounts WHERE id = ?`, id).Scan(&step)
+	if step != "done" {
+		t.Fatalf("retried claim left mirror at %q", step)
+	}
+}
+
 func TestClaimRaceForTheSameCheckoutCancelsNothing(t *testing.T) {
 	devStripe(t)
 	d := testDeps(t)

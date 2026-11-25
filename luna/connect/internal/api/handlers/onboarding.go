@@ -21,7 +21,20 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
+	var req struct {
+		DeviceID string `json:"device_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID != "" && !deviceBelongsToAccount(h.DB, deviceID, acct.ID) {
+		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+		return
+	}
+	path := ""
+	if deviceID == "" {
+		path = acct.OnboardingPath
+	}
+	setOnboardingStep(h.DB, acct.ID, deviceID, path, "done")
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 }
 
@@ -48,7 +61,10 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
+	if n, err := countBoundDevices(h.DB, acct.ID); err == nil && n == 0 {
+		_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
+	}
+	saveDeviceOnboarding(h.DB, id, acct.ID, "diy", "diy-code")
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"code":      code,
@@ -127,10 +143,13 @@ func (h OnboardingHandler) Status(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	dev := loadBoundDevice(h.DB, acct.ID)
-	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
-	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
-	JSON(w, http.StatusOK, onboardingStatusFields(resolvedPath, resolvedStep, dev))
+	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+	if deviceID != "" && !deviceBelongsToAccount(h.DB, deviceID, acct.ID) {
+		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+		return
+	}
+	dev, path, step := onboardingFor(h.DB, acct, deviceID)
+	JSON(w, http.StatusOK, onboardingStatusFields(path, step, dev))
 }
 
 func (h OnboardingHandler) SetOnboardingProgress(w http.ResponseWriter, r *http.Request) {
@@ -140,10 +159,16 @@ func (h OnboardingHandler) SetOnboardingProgress(w http.ResponseWriter, r *http.
 		return
 	}
 	var req struct {
-		Path string `json:"path"`
-		Step string `json:"step"`
+		Path     string `json:"path"`
+		Step     string `json:"step"`
+		DeviceID string `json:"device_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID != "" && !deviceBelongsToAccount(h.DB, deviceID, acct.ID) {
+		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+		return
+	}
 	path := strings.TrimSpace(req.Path)
 	step := strings.TrimSpace(req.Step)
 	if path != "" && path != "official" && path != "diy" {
@@ -160,11 +185,18 @@ func (h OnboardingHandler) SetOnboardingProgress(w http.ResponseWriter, r *http.
 	if path != "" {
 		storedPath = path
 	}
-	dev := loadBoundDevice(h.DB, acct.ID)
+	dev := loadBoundDevice(h.DB, acct.ID, deviceID)
 	if dev.HasBound && isOnboardingCodeStep(step) {
 		_, step = ResolveOnboarding(storedPath, step, dev)
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = COALESCE(NULLIF(?, ''), onboarding_path), onboarding_step = COALESCE(NULLIF(?, ''), onboarding_step) WHERE id = ?`,
-		path, step, acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true, "path": storedPath, "step": step})
+	setOnboardingStep(h.DB, acct.ID, deviceID, path, step)
+	if saved := loadBoundDevice(h.DB, acct.ID, deviceID); saved.HasProgress {
+		if saved.Path != "" {
+			storedPath = saved.Path
+		}
+		if saved.Step != "" {
+			step = saved.Step
+		}
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "path": storedPath, "step": step, "device_id": deviceID})
 }

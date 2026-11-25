@@ -797,7 +797,7 @@ func TestRecordPackUpdatesBackend(t *testing.T) {
 
 func TestStorageLunaCapPerAccount(t *testing.T) {
 	h, _, tok := storageFixture(t, "lunacap", 0)
-	for i := 0; i < maxLunasPerAccount; i++ {
+	for i := 0; i < MaxLunasPerAccount; i++ {
 		id := "luna-cap" + strconv.Itoa(i)
 		if rec := storageDo(t, h, http.MethodPut, "/records/self/a", tok, id, []byte("x"), nil); rec.Code != http.StatusOK {
 			t.Fatalf("luna %d: %d %s", i, rec.Code, rec.Body.String())

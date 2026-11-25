@@ -138,7 +138,9 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 	}
 
 	return accounts.PurgeStorageAnd(context.Background(), deps.DB, deps.Store, accountID, func(tx *database.Tx) error {
-		for _, table := range []string{"sessions", "oss_payments", "billing_storage_samples", "billing_period_egress"} {
+		// Includes progress seeded for DIY tokens that were minted but never
+		// bound: those device rows have no account_id to unlink them by.
+		for _, table := range []string{"sessions", "oss_payments", "billing_storage_samples", "billing_period_egress", "device_onboarding"} {
 			if _, err := tx.Exec(`DELETE FROM `+table+` WHERE account_id = ?`, accountID); err != nil {
 				return err
 			}

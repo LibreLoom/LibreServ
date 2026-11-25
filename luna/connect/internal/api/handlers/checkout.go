@@ -143,7 +143,7 @@ func (h AccountHandler) StartCheckout(w http.ResponseWriter, r *http.Request) {
 		if billing.DevBypass() {
 			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'dev', stripe_subscription_id = 'sub_dev', backup_purge_after = NULL, purge_mail_day = NULL WHERE id = ?`, acct.ID)
 			if from != "backups" {
-				_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = 'done' WHERE id = ?`, acct.ID)
+				finishOnboardingForAccount(h.DB, acct.ID)
 			}
 			JSON(w, http.StatusOK, map[string]any{"ok": true, "done": true, "dev": true})
 			return
@@ -276,6 +276,11 @@ var cancelExtraSubscription = billing.CancelSubscription
 // that loses that race (or opens a second page) has its subscription cancelled.
 func claimSubscription(deps Deps, c billing.Checkout, stored string) error {
 	if c.SubscriptionID == "" || stored == c.SubscriptionID {
+		// A retried webhook or return page must repair a mirror whose "done"
+		// write failed after the subscription was stored.
+		if stored != "" && stored == c.SubscriptionID && (c.From == "onboarding" || c.From == "diyonboarding") {
+			finishOnboardingForAccount(deps.DB, c.AccountID)
+		}
 		return nil
 	}
 	status, err := billing.SubscriptionStatus(c.SubscriptionID)
@@ -291,11 +296,8 @@ func claimSubscription(deps Deps, c billing.Checkout, stored string) error {
 	if status == "active" || status == "trialing" {
 		unlocked = 1
 	}
-	onboarding := ""
-	if c.From == "onboarding" || c.From == "diyonboarding" {
-		onboarding = ", onboarding_step = 'done'"
-	}
-	res, err := deps.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ?, backup_purge_after = NULL, purge_mail_day = NULL`+onboarding+`
+	finishesOnboarding := c.From == "onboarding" || c.From == "diyonboarding"
+	res, err := deps.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ?, backup_purge_after = NULL, purge_mail_day = NULL
 WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '' OR stripe_subscription_id = ?)`,
 		unlocked, status, c.SubscriptionID, c.AccountID, c.SubscriptionID)
 	if err != nil {
@@ -315,6 +317,11 @@ WHERE id = ? AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '' 
 		if err := cancelExtraSubscription(c.SubscriptionID); err != nil {
 			slog.Error("could not cancel an extra subscription; cancel it in Stripe or the customer is billed twice", "account", c.AccountID, "subscription", c.SubscriptionID, "error", err)
 		}
+		// A losing checkout must not close setup for the winning one.
+		return nil
+	}
+	if finishesOnboarding {
+		finishOnboardingForAccount(deps.DB, c.AccountID)
 	}
 	return nil
 }

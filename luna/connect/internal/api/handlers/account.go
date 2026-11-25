@@ -203,9 +203,12 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.QueryRow(`SELECT status FROM oss_payments WHERE account_id = ?`, acct.ID).Scan(&payStatus); err == nil && payStatus == "succeeded" {
 		humanVerified = true
 	}
-	dev := loadBoundDevice(h.DB, acct.ID)
-	resolvedPath, resolvedStep := ResolveOnboarding(acct.OnboardingPath, acct.OnboardingStep, dev)
-	persistOnboardingIfChanged(h.DB, acct.ID, acct.OnboardingPath, acct.OnboardingStep, resolvedPath, resolvedStep)
+	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+	if deviceID != "" && !deviceBelongsToAccount(h.DB, deviceID, acct.ID) {
+		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
+		return
+	}
+	dev, resolvedPath, resolvedStep := onboardingFor(h.DB, acct, deviceID)
 	status := onboardingStatusFields(resolvedPath, resolvedStep, dev)
 	// Credit lives in Stripe and only shows once cloud backup is on, so only
 	// those accounts pay for the Stripe call. A Stripe hiccup must not break
@@ -245,6 +248,7 @@ func (h AccountHandler) Me(w http.ResponseWriter, r *http.Request) {
 		"skip_code_entry":        status["skip_code_entry"],
 		"onboarding_device_id":   status["device_id"],
 		"onboarding_hostname":    status["hostname"],
+		"onboarding_devices":     onboardingDevices(h.DB, acct.ID),
 		"stripe_publishable_key": stripePublishableKey(),
 		"stripe_enabled":         config.Stripe().Enabled,
 	})

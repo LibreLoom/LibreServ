@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS devices (
   FOREIGN KEY(account_id) REFERENCES accounts(id)
 );
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
+-- Setup progress belongs to the Luna being set up, not to the account: one
+-- account can own several Lunas, each at its own step.
+CREATE TABLE IF NOT EXISTS device_onboarding (
+  device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  path TEXT,
+  step TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_device_onboarding_account ON device_onboarding(account_id);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
@@ -243,6 +252,15 @@ CREATE TABLE IF NOT EXISTS devices (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
+-- Setup progress belongs to the Luna being set up, not to the account: one
+-- account can own several Lunas, each at its own step.
+CREATE TABLE IF NOT EXISTS device_onboarding (
+  device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  path TEXT,
+  step TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_device_onboarding_account ON device_onboarding(account_id);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
