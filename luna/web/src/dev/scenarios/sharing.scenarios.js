@@ -440,6 +440,7 @@ export default [
     area: "Public link",
     title: "Link that hit its download limit",
     url: "/s/toklimit",
+    realLunadOnly: "Real lunad has no download counter on access links, so a link at its download limit cannot be produced.",
     seed: (w) => { guest(w); subject(w, { links: [{ ...link({ caps: "view", download_limit: 5, downloads: 5 }), token: "toklimit" }] }); },
     check: ["Says the link has reached its download limit", "Offers no download buttons that will fail"],
   },

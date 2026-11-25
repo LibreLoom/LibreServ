@@ -13,6 +13,7 @@ import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
 import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
@@ -165,6 +166,15 @@ export default function FullscreenEditorFrame({
   // The capture-phase Ctrl+S handler reads this ref so it can call `runSave`
   // without re-registering the window listener on every render.
   const runSaveRef = useRef(/** @type {() => Promise<boolean>} */ (() => Promise.resolve(false)));
+  // Register Mod+S so it shows up in the `?` sheet and works through the
+  // normal shortcut path. The capture listener below still handles the key
+  // first for embedded editors that would swallow it; because it calls
+  // preventDefault, the registry skips the event and there is one save.
+  useShortcut("Mod+S", () => void runSaveRef.current(), {
+    label: "Save this file",
+    group: "Editor",
+    allowInInput: true,
+  });
   // "Document Unsaved" guard modal. The ref mirrors the state so the window
   // capture-phase Escape handler can yield to the modal without re-registering.
   const [confirmClose, setConfirmClose] = useState(false);
@@ -262,14 +272,18 @@ export default function FullscreenEditorFrame({
     };
 
     const handleKeyDown = (event) => {
-      // Ctrl/Cmd+S saves this file, not the browser's Save page dialog. This
-      // has to stay in the window capture listener: CodeMirror keeps DOM
-      // focus and the app's useShortcut registry deliberately skips typing
-      // fields, so a normal shortcut would never reach the editor.
+      // Ctrl/Cmd+S saves this file, not the browser's Save page dialog. The
+      // registered Mod+S shortcut handles the normal case; this capture
+      // listener stays for embedded editors (EuroOffice's iframe, CodeMirror)
+      // that swallow the key before it reaches the window's bubble listener.
+      // preventDefault below makes the registry skip the same keypress, so
+      // the two paths never save twice.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        // Same check as Escape, before stopping the event: a nested editor's
-        // save must not be swallowed by the frame underneath it.
+        // Same checks as Escape, before stopping the event: a nested editor's
+        // save must not be swallowed by the frame underneath it, and a dialog
+        // owns its own keys instead of saving behind the person's back.
         if (!isTopmostOverlay()) return;
+        if (document.querySelector('[data-slot="dialog-overlay"]')) return;
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();

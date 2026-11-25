@@ -8,6 +8,8 @@ import Card from "../cards/Card";
  * @property {import('react').ReactNode} children
  * @property {string} [className]
  * @property {"primary"|"secondary"} [surface]
+ * @property {"status"|"alert"} [role] Assertive ("alert") for failures the
+ *   person must hear at once; the polite "status" is the default.
  */
 
 // The status tint is a background *image* over the Card's opaque surface, so
@@ -23,7 +25,9 @@ const TONES = {
 
 /**
  * PageNotice — short status or error copy on a page, always card-wrapped.
- * `surface` picks the notice's own surface; either one reads anywhere.
+ * `surface` picks the notice's own surface; either one reads anywhere. `role`
+ * is the single live region for the notice — "status" by default, "alert"
+ * when the message must interrupt.
  * @param {PageNoticeProps} props
  */
 export default function PageNotice({
@@ -31,6 +35,7 @@ export default function PageNotice({
   children,
   className = "",
   surface = "primary",
+  role = "status",
 }) {
   return (
     <Card
@@ -38,7 +43,7 @@ export default function PageNotice({
       className={cn("border", TONES[variant] || TONES.info, className)}
       data-slot="page-notice"
     >
-      <div className="text-sm" role="status">
+      <div className="text-sm" role={role}>
         {typeof children === "string" ? <p>{children}</p> : children}
       </div>
     </Card>
@@ -50,4 +55,5 @@ PageNotice.propTypes = {
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  role: PropTypes.oneOf(["status", "alert"]),
 };

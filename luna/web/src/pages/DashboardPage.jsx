@@ -285,7 +285,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   {drivesFailed && (
-                    <PageNotice variant="error">
+                    <PageNotice variant="error" role="alert">
                       <div className="space-y-3">
                         <p>
                           {isAdmin ? "Luna couldn't load your drives." : "Luna couldn't load your files."}

@@ -136,9 +136,13 @@ export function installFake({ world, scenario, now, restored = {} }) {
       if (mode === "empty") return finish(200, "");
       if (mode === "badjson") return finish(200, "<html>oops");
       if (/^\d{3}$/.test(mode)) {
-        // A fault with no message must not leak a developer string like
-        // "Injected 500" into product copy. Explicit messages still win.
-        return finish(Number(mode), JSON.stringify({ error: fault.message || "Luna couldn't do that. Try again.", ...(fault.code ? { code: fault.code } : {}) }));
+        // With no explicit message, leave `error` out: ApiError then falls back
+        // to statusMessage (or the caller's action-specific fallback), instead
+        // of leaking a developer string into product copy. Keep a code if given.
+        return finish(Number(mode), JSON.stringify({
+          ...(fault.message ? { error: fault.message } : {}),
+          ...(fault.code ? { code: fault.code } : {}),
+        }));
       }
 
       const found = findRoute(method, path);

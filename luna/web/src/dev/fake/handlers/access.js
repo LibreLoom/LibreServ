@@ -436,8 +436,10 @@ function open(w, token, headers) {
     }
   }
   if (l.password && supplied !== l.password) return { err: fail(401, "This link needs its password.") };
-  // Checked on every open, including the first meta request, so the page says
-  // so up front instead of offering downloads that would fail.
+  // Gallery-only simulated state: real lunad has no download counter on access
+  // links, so this gate can't be reached outside the fake. Checked on every
+  // open, including the first meta request, so the page says so up front
+  // instead of offering downloads that would fail.
   if (l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }
