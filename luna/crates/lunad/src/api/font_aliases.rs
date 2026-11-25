@@ -35,6 +35,8 @@ struct Entry {
     source: PathBuf,
     /// ETag of the exact bytes this entry serves, from the pack manifest.
     etag: String,
+    /// Digest from the manifest, checked in `synth` against the served bytes.
+    sha256: String,
 }
 
 struct Cache {
@@ -104,21 +106,19 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
                     continue;
                 }
                 let source = pack_dir.join(rel);
-                let Ok(source_bytes) = std::fs::read(&source) else {
-                    continue;
-                };
-                // The manifest's ETag must describe the bytes actually served.
-                // A stale or corrupt entry must fall back to the real file,
-                // not poison the cache with a validator for different bytes.
-                if served_digest(&header, &source_bytes).as_deref() != Some(alias.sha256.as_str()) {
+                if !source.is_file() {
                     continue;
                 }
+                // Only parse and stat here. Verifying the digest means reading
+                // every source font, which must not happen on the ETag path;
+                // `synth` checks the one font it actually serves.
                 aliases.insert(
                     name,
                     Entry {
                         header,
                         source,
                         etag: format!("\"{}\"", alias.sha256),
+                        sha256: alias.sha256,
                     },
                 );
             }
@@ -132,8 +132,8 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
     slot.as_ref()?.aliases.get(name).cloned()
 }
 
-/// ETag of the bytes `synth` would return, without reading the font. The pack
-/// build computed it from the generated file, so a conditional request can
+/// ETag from the manifest, read only from the cached manifest. `synth` verifies
+/// it against the one font it serves, so a matching conditional request can
 /// answer 304 without touching the eMMC.
 pub fn etag_for(pack_dir: &Path, name: &str) -> Option<String> {
     if name.contains('/') || name.contains('\\') {
@@ -162,6 +162,11 @@ pub async fn synth(pack_dir: &Path, name: &str) -> Option<Vec<u8>> {
     let entry = alias_for(pack_dir, name)?;
     let mut body = tokio::fs::read(&entry.source).await.ok()?;
     if body.len() < entry.header.len() {
+        return None;
+    }
+    // Verify the manifest's validator against the bytes about to be served.
+    // A stale or corrupt entry falls back to the real file via the caller.
+    if served_digest(&entry.header, &body).as_deref() != Some(entry.sha256.as_str()) {
         return None;
     }
     // The source keeps its original first bytes; only the generated copy had
@@ -222,8 +227,10 @@ mod tests {
         assert_eq!(got.len(), source.len());
         assert_eq!(got, generated);
         assert!(synth(&pack, "evil").await.is_none());
-        // A manifest hash that does not describe the served bytes is refused.
-        assert!(etag_for(&pack, "bad").is_none());
+        // The ETag path stays cheap: it still reports the manifest value, but
+        // `synth` refuses to serve a font whose bytes do not match it.
+        assert!(etag_for(&pack, "bad").is_some());
+        assert!(synth(&pack, "bad").await.is_none());
         assert!(synth(&pack, "000").await.is_none());
         assert!(synth(&pack, "../024").await.is_none());
     }
