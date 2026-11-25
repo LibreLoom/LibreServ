@@ -2,10 +2,11 @@
 //!
 //! The feed format and its rules live in `luna_feed` (spec:
 //! `infra/ci-source/internal/feed/README.md`). A luna release has one part,
-//! `os`: an `.img.xz` slot image holding the whole system (lunad,
-//! luna-console, cloudflared and the editor packs). When its SHA256 differs
-//! from the hash stored on LUNA_DATA, the image is decompressed onto the
-//! inactive A/B slot (tryboot) and the box reboots into it.
+//! `os`: a compressed slot image holding the whole system (lunad,
+//! luna-console, cloudflared and the editor packs). New images are `.img.zst`;
+//! older `.img.xz` releases still install. When its SHA256 differs from the
+//! hash stored on LUNA_DATA, the image is decompressed onto the inactive A/B
+//! slot (tryboot) and the box reboots into it.
 //!
 //! Nothing is installed onto the data partition: it holds data only. There is
 //! no daemon-only update, because the daemon is part of the image.
@@ -148,7 +149,7 @@ pub trait HttpGet: Send + Sync {
 }
 
 pub trait Installer: Send + Sync {
-    /// `bytes` is the whole `.img.xz` as published.
+    /// `bytes` is the whole compressed slot image as published.
     fn install_os_image(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         let _ = bytes;
         Err(UpdateError::Other(
@@ -302,7 +303,7 @@ impl Installer for DataDirInstaller {
         // Preparation never changes the boot selection. Even a cut-short write
         // leaves the running system selected for the next boot.
         prepare_os_slot(&RealSlotOps, &part, inactive, || {
-            decompress_xz_streaming(src, &part, OS_IMAGE_MAX_BYTES)
+            decompress_image_streaming(src, &part, OS_IMAGE_MAX_BYTES)
         })
     }
 
@@ -732,15 +733,34 @@ fn prepare_os_slot(
     ops.sync_slot(part)
 }
 
-/// Decompress the `.img.xz` at `src` into `dest` (the inactive slot) as a
-/// stream: nothing but small buffers (plus the decoder's dictionary) sits in
-/// RAM. Refuses to write more than `max_bytes`, so a crafted file cannot
-/// balloon past the slot.
-fn decompress_xz_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<(), UpdateError> {
+/// Decompress the slot image at `src` into `dest` (the inactive slot) as a
+/// stream: nothing but small buffers (plus the decoder's window) sits in RAM.
+/// Refuses to write more than `max_bytes`, so a crafted file cannot balloon
+/// past the slot. New images are zstd; xz stays readable so an older release
+/// asset or a saved feed can still be installed.
+fn decompress_image_streaming(src: &Path, dest: &Path, max_bytes: u64) -> Result<(), UpdateError> {
     let io = |e: std::io::Error| UpdateError::Other(e.to_string());
-    let input =
+    let mut input =
         std::io::BufReader::with_capacity(256 * 1024, std::fs::File::open(src).map_err(io)?);
-    let mut reader = lzma_rust2::XzReader::new(input, false).take(max_bytes.saturating_add(1));
+    // read_exact, not fill_buf: a short read from a network or FUSE-backed
+    // image must not turn a valid image into a mystery refusal.
+    let mut magic = [0u8; 4];
+    if input.read_exact(&mut magic).is_err() {
+        return Err(UpdateError::Other(
+            "The operating-system update could not be unpacked. Nothing was installed.".into(),
+        ));
+    }
+    let rest = std::io::Cursor::new(magic).chain(input);
+    let reader: Box<dyn Read> = if magic == [0x28, 0xb5, 0x2f, 0xfd] {
+        Box::new(zstd::stream::read::Decoder::new(rest).map_err(io)?)
+    } else if magic.starts_with(&[0xfd, 0x37, 0x7a, 0x58]) {
+        Box::new(lzma_rust2::XzReader::new(rest, false))
+    } else {
+        return Err(UpdateError::Other(
+            "The operating-system update could not be unpacked. Nothing was installed.".into(),
+        ));
+    };
+    let mut reader = reader.take(max_bytes.saturating_add(1));
     let mut output = std::fs::File::create(dest).map_err(io)?;
     let mut buf = vec![0u8; 256 * 1024];
     let mut written: u64 = 0;
@@ -2076,7 +2096,7 @@ mod tests {
         fn feed_json(&self) -> String {
             let arch = feed_arch();
             let parts = [format!(
-                r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.xz","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
+                r#"{{"name":"os","os":"linux","arch":"{arch}","file":"luna-os-x86_64.img.zst","size":{},"sha256":"{}","urls":["http://dl.test/os"]}}"#,
                 self.os.len(),
                 sha(self.os)
             )];
@@ -2156,7 +2176,7 @@ mod tests {
         assert!(!info.reboot_required);
         assert_eq!(info.release_notes, "notes for 0.4.0");
         assert_eq!(info.checksum, sha(b"os-image-v1"));
-        assert_eq!(info.binary_name, "luna-os-x86_64.img.xz");
+        assert_eq!(info.binary_name, "luna-os-x86_64.img.zst");
     }
 
     #[test]
@@ -2724,9 +2744,18 @@ mod tests {
     }
 
     #[test]
-    fn xz_image_is_decompressed_as_a_stream() {
+    fn slot_image_is_decompressed_as_a_stream() {
         let dir = tempfile::tempdir().unwrap();
         let image: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+
+        // New zstd image.
+        let zst = dir.path().join("os.img.zst");
+        std::fs::write(&zst, zstd::encode_all(&image[..], 3).unwrap()).unwrap();
+        let out = dir.path().join("slot");
+        decompress_image_streaming(&zst, &out, 1 << 20).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), image);
+
+        // Old xz images still install.
         let xz = dir.path().join("os.img.xz");
         {
             let mut w = lzma_rust2::XzWriter::new(
@@ -2737,19 +2766,19 @@ mod tests {
             w.write_all(&image).unwrap();
             w.finish().unwrap();
         }
-        let out = dir.path().join("slot");
-        decompress_xz_streaming(&xz, &out, 1 << 20).unwrap();
-        assert_eq!(std::fs::read(&out).unwrap(), image);
+        let out_xz = dir.path().join("slot-xz");
+        decompress_image_streaming(&xz, &out_xz, 1 << 20).unwrap();
+        assert_eq!(std::fs::read(&out_xz).unwrap(), image);
 
         // Over the cap: refused rather than written past the slot.
         let capped = dir.path().join("capped");
-        let err = decompress_xz_streaming(&xz, &capped, 1000).unwrap_err();
+        let err = decompress_image_streaming(&zst, &capped, 1000).unwrap_err();
         assert!(matches!(err, UpdateError::Other(m) if m.contains("larger")));
 
-        // Not xz at all.
-        let junk = dir.path().join("junk.xz");
-        std::fs::write(&junk, b"definitely not xz data").unwrap();
-        assert!(decompress_xz_streaming(&junk, &dir.path().join("o2"), 1 << 20).is_err());
+        // Not a supported image at all.
+        let junk = dir.path().join("junk.bin");
+        std::fs::write(&junk, b"definitely not an image").unwrap();
+        assert!(decompress_image_streaming(&junk, &dir.path().join("o2"), 1 << 20).is_err());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Full rapidinstall ISO: web UI → musl lunad → Alpine rootfs → slot image
-# (.img.xz) → hybrid ISO. Dev wrapper; the release tool runs the in-container
+# (.img.zst) → hybrid ISO. Dev wrapper; the release tool runs the in-container
 # steps under os/build/ directly.
 # Needs: rustup + musl target, npm, rootless Podman (no sudo), network.
 # When the OS inputs have not changed since the last image (see
@@ -68,7 +68,7 @@ else
 	echo "==> rootfs"
 	"$ROOT/os/build-rootfs.sh"
 
-	echo "==> OS slot image (OTA + factory, .img.xz)"
+	echo "==> OS slot image (OTA + factory, .img.zst)"
 	"$ROOT/os/make-image.sh"
 fi
 

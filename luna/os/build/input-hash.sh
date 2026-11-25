@@ -9,7 +9,9 @@
 # Plain POSIX sh + sha256sum: runs on the host, in CI, or in any container.
 #
 #   usage: input-hash.sh            prints the hex hash
-#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB
+#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB LUNA_OS_REFRESH
+# Compression knobs (ZSTD_THREADS/ZSTD_LEVEL/ZSTD_LONG) are image-only and
+# tracked in the image's .inputs file, not in this rootfs input hash.
 #
 # Not covered, on purpose: package updates inside Alpine's repository for the
 # pinned release (apk resolves them at build time). Set LUNA_OS_REFRESH=<any

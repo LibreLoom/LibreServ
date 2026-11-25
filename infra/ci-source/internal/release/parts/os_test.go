@@ -22,7 +22,7 @@ func TestOSRegistered(t *testing.T) {
 	if strings.Join(names, ",") != "lunad,os,installer" {
 		t.Fatalf("luna parts %v", names)
 	}
-	if OSFile != "luna-os-x86_64.img.xz" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
+	if OSFile != "luna-os-x86_64.img.zst" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
 		t.Fatal(OSFile, InstallerFile)
 	}
 }
@@ -163,6 +163,22 @@ func TestOSImageKeyFollowsPacks(t *testing.T) {
 		if osImageKey("os1", map[string]string{"eurooffice": "aa", "drawio": "bb"}, identity[0], identity[1]) == k1 {
 			t.Fatal("changed application source or version reused the image key")
 		}
+	}
+}
+
+func TestOSImageKeyFollowsZstdKnobs(t *testing.T) {
+	// Start from the same defaults image.sh uses so the baseline is stable.
+	t.Setenv("ZSTD_THREADS", "")
+	t.Setenv("ZSTD_LEVEL", "")
+	t.Setenv("ZSTD_LONG", "")
+	base := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1")
+	for _, name := range []string{"ZSTD_THREADS", "ZSTD_LEVEL", "ZSTD_LONG"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "77")
+			if got := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1"); got == base {
+				t.Fatalf("changing %s reused the cached image key", name)
+			}
+		})
 	}
 }
 

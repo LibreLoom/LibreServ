@@ -10,7 +10,7 @@ import time
 from lib import DIST, KVM, WORK, Luna, VM, check, say, sh, summary
 
 ISO = f"{DIST}/luna-rapidinstall-x86_64.iso"
-SLOT_IMG = f"{DIST}/luna-os-x86_64.img.xz"
+SLOT_IMG = f"{DIST}/luna-os-x86_64.img.zst"
 DISK_GB = 7
 TOKEN = "ABCDEFGH23456789"
 DEV_OF = {"virtio": "/dev/vda", "nvme": "/dev/nvme0n1", "mmc": "/dev/mmcblk0"}
@@ -88,7 +88,7 @@ def serial_console_for_tests(disk):
     """Test-only: a serial console for boot logs, and a root shell on it for the checks.
 
     GRUB gets console=ttyS0; slot A's inittab gets a ttyS0 shell. The slot image
-    that Luna ships is not touched (os-image.sha256 is of the .img.xz).
+    that Luna ships is not touched (os-image.sha256 is of the .img.zst).
     """
     inittab = ext_cat(disk, 3, "/etc/inittab")
     line = "ttyS0::respawn:/usr/bin/env TERM=dumb /bin/ash"
@@ -170,7 +170,7 @@ def stage_install(bus, fw):
     # lunad finds the slots and the boot partition by these exact GPT names when it applies an OS update
     check(f"[{bus}] partition names", names == ["BIOSGRUB", "LUNAESP", "LUNA_A", "LUNA_B", "LUNA_DATA"], str(names))
     check(f"[{bus}] device token on LUNA_DATA", TOKEN in ext_cat(disk, 5, "/device-token"))
-    want = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
+    want = open(f"{DIST}/luna-os-x86_64.img.zst.sha256").read().split()[0]
     check(f"[{bus}] os-image.sha256 matches the image", want in ext_cat(disk, 5, "/os-image.sha256"))
     env = esp_grubenv(disk)
     check(f"[{bus}] grubenv starts on slot A, confirmed", env.get("luna_slot") == "A" and env.get("luna_boot_ok") == "1", str(env))
@@ -2079,11 +2079,11 @@ def os_image_variant(name, edits):
     Always carries the serial test shell so the checks can look inside, and a
     marker file naming the variant.
     """
-    out = f"{UPD}/files/{name}.img.xz"
+    out = f"{UPD}/files/{name}.img.zst"
     if os.path.exists(out):
         return out
     raw = f"{WORK}/{name}.raw"
-    sh(f"xz -dc {SLOT_IMG} > {raw}")
+    sh(f"zstd -dcq {SLOT_IMG} > {raw}")
     inittab = sh(f"debugfs -R 'cat /etc/inittab' {raw} 2>/dev/null")
     edits = dict(edits)
     edits["/etc/inittab"] = inittab.rstrip("\n") + "\nttyS0::respawn:/usr/bin/env TERM=dumb /bin/ash\n"
@@ -2103,7 +2103,7 @@ def os_image_variant(name, edits):
     # Every real build has its own random filesystem UUID. Variants made from one image
     # must too, or the spare slot briefly shares the running slot's UUID during a write.
     sh(f"e2fsck -fy {raw} >/dev/null 2>&1; tune2fs -U random {raw} >/dev/null")
-    sh(f"xz -T0 -3 -c {raw} > {out}")
+    sh(f"zstd -T3 -19 -q -c {raw} > {out}")
     os.unlink(raw)
     return out
 
@@ -2118,7 +2118,7 @@ def publish(version, os_img=None, key="good", published=None, tamper=False, note
     pub, sec = minisign_keys(key)
     parts = []
     if os_img:
-        parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.xz",
+        parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.zst",
                       "size": os.path.getsize(os_img), "sha256": sha256_file(os_img),
                       "urls": [f"{FEED_URL}/files/{os.path.basename(os_img)}"]})
         if tamper:
@@ -2221,7 +2221,7 @@ def stage_update():
     c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": "ftp://x", "channel": "stable", "keys": [good_pub]})
     check("update source: a non-web address is refused plainly", c == 400, f"{c} {b}")
     c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
-    old_hash = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
+    old_hash = open(f"{DIST}/luna-os-x86_64.img.zst.sha256").read().split()[0]
     rc, h = vm.sh("cat /var/lib/luna/os-image.sha256")
     check("OS image hash is recorded before any update", old_hash in h, h)
 

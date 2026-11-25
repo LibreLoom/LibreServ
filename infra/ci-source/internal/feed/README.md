@@ -90,8 +90,8 @@ its version is newer than beta's current one (else beta users never leave
   "notes": "markdown",
   "parts": [
     { "name": "os", "os": "linux", "arch": "amd64",
-      "file": "luna-os-x86_64.img.xz", "size": 412000000, "sha256": "…",
-      "urls": ["…/generic/luna/0.4.0/luna-os-x86_64.img.xz"] }
+      "file": "luna-os-x86_64.img.zst", "size": 412000000, "sha256": "…",
+      "urls": ["…/generic/luna/0.4.0/luna-os-x86_64.img.zst"] }
   ],
   "api": { "version": 3, "oldest_supported": 2 }
 }
@@ -111,7 +111,7 @@ which produced a release whose package held only a daemon binary.)
 | `sol` | `sol` | linux | amd64, arm64 | `sol-linux-<arch>` |
 | `sol-connect`, `luna-connect` | `server` | linux | amd64 | `<unit>-server-linux-amd64` |
 | | `web` | any | any | `<unit>-web.tar.gz` |
-| `luna` | `os` | linux | amd64 | `luna-os-x86_64.img.xz` |
+| `luna` | `os` | linux | amd64 | `luna-os-x86_64.img.zst` |
 | | `installer` | linux | amd64 | `luna-rapidinstall-x86_64.iso.xz` |
 | `luna-desktop` | `flatpak` | linux | amd64 | `luna-desktop-x86_64.flatpak` |
 | | `windows` | windows | amd64 | `Luna-Desktop-Setup-x86_64.exe` |
@@ -156,9 +156,9 @@ is ever written to the data partition.
 ## Receiver notes
 
 - **OS image:** the `os` part is installed when its `sha256` differs from
-  `os-image.sha256` on the data partition (stream-decompress `.img.xz` onto
+  `os-image.sha256` on the data partition (stream-decompress `.img.zst` onto
   the inactive slot, then store the hash). The factory installer and flasher
-  must write `os-image.sha256` as the sha256 of the exact `.img.xz` the feed
+  must write `os-image.sha256` as the sha256 of the exact `.img.zst` the feed
   lists, or a fresh box offers a reflash on its first check.
 - **The daemon is not updated on its own.** lunad runs from the OS image
   (`/usr/local/bin/lunad`); a new daemon means a new image, and the A/B slots

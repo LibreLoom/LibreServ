@@ -41,7 +41,8 @@ fi
 mkdir -p "$OUT"
 echo "Packing $PACK_SRC → $TARBALL …"
 tmp="$TARBALL.tmp"
-tar -C "$(dirname "$PACK_SRC")" -cf - drawio |
+# Source maps are for devtools only and are never requested at runtime.
+tar -C "$(dirname "$PACK_SRC")" --exclude='*.js.map' -cf - drawio |
 	zstd -19 -T0 -o "$tmp"
 mv "$tmp" "$TARBALL"
 

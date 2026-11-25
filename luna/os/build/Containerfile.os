@@ -1,5 +1,5 @@
 # Toolchain for the Luna OS image: Alpine's apk (assembles the rootfs) plus
-# mkfs.ext4 -d and xz (turn it into the slot image). Used by build/rootfs.sh
+# mkfs.ext4 -d and zstd (turn it into the slot image). Used by build/rootfs.sh
 # and build/image.sh. Scripts inside never call podman.
 # The base pin comes from lib/alpine-image.sh (passed as a build arg).
 # alpine:3.24, pinned by digest. The release tool builds this image without

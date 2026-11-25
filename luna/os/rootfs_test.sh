@@ -100,7 +100,7 @@ assert_file_has "$BUILD" 'virtio_net' \
 	"rootfs network bring-up must load virtio_net for QEMU / virt guests"
 assert_file_has "$BUILD" 'rc_parallel="YES"' \
 	"OpenRC must start services in parallel for faster boot"
-assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3' \
+assert_file_has "$BUILD" 'udhcpc -i "$iface" -q -n -t 3 -T 1' \
 	"boot DHCP must use a short retry budget so OpenRC is not blocked"
 assert_file_has "$BUILD" 'after luna-network' \
 	"lunad must not wait on avahi before binding HTTP"
@@ -175,8 +175,8 @@ assert_file_lacks "$ROOT/os/build/image.sh" '^[^#]*(podman|sudo|--privileged)' \
 	"image.sh runs inside the build container and must not call podman or sudo"
 assert_file_has "$ROOT/os/build/image.sh" 'mkfs.ext4 .* -d ' \
 	"image.sh must write the filesystem with mkfs.ext4 -d (no loop device, no mount)"
-assert_file_has "$ROOT/os/build/image.sh" 'xz -9e' \
-	"image.sh must compress the slot image with xz -9e (64 MiB dictionary)"
+assert_file_has "$ROOT/os/build/image.sh" 'zstd -"\$ZSTD_LEVEL"' \
+	"image.sh must compress the slot image with zstd"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
 assert_file_has "$FLASH" 'rootflags=ro panic=10 quiet' \

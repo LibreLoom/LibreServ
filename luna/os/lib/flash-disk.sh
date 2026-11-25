@@ -2,8 +2,8 @@
 # Write Luna OS onto a whole disk so it can start on ordinary x86_64 machines:
 # BIOS (mini PCs, older boxes) and UEFI (Wyse 3040, modern mini PCs).
 # GPT: bios_grub + ESP + LUNA_A + LUNA_B + LUNA_DATA.
-# Both OS slots get the same slot image (luna-os-*.img.xz, streamed through
-# `xz -dc`) at factory. GRUB tryboot picks the slot;
+# Both OS slots get the same slot image (luna-os-*.img.zst, streamed through
+# `zstd -dcq`) at factory. GRUB tryboot picks the slot;
 # Luna state lives on LUNA_DATA mounted at /var/lib/luna.
 
 _wait_block() {
@@ -284,10 +284,28 @@ _flash_guards() {
 		echo "Luna's system file is missing: $_img" >&2
 		return 2
 	fi
-	if ! command -v xz >/dev/null 2>&1; then
-		echo "This environment is missing xz, which unpacks Luna's system file." >&2
-		return 1
-	fi
+	# Require the decoder this image actually needs before any disk is wiped.
+	# _write_slot still accepts old xz assets, so a host with only one of the
+	# two tools must refuse here rather than fail after repartitioning.
+	_magic="$(dd if="$_img" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_magic" in
+	28b52ffd)
+		if ! command -v zstd >/dev/null 2>&1; then
+			echo "This environment is missing zstd, which unpacks this Luna image." >&2
+			return 1
+		fi
+		;;
+	fd377a58)
+		if ! command -v xz >/dev/null 2>&1; then
+			echo "This environment is missing xz, which unpacks this older Luna image." >&2
+			return 1
+		fi
+		;;
+	*)
+		echo "Luna's system file is not a zstd or xz image: $_img" >&2
+		return 2
+		;;
+	esac
 	if ! command -v grub-install >/dev/null 2>&1; then
 		echo "This environment is missing GRUB. Boot the rapidinstall ISO instead." >&2
 		return 1
@@ -307,7 +325,7 @@ _record_os_image_hash() {
 	return 0
 }
 
-# sha256 of the exact .img.xz at $1, which is what Luna records as
+# sha256 of the exact compressed image at $1, which is what Luna records as
 # os-image.sha256 and compares against the update feed. When a
 # <image>.sha256 companion sits beside it (the ISO always stages one), the two
 # must agree: a damaged or swapped file stops the install before the disk is
@@ -323,10 +341,16 @@ _verify_os_image() {
 	printf '%s\n' "$_got"
 }
 
-# Stream the .img.xz at $1 onto block device (or file) $2. dash has no
-# pipefail, so xz writes straight to the device and its own exit status counts.
+# Stream the slot image at $1 onto block device (or file) $2. New images are
+# zstd; an older xz asset still flashes. dash has no pipefail, so the
+# decompressor writes straight to the device and its own exit status counts.
 _write_slot() {
-	xz -dc "$1" >"$2" || return 1
+	_magic="$(dd if="$1" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_magic" in
+	28b52ffd) zstd -dcq "$1" >"$2" || return 1 ;;
+	fd377a58) xz -dc "$1" >"$2" || return 1 ;;
+	*) return 1 ;;
+	esac
 	sync
 }
 
@@ -335,8 +359,8 @@ _write_os_image_hash() {
 	_record_os_image_hash "$1" "$2"
 }
 
-# flash_luna_disk <whole disk> <luna-os-*.img.xz>
-# Sets _os_hash (sha256 of that .img.xz) for the caller to record.
+# flash_luna_disk <whole disk> <luna-os-*.img.zst>
+# Sets _os_hash (sha256 of that image) for the caller to record.
 flash_luna_disk() {
 	_dev="$1"
 	_slot_img="${2:-${LUNA_OS_IMAGE:-}}"

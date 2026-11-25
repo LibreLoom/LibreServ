@@ -50,7 +50,7 @@ func DefaultFileSpecs(unit string) []FileSpec {
 		// never reused from an earlier version, which is how 0.0.4 shipped a
 		// package with no image and no installer at all.
 		return []FileSpec{
-			spec("os", "linux", "amd64", "luna-os-x86_64.img.xz"),
+			spec("os", "linux", "amd64", "luna-os-x86_64.img.zst"),
 			spec("installer", "linux", "amd64", "luna-rapidinstall-x86_64.iso.xz"),
 		}
 	case "luna-desktop":
