@@ -496,6 +496,8 @@ describe("DriveHomeCard when the drive is locked", () => {
     stubSummary("never");
     renderCard({ drive: { id: "d1", label: "Family photos", state: "as_is", mounted: false, encrypted: true, locked: true } });
     expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Unlock this drive" })).toBeInTheDocument();
+    expect(screen.queryByText("Locked. Enter the password to open its files.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Drive password")).toBeInTheDocument();
     expect(screen.queryByText("Can't open")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
