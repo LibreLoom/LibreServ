@@ -166,6 +166,22 @@ func TestOSImageKeyFollowsPacks(t *testing.T) {
 	}
 }
 
+func TestOSImageKeyFollowsZstdKnobs(t *testing.T) {
+	// Start from the same defaults image.sh uses so the baseline is stable.
+	t.Setenv("ZSTD_THREADS", "")
+	t.Setenv("ZSTD_LEVEL", "")
+	t.Setenv("ZSTD_LONG", "")
+	base := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1")
+	for _, name := range []string{"ZSTD_THREADS", "ZSTD_LEVEL", "ZSTD_LONG"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "77")
+			if got := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1"); got == base {
+				t.Fatalf("changing %s reused the cached image key", name)
+			}
+		})
+	}
+}
+
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 func TestFinishFile(t *testing.T) {

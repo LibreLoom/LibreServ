@@ -14,6 +14,7 @@ use std::sync::{Mutex, OnceLock};
 
 use base64::Engine as _;
 use serde::Deserialize;
+use sha2::Digest as _;
 
 #[derive(Deserialize)]
 struct Manifest {
@@ -43,6 +44,23 @@ struct Cache {
 }
 
 static CACHE: OnceLock<Mutex<Option<Cache>>> = OnceLock::new();
+
+/// Hash of the exact bytes `synth` will serve: the recorded masked prefix
+/// followed by the source font's tail.
+fn served_digest(header: &[u8], source: &[u8]) -> Option<String> {
+    if source.len() < header.len() {
+        return None;
+    }
+    let mut served = Vec::with_capacity(source.len());
+    served.extend_from_slice(header);
+    served.extend_from_slice(&source[header.len()..]);
+    Some(
+        sha2::Sha256::digest(&served)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
+}
 
 /// Look up one alias. The cache is keyed by pack directory and the manifest's
 /// mtime, so a dev rebuilding a pack in place reloads instead of serving a
@@ -86,7 +104,13 @@ fn alias_for(pack_dir: &Path, name: &str) -> Option<Entry> {
                     continue;
                 }
                 let source = pack_dir.join(rel);
-                if !source.is_file() {
+                let Ok(source_bytes) = std::fs::read(&source) else {
+                    continue;
+                };
+                // The manifest's ETag must describe the bytes actually served.
+                // A stale or corrupt entry must fall back to the real file,
+                // not poison the cache with a validator for different bytes.
+                if served_digest(&header, &source_bytes).as_deref() != Some(alias.sha256.as_str()) {
                     continue;
                 }
                 aliases.insert(
@@ -180,7 +204,8 @@ mod tests {
             "version": 1,
             "fonts": {
                 "024": { "src": "core-fonts/sub/real.ttf", "head": head, "sha256": hash },
-                "evil": { "src": "../outside.ttf", "head": head, "sha256": hex_hash(&generated) }
+                "evil": { "src": "../outside.ttf", "head": head, "sha256": hex_hash(&generated) },
+                "bad": { "src": "core-fonts/sub/real.ttf", "head": head, "sha256": "0".repeat(64) }
             }
         });
         std::fs::write(
@@ -197,6 +222,8 @@ mod tests {
         assert_eq!(got.len(), source.len());
         assert_eq!(got, generated);
         assert!(synth(&pack, "evil").await.is_none());
+        // A manifest hash that does not describe the served bytes is refused.
+        assert!(etag_for(&pack, "bad").is_none());
         assert!(synth(&pack, "000").await.is_none());
         assert!(synth(&pack, "../024").await.is_none());
     }

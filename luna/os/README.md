@@ -159,10 +159,11 @@ Every release ships both. Nothing is reused from an earlier version, because
 the image *is* the product.
 
 The `os` part moved from xz to zstd in this release. That is safe because there
-are no field boxes yet: a unit gets its daemon from the image, so a new image
-never has to be unpacked by an older daemon. Both the updater and the factory
-installer still accept a saved xz image by sniffing its magic bytes; that is
-for old assets and test fixtures, not a transition fleet.
+are no field boxes yet: no box running the old xz-only daemon can be asked to
+install this image. An A/B update does unpack the new image on the box, so any
+later format change must keep a decoder in the daemon doing the update until
+no older daemon can be the updater. Both decoders are kept here; the xz path is
+for saved assets and test fixtures, not a transition fleet.
 
 An admin taps **Install update** in Settings. When the feed's `os` part has a
 sha256 that differs from `/var/lib/luna/os-image.sha256`, that tap writes the
