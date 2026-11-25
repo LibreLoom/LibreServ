@@ -1786,7 +1786,7 @@
   },
   "public/download-limit": {
     "status": "pass",
-    "note": "Sweep observed: loaded /s/toklimit in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Says the link has reached its download limit | Offers no download buttons that will fail.",
+    "note": "Sweep observed: loaded /s/toklimit in desktop/scenario default with the fake installed; no fake crash, unhandled error or missing-mock banner. Check items: Says the link has reached its download limit | Offers no download buttons that will fail. Needs real Luna: Real lunad has no download counter on access links, so a link at its download limit cannot be produced.",
     "at": "2026-11-23T05:24:26.131Z",
     "viewport": "desktop",
     "theme": "scenario default"
