@@ -104,7 +104,7 @@ function DriveHomeCard({
     // and the shelf stays empty: the password field is the action.
     body = (
       <div className="space-y-3">
-        <h3 className="-ml-3 -mt-3 font-mono text-lg font-normal">Unlock this drive</h3>
+        <p className="text-sm">Locked. Enter the password to open its files.</p>
         <UnlockPrompt driveId={drive.id} surface="primary" />
       </div>
     );
