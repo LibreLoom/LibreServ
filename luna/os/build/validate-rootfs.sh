@@ -19,12 +19,22 @@ for f in boot/vmlinuz-lts \
     [ -s "$ROOTFS/$f" ] || fail "missing $f"
 done
 [ -d "$ROOTFS/usr/share/luna/eurooffice/fonts" ] || fail 'missing office fonts'
-# The kernel mounts the slot from the partition label and carries the storage
-# drivers built in. An initramfs in the image would only add a second full
-# device scan to every boot (and 15 MiB to every download), so it must not be
-# there.
-for _i in "$ROOTFS"/boot/initramfs-* "$ROOTFS"/boot/initrd*; do
-    [ -e "$_i" ] && fail "$(basename "$_i") is shipped but the kernel boots without one"
+# The live installer supports a broad range of root disks. The storage initramfs
+# must carry the controllers that are not built into the kernel, or installation
+# could erase a disk the installed system cannot discover.
+_initfs_list="$(mktemp)"
+_initfs_cpio="$(mktemp)"
+trap 'rm -f "$_initfs_list" "$_initfs_cpio"' EXIT
+gzip -dc "$ROOTFS/boot/initramfs-lts" > "$_initfs_cpio" \
+    || fail 'the storage initramfs cannot be decompressed'
+chroot "$ROOTFS" /bin/busybox cpio -t < "$_initfs_cpio" > "$_initfs_list" \
+    || fail 'the storage initramfs cannot be read'
+KV="$(ls "$ROOTFS/lib/modules" | head -1)"
+for _driver in aacraid hpsa megaraid_sas mpt3sas vmw_pvscsi smartpqi mtip32xx firewire-sbp2; do
+    if ! grep -q "/$_driver\.ko" "$_initfs_list" \
+        && ! grep -q "/$_driver\.ko$" "$ROOTFS/lib/modules/$KV/modules.builtin" 2>/dev/null; then
+        fail "the storage initramfs cannot boot a disk that needs $_driver"
+    fi
 done
 # The image runs no SSH server, so nothing may be advertised over mDNS except
 # the box's own name. Alpine's avahi package ships ssh/sftp-ssh service files.

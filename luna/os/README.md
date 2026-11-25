@@ -29,11 +29,12 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    anyway — and a changed lunad always needs one, because the daemon is
 #    inside the image.
 #    build/Containerfile.os also builds the image's kernel
-#    (build/kernel-build.sh): Alpine's linux-lts config, with the storage path
-#    switched to built-in, so a slot mounts its own root and ships no
-#    initramfs. That stage is slow once and then cached with the image: it
-#    downloads the pinned 6.18.64 source and needs about 12 GB of scratch, so
-#    budget 20-40 minutes on four cores and keep the podman store clear.
+#    (build/kernel-build.sh): Alpine's linux-lts config, with the common storage
+#    path switched to built-in. The rootfs step then builds a storage-only
+#    initramfs for the remaining root-disk controllers, so installation keeps
+#    broad root-disk support. The kernel stage is slow once and
+#    cached with the image: it downloads the pinned 6.18.65 source and needs
+#    about 12 GB of scratch, so budget 20-40 minutes on four cores.
 
 # 3. Rapidinstall ISO (`dd` to a USB stick), rootless, no live-build
 #    Debian live (mmdebstrap + squashfs + grub-mkrescue) boots the installer
@@ -118,28 +119,23 @@ OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
 `/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.
 GRUB is installed for `i386-pc` and `x86_64-efi`.
 
-The startup menu names each slot by its GPT partition UUID (`root=PARTUUID=`)
-next to the slot's filesystem UUID (`luna.fsuuid=`), and carries an `initrd`
-line only for a slot that has an initramfs. A partition UUID is per install, so
-a retired Luna disk plugged in beside the real one cannot win the lookup, and it
-survives updates because an update writes inside partitions, never the partition
-table. An update renders and writes this menu before it arms the other slot, so
-the menu always describes the software it starts.
+Luna supports one installed OS disk. Additional drives are storage, not another
+Luna installation.
 
-Boxes installed from the 0.0.11 image are the one exception, and it is
-deliberate: 0.0.11's lunad only ticks the tryboot counter and never renders a
-menu, so its menu stays as it was — an `initrd` line for an image with no
-initramfs and `rootflags=ro,noatime`, neither of which this kernel and ext4
-accept for a root filesystem. The new slot fails to start and the box rolls back
-to the slot it is running now, so nothing is lost, but such a box cannot take
-this release as an over-the-air update and has to be flashed again. Nothing
-older can be fixed from the old side, and there are no installed boxes yet.
+The startup menu names each slot by its filesystem UUID (`root=UUID=`) next to
+the same UUID in `luna.fsuuid=`, and carries an `initrd` line for the storage
+initramfs. Updates preserve the slot UUIDs, and an update renders and writes
+this menu before it arms the other slot.
+
+The 0.0.11 menu already uses `root=UUID=` and an initramfs, so its boot shape
+remains compatible. Its daemon does not rewrite the menu, but it does not need
+to for root mounting.
 
 This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system: built
-here from Alpine's linux-lts config, upstream source, with the storage path in the
-kernel so the slot boots without an initramfs. The
-rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
-support, then flashes the Alpine OS slots above.
+here from Alpine's linux-lts config and upstream source. The common storage path
+is built into the kernel; a storage-only initramfs carries the remaining
+root-disk controllers. The rapidinstall USB boots a pinned **Debian 12 live**
+image for reliable hardware support, then flashes the Alpine OS slots above.
 
 Quick-start: Plug the included RJ45 (ethernet) cable from Luna into your router or modem.
 Open the address shown on Luna's screen, or try `luna.local`.

@@ -30,11 +30,12 @@ _find_boot_images() {
 		echo "The Luna system image has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
-	# The slot image carries no initramfs: the kernel finds its root from the
-	# partition label, because the storage drivers are built into it. An image
-	# that still ships one gets it passed on the way it always was.
+	# The slot image must carry the storage initramfs: root=UUID is resolved
+	# there before root is mounted, and it carries controllers outside the
+	# kernel's built-in common path.
 	if [ -z "$_i" ] || [ "$_i" = "." ] || [ ! -e "$_rootmnt/boot/$_i" ]; then
-		_i=""
+		echo "The Luna system image has no storage initramfs. Refusing to write a bootloader that cannot start." >&2
+		return 1
 	fi
 	printf '%s\n' "$_k" "$_i"
 }
@@ -42,18 +43,15 @@ _find_boot_images() {
 # Dual-slot GRUB menu with tryboot. Lives on the ESP so rewriting a slot
 # cannot erase the bootloader config. grubenv keys:
 #   luna_slot=A|B  luna_boot_ok=0|1  luna_tries=0|1|2|3
-# Slots are named by their GPT partition UUID, never by the partition label:
-# every Luna disk carries the same labels, so a retired disk plugged in beside
-# the real one could win the lookup. The filesystem UUID stays in luna.fsuuid=
-# because an update keeps each slot's UUID across a write.
+# Slots are named by their filesystem UUID, which the storage initramfs can
+# resolve. Luna supports one installed OS disk; an update keeps each slot's UUID
+# across a write.
 _write_grub_cfg() {
 	_cfgpath="$1"
 	_uuid_a="$2"
 	_uuid_b="$3"
-	_puuid_a="$4"
-	_puuid_b="$5"
-	_k="$6"
-	_i="$7"
+	_k="$4"
+	_i="$5"
 
 	mkdir -p "$(dirname "$_cfgpath")"
 	{
@@ -99,27 +97,26 @@ _write_grub_cfg() {
 		# Two entries: the slot GRUB picked, and the other one as a fallback. If the
 		# first cannot start at all (its filesystem is not found, or the kernel
 		# will not load), GRUB moves on by itself instead of waiting at an error
-		# for a key nobody is there to press. rootflags= carries mount options for
-		# the filesystem itself: the kernel strips ro/rw and hands the rest to
-		# ext4, which rejects noatime ("Unknown parameter") and then cannot mount
-		# its root. A read-only root has no atimes to update, so ro is all it needs.
+		# for a key nobody is there to press. Keep rootflags=ro: userspace mount
+		# accepts noatime, but the kernel's direct root-mount path rejects it. A
+		# read-only root has no atimes to update, so ro is all it needs.
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
 		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 		echo 'menuentry "Luna (other system)" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
 		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
@@ -390,16 +387,19 @@ PART
 		echo "Writing Luna to slot B failed." >&2
 		return 1
 	}
-	# Both slots come from one image, so they share a filesystem UUID; GRUB and
-	# the kernel pick a slot by UUID, so slot B needs its own.
-	e2fsck -fy "$_root_b" >/dev/null 2>&1 || [ $? -le 1 ] || {
-		echo "Slot B did not check clean after writing." >&2
-		return 1
-	}
-	tune2fs -U random "$_root_b" >/dev/null || {
-		echo "Could not give slot B its own identity." >&2
-		return 1
-	}
+	# Both slots come from one image, so they share its filesystem UUID. Give
+	# each slot a random identity: GRUB searches these UUIDs to load kernels,
+	# and the initramfs uses the same UUID to find root.
+	for _slot in "$_root_a" "$_root_b"; do
+		e2fsck -fy "$_slot" >/dev/null 2>&1 || [ $? -le 1 ] || {
+			echo "An OS slot did not check clean after writing." >&2
+			return 1
+		}
+		tune2fs -U random "$_slot" >/dev/null || {
+			echo "Could not give an OS slot its own identity." >&2
+			return 1
+		}
+	done
 	# Relabel in case the image carried a generic label.
 	e2label "$_root_a" LUNA_A 2>/dev/null || true
 	e2label "$_root_b" LUNA_B 2>/dev/null || true
@@ -410,15 +410,6 @@ PART
 		echo "Could not read the Luna slot UUIDs for GRUB." >&2
 		return 1
 	fi
-	# The GPT partition UUIDs are what the kernel mounts by: random per install,
-	# unlike the partition names every Luna disk shares.
-	_puuid_a="$(blkid -s PARTUUID -o value "$_root_a")"
-	_puuid_b="$(blkid -s PARTUUID -o value "$_root_b")"
-	if [ -z "$_puuid_a" ] || [ -z "$_puuid_b" ]; then
-		echo "Could not read the Luna slot partition UUIDs for GRUB." >&2
-		return 1
-	fi
-
 	_mnt_a="$(mktemp -d /tmp/luna-a.XXXXXX)" || return 1
 	_mnt_b="$(mktemp -d /tmp/luna-b.XXXXXX)" || {
 		rmdir "$_mnt_a" 2>/dev/null || true
@@ -468,10 +459,10 @@ PART
 	fi
 	_k="$(printf '%s\n' "$_boot_imgs" | sed -n '1p')"
 	_i="$(printf '%s\n' "$_boot_imgs" | sed -n '2p')"
-	_write_grub_cfg "$_espmnt/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_espmnt/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
 	# Mirror onto both slots so a BIOS boot-directory fallback still works.
-	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
-	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
 	_write_grubenv "$_espmnt" A
 
 	_bios_ok=0

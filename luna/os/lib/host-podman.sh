@@ -39,10 +39,14 @@ luna_build_image() {
 	printf '%s\n' "$_tag"
 }
 
-# The kernel recipe's content, as a build arg: luna_build_image keys the image on
-# the Containerfile, which does not include the script it copies in.
+# The kernel recipe's content and the caller's refresh marker, as a build arg:
+# luna_build_image keys the image on the Containerfile, which does not include
+# the script it copies in or the moving linux-lts package used for its config.
 luna_kernel_recipe() {
-	sha256sum "$OSDIR/build/kernel-build.sh" | cut -c1-12
+	{
+		sha256sum "$OSDIR/build/kernel-build.sh"
+		printf 'refresh=%s\n' "${LUNA_OS_REFRESH:-}"
+	} | sha256sum | cut -c1-12
 }
 
 # Input hash (see build/input-hash.sh) and the "is dist already current" test.

@@ -33,9 +33,9 @@ find "$ROOTFS" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 # The grub post-install trigger runs grub-probe against whatever disk the
 # build host boots from and is useless here, so a trigger error is tolerated;
 # the check below still fails the build if any package did not install.
-# The linux-lts trigger builds /boot/initramfs-lts itself (no proc/sys mounts
-# needed). 06.frag removes it again: the kernel this image ships mounts its own
-# root, so the appliance boots without one.
+# The linux-lts trigger builds a stock /boot/initramfs-lts. 06.frag replaces it
+# with a storage-only initramfs for the custom kernel, keeping broad root-disk
+# support without carrying the stock image's unrelated drivers and tools.
 APK_CACHE=""
 if [ -d "${LUNA_CACHE_DIR:-/nonexistent}" ]; then
     mkdir -p "$LUNA_CACHE_DIR/apk"
@@ -45,7 +45,7 @@ fi
 apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_CACHE \
     --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" \
     --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" \
-    alpine-base openrc linux-lts kmod \
+    alpine-base openrc linux-lts mkinitfs kmod \
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
     avahi acpid \
     e2fsprogs e2fsprogs-extra exfatprogs dosfstools \
@@ -57,7 +57,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     poppler-utils tesseract-ocr tesseract-ocr-data-eng onnxruntime \
     hdparm \
     chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
-for _p in alpine-base openrc linux-lts grub chrony ffmpeg onnxruntime; do
+for _p in alpine-base openrc linux-lts mkinitfs grub chrony ffmpeg onnxruntime; do
     apk info --root "$ROOTFS" -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
 done
 # Every helper program lunad shells out to must be in the image. An OS update
@@ -76,7 +76,7 @@ for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat fsck.fat wipefs s
     [ "$_have" = 1 ] || { echo "the OS image is missing the program $_b that Luna needs" >&2; exit 1; }
 done
 # A slot without a kernel cannot boot: fail here, not on the device. The
-# kernel carries the storage drivers, so no initramfs is checked for.
+# storage initramfs is built and checked after the custom kernel is installed.
 [ -s "$ROOTFS/boot/vmlinuz-lts" ] || { echo "missing boot/vmlinuz-lts in the rootfs (the linux-lts install did not finish)" >&2; exit 1; }
 
 mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev"

@@ -6,10 +6,10 @@
 # build arguments, so this default is the pin (lib/alpine-image.sh must match).
 ARG ALPINE_IMAGE=docker.io/library/alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
-# The kernel stage. The slot boots without an initramfs, so the kernel has to
-# mount its own root: build/kernel-build.sh starts from Alpine's linux-lts
-# config and switches the boot storage path to built-in. The result lands in
-# /kout and is what the rootfs ships (lib/build-rootfs.d/06.frag).
+# The kernel stage. build/kernel-build.sh starts from Alpine's linux-lts config
+# and switches the common boot storage path to built-in. The result lands in
+# /kout; 06.frag builds a storage-only initramfs for the remaining root-disk
+# controllers before trimming runtime modules.
 # Built on Debian, not Alpine: the kernel's own build tools (scripts/config,
 # objtool) are bash and glibc programs and want the headers Alpine leaves out.
 # Only a kernel and its modules come out of this stage, so the build host's

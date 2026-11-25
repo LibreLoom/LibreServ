@@ -19,6 +19,7 @@ class SilentSocket {
   constructor(url) {
     this.url = url;
     this.readyState = 0;
+    this.silentClose = false;
     this.sent = /** @type {string[]} */ ([]);
     /** @type {Record<string, ((ev: any) => void)[]>} */
     this.listeners = {};
@@ -35,7 +36,7 @@ class SilentSocket {
   }
   close() {
     this.readyState = 3;
-    this.fire("close");
+    if (!this.silentClose) this.fire("close");
   }
 }
 
@@ -60,6 +61,30 @@ describe("collabSocket connect timeout", () => {
     // Offline is reported as a dropped socket, which is what lets the editor
     // seed the document from the file and keep saving.
     expect(statuses).toContain("closed");
+    sock.close();
+  });
+
+  it("ignores a delayed close from a socket that already timed out", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", SilentSocket);
+    const statuses = /** @type {string[]} */ ([]);
+    const sock = new CollabSocket("d1", "a.txt", "ws://luna.test/api/v1/collab/ws");
+    sock.onStatus = (s) => statuses.push(s);
+
+    sock.connect();
+    const first = SilentSocket.instances[0];
+    first.silentClose = true;
+    vi.advanceTimersByTime(CollabSocket.CONNECT_TIMEOUT_MS + 10);
+    vi.advanceTimersByTime(1000);
+    const second = SilentSocket.instances[1];
+
+    first.fire("close");
+    expect(sock.ws).toBe(second);
+    expect(sock._connectTimer).not.toBeNull();
+    expect(statuses).toEqual(["connecting", "closed", "reconnecting"]);
+
+    vi.advanceTimersByTime(CollabSocket.CONNECT_TIMEOUT_MS + 10);
+    expect(statuses.at(-1)).toBe("closed");
     sock.close();
   });
 

@@ -2,19 +2,17 @@
 # Build the kernel a Luna slot boots from, INSIDE build/Containerfile.os.
 # Never calls podman or sudo.
 #
-# Why Luna builds its own: the slot boots without an initramfs, so the kernel
-# has to find and mount the root filesystem itself. That needs the storage path
-# (libata/AHCI, sd, NVMe, mmc, USB storage, virtio-blk) built into the kernel
-# instead of loaded from an initramfs. Alpine's linux-lts package ships them as
-# modules, so its config is taken as the starting point — every driver a Luna
-# box might have stays available — and only the boot path is switched to
-# built-in.
+# Why Luna builds its own: the common boot storage path (libata/AHCI, sd, NVMe,
+# mmc, USB storage, virtio-blk) is built into the kernel so ordinary boxes do
+# not depend on initramfs timing. Alpine's linux-lts package ships those drivers
+# as modules, so its config is the starting point — every other root-capable
+# controller stays available as a module for the storage initramfs.
 #
 #   out: /out/vmlinuz-lts, /out/modules/<uname -r>
 #   env: JOBS (default: all cores)
 set -eu
-KERNEL_VERSION=6.18.64
-KERNEL_SHA256=020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562
+KERNEL_VERSION=6.18.65
+KERNEL_SHA256=c92606f956f09dc50b5a0e2af9e86763fce27ada1647de97f8d1ac8cfc95801d
 JOBS="${JOBS:-$(nproc)}"
 
 if [ "$(uname -m)" != x86_64 ]; then

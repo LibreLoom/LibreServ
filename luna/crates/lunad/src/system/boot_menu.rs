@@ -2,17 +2,14 @@
 //!
 //! There is one renderer, and both the installer (`luna/os/lib/flash-disk.sh`)
 //! and an update produce the same menu. An update rewrites it before it arms
-//! the new slot, so a box whose menu still describes the older boot scheme —
-//! an `initrd` line for a system that has no initramfs, or `noatime` in
-//! `rootflags`, which ext4 rejects — comes back on the new slot instead of
-//! rolling back forever.
+//! the new slot, so stale kernel or initramfs names cannot leave the box trying
+//! to boot files the new image does not carry.
 //!
-//! Slots are named by their GPT partition UUID, not by the partition label.
-//! Every Luna disk carries the same labels, so `root=PARTLABEL=LUNA_A` could
-//! start the wrong disk when a retired one is plugged in; the partition UUID
-//! is random per install. The filesystem UUID stays in `luna.fsuuid=` because
-//! the updater keeps each slot's UUID across a write.
+//! Slots are named by their filesystem UUID, which the storage initramfs can
+//! resolve before mounting root. Luna supports one installed OS disk. The same
+//! UUID stays in `luna.fsuuid=` because the updater preserves it across a write.
 
+use std::fs::File;
 use std::path::Path;
 
 use crate::system::updates::UpdateError;
@@ -31,26 +28,26 @@ pub struct SlotEntry {
     pub letter: char,
     /// The slot filesystem's UUID (`blkid -s UUID`, kept across updates).
     pub fs_uuid: String,
-    /// The slot partition's GPT UUID (`blkid -s PARTUUID`, random per install).
-    pub part_uuid: String,
+    /// Boot files inside this slot. They can differ across an update.
+    pub kernel: String,
+    pub initrd: Option<String>,
 }
 
 impl SlotEntry {
-    /// The kernel line for this slot. `rootflags=ro` only: the kernel hands
-    /// the rest of `rootflags=` to ext4, which refuses `noatime` and then
-    /// cannot mount its root at all. A read-only root has no atimes to update.
-    fn linux_line(&self, kernel: &str) -> String {
+    /// The kernel line for this slot. `root=UUID=` is resolvable by the
+    /// initramfs; `rootflags=ro` is enough for a read-only root and also works
+    /// when a future slot mounts root directly in the kernel.
+    fn linux_line(&self) -> String {
         format!(
-            "      linux /boot/{kernel} root=PARTUUID={} luna.fsuuid={} luna.slot={} rootfstype=ext4 rootflags=ro panic=10 quiet",
-            self.part_uuid, self.fs_uuid, self.letter
+            "      linux /boot/{} root=UUID={} luna.fsuuid={} luna.slot={} rootfstype=ext4 rootflags=ro panic=10 quiet",
+            self.kernel, self.fs_uuid, self.fs_uuid, self.letter
         )
     }
 }
 
-/// Render the whole menu. `initrd` is only passed by a slot that ships one;
-/// Luna's own image carries none, so the kernel finds its root and its drivers
-/// built in.
-pub fn render(a: &SlotEntry, b: &SlotEntry, kernel: &str, initrd: Option<&str>) -> String {
+/// Render the whole menu. Each slot carries its own kernel and initramfs names
+/// so an update and its rollback slot can have different boot requirements.
+pub fn render(a: &SlotEntry, b: &SlotEntry) -> String {
     let mut out = String::new();
     let mut line = |s: &str| out.push_str(&format!("{s}\n"));
     line("# Written by Luna. Every change of operating-system slot rewrites this,");
@@ -104,17 +101,20 @@ pub fn render(a: &SlotEntry, b: &SlotEntry, kernel: &str, initrd: Option<&str>) 
             "      search --no-floppy --fs-uuid --set=root {}",
             when_b.fs_uuid
         ));
-        line(&when_b.linux_line(kernel));
+        line(&when_b.linux_line());
+        if let Some(i) = &when_b.initrd {
+            line(&format!("      initrd /boot/{i}"));
+        }
         line("    else");
         line(&format!(
             "      search --no-floppy --fs-uuid --set=root {}",
             when_a.fs_uuid
         ));
-        line(&when_a.linux_line(kernel));
-        line("    fi");
-        if let Some(i) = initrd {
+        line(&when_a.linux_line());
+        if let Some(i) = &when_a.initrd {
             line(&format!("      initrd /boot/{i}"));
         }
+        line("    fi");
         line("}");
     }
     out
@@ -153,6 +153,12 @@ pub fn write_to_esp(esp: &Path, text: &str) -> Result<(), UpdateError> {
             tracing::warn!(path = %tmp.display(), error = %e, "startup menu write failed");
             failed()
         })?;
+        File::open(&tmp)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| {
+                tracing::warn!(path = %tmp.display(), error = %e, "startup menu flush failed");
+                failed()
+            })?;
         if let Err(e) = std::fs::rename(&tmp, &path) {
             tracing::warn!(from = %tmp.display(), to = %path.display(), error = %e, "startup menu rename failed");
             let _ = std::fs::remove_file(&tmp);
@@ -177,6 +183,10 @@ pub fn write_to_esp(esp: &Path, text: &str) -> Result<(), UpdateError> {
             }
         }
     }
+    // Flush every renamed directory entry before the updater commits tryboot.
+    // A power cut between those commits could otherwise select a slot whose
+    // startup menu never reached the boot partition.
+    unsafe { libc::sync() };
     Ok(())
 }
 
@@ -224,20 +234,27 @@ mod tests {
         SlotEntry {
             letter,
             fs_uuid: format!("{letter}0000000-1111-2222-3333-444444444444"),
-            part_uuid: format!("{letter}aaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+            kernel: "vmlinuz-lts".into(),
+            initrd: None,
         }
     }
 
     #[test]
-    fn menu_starts_each_slot_by_partition_uuid() {
-        let m = render(&slot('A'), &slot('B'), "vmlinuz-lts", None);
+    fn menu_starts_each_slot_by_filesystem_uuid() {
+        let m = render(&slot('A'), &slot('B'));
         assert!(m.contains(
-            "linux /boot/vmlinuz-lts root=PARTUUID=Aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee luna.fsuuid=A0000000-1111-2222-3333-444444444444 luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
+            "linux /boot/vmlinuz-lts root=UUID=A0000000-1111-2222-3333-444444444444 luna.fsuuid=A0000000-1111-2222-3333-444444444444 luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
         ));
-        assert!(m.contains("root=PARTUUID=Baaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+        assert!(m.contains("root=UUID=B0000000-1111-2222-3333-444444444444"));
         assert!(!m.contains("PARTLABEL"), "labels are shared between disks");
-        assert!(!m.contains("initrd"), "Luna's image has no initramfs");
-        assert!(!m.contains("noatime"), "ext4 rejects noatime in rootflags");
+        assert!(
+            !m.contains("initrd"),
+            "the renderer omits an initrd when none is supplied"
+        );
+        assert!(
+            !m.contains("noatime"),
+            "the menu keeps rootflags direct-mount compatible"
+        );
         // Both entries, so GRUB can fall back without a key press.
         assert_eq!(m.matches("menuentry").count(), 2);
         assert_eq!(m.matches("rootflags=ro panic=10 quiet").count(), 4);
@@ -245,8 +262,13 @@ mod tests {
     }
 
     #[test]
-    fn menu_names_the_initramfs_only_when_the_slot_has_one() {
-        let m = render(&slot('A'), &slot('B'), "vmlinuz-lts", Some("initramfs-lts"));
+    fn menu_keeps_each_slots_initramfs_name() {
+        let mut a = slot('A');
+        let mut b = slot('B');
+        a.initrd = Some("initramfs-old".into());
+        b.initrd = Some("initramfs-lts".into());
+        let m = render(&a, &b);
+        assert_eq!(m.matches("initrd /boot/initramfs-old").count(), 2);
         assert_eq!(m.matches("initrd /boot/initramfs-lts").count(), 2);
     }
 
@@ -255,8 +277,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         assert!(kernel_name(d.path()).is_none());
         std::fs::write(d.path().join("config-lts"), "").unwrap();
-        std::fs::write(d.path().join("vmlinuz-6.18.64"), "").unwrap();
-        assert_eq!(kernel_name(d.path()).as_deref(), Some("vmlinuz-6.18.64"));
+        std::fs::write(d.path().join("vmlinuz-6.18.65"), "").unwrap();
+        assert_eq!(kernel_name(d.path()).as_deref(), Some("vmlinuz-6.18.65"));
         std::fs::write(d.path().join("vmlinuz-lts"), "").unwrap();
         assert_eq!(kernel_name(d.path()).as_deref(), Some("vmlinuz-lts"));
         assert_eq!(initrd_name(d.path()), None);
@@ -268,7 +290,7 @@ mod tests {
     fn write_to_esp_fills_the_menu_everywhere_and_checks_it_landed() {
         let d = tempfile::tempdir().unwrap();
         let esp = d.path();
-        let text = render(&slot('A'), &slot('B'), "vmlinuz-lts", None);
+        let text = render(&slot('A'), &slot('B'));
         // Only grub/ exists: that one is created, the EFI copies are left out.
         write_to_esp(esp, &text).unwrap();
         assert_eq!(
@@ -297,7 +319,7 @@ mod tests {
         std::fs::create_dir_all(esp.join("grub")).unwrap();
         let old = "x".repeat(9000);
         std::fs::write(esp.join("grub/grub.cfg"), &old).unwrap();
-        let text = render(&slot('A'), &slot('B'), "vmlinuz-lts", None);
+        let text = render(&slot('A'), &slot('B'));
         write_to_esp(esp, &text).unwrap();
         assert_eq!(
             std::fs::read_to_string(esp.join("grub/grub.cfg")).unwrap(),
@@ -313,7 +335,7 @@ mod tests {
         // A directory where the menu belongs: the write cannot succeed, and
         // the update must not be armed.
         std::fs::create_dir_all(esp.join("grub/grub.cfg")).unwrap();
-        let text = render(&slot('A'), &slot('B'), "vmlinuz-lts", None);
+        let text = render(&slot('A'), &slot('B'));
         assert!(write_to_esp(esp, &text).is_err());
     }
 }

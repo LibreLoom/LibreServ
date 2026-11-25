@@ -1,20 +1,38 @@
 # Trim the finished image down to what an appliance boots.
-# Everything removed here is unreachable at runtime: kernel debug maps, the
-# kernel modules for hardware Luna has no port for, vendor editor builds that
-# only Internet Explorer or a phone browser would load, and the initramfs that
-# the new kernel no longer needs.
+# The storage-only initramfs keeps the installer’s broad root-disk support;
+# runtime modules, kernel debug maps, and vendor editor builds that Luna never
+# loads are trimmed independently.
 
 # The kernel Luna ships. build/kernel-build.sh built it from Alpine's linux-lts
-# config with the boot storage path switched to built-in, which is what lets the
-# slot mount its own root. Kernel and modules must come from that one build (a
-# module only loads into the kernel it was built with), so the tree the apk
-# installed is replaced whole.
+# config with the common boot storage path switched to built-in. Kernel and
+# modules must come from that one build (a module only loads into the kernel it
+# was built with), so the tree the apk installed is replaced whole.
 [ -s /kout/vmlinuz-lts ] || { echo "error: no kernel in /kout: the kernel stage of build/Containerfile.os did not run" >&2; exit 1; }
 _kv="$(basename "$(ls -d /kout/modules/* 2>/dev/null | head -1)")"
 [ -n "$_kv" ] || { echo "error: no kernel modules in /kout" >&2; exit 1; }
 rm -rf "$ROOTFS"/lib/modules/*
 cp /kout/vmlinuz-lts "$ROOTFS/boot/vmlinuz-lts"
 cp -a /kout/modules/"$_kv" "$ROOTFS/lib/modules/$_kv"
+
+# Build the initramfs before trimming runtime modules. The common SATA/NVMe/
+# MMC/USB/virtio path is built into the kernel; these features carry the other
+# root-capable storage drivers in Alpine's module tree, including RAID/HBA,
+# PCIe block and FireWire disks. Keeping this image small is not worth letting
+# the installer erase a disk the installed system cannot boot.
+mkdir -p "$ROOTFS/etc/mkinitfs/features.d"
+cat > "$ROOTFS/etc/mkinitfs/features.d/luna-storage.modules" <<'EOF'
+kernel/drivers/block/*
+kernel/drivers/firewire/*
+EOF
+: > "$ROOTFS/dev/null"
+if ! chroot "$ROOTFS" /sbin/mkinitfs -q \
+    -F 'base ata ext4 mmc nvme raid scsi usb virtio luna-storage' \
+    -o /boot/initramfs-lts "$_kv"; then
+    rm -f "$ROOTFS/dev/null"
+    echo "error: could not build the storage initramfs" >&2
+    exit 1
+fi
+rm -f "$ROOTFS/dev/null"
 
 # Kernel debug artifacts. Nothing on the box reads them: the crash path is
 # lunad's own log, not a symbolized vmlinux backtrace.
@@ -43,11 +61,11 @@ for _d in \
     drivers/scsi/fcoe drivers/scsi/hpsa drivers/scsi/iscsi \
     drivers/scsi/lpfc drivers/scsi/megaraid drivers/scsi/mpi3mr \
     drivers/scsi/mpt3sas drivers/scsi/mvsas drivers/scsi/nsp32 \
-    drivers/scsi/pm8001 drivers/scsi/pvscsi drivers/scsi/qedf \
+    drivers/scsi/pm8001 drivers/scsi/qedf \
     drivers/scsi/qedi drivers/scsi/qla2xxx drivers/scsi/qla4xxx \
     drivers/scsi/smartpqi drivers/scsi/snic drivers/scsi/sym53c8xx_2 \
     drivers/scsi/ufs drivers/scsi/virtio_scsi \
-    fs/9p fs/afs fs/ceph fs/erofs fs/f2fs fs/gfs2 fs/jffs2 fs/nfs \
+    fs/9p fs/afs fs/ceph fs/gfs2 fs/jffs2 fs/nfs \
     fs/nfsd fs/nilfs2 fs/ocfs2 fs/orangefs fs/pstore fs/smb fs/ubifs \
     net/bluetooth net/mac80211 net/wireless \
     sound; do
@@ -69,14 +87,6 @@ for _m in e1000 e1000e igc r8169 virtio_net ahci sd_mod sr_mod ext4 exfat \
 			|| { echo "error: kernel module $_m is gone" >&2; exit 1; }
 	fi
 done
-
-# No initramfs in the image, and none is built: the kernel shipped here carries
-# the storage path built in (ext4, libata/AHCI, sd, NVMe, mmc, virtio, USB
-# storage), so it mounts the slot by itself from `root=PARTLABEL=LUNA_A`. The
-# boot then costs one device scan instead of two, because there is no initramfs
-# of its own to cold-plug every driver before the real root is mounted. The file
-# that the linux-lts install trigger wrote is dead weight now.
-rm -f "$ROOTFS"/boot/initramfs-*
 
 # Vendor editor builds Luna can never load, because Luna never serves the page
 # that would load them: the editors run from Luna's own React wrapper, which

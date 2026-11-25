@@ -360,10 +360,7 @@ def stage_boot():
     bad = [l for l in vm.serial_text().replace("\r", "").split("\n") if BAD_LOG.search(l) and "e2e" not in l.lower()]
     check("boot log has no error lines", not bad, "\n".join(bad[:10]))
     rc, out = vm.sh("dmesg | grep -i -E 'error|fail|warn|taint|oops' | head -20")
-    # Luna has no initramfs on purpose: the kernel mounts its own root, so it
-    # says it is ignoring the default `rdinit=/init` that nothing provides.
-    # That one line is the design working, not an error.
-    bad = [l for l in out.splitlines() if "check access for rdinit=/init failed" not in l]
+    bad = out.splitlines()
     check("kernel log has no errors", not bad, "\n".join(bad[:10]))
     rc, out = vm.sh("cat /run/luna/boot-ok; cat /proc/sys/kernel/random/boot_id")
     ids = out.split()
@@ -1220,10 +1217,7 @@ def stage_matrix():
         c, b = lu.get("/api/v1/health")
         check(T + "Luna's health answer is ok", c == 200 and b.get("status") == "ok", f"{c} {str(b)[:300]}")
         rc, o = vm.sh("dmesg | grep -i -E 'error|fail' | grep -v -i -E 'ACPI|firmware|apparmor' | head -8")
-        # "check access for rdinit=/init failed" is the no-initramfs design
-        # working: the kernel is told to start /init from an initramfs there
-        # isn't one of, says so, and mounts its own root. See stage_boot.
-        bad = [l for l in o.splitlines() if "check access for rdinit=/init failed" not in l]
+        bad = o.splitlines()
         check(T + "no kernel errors", not bad, "\n".join(bad[:8]))
         # SMART/health of the system disk shouldn't hang the box
         vm.hmp("system_powerdown")
@@ -1954,12 +1948,9 @@ MENU_COPIES = ("/grub/grub.cfg", "/EFI/BOOT/grub.cfg", "/EFI/BOOT/grub/grub.cfg"
 def downgrade_boot_menu(disk):
     """Put the startup menu back to the shape 0.0.11 wrote.
 
-    That menu starts the other slot with `root=UUID=`, which needs an initramfs
-    this image does not carry (the kernel cannot find its root and panics), and
-    asks for `rootflags=ro,noatime`, which ext4 refuses for the root filesystem.
-    A box updated from 0.0.11 still has exactly that menu, so an update has to
-    replace it before it arms the other slot — otherwise the box boots the new
-    slot once, fails, and rolls back.
+    That menu uses `root=UUID=`, an initramfs, and `rootflags=ro,noatime`. The
+    restored storage initramfs accepts that boot shape; this check proves the
+    updater still rewrites the menu before it arms the other slot.
     """
     uuid_b = slot_fs_uuid(disk, 4)  # slot B is GPT partition 4
     check("the old menu has slot B's filesystem UUID", len(uuid_b) == 36, uuid_b)
@@ -1971,10 +1962,9 @@ def downgrade_boot_menu(disk):
         out = []
         for line in cfg.splitlines():
             if "luna.slot=B" in line and line.lstrip().startswith("linux "):
-                line = re.sub(r"root=PARTUUID=\S+", f"root=UUID={uuid_b}", line)
+                line = re.sub(r"root=(?:UUID|PARTUUID)=\S+", f"root=UUID={uuid_b}", line)
                 line = line.replace("rootflags=ro ", "rootflags=ro,noatime ")
                 out.append(line)
-                out.append("      initrd /boot/initramfs-lts")
             else:
                 out.append(line)
         esp_put(disk, path, "\n".join(out) + "\n")
@@ -2205,8 +2195,11 @@ def stage_update():
     feed_server()
     good_pub, _ = minisign_keys("good")
     evil_pub, _ = minisign_keys("evil")
-    g = f"{WORK}/golden-sata.raw"
+    golden = f"{WORK}/golden-sata.raw"
+    g = f"{WORK}/update-golden.raw"
+    sh(f"rm -f {g}; cp --sparse=always --reflink=auto {golden} {g}")
     serial_console_for_tests(g)
+    downgrade_boot_menu(g)
     start_mock_connect()
     vm = boot_disk("update", g, "sata", port=18080)
     lu = Luna(18080)
@@ -2286,8 +2279,7 @@ def stage_update():
     check("nothing executable is ever written to the data partition", "No such file" in o or "lunad" not in o, o)
 
     # OS update to slot B, from a box whose menu is still the 0.0.11 one: the
-    # update has to write a menu that starts its slot, or the box rolls back.
-    downgrade_boot_menu(g)
+    # update must replace that menu before arming the new slot.
     good_v2 = os_image_variant("v2", {})
     publish(fv(6), key="good", os_img=good_v2)
     c, b = api_check(lu)
@@ -2306,15 +2298,16 @@ def stage_update():
     )
     check(
         "the update rewrote the startup menu for the new system",
-        "MENU-READ" in o and "root=PARTUUID=" in o and "initrd " not in o and "noatime" not in o,
+        "MENU-READ" in o and "root=UUID=" in o
+        and "initrd /boot/initramfs-lts" in o and "noatime" not in o,
         o[:600],
     )
     # A dirty boot partition is what makes the *next* update fail: FAT turns
     # itself read-only halfway through the menu.
-    rc, o = vm.sh(f"fsck.fat -n $(blkid -t PARTLABEL=LUNAESP -o device) || true")
+    rc, o = vm.sh('fsck.fat -n "$(blkid -t PARTLABEL=LUNAESP -o device)"')
     check(
         "the boot partition is left clean for the next update",
-        "Dirty bit" not in o and "cluster chain length is 0" not in o,
+        rc == 0 and "Dirty bit" not in o and "cluster chain length is 0" not in o,
         o[-600:],
     )
     c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
@@ -2390,8 +2383,8 @@ def stage_update():
     # the box must fall back to the slot it came from.
     cur = slot_of(vm)
     rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, fv(8), "lunad cannot start", cur)
-    # The slot image carries no initramfs (the kernel mounts its own root), so
-    # the thing that can break a new system before it runs is the kernel file.
+    # A missing or broken kernel stops the slot before userspace, even with the
+    # storage initramfs present.
     # GRUB runs its error out on a screen nobody is watching, so what is checked
     # here is what matters: the box comes back and says the update did not start.
     cur = slot_of(vm)

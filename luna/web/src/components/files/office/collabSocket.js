@@ -74,8 +74,9 @@ export class CollabSocket {
     // few seconds, then treat it as a dropped socket: the sync layer works
     // offline from the file on the drive and this retries on its backoff.
     this._connectTimer = setTimeout(() => {
+      if (this.ws !== ws || this._closed) return;
       this._connectTimer = null;
-      if (this.ws !== ws || ws.readyState === WebSocket.OPEN) return;
+      if (ws.readyState === WebSocket.OPEN) return;
       this.ws = null;
       try {
         ws.close();
@@ -87,6 +88,7 @@ export class CollabSocket {
     }, CollabSocket.CONNECT_TIMEOUT_MS);
 
     ws.addEventListener("open", () => {
+      if (this.ws !== ws || this._closed) return;
       this._attempts = 0;
       this._clearConnectTimer();
       this.onStatus?.("open");
@@ -99,6 +101,7 @@ export class CollabSocket {
     });
 
     ws.addEventListener("message", (ev) => {
+      if (this.ws !== ws || this._closed) return;
       let msg;
       try {
         msg = JSON.parse(String(ev.data));
@@ -110,13 +113,15 @@ export class CollabSocket {
     });
 
     ws.addEventListener("close", () => {
+      if (this.ws !== ws || this._closed) return;
       this._clearConnectTimer();
-      if (this.ws === ws) this.ws = null;
+      this.ws = null;
       this.onStatus?.("closed");
       this._scheduleReconnect();
     });
 
     ws.addEventListener("error", () => {
+      if (this.ws !== ws || this._closed) return;
       this.onStatus?.("error");
     });
   }
