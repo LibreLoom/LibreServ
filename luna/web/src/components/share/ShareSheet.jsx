@@ -504,7 +504,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                               Made by <InlinePill>{nameById.get(l.created_by)}</InlinePill>
                             </>
                           ) : (
-                            "Made by a removed person"
+                            "Made by a deleted account"
                           )}
                         </p>
                       )}

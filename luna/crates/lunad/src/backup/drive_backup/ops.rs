@@ -209,7 +209,8 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
         }
     };
     for row in rows.iter().filter(|r| {
-        (r.state == db::PROTECTION_ACTIVE || r.state == db::PROTECTION_PAUSED)
+        r.kind == db::PROTECTION_DRIVE
+            && (r.state == db::PROTECTION_ACTIVE || r.state == db::PROTECTION_PAUSED)
             && r.source_drive == drive_id
     }) {
         if let Err(err) = refresh_access(conn, row) {
@@ -246,40 +247,131 @@ pub fn rebuild_from_manifests(conn: &Connection) -> usize {
             return 0;
         }
     };
+    drives
+        .iter()
+        .map(|drive| rebuild_for_drive(conn, drive))
+        .sum()
+}
+
+/// [`rebuild_from_manifests`] for one drive. Run when a drive is added or comes
+/// back, not only at start, so a drive from another Luna (or one added after a
+/// lost database) brings its backups back at once.
+pub fn rebuild_for_drive(conn: &Connection, drive: &DriveRow) -> usize {
+    let Some((root, layout)) = connected(drive) else {
+        return 0;
+    };
+    let backups = layout.backups_dir(&root);
+    std::thread::spawn(move || sweep_leftover_trash(backups));
     let mut inserted = 0;
-    for drive in &drives {
-        let Some((root, layout)) = connected(drive) else {
-            continue;
-        };
-        let backups = layout.backups_dir(&root);
-        std::thread::spawn(move || sweep_leftover_trash(backups));
-        for store in drive_store::list_stores(&root, &layout) {
-            match rebuild_one(conn, drive, &store) {
-                Ok(true) => inserted += 1,
-                Ok(false) => {}
-                Err(err) => tracing::warn!(error = %err, "could not rebuild a backup"),
-            }
+    for store in drive_store::list_stores(&root, &layout) {
+        match rebuild_one(conn, drive, &store) {
+            Ok(true) => inserted += 1,
+            Ok(false) => {}
+            Err(err) => tracing::warn!(error = %err, "could not rebuild a backup"),
         }
     }
     inserted
 }
 
-/// Lets a paused backup (see [`db::PROTECTION_PAUSED`]) run again. Whoever
-/// calls this has checked it; the API decides who may. Any other state is
-/// left alone. Returns the row as it is now.
-pub fn resume(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
+/// Lets a paused backup (see [`db::PROTECTION_PAUSED`]) run again, for `user_id`,
+/// who becomes its keeper: the person whose Read access its runs are checked
+/// against. A shared backup that came back from a drive names a creator this
+/// Luna has never heard of, so without this it could never run. A private
+/// item's backup belongs to its owner, and stays paused while the owner is not
+/// a person here (an Admin gives the item to someone first). Whoever calls this
+/// has checked it; the API decides who may. Any other state is left alone.
+/// Returns the row as it is now.
+pub fn resume(conn: &Connection, id: &str, user_id: &str) -> anyhow::Result<Option<ProtectionRow>> {
     let Some(row) = db::get_protection(conn, id)? else {
         return Ok(None);
     };
     if row.state != db::PROTECTION_PAUSED {
         return Ok(Some(row));
     }
+    let keeper = if row.private_owner.is_empty() {
+        user_id
+    } else if crate::private::owner_state(conn, &row.private_owner)
+        == crate::private::OwnerState::Active
+    {
+        row.private_owner.as_str()
+    } else {
+        return Ok(Some(row));
+    };
+    set_keeper(conn, &row, keeper, &row.private_owner)?;
     db::set_protection_state(conn, id, db::PROTECTION_ACTIVE, "")?;
     // The folder may have moved somewhere a backup can't follow meanwhile.
     if let Some(row) = db::get_protection(conn, id)? {
         check_stop(conn, &row)?;
     }
     db::get_protection(conn, id)
+}
+
+/// Records a new keeper and private owner on the row and, when the backup drive
+/// is connected, in the backup's manifest (every good run also copies them
+/// there, so an unplugged drive catches up).
+fn set_keeper(
+    conn: &Connection,
+    row: &ProtectionRow,
+    created_by: &str,
+    private_owner: &str,
+) -> anyhow::Result<()> {
+    db::set_protection_keeper(conn, &row.id, created_by, private_owner)?;
+    if let Some((root, layout)) = connected_target(conn, &row.target_drive)
+        && let Some(store) = Store::existing(&root, &layout, &row.id)
+        && let Some(mut manifest) = store.read_manifest()?
+    {
+        manifest.created_by = created_by.to_string();
+        manifest.private_owner = (!private_owner.is_empty()).then(|| private_owner.to_string());
+        store.write_manifest(&manifest)?;
+    }
+    Ok(())
+}
+
+/// An Admin gave the private item at `item_path` on `drive_id` to a new owner.
+/// Its drive backups (and those of folders inside it) go with it: the new
+/// owner keeps them, sees them and may resume or restore them. Never fails:
+/// errors are logged, because the item already changed hands.
+pub fn on_private_owner_changed(
+    conn: &Connection,
+    drive_id: &str,
+    item_path: &str,
+    old_owner: &str,
+    new_owner: &str,
+) {
+    if let Err(err) = owner_changed_inner(conn, drive_id, item_path, old_owner, new_owner) {
+        tracing::warn!(error = %err, "could not hand a private item's backups to its new owner");
+    }
+}
+
+fn owner_changed_inner(
+    conn: &Connection,
+    drive_id: &str,
+    item_path: &str,
+    old_owner: &str,
+    new_owner: &str,
+) -> anyhow::Result<()> {
+    if old_owner == new_owner || old_owner.is_empty() {
+        return Ok(());
+    }
+    let item = crate::access::normalize_subject_path(item_path);
+    for row in db::list_protections(conn)? {
+        if row.kind != db::PROTECTION_DRIVE
+            || row.source_drive != drive_id
+            || row.private_owner != old_owner
+            || !crate::access::path_contains(
+                &item,
+                &crate::access::normalize_subject_path(&row.source_path),
+            )
+        {
+            continue;
+        }
+        set_keeper(conn, &row, new_owner, new_owner)?;
+        // The saved list names the old owner; without this the new one could not see it.
+        if let Some(fresh) = db::get_protection(conn, &row.id)? {
+            refresh_access(conn, &fresh)?;
+        }
+    }
+    Ok(())
 }
 
 /// Why a rebuilt backup waits (`stop_reason` on a paused row).
@@ -326,6 +418,24 @@ fn rebuild_one(conn: &Connection, drive: &DriveRow, store: &Store) -> anyhow::Re
     db::set_protection_access(conn, &id, &access_json)?;
     if manifest.last_ok_at > 0 {
         db::record_protection_ok(conn, &id, manifest.last_ok_at, &access_json)?;
+    }
+    // A private item that already changed hands here (the Admin gave it away
+    // before this backup drive came back) takes its backup with it. Otherwise
+    // the check below would stop the backup as "belongs to someone else".
+    if source_known
+        && !private_owner.is_empty()
+        && crate::private::owner_state(conn, &private_owner) != crate::private::OwnerState::Active
+    {
+        let norm = crate::access::normalize_subject_path(&manifest.source_path);
+        if let Some(current) = access_list::private_source(conn, &manifest.source_drive_id, &norm)
+            .owner()
+            .map(str::to_string)
+            && current != private_owner
+            && crate::private::owner_state(conn, &current) == crate::private::OwnerState::Active
+            && let Some(row) = db::get_protection(conn, &id)?
+        {
+            set_keeper(conn, &row, &current, &current)?;
+        }
     }
     // A source that moved somewhere a backup can't follow stops it for good.
     // An unknown source drive can't be checked yet: the run waits for it.

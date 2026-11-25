@@ -776,6 +776,13 @@ async fn copy_takes_the_forms_own_files_folder_along() {
         let own = crate::api::forms::files_dir_for(&root_a, &form).unwrap();
         std::fs::create_dir_all(&own).unwrap();
         std::fs::write(own.join("pic.png"), b"png").unwrap();
+        if name == "one.lunaform" {
+            let db = crate::api::forms::responses_db_for(&root_a, &form).unwrap();
+            let mut store = crate::api::forms::store::FormStore::open(&db).unwrap();
+            let mut answers = serde_json::Map::new();
+            answers.insert("q_1".into(), serde_json::Value::String("Yes".into()));
+            store.insert("r_1", "h", 1, &answers).unwrap();
+        }
     }
     std::fs::create_dir(root_a.join("forms").join(format!("{prefix}-other"))).unwrap();
     let manager = JobManager::new(
@@ -786,7 +793,10 @@ async fn copy_takes_the_forms_own_files_folder_along() {
         .enqueue("copy", "a", "forms", "b", "", "user-1")
         .await
         .unwrap();
-    assert_eq!(job.total, 4 + 2 * 3, "form files count toward the total");
+    assert!(
+        job.total >= 4 + 2 * 3,
+        "form files and the answers db count toward the total"
+    );
     wait_done(&manager, &job.id);
     let done = manager.get(&job.id).unwrap().unwrap();
     assert_eq!(done.state, "done", "{}", done.error);
@@ -795,11 +805,14 @@ async fn copy_takes_the_forms_own_files_folder_along() {
         let own = crate::api::forms::files_dir_for(&root_b, &copy).unwrap();
         assert_eq!(std::fs::read(own.join("pic.png")).unwrap(), b"png");
     }
+    let copied_db =
+        crate::api::forms::responses_db_for(&root_b, &root_b.join("forms/one.lunaform")).unwrap();
+    assert!(copied_db.is_file(), "the answers database follows the form");
     let names: Vec<_> = std::fs::read_dir(root_b.join("forms"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(names.len(), 4, "{names:?}");
+    assert_eq!(names.len(), 5, "{names:?}");
     assert!(!names.iter().any(|n| n.ends_with("-other")));
 
     // A single form copied on its own brings its folder too.
@@ -813,6 +826,39 @@ async fn copy_takes_the_forms_own_files_folder_along() {
     let copy = root_b.join("one.lunaform");
     let own = crate::api::forms::files_dir_for(&root_b, &copy).unwrap();
     assert_eq!(std::fs::read(own.join("pic.png")).unwrap(), b"png");
+    let copied_db = crate::api::forms::responses_db_for(&root_b, &copy).unwrap();
+    assert!(copied_db.is_file(), "a lone-form copy carries its answers");
+}
+
+#[tokio::test]
+async fn copy_lone_form_carries_answers_without_an_attachments_folder() {
+    let (dir, db, _a) = setup();
+    let (root_a, root_b) = (dir.path().join("a"), dir.path().join("b"));
+    let form = root_a.join("solo.lunaform");
+    std::fs::write(&form, b"{}").unwrap();
+    let db_path = crate::api::forms::responses_db_for(&root_a, &form).unwrap();
+    let mut store = crate::api::forms::store::FormStore::open(&db_path).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), serde_json::Value::String("Yes".into()));
+    store.insert("r_1", "h", 1, &answers).unwrap();
+    drop(store);
+
+    let manager = JobManager::new(
+        db.clone(),
+        crate::photos::photos_indexer::PhotosIndexer::start(),
+    );
+    let job = manager
+        .enqueue("copy", "a", "solo.lunaform", "b", "", "user-1")
+        .await
+        .unwrap();
+    wait_done(&manager, &job.id);
+    let done = manager.get(&job.id).unwrap().unwrap();
+    assert_eq!(done.state, "done", "{}", done.error);
+    let copy = root_b.join("solo.lunaform");
+    let copied_db = crate::api::forms::responses_db_for(&root_b, &copy).unwrap();
+    let copied = crate::api::forms::store::FormStore::open(&copied_db).unwrap();
+    assert_eq!(copied.live_count().unwrap(), 1);
+    assert_eq!(copied.get("r_1").unwrap().unwrap().answers["q_1"], "Yes");
 }
 
 #[test]

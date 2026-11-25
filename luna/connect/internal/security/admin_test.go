@@ -5,18 +5,12 @@ import (
 	"testing"
 )
 
-func TestBearerTokenAndAdminAuthorized(t *testing.T) {
+func TestBearerTokenAndConstantTimeEqual(t *testing.T) {
 	if BearerToken("") != "" || BearerToken("Basic x") != "" {
 		t.Fatal("expected empty for non-bearer")
 	}
 	if got := BearerToken("Bearer secret-token"); got != "secret-token" {
 		t.Fatalf("got %q", got)
-	}
-	if !AdminAuthorized("Bearer abc", "abc") {
-		t.Fatal("expected authorized")
-	}
-	if AdminAuthorized("Bearer abc", "xyz") {
-		t.Fatal("expected reject")
 	}
 	if ConstantTimeEqual("", "x") || ConstantTimeEqual("a", "b") {
 		t.Fatal("expected unequal")

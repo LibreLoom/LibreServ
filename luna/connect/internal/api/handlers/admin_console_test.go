@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
@@ -66,20 +68,59 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 		t.Fatalf("expected hint on list row: %v", row)
 	}
 
-	// The per-token reveal endpoint returns the full code for one row.
-	rev := httptest.NewRecorder()
-	revReq := httptest.NewRequest(http.MethodGet, "/admin/device-codes/"+devID+"/reveal", nil)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("codeID", devID)
-	revReq = revReq.WithContext(context.WithValue(revReq.Context(), chi.RouteCtxKey, rctx))
-	h.RevealDeviceCode(rev, revReq)
-	if rev.Code != 200 {
-		t.Fatalf("reveal %d %s", rev.Code, rev.Body.String())
+	hash, err := auth.HashPassword("staff-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const email = "staff@example.com"
+	now := time.Now().Unix()
+	if _, err := d.DB.Exec(`INSERT INTO admin_accounts (id, email, password_hash, is_active, created_at, updated_at)
+VALUES ('admin_1', ?, ?, 1, ?, ?)`, email, hash, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	reveal := func(adminID, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/reveal", strings.NewReader(body))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("codeID", devID)
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		rec := httptest.NewRecorder()
+		h.RevealDeviceCode(rec, req.WithContext(WithAdminID(ctx, adminID)))
+		return rec
+	}
+	for _, tt := range []struct {
+		adminID, body string
+		status        int
+	}{
+		{"", `{"password":"staff-password-123"}`, http.StatusForbidden},
+		{"admin_1", `{}`, http.StatusBadRequest},
+		{"admin_1", `{"password":"incorrect"}`, http.StatusForbidden},
+	} {
+		rec := reveal(tt.adminID, tt.body)
+		if rec.Code != tt.status || strings.Contains(rec.Body.String(), code) {
+			t.Fatalf("expected status %d with no token, got %d", tt.status, rec.Code)
+		}
+	}
+	for _, key := range []string{
+		adminLoginNetworkKey(httptest.NewRequest(http.MethodPost, "/", nil)),
+		signInAccountKey("admin", email),
+	} {
+		var count int
+		if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, key).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("expected one attempt in %q, got %d (%v)", key, count, err)
+		}
+	}
+
+	rev := reveal("admin_1", `{"password":"staff-password-123"}`)
+	if rev.Code != http.StatusOK || rev.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected reveal response %d with cache control %q", rev.Code, rev.Header().Get("Cache-Control"))
 	}
 	var revealBody map[string]any
-	_ = json.Unmarshal(rev.Body.Bytes(), &revealBody)
+	if err := json.Unmarshal(rev.Body.Bytes(), &revealBody); err != nil {
+		t.Fatal(err)
+	}
 	if revealBody["code"] != code {
-		t.Fatalf("reveal got %v want %v", revealBody["code"], code)
+		t.Fatal("reveal did not return the expected token")
 	}
 }
 

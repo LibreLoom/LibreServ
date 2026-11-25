@@ -167,6 +167,7 @@ export function capsOptions(subject, myCaps, { forLink = false } = {}) {
   const labels = isAlbum
     ? {
         view: "Can view",
+        upload: "Upload only",
         "view+upload": "Can view + add photos",
       }
     : isFile
@@ -181,7 +182,7 @@ export function capsOptions(subject, myCaps, { forLink = false } = {}) {
           full: "Can view + edit",
         };
   const order = isAlbum
-    ? ["view", "view+upload"]
+    ? (forLink ? ["view", "view+upload", "upload"] : ["view", "view+upload"])
     : isFile
       ? ["view", "full"]
       : ["view", "upload", "view+upload", "full"];
@@ -230,7 +231,7 @@ export function capsHint(caps, { album = false, file = false, form = false } = {
         if (form) return "Opens the form and its responses.";
         return album ? "Opens the album." : file ? "Opens and downloads the file." : "Opens and downloads files.";
       case "upload":
-        return "Uploads files without seeing anything already here.";
+        return album ? "Adds photos without seeing the album." : "Uploads files without seeing anything already here.";
       case "view+upload":
         return album
           ? "Opens the album and adds their own photos."

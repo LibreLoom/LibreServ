@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use tokio_util::io::ReaderStream;
 
 use crate::AppState;
-use crate::access::{self, CAP_EDIT};
+use crate::access::{self, CAP_EDIT, CAP_UPLOAD};
 use crate::api::photos::stream_zip_response;
 use crate::api::response::json_error;
 use crate::auth::{self, CurrentUser};
@@ -991,9 +991,45 @@ async fn restore(
             }
             let dest_dir = mount.join(&source_sub).join(&parent_rel);
             if !plain_meta(&dest_dir).is_some_and(|m| m.is_dir()) {
-                return Err(missing_folder(&label));
+                // Only a confirmed protection can authorize creating its original
+                // folder. Recreate one leaf, using the normal folder-create
+                // permission on its existing parent.
+                let parent = source_sub.rsplit_once('/').map_or("", |(p, _)| p);
+                if !parent_rel.is_empty()
+                    || source_sub.is_empty()
+                    || !row.as_ref().is_some_and(|row| {
+                        row.kind == db::PROTECTION_DRIVE
+                            && row.target_drive == drive_id
+                            && row.state != db::PROTECTION_PAUSED
+                    })
+                    || manifest.protection_id != id
+                    || manifest
+                        .private_owner
+                        .as_deref()
+                        .is_some_and(|owner| !owner.is_empty())
+                    || !matches!(private::wall_for(&mount, &source_sub), private::Wall::Clear)
+                    || !private::under(&mount, &source_sub).is_empty()
+                    || files::is_trash_api(&source_sub)
+                {
+                    return Err(missing_folder(&label));
+                }
+                if !auth::has_cap(&user, &conn, &source_id, parent, CAP_UPLOAD) {
+                    return Err(fail(
+                        StatusCode::FORBIDDEN,
+                        "You need permission to add folders where the original folder was.",
+                    ));
+                }
+                let path = files::resolve_for_create_nofollow(&mount, &source_sub)
+                    .map_err(|_| missing_folder(&label))?;
+                if !matches!(fs::symlink_metadata(&path), Err(e) if e.kind() == io::ErrorKind::NotFound)
+                {
+                    return Err(missing_folder(&label));
+                }
+                files::mkdir(&conn, &source_id, &source_sub).map_err(|_| missing_folder(&label))?;
+                path
+            } else {
+                dest_dir
             }
-            dest_dir
         } else {
             // A private item's backup is restored only by its owner.
             if user.id() != owner {
@@ -1749,6 +1785,95 @@ mod tests {
         assert_eq!(
             fs::read_to_string(f.src_root.join("Docs/Old/Photos/a.jpg")).unwrap(),
             "photo"
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_recreates_a_missing_shared_source_folder() {
+        let f = fixture();
+        let id = "p-missing-shared-source";
+        let access = AccessList {
+            users: vec![f.member_id.clone()],
+            admins: true,
+        };
+        let store = make_store(&f, id, "drive-src", access.clone());
+        fs::write(store.current_dir().join("a.txt"), "hello").unwrap();
+        fs::remove_dir(f.src_root.join("Docs")).unwrap();
+        let uri = format!("/api/v1/drives/drive-tgt/backups/{id}/restore");
+        let (status, _) = send(
+            &f,
+            "POST",
+            &uri,
+            &f.admin_token,
+            Some(json!({ "path": "a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(!f.src_root.join("Docs").exists());
+
+        {
+            let conn = lock_db(&f.state).unwrap();
+            db::insert_protection(
+                &conn,
+                &db::NewProtection {
+                    id,
+                    kind: db::PROTECTION_DRIVE,
+                    source_drive: "drive-src",
+                    source_path: "Docs",
+                    target_drive: "drive-tgt",
+                    private_owner: "",
+                    created_by: "admin",
+                    created_at: 1,
+                },
+            )
+            .unwrap();
+            db::set_protection_access(&conn, id, &serde_json::to_string(&access).unwrap()).unwrap();
+            db::insert_access_member(
+                &conn,
+                &db::AccessMemberRow {
+                    id: "restore-without-upload".into(),
+                    subject_kind: access::KIND_PATH.into(),
+                    drive_id: "drive-src".into(),
+                    path: String::new(),
+                    album_id: String::new(),
+                    user_id: f.member_id.clone(),
+                    caps: access::CAP_VIEW | CAP_EDIT,
+                    created_by: "admin".into(),
+                },
+            )
+            .unwrap();
+        }
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            &uri,
+            &f.member_token,
+            Some(json!({ "path": "a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["error"],
+            "You need permission to add folders where the original folder was."
+        );
+        assert!(!f.src_root.join("Docs").exists());
+
+        let (status, bytes) = send(
+            &f,
+            "POST",
+            &uri,
+            &f.admin_token,
+            Some(json!({ "path": "a.txt" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            json!({ "name": "a.txt", "path": "a.txt" })
+        );
+        assert_eq!(
+            fs::read_to_string(f.src_root.join("Docs/a.txt")).unwrap(),
+            "hello"
         );
     }
 

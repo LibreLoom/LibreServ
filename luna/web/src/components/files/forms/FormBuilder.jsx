@@ -25,10 +25,12 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
+import SqliteEditor from "./sqlite/SqliteEditor.jsx";
 import SlidePages from "../../common/SlidePages.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
 import FileBrowser from "../FileBrowser.jsx";
@@ -44,6 +46,7 @@ import {
   DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { apiErrorMessage } from "../../../lib/api.js";
+import { CAP } from "../../../lib/access.js";
 import {
   latestResponses,
   newQuestionId,
@@ -80,6 +83,9 @@ const AUTOSAVE_IDLE_MS = 2_000;
 const AUTOSAVE_MAX_MS = 15_000;
 const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
+
+/** One page of the Responses tab. The summary covers every page at once. */
+const RESPONSES_PAGE_SIZE = 100;
 
 const TYPE_OPTIONS = QUESTION_TYPE_IDS.map((id) => ({
   value: id,
@@ -159,13 +165,24 @@ function BuilderSession({
   const source = useFileSource();
   const scope = fileSourceScope(source, driveId);
   const responsesKey = ["form-responses", scope, path];
+  const summaryKey = ["form-response-summary", scope, path];
   const solo = source.collab === false;
+  const canReadAnswers =
+    !source.guest || ((source.capsBits ?? 0) & CAP.EDIT) === CAP.EDIT;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(/** @type {string | null} */ (null));
   const [doc, setDoc] = useState(/** @type {any} */ (null));
   /** Canonical JSON on the drive — the dirty baseline. */
   const [baseline, setBaseline] = useState(/** @type {string | null} */ (null));
   const [tab, setTab] = useState(/** @type {"questions" | "responses"} */ ("questions"));
+  /** First response shown on the page; the query key follows it. */
+  const [pageOffset, setPageOffset] = useState(0);
+  const [dbEditor, setDbEditor] = useState(
+    /** @type {null | { bytes: Uint8Array, revision: number }} */ (null),
+  );
+  const [dbOpening, setDbOpening] = useState(false);
+  /** Live tab state for the socket callback, which is created once. */
+  const responsesViewRef = useRef({ open: false, offset: 0 });
   const tabScrollRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   // "sheet" opens the Sharing sheet; "link" goes straight to a new responses link.
   const [sharing, setSharing] = useState(/** @type {false | "sheet" | "link"} */ (false));
@@ -200,30 +217,93 @@ function BuilderSession({
           const session = syncRef.current;
           if (session) setBaseline(session.serialize());
         },
-        // Someone answered: refresh the Responses tab quietly.
+        // Someone answered: refresh only what the person is looking at. With
+        // the Responses tab closed there is nothing to refresh — the first
+        // open fetches the current page and summary.
         onFormResponse: () => {
-          queryClient.invalidateQueries({ queryKey: ["form-responses", scope, path] });
-          queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+          // The aggregate stays fresh even on the Questions tab: it drives
+          // the "people have answered this" guard. The page itself is only
+          // refreshed while someone is looking at it.
+          queryClient.invalidateQueries({ queryKey: summaryKey });
+          queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+          const view = responsesViewRef.current;
+          if (!view.open) return;
+          queryClient.invalidateQueries({
+            queryKey: [...responsesKey, view.offset],
+          });
         },
       }),
   );
   syncRef.current = sync;
+  responsesViewRef.current = {
+    open: canReadAnswers && tab === "responses",
+    offset: pageOffset,
+  };
 
   const responsesQuery = useQuery({
-    queryKey: responsesKey,
-    queryFn: () => source.formAnswers(driveId, path),
+    queryKey: [...responsesKey, pageOffset],
+    queryFn: () =>
+      source.formAnswers(driveId, path, { offset: pageOffset, limit: RESPONSES_PAGE_SIZE }),
+    enabled: tab === "responses" && canReadAnswers,
     staleTime: 15_000,
-    refetchInterval: 15_000,
+    refetchInterval: tab === "responses" ? 15_000 : false,
   });
+  const summaryQuery = useQuery({
+    queryKey: summaryKey,
+    queryFn: () => source.formSummary(driveId, path),
+    // The aggregate is cheap and also powers the "people have answered
+    // this" guard while the Questions tab is open. The full page list stays
+    // lazy; only the summary is fetched outside Responses.
+    enabled: canReadAnswers && typeof source.formSummary === "function",
+    staleTime: 15_000,
+    refetchInterval: tab === "responses" ? 15_000 : false,
+  });
+  const usageQuery = useQuery({
+    queryKey: ["form-usage", scope, path],
+    queryFn: () => source.formUsage(driveId, path),
+    enabled: typeof source.formUsage === "function",
+    staleTime: 30_000,
+  });
+  const usage = usageQuery.data;
+  async function openDatabase() {
+    if (!source.formSqlite || dbOpening) return;
+    setDbOpening(true);
+    try {
+      setDbEditor(await source.formSqlite(driveId, path));
+    } catch (err) {
+      addToast({
+        type: "error",
+        message: "Couldn't open the answers database",
+        description: apiErrorMessage(err, "Try again in a moment."),
+      });
+    } finally {
+      setDbOpening(false);
+    }
+  }
+
   const answers = responsesQuery.data;
   const responses = latestResponses(
     Array.isArray(answers?.responses) ? answers.responses : [],
   );
+  const summary = summaryQuery.data;
   const answersNotice = typeof answers?.notice === "string" ? answers.notice : "";
-  /** Question ids that already have answers — editing those warns first. */
-  const answeredIds = new Set(
-    responses.flatMap((r) => (r && typeof r.answers === "object" && r.answers ? Object.keys(r.answers) : [])),
+  const totalResponses =
+    typeof answers?.total === "number" ? answers.total : (summary?.total ?? responses.length);
+  const nextOffset =
+    typeof answers?.next_offset === "number" ? answers.next_offset : null;
+  /** Summary totals cover every page; the loaded rows fill in for guests. */
+  const summaryById = new Map(
+    (Array.isArray(summary?.questions) ? summary.questions : []).map((q) => [q.id, q]),
   );
+  /** Question ids that already have answers — editing those warns first. */
+  const answeredIds = new Set();
+  for (const rec of responses) {
+    const recAnswers = rec && typeof rec.answers === "object" ? rec.answers : null;
+    for (const id of Object.keys(recAnswers || {})) answeredIds.add(id);
+  }
+  for (const entry of summaryById.values()) {
+    if (entry.answered > 0) answeredIds.add(entry.id);
+  }
 
   // Autosave bookkeeping — mirrors TextFileEditor.
   const baselineRef = useRef(/** @type {string | null} */ (null));
@@ -234,9 +314,11 @@ function BuilderSession({
   const savingRef = useRef(false);
 
   useEffect(() => {
-    if (tab !== "responses") return;
-    writeFormSeen(scope, path, responses.length);
-  }, [tab, scope, path, responses.length]);
+    if (tab !== "responses" || !responsesQuery.data) return;
+    // The total covers every page, so the "new" badge counts responses, not
+    // rows that happen to be on this page.
+    writeFormSeen(scope, path, totalResponses);
+  }, [tab, scope, path, totalResponses, responsesQuery.data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -497,11 +579,19 @@ function BuilderSession({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-secondary/15 px-3">
         <SegmentedControl
-          options={[
-            { value: "questions", label: "Questions", icon: Pencil },
-            { value: "responses", label: `Responses${responses.length ? ` (${responses.length})` : ""}`, icon: ListChecks },
-          ]}
-          value={tab}
+          options={
+            canReadAnswers
+              ? [
+                  { value: "questions", label: "Questions", icon: Pencil },
+                  {
+                    value: "responses",
+                    label: `Responses${totalResponses ? ` (${totalResponses})` : ""}`,
+                    icon: ListChecks,
+                  },
+                ]
+              : [{ value: "questions", label: "Questions", icon: Pencil }]
+          }
+          value={canReadAnswers ? tab : "questions"}
           onChange={(v) => {
             setTab(v === "responses" ? "responses" : "questions");
           }}
@@ -528,6 +618,7 @@ function BuilderSession({
               ))}
             </span>
           )}
+          {!canWrite ? <Pill variant="muted">Read only</Pill> : null}
           {!source.guest && (
             <Button
               variant="ghost"
@@ -562,24 +653,63 @@ function BuilderSession({
             className="min-h-full"
             innerClassName="min-h-full"
           >
-              {tab === "responses" ? (
+              {canReadAnswers && tab === "responses" ? (
                 <FormResponses
                   driveId={driveId}
                   formPath={path}
                   questions={questions}
                   responses={responses}
+                  total={totalResponses}
+                  offset={pageOffset}
+                  pageSize={RESPONSES_PAGE_SIZE}
+                  nextOffset={nextOffset}
+                  summary={summary}
+                  summaryLoading={summaryQuery.isLoading && !summary}
+                  summaryError={
+                    summaryQuery.isError
+                      ? apiErrorMessage(summaryQuery.error, "Luna couldn't load the totals.")
+                      : ""
+                  }
                   notice={answersNotice}
                   loading={responsesQuery.isLoading}
+                  paging={responsesQuery.isFetching && !responsesQuery.isLoading}
                   error={responsesQuery.isError
                     ? apiErrorMessage(responsesQuery.error, "Luna couldn't load the answers. Try again.")
                     : null}
                   canDelete={canWrite}
-                  onRefresh={() => queryClient.invalidateQueries({ queryKey: responsesKey })}
+                  canOpenDatabase={Boolean(source.formSqlite)}
+                  openingDatabase={dbOpening}
+                  onOpenDatabase={openDatabase}
+                  onPageChange={setPageOffset}
+                  onRefresh={() => {
+                    queryClient.invalidateQueries({
+                      queryKey: [...responsesKey, pageOffset],
+                    });
+                    queryClient.invalidateQueries({ queryKey: summaryKey });
+                  }}
                   onDeleteResponse={async (id) => {
                     await source.deleteFormResponse(driveId, path, id);
                     queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
-                    await queryClient.invalidateQueries({ queryKey: responsesKey });
+                    queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+                    await Promise.all([
+                      queryClient.invalidateQueries({ queryKey: responsesKey }),
+                      queryClient.invalidateQueries({ queryKey: summaryKey }),
+                    ]);
                   }}
+                  onClearResponses={
+                    source.clearFormResponses
+                      ? async () => {
+                          await source.clearFormResponses(driveId, path);
+                          setPageOffset(0);
+                          queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+                          queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+                          await Promise.all([
+                            queryClient.invalidateQueries({ queryKey: responsesKey }),
+                            queryClient.invalidateQueries({ queryKey: summaryKey }),
+                          ]);
+                        }
+                      : null
+                  }
                 />
               ) : (
                 <div className="mx-auto w-full max-w-2xl space-y-4 p-4 sm:p-6">
@@ -587,7 +717,7 @@ function BuilderSession({
                       this reads like the responder's first screen. */}
                   <div className="rounded-large-element surface-secondary p-5 space-y-3">
                     <input
-                      className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline"
+                      className="w-full bg-transparent font-mono text-xl font-normal text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       value={doc?.title || ""}
                       onChange={(e) => edit((ydoc) => setFormTitle(ydoc, e.target.value))}
                       placeholder="Form title"
@@ -595,7 +725,7 @@ function BuilderSession({
                       disabled={!canWrite}
                     />
                     <AutoGrowTextarea
-                      className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline"
+                      className="w-full resize-none bg-transparent text-sm text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       value={doc?.description || ""}
                       onChange={(value) => edit((ydoc) => setFormDescription(ydoc, value))}
                       placeholder="Say what this form is for (optional)"
@@ -646,6 +776,7 @@ function BuilderSession({
                             autoFocus={focusNewId === id}
                             onFocused={() => setFocusNewId("")}
                             responses={responses}
+                            answerSummary={summaryById.get(id) || null}
                             hasAnswers={answeredIds.has(id)}
                             earlier={questions.slice(0, index)}
                             watchers={focusHere.filter((p) => p.id === id)}
@@ -711,7 +842,7 @@ function BuilderSession({
                       className="px-2 pt-1 font-mono text-base font-normal text-primary"
                     >Settings</h3>
 
-                    {!source.guest && (
+                    {!source.guest && canWrite && (
                       <SettingsGroup title="Collect responses">
                         <SettingRow
                           title="Share this form"
@@ -758,7 +889,7 @@ function BuilderSession({
                       <SettingRow
                         htmlFor="form-max-responses"
                         title="Stop after this many answers"
-                        description="Leave it empty for no limit. Changing an answer doesn't count as a new one."
+                        description="Leave it empty for no count limit; the form still stops when it fills its storage."
                       >
                         <FormInput
                           name="form-max-responses"
@@ -771,17 +902,31 @@ function BuilderSession({
                           value={settings.maxResponses ?? ""}
                           onChange={(e) => {
                             const raw = e.target.value;
-                            setSetting("maxResponses", raw === "" ? null : Number(raw));
+                            if (raw === "") {
+                              setSetting("maxResponses", null);
+                              return;
+                            }
+                            const n = Number(raw);
+                            // The field takes whole numbers of one or more.
+                            // Ignore a half-typed decimal or a zero instead of
+                            // clearing what the person already entered.
+                            if (!Number.isFinite(n) || n < 1) return;
+                            setSetting("maxResponses", Math.floor(n));
                           }}
                           disabled={!canWrite}
                           className="mb-0 w-36"
                         />
                       </SettingRow>
                     </SettingsGroup>
+                    {usage ? (
+                      <p className="px-2 text-xs tabular-nums text-primary">
+                        Storage used · {formatStorage(usage.used_bytes)} of {formatStorage(usage.quota_bytes)}
+                      </p>
+                    ) : null}
 
                     <SettingsGroup title="People answering">
                       <SettingRow
-                        title="Answers per person"
+                        title="Answers per browser"
                         description="Luna remembers each person in their browser. Someone can still answer again from another browser or device."
                       >
                         <SegmentedControl
@@ -792,7 +937,7 @@ function BuilderSession({
                           value={settings.responseLimit === "one" ? "one" : "unlimited"}
                           onChange={(v) => setSetting("responseLimit", v === "one" ? "one" : "unlimited")}
                           surface="primary"
-                          aria-label="Answers per person"
+                          aria-label="Answers per browser"
                         />
                       </SettingRow>
                       <Toggle
@@ -828,6 +973,38 @@ function BuilderSession({
           </SlidePages>
         )}
       </div>
+
+      {dbEditor && source.saveFormSqlite && (
+        <SqliteEditor
+          name="answers.sqlite"
+          sessionKey={`${driveId}:${path}`}
+          canWrite={canWrite}
+          initialBytes={dbEditor.bytes}
+          revision={dbEditor.revision}
+          onClose={() => setDbEditor(null)}
+          onSave={async (bytes, revision) => {
+            const next = await source.saveFormSqlite(driveId, path, bytes, revision);
+            setDbEditor((current) =>
+              current ? { ...current, revision: next.revision } : current,
+            );
+            queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+            queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+            queryClient.invalidateQueries({ queryKey: responsesKey });
+            queryClient.invalidateQueries({ queryKey: summaryKey });
+            return next;
+          }}
+          onReload={
+            source.formSqlite
+              ? async () => {
+                  const next = await source.formSqlite(driveId, path);
+                  setDbEditor(next);
+                  return next;
+                }
+              : null
+          }
+          formMode
+        />
+      )}
 
       {sharing && !source.guest && (
         <ShareSheet
@@ -1044,6 +1221,7 @@ function QuestionCard({
   autoFocus,
   onFocused,
   responses,
+  answerSummary,
   hasAnswers,
   dragControls,
   earlier = [],
@@ -1077,14 +1255,25 @@ function QuestionCard({
   }, [autoFocus, onFocused]);
 
   // Option values people already picked — removing or renaming one of
-  // those warns first; untouched ones just change.
+  // those warns first; untouched ones just change. Summary totals cover the
+  // whole answers file; the loaded page is the fallback before it arrives.
   const pickedCounts = new Map();
-  for (const r of responses) {
-    const value = r?.answers?.[question.id];
-    const picks = Array.isArray(value) ? value : value != null ? [value] : [];
-    for (const pick of picks) {
-      const key = String(pick);
-      pickedCounts.set(key, (pickedCounts.get(key) || 0) + 1);
+  if (Array.isArray(answerSummary?.values) && answerSummary.values.length > 0) {
+    for (const item of answerSummary.values) {
+      const picks = Array.isArray(item.value) ? item.value : [item.value];
+      for (const pick of picks) {
+        const key = String(pick);
+        pickedCounts.set(key, (pickedCounts.get(key) || 0) + (Number(item.count) || 0));
+      }
+    }
+  } else {
+    for (const r of responses) {
+      const value = r?.answers?.[question.id];
+      const picks = Array.isArray(value) ? value : value != null ? [value] : [];
+      for (const pick of picks) {
+        const key = String(pick);
+        pickedCounts.set(key, (pickedCounts.get(key) || 0) + 1);
+      }
     }
   }
 
@@ -1124,6 +1313,7 @@ function QuestionCard({
         {canWrite && (
           <button
             type="button"
+            data-no-press-scale=""
             onPointerDown={(e) => {
               e.preventDefault();
               dragControls.start(e);
@@ -1208,7 +1398,7 @@ function QuestionCard({
 
       <input
         ref={labelRef}
-        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline"
+        className="w-full bg-transparent text-base text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         value={question.label || ""}
         onChange={(e) => onPatch({ label: e.target.value })}
         placeholder="Type the question"
@@ -1219,7 +1409,7 @@ function QuestionCard({
       {/* The hint edits in place, where people will read it. */}
       {canWrite || question.help ? (
         <input
-          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline"
+          className="-mt-1 w-full bg-transparent text-sm text-primary outline-none no-focus-outline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           value={question.help || ""}
           onChange={(e) => onPatch({ help: e.target.value })}
           placeholder="Add a hint under the question (optional)"
@@ -1301,24 +1491,22 @@ function QuestionCard({
         )}
         {question.type === "number" && (
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm text-primary" htmlFor={`min-${question.id}`}>Smallest</label>
+            <label className="text-sm text-primary" htmlFor={`min-${question.id}`}>Minimum</label>
             <input
               id={`min-${question.id}`}
               type="number"
               className={cn(fieldClass, "w-32")}
               value={question.config?.min ?? ""}
               onChange={(e) => setBound("min", e.target.value)}
-              placeholder="No minimum"
               disabled={!canWrite}
             />
-            <label className="text-sm text-primary" htmlFor={`max-${question.id}`}>Largest</label>
+            <label className="text-sm text-primary" htmlFor={`max-${question.id}`}>Maximum</label>
             <input
               id={`max-${question.id}`}
               type="number"
               className={cn(fieldClass, "w-32")}
               value={question.config?.max ?? ""}
               onChange={(e) => setBound("max", e.target.value)}
-              placeholder="No maximum"
               disabled={!canWrite}
             />
           </div>
@@ -1352,6 +1540,7 @@ QuestionCard.propTypes = {
   autoFocus: PropTypes.bool,
   onFocused: PropTypes.func,
   responses: PropTypes.array.isRequired,
+  answerSummary: PropTypes.object,
   hasAnswers: PropTypes.bool,
   dragControls: PropTypes.object.isRequired,
   earlier: PropTypes.array,
@@ -1910,6 +2099,16 @@ PicturePicker.propTypes = {
   onPicked: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
+
+/** A short storage figure for the form's quota line. */
+function formatStorage(bytes) {
+  const n = Number(bytes) || 0;
+  if (n === 0) return "0 KB";
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  const mb = n / (1024 * 1024);
+  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
 
 /** "+ Add a question" — the shared dropdown menu with an accent trigger. */
 function AddQuestionButton({ onAdd }) {

@@ -236,7 +236,7 @@ export default [
     faults: [{ match: "GET /api/v1/device-tokens", mode: "500" }],
     check: ["Error is shown in place, the rest of the page works"],
   },
-  // ── Cloud backup & restore ────────────────────────────────────────────────
+  // ── Cloud backup and recovery phrase ────────────────────────────────────────────────
   {
     id: "settings/connect-off",
     area: "Settings: Luna Connect",
@@ -311,30 +311,6 @@ export default [
       w.phraseWrong = true;
     },
     check: ["Any valid-looking 12 or 24 words are refused with a plain message", "The reminder stays until a check succeeds"],
-  },
-  {
-    id: "settings/restore-needed",
-    area: "Settings: Luna Connect",
-    title: "Restore: Luna lost its list of cloud backups",
-    url: "/settings#luna_connect",
-    seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
-      w.connectActive = true;
-      w.restore = { needed: true, luna_id: "luna-1", signing_public: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", cloud_snapshots: 14, indexed_snapshots: 0 };
-    },
-    check: ["Restore card explains 14 versions were found", "Any 12 or 24 words are refused with 'doesn't open any backups' (the fake has none)", "Words with a typo are refused before anything is sent"],
-  },
-  {
-    id: "settings/restore-private-needed",
-    area: "Settings: Luna Connect",
-    title: "Restore: private backups list lost",
-    url: "/settings#luna_connect",
-    seed: (w) => {
-      w.connect = { enabled: true, connect_active: true, backup_unlocked: true };
-      w.connectActive = true;
-      w.restorePrivate = { needed: true, luna_id: "luna-1", signing_public: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", scopes: 3 };
-    },
-    check: ["Private restore card appears with the number of private areas", "Wrong words give the 'check each word' message"],
   },
   {
     id: "settings/phrase-24-words",

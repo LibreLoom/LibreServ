@@ -213,6 +213,10 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             record BLOB NOT NULL
         );
         CREATE INDEX IF NOT EXISTS cloud_snapshots_protection ON cloud_snapshots (protection_id);
+        CREATE TABLE IF NOT EXISTS cloud_deleted_file_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            keep_until INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS cloud_snapshot_packs (
             snapshot_id TEXT NOT NULL,
             pack_id TEXT NOT NULL,
@@ -411,19 +415,26 @@ fn trim_housekeeping(conn: &Connection) -> rusqlite::Result<()> {
         params![now - JOBS_MAX_AGE_SECS, JOBS_KEPT_PER_USER],
     )?;
     // Rate-limit buckets only mean anything while their window or lock is
-    // live. Expired ones are dead weight keyed by raw IP.
-    conn.execute(
-        "DELETE FROM rate_limit_buckets
-         WHERE locked_until < ?1
-           AND window_start < ?2",
-        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
-    )?;
+    // live. Expired ones are dead weight keyed per client.
+    trim_rate_limit_buckets(conn)?;
     Ok(())
 }
 
 /// How long a rate-limit bucket outlives its last use. Long enough that no
 /// live window can be dropped, short enough that the table stays small.
-const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
+pub const RATE_LIMIT_BUCKET_MAX_AGE_SECS: i64 = 24 * 60 * 60;
+
+/// Drop every rate-limit bucket whose window and lock have both expired.
+/// Returns how many rows went. Cheap enough to run hourly on a live Luna.
+pub fn trim_rate_limit_buckets(conn: &Connection) -> rusqlite::Result<usize> {
+    let now = now_unix();
+    conn.execute(
+        "DELETE FROM rate_limit_buckets
+         WHERE locked_until < ?1
+           AND window_start < ?2",
+        params![now, now - RATE_LIMIT_BUCKET_MAX_AGE_SECS],
+    )
+}
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
@@ -563,6 +574,9 @@ pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Why a drive backup says "Original is gone" after its source drive was removed from Luna.
+pub const DRIVE_FORGOTTEN_REASON: &str = "The drive this backup copies was removed from Luna.";
+
 /// Forget a drive and every row that points at it (access rows, index, …).
 /// Does not touch files on the drive itself. All deletes run in one transaction
 /// so a mid-cascade failure cannot leave related rows gone while the drive remains.
@@ -580,6 +594,13 @@ pub fn delete_drive_cascade(conn: &Connection, id: &str) -> anyhow::Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
+    // Backups of this drive's folders stay, with their copies: the original is gone.
+    // (Cloud backups are marked by the cloud engine.)
+    tx.execute(
+        "UPDATE protections SET state = 'source_gone', stop_reason = ?2
+         WHERE kind = 'drive' AND source_drive = ?1 AND state = 'active'",
+        params![id, DRIVE_FORGOTTEN_REASON],
+    )?;
     // Upload sessions and file index/hashes live in the drive `.luna` microdb.
     tx.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
     tx.commit()?;
@@ -812,18 +833,14 @@ pub fn count_users(conn: &Connection) -> anyhow::Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?)
 }
 
-/// Forget a user and everything that keeps working in their name: member
-/// rows, public links they minted, and the account itself. Links are
-/// `created_by`-keyed — an expelled member's shared URLs must die with the
-/// account, not live on anonymously. One transaction so a partial delete
-/// never leaves grants behind for a user who no longer exists.
+/// Forget a user: their member rows and the account itself. Share links they
+/// made stay: a link belongs to the file, and anyone with Write on it keeps
+/// managing it. `created_by` keeps the old id, which the sharing sheet shows
+/// as a deleted account. One transaction so a partial delete never leaves
+/// grants behind for a user who no longer exists.
 pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM access_members WHERE user_id = ?1", params![id])?;
-    tx.execute(
-        "DELETE FROM access_links WHERE created_by = ?1",
-        params![id],
-    )?;
     // Remembered so private folders this person owned stay walled off
     // instead of reading as another Luna's — and so the Admin cleanup list
     // can still say whose they were.
@@ -1432,7 +1449,8 @@ pub fn record_protection_ok(
 }
 
 /// A backup run failed. `failing_since` keeps the time of the first failure
-/// in a row, so repeated failures do not move it.
+/// in a row. A prerequisite wait starts its own clock, separate from other
+/// waits and ordinary failures.
 pub fn record_protection_error(
     conn: &Connection,
     id: &str,
@@ -1440,11 +1458,17 @@ pub fn record_protection_error(
     hard: bool,
     now: i64,
 ) -> anyhow::Result<()> {
+    use crate::backup::status::waiting_reason;
+
+    let reset_clock = get_protection(conn, id)?.is_some_and(|row| {
+        row.last_error != message
+            && (waiting_reason(&row.last_error).is_some() || waiting_reason(message).is_some())
+    });
     conn.execute(
         "UPDATE protections SET last_error = ?2, hard = ?3,
-             failing_since = CASE WHEN failing_since = 0 THEN ?4 ELSE failing_since END
+             failing_since = CASE WHEN failing_since = 0 OR ?5 THEN ?4 ELSE failing_since END
          WHERE id = ?1",
-        params![id, message, hard as i64, now],
+        params![id, message, hard as i64, now, reset_clock],
     )?;
     Ok(())
 }
@@ -1463,6 +1487,21 @@ pub fn set_protection_access(conn: &Connection, id: &str, access_json: &str) -> 
     conn.execute(
         "UPDATE protections SET access_json = ?2 WHERE id = ?1",
         params![id, access_json],
+    )?;
+    Ok(())
+}
+
+/// Change who a backup belongs to: the person who keeps it, and for a private
+/// item's backup its owner (an empty `private_owner` leaves a shared backup shared).
+pub fn set_protection_keeper(
+    conn: &Connection,
+    id: &str,
+    created_by: &str,
+    private_owner: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET created_by = ?2, private_owner = ?3 WHERE id = ?1",
+        params![id, created_by, private_owner],
     )?;
     Ok(())
 }
@@ -1856,7 +1895,7 @@ pub fn list_cloud_snapshots(
 ) -> anyhow::Result<Vec<SnapshotInsert>> {
     let mut stmt = conn.prepare(
         "SELECT id, protection_id, created_at, key_version, tree_pack_id, record
-         FROM cloud_snapshots WHERE protection_id = ?1 ORDER BY created_at DESC",
+         FROM cloud_snapshots WHERE protection_id = ?1 ORDER BY created_at DESC, rowid DESC",
     )?;
     let rows = stmt
         .query_map(params![protection_id], snapshot_from_row)?
@@ -1870,6 +1909,10 @@ pub fn delete_cloud_snapshot(conn: &Connection, id: &str) -> anyhow::Result<()> 
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM cloud_snapshot_packs WHERE snapshot_id = ?1",
+        params![id],
+    )?;
+    tx.execute(
+        "DELETE FROM cloud_deleted_file_snapshots WHERE snapshot_id = ?1",
         params![id],
     )?;
     tx.execute("DELETE FROM cloud_snapshots WHERE id = ?1", params![id])?;
@@ -1928,7 +1971,7 @@ pub fn commit_snapshot_tx(
 }
 
 /// The body of `commit_snapshot_tx`, inside a transaction the caller owns.
-fn commit_snapshot_in(
+pub(crate) fn commit_snapshot_in(
     tx: &rusqlite::Transaction,
     snap: &SnapshotInsert,
     pack_ids: &[String],
@@ -2315,12 +2358,23 @@ pub fn commit_private_snapshot_tx(
     tree_json: &[u8],
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    commit_snapshot_in(&tx, snap, pack_ids)?;
+    commit_private_snapshot_in(&tx, snap, pack_ids, scope, tree_json)?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub(crate) fn commit_private_snapshot_in(
+    tx: &rusqlite::Transaction,
+    snap: &SnapshotInsert,
+    pack_ids: &[String],
+    scope: &str,
+    tree_json: &[u8],
+) -> anyhow::Result<()> {
+    commit_snapshot_in(tx, snap, pack_ids)?;
     tx.execute(
         "INSERT INTO cloud_private_trees (snapshot_id, scope, tree) VALUES (?1, ?2, ?3)",
         params![snap.id, scope, tree_json],
     )?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -2755,13 +2809,18 @@ pub fn rate_limit_allow(
 
 pub fn share_auth_locked(conn: &Connection, key: &str) -> anyhow::Result<bool> {
     let now = now_unix();
-    let locked: i64 = conn
-        .query_row(
-            "SELECT locked_until FROM rate_limit_buckets WHERE key = ?1",
-            params![key],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+    // No row means the bucket has never been used, which is unlocked. Any
+    // other query failure must reach the caller so the lockout check fails
+    // closed instead of treating a poisoned database as unlimited guesses.
+    let locked: i64 = match conn.query_row(
+        "SELECT locked_until FROM rate_limit_buckets WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    ) {
+        Ok(value) => value,
+        Err(rusqlite::Error::QueryReturnedNoRows) => 0,
+        Err(e) => return Err(e.into()),
+    };
     Ok(locked > now)
 }
 
@@ -2953,7 +3012,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_user_takes_their_links_and_grants_down() {
+    fn delete_user_takes_their_grants_down_but_leaves_their_links() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_user(&conn, "u1", "jamie", "Jamie", "hash", "user").unwrap();
@@ -2997,9 +3056,15 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        // The expelled member's public link is gone — links they made
-        // must not keep working after the account is deleted.
-        assert!(get_access_link(&conn, "l-mine").unwrap().is_none());
+        // Links belong to the file: the one they made stays, still pointing
+        // at the account that is gone.
+        assert_eq!(
+            get_access_link(&conn, "l-mine")
+                .unwrap()
+                .unwrap()
+                .created_by,
+            "u1"
+        );
         // Other people's access is untouched.
         assert!(get_access_link(&conn, "l-theirs").unwrap().is_some());
         assert!(get_user(&conn, "u2").unwrap().is_some());
@@ -3263,6 +3328,25 @@ mod tests {
     }
 
     #[test]
+    fn protection_wait_clock_tracks_the_current_prerequisite() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("luna.db")).unwrap();
+        insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
+
+        for (message, now, expected_since) in [
+            ("Read failed.", 100, 100),
+            ("Waiting: Connect the original drive.", 200, 200),
+            ("Waiting: Connect the original drive.", 300, 200),
+            ("Waiting: Unlock the original drive.", 400, 400),
+            ("Read failed again.", 500, 500),
+        ] {
+            record_protection_error(&conn, "p1", message, false, now).unwrap();
+            let row = get_protection(&conn, "p1").unwrap().unwrap();
+            assert_eq!(row.failing_since, expected_since);
+        }
+    }
+
+    #[test]
     fn protection_ok_and_error_bookkeeping() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
@@ -3377,12 +3461,14 @@ mod tests {
     }
 
     #[test]
-    fn delete_drive_cascade_leaves_protections_intact() {
+    fn delete_drive_cascade_keeps_protections_and_marks_their_original_gone() {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("luna.db")).unwrap();
         insert_protection(&conn, &new_protection("p1", "d1", "docs")).unwrap();
         delete_drive_cascade(&conn, "d1").unwrap();
-        assert!(get_protection(&conn, "p1").unwrap().is_some());
+        let kept = get_protection(&conn, "p1").unwrap().unwrap();
+        assert_eq!(kept.state, PROTECTION_SOURCE_GONE);
+        assert_eq!(kept.stop_reason, DRIVE_FORGOTTEN_REASON);
     }
 
     #[test]

@@ -298,7 +298,7 @@ fn map_job_err(err: JobError) -> (StatusCode, Json<Value>) {
         ),
         JobError::Blocked => json_error(
             StatusCode::FORBIDDEN,
-            "This folder holds private items that only their owners can move.",
+            "This folder holds private items, so it can't move to another drive.",
         ),
         JobError::Files(crate::files::FilesError::UnknownDrive) => json_error(
             StatusCode::NOT_FOUND,

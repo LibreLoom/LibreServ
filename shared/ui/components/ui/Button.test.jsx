@@ -39,6 +39,37 @@ describe("Button loading", () => {
     expect(screen.getByText("Loading")).toHaveClass("sr-only");
   });
 
+  it("keeps its label in place while loading instead of growing", () => {
+    const { rerender } = render(
+      <Button loading variant="secondary" surface="primary">
+        Save
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: /Save/i });
+    const faded = button.querySelector(".opacity-0");
+    // The label keeps its space; only its paint fades.
+    expect(faded).toBeTruthy();
+    expect(faded.textContent).toBe("Save");
+    // The spinner sits over the label, not in the flow before it, so the
+    // button cannot widen and shove its neighbours sideways.
+    const spinner = button.querySelector('[data-slot="spinner"]');
+    expect(spinner.parentElement.className).toMatch(/absolute/);
+    expect(spinner.parentElement).not.toBe(faded);
+    expect(spinner.parentElement).toHaveAttribute("aria-hidden", "false");
+
+    // Done: the label comes back while the spinner fades out in place.
+    rerender(
+      <Button variant="secondary" surface="primary">
+        Save
+      </Button>,
+    );
+    expect(button.querySelector('[data-slot="spinner"]').parentElement).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    expect(faded.className).not.toMatch(/opacity-0/);
+  });
+
   it("does not show a spinner when idle", () => {
     render(<Button variant="secondary">Save</Button>);
     const button = screen.getByRole("button", { name: "Save" });

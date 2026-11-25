@@ -13,20 +13,22 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
+import { backupWaitingReason } from "../../../lib/backupRows.js";
 import { formatBytes } from "../../../lib/formatBytes.js";
 import { useOptionalAuth } from "../../../context/AuthContext";
 import useConnectActive from "../../../hooks/useConnectActive";
 import BackupItem from "../../protect/BackupItem.jsx";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
-import CloudRestoreCard from "../../cloud/CloudRestoreCard.jsx";
-import PrivateRestoreCard from "../../cloud/PrivateRestoreCard.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
-function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
+function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
   const active = backup.status === "active";
   const item = {
     ...backup,
     kind: "cloud",
+    last_error: needsPayment
+      ? "Add a payment card at connect.luna.libreloom.org to store your cloud backup."
+      : backup.last_error,
     destination: "Cloud",
     source_name: backup.source_name || backup.source_path || "Whole drive",
   };
@@ -47,13 +49,15 @@ function CloudBackupRow({ backup, onRun, onRunAnyway, missingSource, onCheck, on
             {size ? ` · ${size} in the cloud` : ""}
           </p>
           {active ? (
-            <BackupStatusNotice
-              state={backup.state}
-              lastError={backup.last_error}
-              lastOkAt={backup.last_ok_at}
-              surface="secondary"
-              staleText="Luna copies files to the cloud every 6 hours."
-            />
+            !backupWaitingReason(item) && !backup.covered_by && (
+              <BackupStatusNotice
+                state={backup.state}
+                lastError={backup.last_error}
+                lastOkAt={backup.last_ok_at}
+                surface="secondary"
+                staleText="Luna copies files to the cloud every 6 hours."
+              />
+            )
           ) : (
             <p>{backup.stop_reason || "This cloud backup has stopped."}</p>
           )}
@@ -146,6 +150,11 @@ export default function CloudBackupCategory() {
     onSuccess: (res, { id, acceptMissing = false }) => {
       // A problem stays on this card, next to the backup, not in a success toast.
       if (res?.problem) {
+        if (backupWaitingReason({ kind: "cloud", last_error: res.problem })) {
+          setMissingSourceId(null);
+          setError(null);
+          return;
+        }
         haptic("error");
         setError(res.problem);
         setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
@@ -273,7 +282,7 @@ export default function CloudBackupCategory() {
             <div className="space-y-3">
               {needsPayment && (
                 <p className="text-primary text-sm">
-                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups stay paused until then.
+                  Add a payment card at Luna Connect: <InlinePill>connect.luna.libreloom.org</InlinePill>. Backups wait until then.
                 </p>
               )}
               <p className="text-primary text-sm">
@@ -283,6 +292,7 @@ export default function CloudBackupCategory() {
                 <CloudBackupRow
                   key={backup.id}
                   backup={backup}
+                  needsPayment={needsPayment}
                   pending={pending[backup.id] ?? null}
                   missingSource={missingSourceId === backup.id || backup.source_missing === true}
                   onRun={(b) => {
@@ -304,8 +314,6 @@ export default function CloudBackupCategory() {
           )}
         </SettingsCard>
 
-        {connected && <CloudRestoreCard />}
-        {connected && <PrivateRestoreCard />}
       </div>
 
       <ConfirmModal

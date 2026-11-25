@@ -275,7 +275,11 @@ async fn run(
     let answer = match tokio::time::timeout(RUN_WAIT, job).await {
         Ok(Ok(Ok(outcome))) => match outcome.problem {
             None => json!({ "done": true }),
-            Some(problem) => json!({ "done": false, "problem": problem }),
+            Some(problem) => json!({
+                "done": false,
+                "source_missing": problem.starts_with("Most of the files in "),
+                "problem": problem,
+            }),
         },
         Ok(Ok(Err(_))) => {
             json!({ "done": false, "problem": "Luna could not finish this backup. Try again." })
@@ -306,7 +310,17 @@ async fn resume(
             "Only an Admin or the person this backup belongs to can resume it.",
         ));
     }
-    let row = drive_backup::resume(&conn, &id)
+    // An Admin can't resume a private backup nobody owns: it would stop at once
+    // as belonging to someone else. Giving the item away comes first.
+    if !row.private_owner.is_empty()
+        && private::owner_state(&conn, &row.private_owner) != OwnerState::Active
+    {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "This private item has no owner here yet. Give it to someone in Settings → Users, then resume its backup.",
+        ));
+    }
+    let row = drive_backup::resume(&conn, &id, &user.id)
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -361,7 +375,7 @@ fn backup_json(
     // A backup whose source or backup drive is locked is paused until it is
     // unlocked; the dashboard's "drives are locked, so backups are paused"
     // notice counts these.
-    let locked_drives: Vec<String> = [&row.source_drive, &row.target_drive]
+    let locked_drives: Vec<_> = [&row.source_drive, &row.target_drive]
         .into_iter()
         .filter(|id| {
             db::get_drive(conn, id)
@@ -369,11 +383,18 @@ fn backup_json(
                 .flatten()
                 .is_some_and(|d| d.locked)
         })
-        .map(|id| drive_label(conn, id))
         .collect();
+    // When both are locked, a run encounters the target first.
+    let locked_error = locked_drives
+        .last()
+        .map(|id| drive_backup::waiting_for(conn, id));
+    let (waiting_reason, waiting_since) =
+        crate::backup::status::waiting(row, locked_error.as_deref());
     json!({
         "paused": if locked_drives.is_empty() { Value::Null } else { json!("locked") },
-        "locked_drive_names": locked_drives,
+        "locked_drive_names": locked_drives.iter().map(|id| drive_label(conn, id)).collect::<Vec<_>>(),
+        "waiting_reason": waiting_reason,
+        "waiting_since": waiting_since,
         "covered_by": covered_by,
         "id": row.id,
         "kind": row.kind,
@@ -383,16 +404,20 @@ fn backup_json(
         "source_name": folder_name(&row.source_path, &source_label),
         "target_drive": row.target_drive,
         "target_drive_name": target_label,
-        "state": drive_backup::state(row, now),
+        "state": if waiting_reason.is_some() { json!("waiting") } else { json!(drive_backup::state(row, now)) },
         "status": row.state,
         "stop_reason": row.stop_reason,
         "last_ok_at": row.last_ok_at,
         "last_error": row.last_error,
         "hard": row.hard,
+        "source_missing": row.hard && row.last_error.starts_with("Most of the files in "),
         "first_done": row.first_done,
         "created_by": row.created_by,
         "can_delete": can_delete(conn, row, user),
-        "can_resume": row.state == db::PROTECTION_PAUSED && can_resume(conn, row, user),
+        "can_resume": row.state == db::PROTECTION_PAUSED
+            && can_resume(conn, row, user)
+            && (row.private_owner.is_empty()
+                || private::owner_state(conn, &row.private_owner) == OwnerState::Active),
         "private": !row.private_owner.is_empty(),
         "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),

@@ -3,63 +3,47 @@
 //! A private item is sealed to its owner's recovery phrase key, not to the backup key. This run
 //! never calls `keys::*`, never writes `snapshots/` or `keys/` records, and never needs an Admin.
 
+#[cfg(test)]
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use rusqlite::Connection;
 
 use super::crypto::{self, SigPublic, Signer};
 use super::format::{BackupMeta, SnapshotRecord, Tree};
 use super::identity;
 use super::private::{self, PRIVATE_SNAPSHOT_DOMAIN, PSNAPSHOTS_KIND};
 use super::run::{
-    CHECK_FAILED, CloudOutcome, RunContext, RunSlot, SOURCE_MISSING, SOURCE_OUTSIDE, Sealer,
-    busy_outcome, copy_and_commit, lock, most_files_missing, problem_outcome, random_id,
-    source_root,
+    CloudOutcome, RunContext, RunSlot, Sealer, busy_outcome, copy_and_commit, lock,
+    problem_outcome, random_id,
 };
+use super::source::{self, CHECK_FAILED, Folder, MASS_DELETE, Walk};
 use super::store::CloudStore;
 use crate::db;
-use crate::drives::layout::Layout;
-use crate::files;
 
 const NO_PHRASE: &str = "This private item's owner hasn't set up a recovery phrase yet, so its cloud backup can't start.";
 const NO_OWNER: &str =
     "This private item's owner no longer has an account. An Admin can delete its backups.";
 
-/// Run one private item's cloud backup. Same outcome shape as `run::run_once`.
-pub fn run_once(
+#[cfg(test)]
+pub(crate) fn run_with_root(
     db: &crate::Db,
     protection_id: &str,
+    root: &Path,
     store: &dyn CloudStore,
     accept_missing: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
-    let (drive_root, root) = {
-        let conn = lock(db);
-        let row = db::get_protection(&conn, protection_id)?
-            .ok_or_else(|| anyhow!("This backup no longer exists."))?;
-        if row.private_owner.is_empty() {
-            return Err(anyhow!("This backup is not a private item's backup."));
-        }
-        let drive = files::drive_root(&conn, &row.source_drive)?;
-        let drive_root = PathBuf::from(&drive.mount_point);
-        let Some(root) = source_root(&drive_root, &row.source_path) else {
-            return Ok(problem_outcome(SOURCE_OUTSIDE));
-        };
-        (drive_root, root)
+    let folder = match Folder::at(root) {
+        Ok(folder) => folder,
+        Err(unavailable) => return unavailable.record(db, protection_id, now),
     };
-    // An unplugged drive has no Luna marker, so its folder is never read as empty.
-    if Layout::detect(&drive_root).is_none() {
-        return Ok(problem_outcome(SOURCE_MISSING));
-    }
-    run_with_root(db, protection_id, &root, store, accept_missing, now)
+    run_from_folder(db, protection_id, folder, store, accept_missing, now)
 }
 
-/// The run itself, reading from `root` instead of resolving the drive. Tests use this.
-pub(super) fn run_with_root(
+pub(super) fn run_from_folder(
     db: &crate::Db,
     protection_id: &str,
-    root: &Path,
+    folder: Folder,
     store: &dyn CloudStore,
     accept_missing: bool,
     now: i64,
@@ -68,24 +52,19 @@ pub(super) fn run_with_root(
         return Ok(busy_outcome());
     };
 
-    // Held before any run row is opened, so nothing is committed and nothing needs closing.
-    // If the last copy cannot be read, the run is held too: a check that cannot run must not pass.
-    if !accept_missing {
-        match source_looks_missing(db, protection_id, root) {
-            Ok(true) => {
-                return Ok(CloudOutcome {
-                    source_missing: true,
-                    ..problem_outcome(SOURCE_MISSING)
-                });
-            }
-            Ok(false) => {}
-            Err(err) => {
-                tracing::warn!(error = %err, protection_id, "could not check the source against the last copy; holding the run");
-                return Ok(CloudOutcome {
-                    source_missing: true,
-                    ..problem_outcome(CHECK_FAILED)
-                });
-            }
+    let mut walk = match folder.walk() {
+        Ok(walk) => walk,
+        Err(unavailable) => return unavailable.record(db, protection_id, now),
+    };
+    source::revive(db, protection_id)?;
+    match previous_tree(db, protection_id) {
+        Ok(Some((id, tree))) if !walk.compare(&id, &tree, accept_missing) => {
+            return source::hold(db, protection_id, now, MASS_DELETE, true);
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::warn!(error = %err, protection_id, "could not check the source against the last copy");
+            return source::hold(db, protection_id, now, CHECK_FAILED, false);
         }
     }
 
@@ -95,7 +74,7 @@ pub(super) fn run_with_root(
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
 
-    let result = publish_and_copy(db, &prepared, root, store, now);
+    let result = publish_and_copy(db, &prepared, walk, store, now);
     // The run is over whether or not it committed, so always close it.
     if let Err(e) = db::end_run(&lock(db), &prepared.ctx.run_id, now) {
         return Ok(problem_outcome(&e.to_string()));
@@ -107,22 +86,18 @@ pub(super) fn run_with_root(
     })
 }
 
-/// True when most files of the newest private snapshot are gone from `root`. The file list is
-/// read from the database, so no owner secret is needed. A protection with no private snapshot
-/// is never held.
-fn source_looks_missing(db: &crate::Db, protection_id: &str, root: &Path) -> Result<bool> {
+/// The latest private file list is cached locally, so no owner secret is needed.
+fn previous_tree(db: &crate::Db, protection_id: &str) -> Result<Option<(String, Tree)>> {
     let conn = lock(db);
     for snap in db::list_cloud_snapshots(&conn, protection_id)? {
         if db::private_scope_of_snapshot(&conn, &snap.id)?.is_none() {
             continue;
         }
-        let Some(bytes) = db::get_private_tree(&conn, &snap.id)? else {
-            return Ok(false);
-        };
-        let tree: Tree = serde_json::from_slice(&bytes)?;
-        return Ok(most_files_missing(&tree, root));
+        let bytes = db::get_private_tree(&conn, &snap.id)?
+            .ok_or_else(|| anyhow!("The file list for the last copy is missing."))?;
+        return Ok(Some((snap.id, serde_json::from_slice(&bytes)?)));
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// Everything the copy needs, read and checked before the run row is opened.
@@ -240,7 +215,7 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<Prepared> {
 fn publish_and_copy(
     db: &crate::Db,
     prepared: &Prepared,
-    root: &Path,
+    walk: Walk,
     store: &dyn CloudStore,
     now: i64,
 ) -> Result<CloudOutcome> {
@@ -252,7 +227,7 @@ fn publish_and_copy(
         &prepared.auth_public,
     )?;
     // Private trees live in the database as JSON; reading every file keeps this path simple.
-    copy_and_commit(db, &prepared.ctx, root, store, now, None)
+    copy_and_commit(db, &prepared.ctx, walk, store, now, None)
 }
 
 /// Seals a private backup to its scope's key. The scope key is checked before this is built, so the
@@ -288,18 +263,12 @@ impl Sealer for PrivateSealer {
 
     fn commit(
         &self,
-        conn: &mut Connection,
+        tx: &rusqlite::Transaction,
         snap: &db::SnapshotInsert,
         pack_ids: &[String],
         tree: &Tree,
     ) -> Result<()> {
-        db::commit_private_snapshot_tx(
-            conn,
-            snap,
-            pack_ids,
-            &self.scope,
-            &serde_json::to_vec(tree)?,
-        )
+        db::commit_private_snapshot_in(tx, snap, pack_ids, &self.scope, &serde_json::to_vec(tree)?)
     }
 }
 
@@ -520,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn source_gone_is_held() {
+    fn a_vanished_private_folder_cannot_be_forced() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path(), true);
         let src = source(dir.path());
@@ -528,11 +497,10 @@ mod tests {
         let first = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
         assert_eq!(first.problem, None);
 
-        std::fs::remove_file(src.join("a.bin")).unwrap();
-        std::fs::remove_file(src.join("b.bin")).unwrap();
+        std::fs::rename(&src, src.with_extension("missing")).unwrap();
         let held = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
-        assert_eq!(held.problem.as_deref(), Some(SOURCE_MISSING));
-        assert!(held.source_missing);
+        assert!(held.problem.is_some());
+        assert!(!held.source_missing);
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
         let open_runs: i64 = lock(&db)
@@ -545,6 +513,8 @@ mod tests {
         assert_eq!(open_runs, 0);
 
         let accepted = run_with_root(&db, "p1", &src, &store, true, 300).unwrap();
-        assert_eq!(accepted.problem, None);
+        assert!(accepted.problem.is_some());
+        assert_eq!(accepted.snapshot_id, None);
+        assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
     }
 }

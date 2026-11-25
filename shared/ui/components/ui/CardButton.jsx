@@ -68,10 +68,20 @@ export default function CardButton({
     (active && activeVariants[variant]) || variants[variant] || variants.default;
   const alignClass = alignments[align] || alignments.center;
   const ringClass = variant === "nav" ? "" : "hover:ring-2 hover:ring-solid";
-  // nav variant: no transition-all — instant hover feedback, sidebar feels snappier
-  const transitionClass = variant === "nav" ? "" : "motion-safe:transition-all";
+  // nav variant: no transition-all — instant hover feedback, sidebar feels snappier.
+  // It still gets a scale-only transition so the press-down stays smooth.
+  const transitionClass =
+    variant === "nav" ? "motion-safe:transition-[scale]" : "motion-safe:transition-all";
 
-  const classes = cn("flex items-center gap-2 rounded-pill p-2 cursor-pointer", transitionClass, ringClass, alignClass, variantClasses, className, "h-full w-full");
+  const classes = cn(
+    "flex items-center gap-2 rounded-pill p-2 cursor-pointer active:motion-safe:scale-[0.97]",
+    transitionClass,
+    ringClass,
+    alignClass,
+    variantClasses,
+    className,
+    "h-full w-full",
+  );
 
   const handleClick = (event) => {
     haptic(variant === "nav" ? "selection" : variant === "danger" ? "error" : "medium");

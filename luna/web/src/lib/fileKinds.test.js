@@ -10,6 +10,7 @@ import {
   isMarkdownFile,
   isOfficeFile,
   isPdfFile,
+  isSqliteFile,
   isTextFile,
   isWhiteboardFile,
   isVideoFile,
@@ -58,14 +59,27 @@ describe("fileKinds", () => {
     expect(openableKind("mystery.bin")).toBe(null);
   });
 
+  it("opens SQLite databases in the database editor", () => {
+    expect(isSqliteFile("luna-demo.sqlite")).toBe(true);
+    expect(isSqliteFile("archive.SQLITE3")).toBe(true);
+    expect(isSqliteFile("data.db")).toBe(true);
+    expect(isSqliteFile("notes.sqlite.bak")).toBe(false);
+    expect(openableKind("luna-demo.sqlite")).toBe("sqlite");
+    expect(openableKind("luna-demo.db")).toBe("sqlite");
+    // A form's answers sidecar is still a real SQLite database.
+    expect(isSqliteFile(".rsvp.lunaform.responses.sqlite")).toBe(true);
+    expect(openableKind(".rsvp.lunaform.responses.sqlite")).toBe("sqlite");
+  });
+
   it("classifies .lunaform files as forms, never text", () => {
     expect(isFormFile("RSVP.lunaform")).toBe(true);
     expect(isFormFile("forms/family reunion.LunaForm")).toBe(true);
     expect(isFormFile("notes.txt")).toBe(false);
     expect(openableKind("rsvp.lunaform")).toBe("form");
     expect(isTextFile("rsvp.lunaform")).toBe(false);
-    // The sibling answers file stays a readable text file.
-    expect(openableKind("rsvp.lunaform.responses")).toBe("text");
+    // The answers database is binary and opens in the database editor.
+    expect(isTextFile("rsvp.lunaform.responses.sqlite")).toBe(false);
+    expect(openableKind("rsvp.lunaform.responses.sqlite")).toBe("sqlite");
   });
 
   it("classifies drawio files — including the self-previewing variants — as diagrams", () => {

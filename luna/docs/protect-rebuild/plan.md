@@ -32,7 +32,7 @@ What's included:
   - Judge only path segments **below** the source root (`is_internal_temp` checks every segment and would skip all of a private item's own backup, whose root is a `.luna-` name).
   - A segment is Luna's when `luna_core::marker::extract_prefix` matches it, for any drive's UUID (a drive can carry several markers). Never a bare `starts_with(".luna-")` (drops a user's `.luna-notes`), never this drive's prefix only, never `is_protected_store` (first segment only). This also stops A→B / B→A backups of backups.
   - Skipped: trash (also needed for privacy: private-folder deletions land there under real names), thumbs, upload `.part` files, marker temp files, the drive DB file itself (live, carries the drive's identity).
-  - **Carried with their form:** each form's `{p}-form-<hash>` files folder (attachments to answers) and answers file, as `jobs.rs` does for copies. A private form's companions sit *beside* the private item, so they go only into the owner's backup, never a shared one.
+  - **Carried with their form:** each form's `{p}-form-<hash>` files folder (attachments to answers) and SQLite answers sidecar, as `jobs.rs` does for copies (snapshot, not a raw open file). A private form's companions sit *beside* the private item, so they go only into the owner's backup, never a shared one.
   - Private items are identified by the `private_items` table, not by name shape.
   - Albums (drive DB, not rebuildable) are exported as data in the backup, not copied as the raw database file. Favorites are not backed up.
   - The walker (`backup/scope.rs`) uses its own segment rule below the source root; the file browser's `is_internal_temp` is unchanged.

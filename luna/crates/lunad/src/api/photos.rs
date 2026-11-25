@@ -141,6 +141,13 @@ fn can_view_photos_path(
             let Ok(Some(album)) = photos::get_album(&root, home, album_id) else {
                 return false;
             };
+            // Album membership grants the album, not another person's
+            // private photos. The ordinary path check above already lifted
+            // the wall for this item's owner; a member reaching it only
+            // through the album must still be stopped.
+            if album_item_is_private(&conn, drive_id, path) {
+                return false;
+            }
             if !album_item_allowed(home, &root, &album, drive_id, path) {
                 return false;
             }
@@ -1191,6 +1198,30 @@ fn contrib_stays_inside(root: &FsPath, contrib_rel: &str, rel: &str) -> bool {
     target.starts_with(&contrib)
 }
 
+/// A private item never reaches an album view — public link or signed-in
+/// member — even for its owner or an Admin. Albums are shared surfaces, so
+/// lifting the private wall here would defeat the boundary that ordinary file
+/// paths enforce. An unreadable registry fails closed.
+pub(crate) fn album_item_is_private(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    path: &str,
+) -> bool {
+    let Ok(Some(drive)) = crate::db::get_drive(conn, drive_id) else {
+        return true;
+    };
+    if drive.mount_point.is_empty() {
+        return true;
+    }
+    let root = FsPath::new(&drive.mount_point);
+    let real = crate::files::real_rel(root, path);
+    match crate::private::wall_for(root, &real) {
+        crate::private::Wall::Clear => false,
+        crate::private::Wall::Unknown => true,
+        crate::private::Wall::At(b) => crate::private::owner_known(conn, &b.owner),
+    }
+}
+
 /// Guest may see this file when it is in album_items or under the contrib folder.
 pub(crate) fn album_item_allowed(
     home: &str,
@@ -2171,6 +2202,12 @@ async fn list_items(
             .map(|d| (d.id, PathBuf::from(d.mount_point)))
             .collect()
     };
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
     // Rows that could never serve — stale paths, symlinked files, anything
     // inside Luna's own namespace — are dropped rather than advertised.
     // `drive_id`/`path` stay in the projection for album viewers: the
@@ -2181,6 +2218,9 @@ async fn list_items(
     let visible: Vec<Value> = items
         .into_iter()
         .filter(|(drive_id, path)| {
+            if album_item_is_private(&conn, drive_id, path) {
+                return false;
+            }
             if !album_item_allowed(&home, &root, &album, drive_id, path) {
                 return false;
             }

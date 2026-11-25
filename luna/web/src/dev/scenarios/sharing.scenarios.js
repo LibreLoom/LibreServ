@@ -176,7 +176,7 @@ export default [
     },
     check: [
       "People says how many were added (not who) and offers no add",
-      "Every link shows, each with 'Made by' and the maker's name (or 'a removed person')",
+      "Every link shows, each with 'Made by' and the maker's name (or 'a deleted account')",
       "One line explains Read; no link settings, remove, copy or New link",
       "Nothing says 'undefined'; the reason is plain",
     ],

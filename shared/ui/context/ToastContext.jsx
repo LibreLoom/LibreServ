@@ -134,6 +134,10 @@ export function ToastProvider({ children, maxToasts = 5 }) {
   const clearToasts = useCallback(() => {
     timersRef.current.forEach((timerInfo) => clearTimeout(timerInfo.timer));
     timersRef.current.clear();
+    // Pending exit callbacks are timers too — leaving them fires setState on
+    // an already-empty list after the clear.
+    exitTimersRef.current.forEach(clearTimeout);
+    exitTimersRef.current.clear();
     setToasts([]);
   }, []);
 

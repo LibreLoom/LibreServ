@@ -324,9 +324,9 @@ describe("ShareSheet", () => {
       ],
     }));
     renderSheet();
-    await screen.findByText("Made by a removed person");
+    await screen.findByText("Made by a deleted account");
     const makers = [...document.querySelectorAll("[data-slot=link-maker]")];
-    expect(makers.map((el) => el.textContent)).toEqual(["Made by Sam", "Made by a removed person"]);
+    expect(makers.map((el) => el.textContent)).toEqual(["Made by Sam", "Made by a deleted account"]);
     // The name is a chip, not a bare font change.
     expect(within(/** @type {HTMLElement} */ (makers[0])).getByText("Sam")).toHaveAttribute("data-slot", "inline-pill");
   });

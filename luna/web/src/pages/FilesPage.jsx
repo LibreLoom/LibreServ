@@ -213,22 +213,48 @@ export function describePeek(peek) {
   };
 }
 
-/** Card rows for what's on a drive that hasn't been added yet. */
-function DetectedContents({ peek }) {
+/**
+ * Facts for a drive that hasn't been added yet, as table rows.
+ * `note` only appears when there's something to do about it.
+ * @param {{ isPending: boolean, isError: boolean, data?: any }} peek
+ * @returns {{ rows: { label: string, value: string }[], note: string }}
+ */
+function detectedFacts(peek) {
   if (peek.isPending) {
-    return <ValueDisplay surface="primary" label="On the drive" value="Looking inside…" mono={false} />;
+    return {
+      rows: [{ label: "On the drive", value: "Looking inside…" }],
+      note: "",
+    };
   }
   // A failed look says nothing about the drive itself (Add drive can still
   // open it), so show nothing rather than guess; the query retries below.
-  if (peek.isError || !peek.data) return null;
+  if (peek.isError || !peek.data) return { rows: [], note: "" };
   const info = describePeek(peek.data);
+  return {
+    rows: [
+      { label: "On the drive", value: info.value },
+      ...(info.history ? [{ label: "History", value: info.history }] : []),
+    ],
+    note: info.note,
+  };
+}
+
+/**
+ * Facts for a drive, as the same label/value rows the Drive details use.
+ */
+function DriveFacts({ rows }) {
+  if (rows.length === 0) return null;
   return (
-    <>
-      <ValueDisplay surface="primary" label="On the drive" value={info.value} mono={false} />
-      {info.includes ? <ValueDisplay surface="primary" label="Includes" value={info.includes} mono={false} /> : null}
-      {info.history ? <ValueDisplay surface="primary" label="History" value={info.history} mono={false} /> : null}
-      {info.note ? <Callout tone="warning" surface="primary">{info.note}</Callout> : null}
-    </>
+    <div className="flex flex-col gap-2" role="list" aria-label="Drive facts">
+      {rows.map((row) => (
+        <ValueDisplay
+          key={row.label}
+          surface="primary"
+          label={row.label}
+          value={row.value}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -266,11 +292,23 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
       : null
     : { label: "Add drive", onClick: () => onOpen(drive), disabled: empty };
 
+  const facts = empty || drive.formatting
+    ? { rows: [], note: "" }
+    : detectedFacts(peek);
+
   return (
     <DriveCard icon={<HardDrive size={ICON_SIZE.lg} />} title={title} action={action}>
       <div className="flex flex-col gap-2">
-        <ValueDisplay surface="primary" label="Size" value={empty ? "Nothing inserted" : formatBytes(drive.size_bytes)} />
-        {empty ? null : drive.formatting ? <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p> : <DetectedContents peek={peek} />}
+        <DriveFacts
+          rows={[
+            { label: "Size", value: empty ? "Nothing inserted" : formatBytes(drive.size_bytes) },
+            ...facts.rows,
+          ]}
+        />
+        {drive.formatting ? (
+          <p className="text-sm">Being erased and set up. This drive is unavailable until that finishes.</p>
+        ) : null}
+        {facts.note ? <Callout tone="warning" surface="primary">{facts.note}</Callout> : null}
         {drive.read_only ? (
           <Callout tone="warning" surface="primary">Read-only: Luna can&apos;t save files to this drive.</Callout>
         ) : null}
@@ -300,6 +338,34 @@ const ERASING_MESSAGE =
 const CANT_OPEN_HINT =
   "Unplug the drive, wait a few seconds, and plug it back in. If Luna still cannot open it, the drive may be damaged.";
 
+/**
+ * The drive's status pill, plus the sheet its trailing segment opens. The open
+ * state lives here, not in the card: a sheet is a portal, so it can be mounted
+ * from inside the pill, and opening it then re-renders the pill and the sheet
+ * instead of the whole card and its storage bar behind the overlay.
+ *
+ * @param {{
+ *   drive: { id: string, state: string, label?: string, mounted?: boolean, encrypted?: boolean, locked?: boolean },
+ *   health: import("../lib/driveHealth.js").DriveHealthReport | null | undefined,
+ *   actions: import("@libreloom/ui/components/ui/RowActionMenu.jsx").RowAction[],
+ * }} props
+ */
+function DriveStatusSheet({ drive, health, actions }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <DriveStatusPill
+        drive={drive}
+        health={health}
+        onActions={actions.length > 0 ? () => setOpen(true) : undefined}
+      />
+      <ModalCard open={open} title={drive.label} size="sm" onClose={() => setOpen(false)}>
+        {({ close }) => <RowActionSheet actions={actions} close={close} />}
+      </ModalCard>
+    </>
+  );
+}
+
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -319,7 +385,6 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
     refetchInterval: ready ? 60_000 : false,
   });
   // The status pill's trailing segment opens this drive's rare actions.
-  const [actionsOpen, setActionsOpen] = useState(false);
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
   const showSummary = copy && ["failing", "watch", "unknown"].includes(copy.verdict);
   const statusMessage = driveStatusMessage(drive);
@@ -368,11 +433,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           /* One LayeredPill: the drive's status, with its rare actions as the
              pill's trailing segment. It sits in the panel's top-right corner;
              the arrow disc on the tray opens the drive. */
-          <DriveStatusPill
-            drive={drive}
-            health={health.data}
-            onActions={actions.length > 0 ? () => setActionsOpen(true) : undefined}
-          />
+          <DriveStatusSheet drive={drive} health={health.data} actions={actions} />
         }
         action={shelf}
       >
@@ -401,9 +462,6 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
           </div>
         ) : null}
       </DriveCard>
-      <ModalCard open={actionsOpen} title={drive.label} size="sm" onClose={() => setActionsOpen(false)}>
-        {({ close }) => <RowActionSheet actions={actions} close={close} />}
-      </ModalCard>
     </div>
   );
 }

@@ -133,28 +133,39 @@ Found and proven automatically, not "configured with fallbacks":
    `tea`, `~/.netrc`, `FORGEJO_TOKEN`, keyring. Android keystore: `~/.android/`,
    user-added paths, home scan for `.jks`/`.keystore`/`.p12`,
    `LUNA_ANDROID_KEYSTORE(_B64)`. Env sources accept `NAME`, `NAME_B64`,
-   `NAME_FILE`, `NAME_CMD`; `LUNA_RELEASE_MINISIG_PK/PW`,
-   `SOL_RELEASE_MINISIG_PK/PW` and `MINISIGN_SECRET_KEY` keep working. Proton
+   `NAME_FILE`, `NAME_CMD`; `LUNA_RELEASE_MINISIG_PK`,
+   `SOL_RELEASE_MINISIG_PK` and `MINISIGN_SECRET_KEY` keep working. Signing-key
+   passwords are never read from the environment. Proton
    Pass is an optional source (`pass-cli item view "pass://<vault>/<item>/<field>"`;
    needs a logged-in session, no TTY). A field written `file:<name>` reads an
    attached file of the item (keys and keystores), e.g.
    `pass://Vault/Item/file:release.key`.
-4. **Pair keys and passwords automatically; remember what worked.** Keys are
-   scrypt-encrypted, so the tool tries known passwords against candidates (one
-   at a time, ~1 s and up to 1 GB RAM each) and caches non-secret facts (path,
-   file hash, key ID) in `~/.cache/libreserv-release/`.
-5. **Ask only as a last resort, inline**, with "Remember in keyring". Without a
-   TTY, missing secrets fail preflight with the full candidate report.
+4. **Try the passphrase you type; remember only non-secret facts.** Keys are
+   scrypt-encrypted. When a cut is about to sign, the tool asks once for the
+   release passphrase in the terminal and tries it against every signing key and
+   the Android keystore (one at a time, ~1 s and up to 1 GB RAM each). It never
+   saves the passphrase. Non-secret facts (path, file hash, key ID) are cached
+   in `~/.cache/libreserv-release/`.
+5. **Ask only as a last resort, inline.** Forgejo tokens, pasted key text, the
+   keystore itself and its alias may be remembered in the keyring. Signing-key
+   passwords and the release passphrase cannot. Without a TTY, missing secrets
+   fail preflight with the full candidate report; a signing passphrase also
+   fails the cut, because it can only be typed in a terminal.
 6. **Prove, don't check presence.** Signing key: sign and verify against the
    public key in `keys/`. Forgejo token: `/api/v1/user`, push permission, and
-   upload + delete a probe file. Keystore: opens, alias exists, fingerprint
-   matches. All in preflight, before any build.
+   upload + delete a probe file. Keystore: discovered and checked against the
+   pinned certificate in preflight; it is opened with the release passphrase
+   when a cut is about to sign, so preflight reports it as locked rather than
+   failing.
 
-Pasted secrets are stored in the system keyring, or a passphrase-encrypted file
-the tool owns when there is none (`99designs/keyring`). Resolved values are
-redacted from all logs and container output; they never enter a container
-except the Android keystore (read-only mount, gradle job only). Signing happens
-in-process.
+Remembered values are stored in the system keyring, or a passphrase-encrypted
+file the tool owns when there is none (`99designs/keyring`). Signing-key
+passwords and the release passphrase are never stored. Resolved values are
+redacted from logs and container output. The release passphrase is typed at the
+cut, tried on every signing key and the keystore, and wiped after signing. The
+APK is built unsigned, with no keystore or password in the Gradle job; a
+separate offline container then mounts the keystore read-only and receives the
+store and key passwords on standard input. Minisign signing happens in-process.
 
 ## Forgejo registry facts
 

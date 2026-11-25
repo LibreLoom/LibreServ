@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -55,7 +54,6 @@ func storageRouter(d Deps) http.Handler {
 		r.Delete("/storage/records/{kind}/{name}", stor.DeleteRecord)
 		r.Get("/storage/records/{kind}", stor.ListRecords)
 		r.Get("/storage/usage", stor.Usage)
-		r.Get("/storage/luna-ids", stor.ListLunaIDs)
 		r.Post("/storage/luna-ids/{id}/signing-public", stor.SetSigningPublic)
 	})
 	return r
@@ -108,18 +106,6 @@ func (s *gatedRecordStore) Put(accountID, deviceID, relPath string, r io.Reader)
 		return 0, "local", s.putErr
 	}
 	return s.Store.Put(accountID, deviceID, relPath, r)
-}
-
-// signMove returns the X-Luna-Sig and X-Luna-Ts headers a Luna sends to move to a
-// new device, signed at time ts.
-func signMove(t *testing.T, priv hybridKey, lunaID string, ts int64) map[string]string {
-	t.Helper()
-	tsStr := strconv.FormatInt(ts, 10)
-	sig := priv.sign(t, "move", []byte(lunaID+"\x00"+tsStr))
-	return map[string]string{
-		"X-Luna-Sig": base64.StdEncoding.EncodeToString(sig),
-		"X-Luna-Ts":  tsStr,
-	}
 }
 
 // fixtureAccountID returns the account that owns the fixture's device.
@@ -601,45 +587,30 @@ func TestStorageDeleteIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestStorageSecondDeviceNeedsSignature(t *testing.T) {
+func TestStorageSecondDeviceCannotAccessBoundLuna(t *testing.T) {
 	h, d, tok := storageFixture(t, "sigs", 0)
-	priv := newHybridKey(t)
-	keyHex := priv.pubHex()
-	// The first device claims the Luna and registers its signing key in one step.
+	keyHex := newHybridKey(t).pubHex()
 	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok, "luna1", []byte(keyHex), nil); rec.Code != http.StatusOK {
 		t.Fatalf("set key %d %s", rec.Code, rec.Body.String())
 	}
 
 	tok2 := addStorageDevice(t, d, "sigs", tok)
-	// A second device with no signature is refused, and cannot replace the key either.
 	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, nil); rec.Code != http.StatusForbidden {
-		t.Fatalf("second device without sig: %d", rec.Code)
+		t.Fatalf("second device read: %d", rec.Code)
 	}
-	otherPriv := newHybridKey(t)
-	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok2, "luna1", []byte(otherPriv.pubHex()), nil); rec.Code != http.StatusForbidden {
+	otherKey := newHybridKey(t).pubHex()
+	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok2, "luna1", []byte(otherKey), nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("second device replacing key: %d", rec.Code)
-	}
-	// A signature from some other key is refused too.
-	bad := signMove(t, otherPriv, "luna1", time.Now().Unix())
-	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, bad); rec.Code != http.StatusForbidden {
-		t.Fatalf("wrong-key sig: %d", rec.Code)
-	}
-
-	// A signature from the Luna's own key moves it to the second device.
-	good := signMove(t, priv, "luna1", time.Now().Unix())
-	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, good); rec.Code != http.StatusOK {
-		t.Fatalf("takeover with valid sig: %d %s", rec.Code, rec.Body.String())
 	}
 	var owner, key string
 	if err := d.DB.QueryRow(`SELECT device_id, signing_public FROM luna_ids WHERE luna_id = ?`, "luna1").Scan(&owner, &key); err != nil {
 		t.Fatal(err)
 	}
-	if owner != "dev_sigs-2" || key != keyHex {
-		t.Fatalf("owner %q key %q after takeover", owner, key)
+	if owner != "dev_sigs" || key != keyHex {
+		t.Fatalf("unexpected owner %q or signing key", owner)
 	}
-	// The first device has lost the Luna now.
-	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok, "luna1", nil, nil); rec.Code != http.StatusForbidden {
-		t.Fatalf("old device after takeover: %d", rec.Code)
+	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok, "luna1", nil, nil); rec.Code != http.StatusOK {
+		t.Fatalf("owner read: %d", rec.Code)
 	}
 }
 
@@ -756,29 +727,6 @@ BEGIN SELECT RAISE(ABORT, 'forced failure'); END`); err != nil {
 	rc.Close()
 	if get := storageDo(t, h, http.MethodGet, "/packs/"+id, tok, "luna1", nil, nil); get.Code != http.StatusNotFound {
 		t.Fatalf("unrecorded pack readable: %d", get.Code)
-	}
-}
-
-func TestStorageMoveSignatureMustBeFresh(t *testing.T) {
-	h, d, tok := storageFixture(t, "fresh", 0)
-	priv := newHybridKey(t)
-	if rec := storageDo(t, h, http.MethodPut, "/records/identity/public", tok, "luna1", []byte(priv.pubHex()), nil); rec.Code != http.StatusOK {
-		t.Fatalf("set key %d", rec.Code)
-	}
-	tok2 := addStorageDevice(t, d, "fresh", tok)
-	now := time.Now().Unix()
-	for _, ts := range []int64{now - 301, now + 301} {
-		if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(t, priv, "luna1", ts)); rec.Code != http.StatusForbidden {
-			t.Fatalf("signature at %d accepted: %d", ts, rec.Code)
-		}
-	}
-	// A signature for a different Luna does not move this one.
-	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(t, priv, "luna2", now)); rec.Code != http.StatusForbidden {
-		t.Fatalf("signature for another Luna accepted: %d", rec.Code)
-	}
-	// A timestamp inside the window moves the Luna.
-	if rec := storageDo(t, h, http.MethodGet, "/records/identity/public", tok2, "luna1", nil, signMove(t, priv, "luna1", now-299)); rec.Code != http.StatusOK {
-		t.Fatalf("fresh signature refused: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

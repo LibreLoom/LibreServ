@@ -23,6 +23,11 @@
 //   // surface-scan: ignore-file -- reason
 //
 // Usage: node scan-surfaces.js <dir> [<dir>...]
+//
+// Press feedback: a control answers a click by scaling down where it sits
+// (`active:scale-95`), never by translating or resizing its own box — a
+// shift reads as a jump. The shared Button, CardButton, rows and the app's
+// base CSS already scale; this scan catches a one-off `active:` that moves.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -30,6 +35,10 @@ const BARE = /(?<![\w:/[-])bg-(primary|secondary)(?![\w/\]-])/g;
 const CAPS = /(?<![\w:/[-])uppercase(?![\w/\]-])/g;
 const LITERAL = /"([^"\n]*)"|`([^`]*)`|'([^'\n]*)'/g;
 const DIRECTIVE = /surface-scan:\s*(ignore-next-line|ignore-line|ignore-file)/;
+// A press utility that moves or resizes instead of scaling: translate,
+// top/bottom/left/right, margins, padding, gap, inset, width, height.
+const ACTIVE_SHIFT =
+  /(?:^|[:\s])(?:group-|peer-)?active:(?:[a-z0-9-]+:)*(?:-)?(?:translate|top|bottom|left|right|m[tblrxy]?|p[tblrxy]?|gap|inset|w|h)-/g;
 
 // Tokens that only restyle the text itself. `font-mono` beside nothing but
 // these means "the font changed" — the signature this check rejects.
@@ -98,6 +107,7 @@ if (dirs.length === 0) {
 const problems = [];
 const caps = [];
 const nakedMono = [];
+const shifts = [];
 for (const dir of dirs) {
   for (const file of files(dir)) {
     const lines = fs.readFileSync(file, "utf8").split("\n");
@@ -123,6 +133,9 @@ for (const dir of dirs) {
         }
         for (const m of text.matchAll(CAPS)) {
           caps.push(`${file}:${i + 1}: ${m[0]}`);
+        }
+        for (const m of text.matchAll(ACTIVE_SHIFT)) {
+          shifts.push(`${file}:${i + 1}: ${m[0].trim()}`);
         }
         // A literal used as a conditional arm (`mono && "font-mono"`,
         // `ghost ? "font-mono" : "font-medium"`) is a component's styling
@@ -155,5 +168,12 @@ if (nakedMono.length) {
     + nakedMono.map((p) => `  ${p}`).join("\n"),
   );
 }
-if (problems.length || caps.length || nakedMono.length) process.exit(1);
-console.log("No bare surface backgrounds, all-caps text, or naked font-mono.");
+if (shifts.length) {
+  console.error(
+    `Press states that shift (${shifts.length}). A control scales down on press (active:scale-95); `
+    + `do not translate or resize it:\n`
+    + shifts.map((p) => `  ${p}`).join("\n"),
+  );
+}
+if (problems.length || caps.length || nakedMono.length || shifts.length) process.exit(1);
+console.log("No bare surface backgrounds, all-caps text, naked font-mono, or shifting press states.");

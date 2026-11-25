@@ -238,22 +238,15 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn blkid_export(dev: &str) -> Option<(String, String)> {
-    // blkid parses filesystem superblocks from whatever USB stick somebody
-    // plugs in — it runs sandboxed as `nobody`, reading the device through an
-    // inherited read-only fd so a parser exploit can't reach the rest of the
-    // disk or the daemon's files.
+    // Keep superblock parsing unprivileged. A sandboxed child cannot reopen
+    // a root-only block device, so stage only the bounded device prefix.
     let mut io = crate::sandbox::SandboxIo::new().ok()?;
-    // The sandboxed child runs as `nobody`, and reopening a block device
-    // through an inherited /proc/self/fd/N re-checks the device's own
-    // permissions (root:disk 0660), so it would see nothing. Root copies the
-    // start of the device — where every filesystem keeps its superblock — into
-    // the sandbox's staging dir, and blkid reads that plain file instead.
     let head = read_device_head(Path::new(dev), PROBE_HEAD_BYTES).ok()?;
     let staged = io.out_path("probe.img").ok()?;
     write_private(&staged, &head).ok()?;
     let blkid = crate::sandbox::which("blkid")?;
     let mut cmd = Command::new(blkid);
-    cmd.args(["-o", "export"])
+    cmd.args(["-p", "-o", "export"])
         .arg(&staged)
         .stderr(Stdio::null());
     let out = crate::sandbox::output(&mut cmd, &io, std::time::Duration::from_secs(15)).ok()?;

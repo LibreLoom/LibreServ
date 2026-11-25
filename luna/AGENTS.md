@@ -76,9 +76,10 @@ live in `connect/deploy/` — note `deploy.sh` resolves repo root three levels u
 - **Channels:** F-Droid (primary, they build+sign from `luna-android/v*` tags) and a
   self-signed APK on Forgejo releases. Two signatures — users can't switch
   channels without reinstalling.
-- **Signing:** env-gated `signingConfigs.release` in `app/build.gradle.kts`
-  (`LUNA_ANDROID_KEYSTORE` / `_B64`, `_STORE_PASSWORD`, `_KEY_ALIAS`,
-  `_KEY_PASSWORD`). Unset → unsigned release APK (what F-Droid needs).
+- **Signing:** `assembleRelease` always builds an unsigned APK, which is what
+  F-Droid needs; `./release` signs it afterwards in a separate offline container
+  with the release passphrase (asked at the cut, never saved) and verifies the
+  certificate against `keys/luna-android.cert.sha256`.
 - **Versioning:** `versionCode`/`versionName` are plain literals — F-Droid's
   checker parses them at each `luna-android/v*` tag. Bump `versionCode` for every
   release that ships the app; `./release` warns when it hasn't moved.
@@ -86,6 +87,7 @@ live in `connect/deploy/` — note `deploy.sh` resolves repo root three levels u
 
 ## Key Notes
 
+- **Forms answers follow Read.** Reading answers — the Responses list, totals, CSV export, usage, and the SQLite download/editor — needs `CAP_VIEW`. Deleting, clearing, saving and schema edits need `CAP_EDIT`. Read means read the answers; `CAP_EDIT` gates changing them. Respond links never expose answers. That is decided — do not re-ask or "fix" it.
 - **No terminal for users:** a Luna has no shell anyone is meant to use. Everything happens in the web UI and companion apps. Only modders, and occasionally support, touch a shell, so never write UI, errors, or user docs that send someone there.
 - **Setup is Ethernet-only** — Luna has no setup AP. Never tell users to finish setup on an HDMI/on-device screen — Luna setup is browser-only.
 - **Luna Connect opt-in (`device-token`):** Connect is **off by default**. Luna only polls connect.luna.libreloom.org when `{data_dir}/device-token` exists with a valid Crockford token. No `disable-connect` file — empty opt-out at install is success. **`connect.json`** holds cloud bind state (hostname, tunnel) plus an optional `first_user_secret`, and only matters when a device token is present. Setup is open on LAN (loopback/private/link-local/ULA client IPs; `luna.local` / `.local` hostnames also hint LAN — `is_lan_request` in `crates/lunad/src/api/setup.rs`, UI hints only). Forwarding headers (`CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`) are honored **only from a loopback peer** — `client_ip` in `crates/lunad/src/api/auth.rs`. **First registration from off-LAN requires the full device token** — `first_user_device_token` in `crates/lunad/src/api/auth.rs` matches it case-insensitively against `{data_dir}/device-token` or `first_user_secret` in `connect.json` (with an on-demand `poll_status()` refresh; plain-language refusal when missing or wrong). Connect onboarding links to `/setup?token=` to prefill the token. Add/remove tokens in Settings → About → Advanced; Settings → Luna Connect always shows for everyone (it holds the address, the device token and cloud backup, including the recovery phrase card) — there is no separate Cloud backup entry and it is not Admin-only. User-facing term is **device token**, not setup code or device code.

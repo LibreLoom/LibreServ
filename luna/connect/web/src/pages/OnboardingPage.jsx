@@ -1307,14 +1307,10 @@ export default function OnboardingPage() {
         <StepShell icon={Plug} title="Plug in Luna">
           <p className="text-sm text-foreground leading-relaxed mb-6 text-pretty text-left">
             Plug Luna into power and your router or modem with {path === "diy" ? "an" : "the included"}{" "}
-            <TermHint content="RJ45 is the wide plug on an ethernet cable. It clicks into the port on Luna and your router.">
-              RJ45
-            </TermHint>{" "}
-            (
             <TermHint content="Ethernet is wired internet. Luna needs this cable to reach Luna Connect and your public address.">
-              ethernet
-            </TermHint>
-            ) cable. We will continue once Luna is online.
+              Ethernet
+            </TermHint>{" "}
+            cable. We will continue once Luna is online.
           </p>
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
@@ -1323,7 +1319,7 @@ export default function OnboardingPage() {
             </div>
             <div className="rounded-large-element bg-muted border border-border p-4 text-center text-primary">
               <EthernetPort className="mx-auto h-10 w-10 text-foreground" aria-hidden="true" strokeWidth={1.5} />
-              <p className="mt-3 text-xs font-mono text-foreground">RJ45 port</p>
+              <p className="mt-3 text-xs font-mono text-foreground">Ethernet port</p>
             </div>
           </div>
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">

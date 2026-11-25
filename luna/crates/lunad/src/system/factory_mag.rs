@@ -4,9 +4,11 @@
 //! malformed. Retries when a peeled line is not a valid device token.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
+
+use crate::drives::mount::{MOUNT_TIMEOUT, UNMOUNT_TIMEOUT, run_bounded};
+use crate::system::updates::lookup_device;
 
 use crate::net::connect::{group_device_token, is_device_token_format, normalize_device_code};
 
@@ -211,60 +213,48 @@ struct AssetsMount {
 impl Drop for AssetsMount {
     fn drop(&mut self) {
         if self.mounted {
-            let _ = crate::sandbox::hardened_tool("umount")
-                .arg(&self.path)
-                .status();
+            let _ = run_bounded(
+                crate::sandbox::hardened_tool("umount").arg(&self.path),
+                UNMOUNT_TIMEOUT,
+            );
             let _ = std::fs::remove_dir(&self.path);
         }
     }
 }
 
 fn mount_lunaassets() -> Result<AssetsMount, ()> {
-    let dev = Command::new("blkid")
-        .args(["-L", "LUNAASSETS"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            Command::new("findfs")
-                .arg("LABEL=LUNAASSETS")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
+    let dev = lookup_device("blkid", &["-L", "LUNAASSETS"])
+        .or_else(|| lookup_device("findfs", &["LABEL=LUNAASSETS"]))
         .ok_or(())?;
 
     // LABEL= is forgeable — only trust the magazine on the removable
     // install media, never on the boot disk or a fixed drive.
-    if !crate::system::updates::device_is_factory_media(&dev) {
+    if !crate::system::updates::device_is_factory_media(dev.to_str().ok_or(())?) {
         return Err(());
     }
 
     let tmp = std::env::temp_dir().join(format!("luna-assets-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|_| ())?;
-    let ok = crate::sandbox::hardened_tool("mount")
-        .args([
-            "-t",
-            "vfat",
-            "-o",
-            "rw,utf8,fmask=0133,dmask=0022,noexec,nosuid,nodev",
-        ])
-        .arg(&dev)
-        .arg(&tmp)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-        || crate::sandbox::hardened_tool("mount")
-            .args(["-o", "rw,noexec,nosuid,nodev"])
-            .arg(&dev)
-            .arg(&tmp)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+    let mount = |args: &[&str]| {
+        run_bounded(
+            crate::sandbox::hardened_tool("mount")
+                .args(args)
+                .arg(&dev)
+                .arg(&tmp),
+            MOUNT_TIMEOUT,
+        )
+    };
+    let ok = match mount(&[
+        "-t",
+        "vfat",
+        "-o",
+        "rw,utf8,fmask=0133,dmask=0022,noexec,nosuid,nodev",
+    ]) {
+        Ok(out) if out.status.success() => true,
+        // A timed-out mount may still be unwinding in the kernel.
+        Err(err) if err.kind() == std::io::ErrorKind::TimedOut => false,
+        _ => mount(&["-o", "rw,noexec,nosuid,nodev"]).is_ok_and(|out| out.status.success()),
+    };
     if !ok {
         let _ = std::fs::remove_dir(&tmp);
         return Err(());

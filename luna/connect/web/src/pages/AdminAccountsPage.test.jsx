@@ -122,8 +122,14 @@ describe("AdminAccountsPage", () => {
     expect(adminApiMock).toHaveBeenCalledWith("/admin/devices/dev_1");
     expect(screen.getByText("…1234")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Show full token/i }));
+    expect(adminApiMock.mock.calls.some(([path]) => path === "/admin/device-codes/dev_1/reveal")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Staff password"), { target: { value: "staff-password" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Reveal token$/i }));
     expect(await screen.findByText("AAAA-BBBB-CCCC-DDDD-EEEE")).toBeTruthy();
-    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal");
+    expect(adminApiMock).toHaveBeenCalledWith("/admin/device-codes/dev_1/reveal", {
+      method: "POST",
+      body: JSON.stringify({ password: "staff-password" }),
+    });
   });
 
   it("calls regenerate tunnel API after confirm", async () => {

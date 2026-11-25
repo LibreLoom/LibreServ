@@ -215,6 +215,16 @@ describe("FullscreenEditorFrame desktop rail", () => {
     expect(savePill()).toBeNull();
   });
 
+  it("shows the full filename in the shared tooltip, not a native title", async () => {
+    renderFrame();
+
+    const rail = /** @type {HTMLElement} */ (document.querySelector('[data-slot="editor-rail"]'));
+    const filename = within(rail).getByText("Letter.docx");
+    expect(filename).not.toHaveAttribute("title");
+    await userEvent.hover(filename);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Letter.docx");
+  });
+
   it("puts the save state in the Save button's tooltip", async () => {
     const { api } = renderFrame();
 

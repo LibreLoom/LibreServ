@@ -159,9 +159,9 @@ pub struct Ctx<'a> {
 /// The programs a run needs, checked before anything is written.
 pub fn required_tools(encrypted: bool) -> &'static [&'static str] {
     if encrypted {
-        &["wipefs", "sfdisk", "cryptsetup", "mkfs.ext4"]
+        &["wipefs", "sfdisk", "blockdev", "cryptsetup", "mkfs.ext4"]
     } else {
-        &["wipefs", "sfdisk", "mkfs.exfat"]
+        &["wipefs", "sfdisk", "blockdev", "mkfs.exfat"]
     }
 }
 
@@ -326,7 +326,6 @@ fn run_inner(
 
     // ---- From here on, the old contents are going away. ----
     (ctx.progress)(Phase::Erasing);
-    *erased = true;
     let attached = || -> Result<(), FormatError> {
         match (ctx.hooks.identity)(false) {
             Some(now) if now.same_attachment(&req.identity) => Ok(()),
@@ -337,8 +336,12 @@ fn run_inner(
     // filesystems inside would otherwise outlive the table that pointed at them.
     for part in req.identity.layout.iter().rev() {
         ctx.tools.erase_signatures(&format!("/dev/{}", part.name))?;
+        // The first successful wipe is the point of no return. A failure on
+        // the first call has written nothing, so the drive can be put back.
+        *erased = true;
     }
     ctx.tools.erase_signatures(&format!("/dev/{disk}"))?;
+    *erased = true;
     attached()?;
 
     (ctx.progress)(Phase::Partitioning);
@@ -464,15 +467,6 @@ fn commit(
             anyhow::bail!(
                 "Luna couldn't verify this drive's name and identity after setting it up."
             );
-        }
-        // The recovery files belong to the new content generation too. As on
-        // adopt, the drive works without them, so a failure here is logged.
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(
-            &state.db.lock().unwrap_or_else(|e| e.into_inner()),
-        ) && let Err(e) =
-            crate::backup::cloud::identity::copy_to_drive_at(target, &cloud, db::now_unix())
-        {
-            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
         }
         crate::drives::sync_filesystem(target)
             .context("Luna couldn't finish writing to the new drive.")?;
@@ -1123,6 +1117,40 @@ mod tests {
         assert!(fx.mock.mounts.lock().unwrap().is_empty());
         let rows = db::list_drives(&fx.state.db.lock().unwrap()).unwrap();
         assert!(rows.is_empty(), "nothing is registered");
+    }
+
+    #[test]
+    fn a_failure_on_the_first_wipe_has_written_nothing_and_puts_the_drive_back() {
+        let fx = Fixture::new();
+        let mount = fx.state.drive_manager.adopted_mount_point("d-first-wipe");
+        {
+            let conn = fx.state.db.lock().unwrap();
+            db::upsert_drive(
+                &conn,
+                "d-first-wipe",
+                "Photos",
+                "as_is",
+                "ext4",
+                "sdz",
+                &mount.to_string_lossy(),
+            )
+            .unwrap();
+        }
+        *fx.tools.fail_at.lock().unwrap() = Some("erase_signatures");
+        let mut req = request(None);
+        req.drive_id = Some("d-first-wipe".into());
+        let err = fx.run(&req).unwrap_err();
+        assert!(!err.erased, "no wipe succeeded, so nothing was written");
+        assert_eq!(
+            fx.tools.calls(),
+            vec!["erase_signatures /dev/sdz2"],
+            "the run stops at the first failed call"
+        );
+        let conn = fx.state.db.lock().unwrap();
+        assert_eq!(
+            db::get_drive(&conn, "d-first-wipe").unwrap().unwrap().state,
+            "as_is"
+        );
     }
 
     #[test]

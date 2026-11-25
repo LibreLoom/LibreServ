@@ -10,6 +10,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+/// Cap on HEIF decoder address space. Decodes are serialized in `budget`, so
+/// one child's peak stays bounded on a 2 GiB box.
+const DECODE_MEMORY: u64 = 768 * 1024 * 1024;
+
 pub fn is_heif(path: &Path) -> bool {
     let Some(leaf) = crate::files::leaf_of(path) else {
         return false;
@@ -556,15 +560,19 @@ pub fn decode_heif_thumbnail_png(src: &Path, longest: u32, png_out: &Path) -> an
     let bin = which("heif-thumbnailer")
         .ok_or_else(|| anyhow::anyhow!("HEIC thumbnailer is not installed on this Luna."))?;
     let mut io = crate::sandbox::SandboxIo::new()?;
+    io.limit_memory(DECODE_MEMORY);
     let input = io.input_path(src)?;
     let staged = io.out_path("thumb.png")?;
     let mut cmd = Command::new(bin);
     // `-s` at the stored thumbnail's own size: it is used as is, not scaled.
+    // Discard stderr: it otherwise lands on the daemon log and a chatty
+    // decoder can fill the data partition.
     cmd.arg("-s")
         .arg(longest.to_string())
         .arg(&input)
         .arg(&staged)
-        .stdout(Stdio::null());
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     let status = crate::sandbox::run(&mut cmd, &io, Duration::from_secs(15))?;
     if !status.success() || !staged.exists() {
         anyhow::bail!("heif-thumbnailer produced no picture");
@@ -590,6 +598,7 @@ pub fn decode_heif_to_jpeg(src: &Path, jpeg_out: &Path) -> anyhow::Result<()> {
     }
     let dest_tmp = jpeg_out.with_extension("jpg.tmp");
     let mut io = crate::sandbox::SandboxIo::new()?;
+    io.limit_memory(DECODE_MEMORY);
     let input = io.input_path(src)?;
     let staged = io.out_path("decoded.jpg")?;
     let tools = ["heif-dec", "heif-convert"];
@@ -599,9 +608,12 @@ pub fn decode_heif_to_jpeg(src: &Path, jpeg_out: &Path) -> anyhow::Result<()> {
             continue;
         };
         let mut cmd = Command::new(binpath);
-        cmd.arg(&input).arg(&staged).stdout(Stdio::null());
+        cmd.arg(&input)
+            .arg(&staged)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         // Discard stderr so a chatty heif-dec cannot fill a pipe and stall
-        // while holding RAM on a 2 GiB box.
+        // while holding RAM on a 2 GiB box, or fill the data-partition log.
         match crate::sandbox::run(&mut cmd, &io, Duration::from_secs(30)) {
             Ok(status) if status.success() && staged.exists() => {
                 let mut rd = io.open_out("decoded.jpg")?;

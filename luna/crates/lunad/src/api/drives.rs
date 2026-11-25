@@ -420,7 +420,7 @@ async fn adopt(
     require_admin(user)?;
     let _device_guard = lock_idle_device(&state, &name).await?;
     let label = body.label.trim().to_string();
-    if label.is_empty() || label.len() > 80 {
+    if label.is_empty() || label.chars().count() > 80 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Give this drive a name between 1 and 80 characters.",

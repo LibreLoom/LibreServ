@@ -21,9 +21,9 @@ use super::crypto::{self, Signer};
 use super::format::{
     self, ChunkRef, PackBuilder, SealedPack, SignedRecord, SnapshotRecord, Tree, TreeEntry,
 };
-use super::identity;
 use super::run::{self, RunSlot, Sealer, SharedSealer};
 use super::store::{CloudStore, StoreError};
+use super::{identity, keys};
 use crate::db::{self, BackupKey, SnapshotInsert};
 
 /// What one call to [`step`] did.
@@ -96,6 +96,13 @@ fn load_target(conn: &Connection, protection_id: &str) -> Result<Option<Target>>
     let Some(latest) = db::latest_backup_key(conn, protection_id)? else {
         return Ok(None);
     };
+    let Some(identity) = db::get_cloud_identity(conn)? else {
+        return Ok(None);
+    };
+    // Rewrap must not move existing data under a version that Connect cannot open.
+    if !keys::is_published(conn, &latest, &identity.luna_id)? {
+        return Ok(None);
+    }
     Ok(Some(Target {
         version: latest.version,
         created_at: latest.created_at,
@@ -1558,17 +1565,19 @@ mod tests {
         run_at(&db, &src, &store, 100);
         // A membership change rotates to version 2 with a fresh dedup key. Readers open the
         // version 1 snapshot with their own version 1 key, so there is nothing to move.
-        db::insert_backup_key(
-            &run::lock(&db),
-            &BackupKey {
+        {
+            let conn = run::lock(&db);
+            let key = BackupKey {
                 protection_id: "rw".into(),
                 version: 2,
                 key: random_vec(32),
                 dedup_key: random_vec(32),
                 created_at: 200,
-            },
-        )
-        .unwrap();
+            };
+            db::insert_backup_key(&conn, &key).unwrap();
+            let identity = identity::load(&conn).unwrap().unwrap();
+            keys::acknowledge_publication(&conn, &key, identity.luna_id()).unwrap();
+        }
         assert!(status(&run::lock(&db), "rw").unwrap().is_none());
         assert_eq!(step(&db, "rw", &store, 300).unwrap(), Step::Done);
         assert_eq!(step(&db, "rw", &store, 310).unwrap(), Step::Done);

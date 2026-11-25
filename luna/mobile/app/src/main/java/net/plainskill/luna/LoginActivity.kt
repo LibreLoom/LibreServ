@@ -44,9 +44,9 @@ class LoginActivity : AppCompatActivity() {
         val raw = result.contents ?: return@registerForActivityResult
         val pairing = PairingQr.decode(raw)
         if (pairing != null) {
-            baseUrl.setText(pairing.url)
-            token.setText(pairing.token)
-            status.text = "Address and access token filled in. Tap Sign in."
+            // A QR carries the same untrusted luna://pair payload as a link, so
+            // it must pass the same confirmation before anything is saved.
+            offerPairing(pairing)
         } else {
             status.text =
                 "That QR code is not a Luna sign-in code. In Luna, create an access token in Settings → Security, then tap Show as QR code."
@@ -98,11 +98,17 @@ class LoginActivity : AppCompatActivity() {
                 URLEncoder.encode(extraToken, StandardCharsets.UTF_8.name())
         }
         val pairing = data?.let { PairingQr.decode(it) } ?: return
-        // A luna://pair link can be sent by anything — it must never fill this
-        // phone's sign-in fields without the person saying yes, and while signed
-        // in it must not silently re-point this phone (and its photo backups) at
-        // another Luna. Same Luna → nothing to do; different Luna → ask about
-        // switching; signed out → ask before filling, naming the new address.
+        offerPairing(pairing)
+    }
+
+    /**
+     * A scanned QR code or a `luna://pair` link can come from anything — it must
+     * never fill this phone's sign-in fields without the person saying yes, and
+     * while signed in it must not silently re-point this phone (and its photo
+     * backups) at another Luna. Same Luna → nothing to do; different Luna → ask
+     * about switching; signed out → ask before filling, naming the new address.
+     */
+    private fun offerPairing(pairing: Pairing) {
         val current = BackupPrefs.baseUrl(this)
         when (PairingDecision.choose(BackupPrefs.signedIn(this), current, pairing)) {
             PairingChoice.ALREADY_CONNECTED ->

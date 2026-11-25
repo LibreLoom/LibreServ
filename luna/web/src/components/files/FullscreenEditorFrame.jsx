@@ -9,6 +9,7 @@ import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -117,6 +118,9 @@ function useIsMdUp() {
  *     "everything is saved" and clears any save error, so only call it on
  *     a real save, not on initial load.
  *   - `requestClose()` — the guarded close path (dirty → guard modal).
+ *
+ * A child surface that handles Escape itself (an inline cell editor) marks
+ * the element with `data-escape-own`; the frame leaves Escape to it.
  *
  * `sessionKey` should change when a different file/editor mounts inside
  * the same frame — the save chrome resets so one file's dirty flag can't
@@ -246,6 +250,17 @@ export default function FullscreenEditorFrame({
         // capture listener and would otherwise eat the keypress before the
         // modal's document listener sees it.
         if (confirmCloseRef.current) return;
+        // A second fullscreen editor opened on top (a database editor from
+        // inside a form) owns Escape; only the topmost overlay closes.
+        const overlays = document.querySelectorAll(
+          '[data-slot="file-viewer-overlay"]',
+        );
+        if (
+          overlays.length > 1 &&
+          overlays[overlays.length - 1] !== overlayRef.current
+        ) {
+          return;
+        }
         // Any other open dialog owns Escape too — without this the frame
         // would close the editor out from under the modal, or stack the
         // unsaved-changes guard on top.
@@ -255,6 +270,15 @@ export default function FullscreenEditorFrame({
         if (
           event.target instanceof Element &&
           event.target.closest(".cm-panel, .cm-tooltip")
+        ) {
+          return;
+        }
+        // A surface with its own Escape handling (an inline cell editor)
+        // keeps the key: closing the whole editor mid-edit would lose the
+        // value before it commits.
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-escape-own]")
         ) {
           return;
         }
@@ -285,9 +309,14 @@ export default function FullscreenEditorFrame({
   // global chrome (the Navbar's mobile menu FAB floats above this overlay)
   // can hide over the editor surface.
   useEffect(() => {
+    // Nested editors (a database editor opened from a form) restore the
+    // value the editor beneath them had, so the global chrome doesn't
+    // reappear when only the top one closes.
+    const previous = document.documentElement.dataset.lunaEditor;
     document.documentElement.dataset.lunaEditor = editorKind;
     return () => {
-      delete document.documentElement.dataset.lunaEditor;
+      if (previous) document.documentElement.dataset.lunaEditor = previous;
+      else delete document.documentElement.dataset.lunaEditor;
     };
   }, [editorKind]);
 
@@ -311,6 +340,9 @@ export default function FullscreenEditorFrame({
     } else {
       setHasUnsaved(false);
       setSaveError("");
+      // A conflict reload or a save can clear the dirty flag while the
+      // save-and-close guard is open; do not leave a stale modal behind.
+      setConfirmClose(false);
     }
   }, []);
 
@@ -428,14 +460,14 @@ export default function FullscreenEditorFrame({
                   onMouseDown={(e) => e.preventDefault()}
                   className="flex w-14 shrink-0 flex-col items-center border-r border-primary/20 surface-secondary py-3"
                 >
-                  <div className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
+                  <TooltipTargets className="flex min-h-0 flex-1 items-start justify-center overflow-hidden">
                     <span
+                      data-tooltip={name}
                       className="max-h-full truncate font-mono text-xs text-primary [writing-mode:vertical-rl]"
-                      title={name}
                     >
                       {name}
                     </span>
-                  </div>
+                  </TooltipTargets>
                   <div className="flex shrink-0 flex-col items-center gap-2 pt-2">
                     {onShare ? (
                       <Button
@@ -493,7 +525,7 @@ export default function FullscreenEditorFrame({
                    so the editor keeps ~95% of the viewport height. There is
                    no menu: the status pill already says whether the file is
                    saved, and closing is one tap. */
-                <div
+                <TooltipTargets
                   data-slot="editor-topbar"
                   // Same rule as the rail — a chrome click must not pull
                   // DOM focus out of the editor frame.
@@ -501,8 +533,8 @@ export default function FullscreenEditorFrame({
                   className="flex h-10 shrink-0 items-center gap-2 border-b border-primary/20 surface-secondary pl-4 pr-1.5"
                 >
                   <span
+                    data-tooltip={name}
                     className="min-w-0 flex-1 truncate font-mono text-xs text-primary"
-                    title={name}
                   >
                     {name}
                   </span>
@@ -547,7 +579,7 @@ export default function FullscreenEditorFrame({
                   >
                     <X size={ICON_SIZE.lg} aria-hidden="true" />
                   </Button>
-                </div>
+                </TooltipTargets>
               )}
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col surface-primary">
                 <EditorLoadingContext.Provider value={loadingApi}>

@@ -7,6 +7,7 @@ describe("createKinds", () => {
       "folder",
       "private-folder",
       "text",
+      "database",
       "document",
       "spreadsheet",
       "presentation",
@@ -32,7 +33,7 @@ describe("createKinds", () => {
     const groups = groupedCreateKinds();
     expect(groups.map((group) => group.label)).toEqual(["Organize", "Files", "Office"]);
     expect(groups[0].items.map((kind) => kind.id)).toEqual(["folder", "private-folder"]);
-    expect(groups[1].items.map((kind) => kind.id)).toEqual(["text"]);
+    expect(groups[1].items.map((kind) => kind.id)).toEqual(["text", "database"]);
     expect(groups[2].items.map((kind) => kind.id)).toEqual([
       "document",
       "spreadsheet",
@@ -81,6 +82,17 @@ describe("createKinds", () => {
     expect(doc.version).toBe(1);
     expect(doc.questions).toEqual([]);
     expect(doc.settings.collecting).toBe(true);
+  });
+
+  it("creates a real blank SQLite database with a .sqlite3 name", () => {
+    const database = CREATE_KINDS.find((k) => k.id === "database");
+    expect(database?.group).toBe("Files");
+    expect(database?.openAfter).toBe("viewer");
+    expect(database?.defaultName).toBe("Database.sqlite3");
+    expect(database?.defaultExt).toBe(".sqlite3");
+    const bytes = database?.initialBytes?.() || new Uint8Array();
+    expect(new TextDecoder().decode(bytes.slice(0, 16))).toBe("SQLite format 3\0");
+    expect(bytes.byteLength).toBe(4096);
   });
 
   it("defaults text files to markdown (.md)", () => {

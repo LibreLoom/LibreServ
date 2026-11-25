@@ -115,12 +115,6 @@ export const CASES = {
   "GET /api/v1/cloud/backups": plain("/api/v1/cloud/backups"),
   "GET /api/v1/cloud/phrase": plain("/api/v1/cloud/phrase"),
   "GET /api/v1/cloud/phrase/scopes": plain("/api/v1/cloud/phrase/scopes"),
-  "GET /api/v1/cloud/restore": plain("/api/v1/cloud/restore"),
-  "GET /api/v1/cloud/restore/records/:kind": plain("/api/v1/cloud/restore/records/backup"),
-  "GET /api/v1/cloud/restore-private": plain("/api/v1/cloud/restore-private"),
-  "GET /api/v1/cloud/restore-private/records/:kind": plain("/api/v1/cloud/restore-private/records/pscopes?limit=64&processed=0"),
-  "GET /api/v1/cloud/restore-private/records/:kind/names": plain("/api/v1/cloud/restore-private/records/psnapshots/names?scope=8ca9e163c0c3fd681bb4b62fcac2d8f0&limit=64"),
-  "GET /api/v1/cloud/restore-private/records/:kind/:name": plain("/api/v1/cloud/restore-private/records/psnapshots/8ca9e163c0c3fd681bb4b62fcac2d8f0.fedcba9876543210fedcba9876543210"),
 
   // Private folders
   "GET /api/v1/private-backups/summary": plain("/api/v1/private-backups/summary"),
@@ -138,6 +132,8 @@ export const CASES = {
   "GET /api/v1/access/mine": plain("/api/v1/access/mine"),
   "GET /api/v1/me/access": plain("/api/v1/me/access"),
   "GET /api/v1/forms/responses": onDrive((w, d) => `/api/v1/forms/responses?drive_id=${q(d)}&path=${q("Documents/form.lform")}`),
+  "GET /api/v1/forms/summary": { skip: "New route; the contract fixture is rewritten by a full luna run." },
+  "GET /api/v1/forms/usage": { skip: "New route; the contract fixture is rewritten by a full luna run." },
   "GET /api/v1/forms/file": { skip: "file bytes in lunad, not JSON" },
   "GET /s/:token": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}` : null; } },
   "GET /s/:token/items": { url: (w) => { const l = openLink(w); return l ? `/s/${q(l.token)}/items` : null; } },

@@ -100,6 +100,11 @@ describe("capsOptions — only valid, covered choices", () => {
     ]);
   });
 
+  it("offers an upload-only album link to a contributor with Share", () => {
+    expect(capsOptions(album, "upload+share", { forLink: true }).map((o) => o.value)).toEqual(["upload"]);
+    expect(capsOptions(album, "upload+share")).toEqual([]);
+  });
+
   it("a member can only offer subsets of what they hold", () => {
     expect(capsOptions(folder, "view").map((o) => o.value)).toEqual(["view"]);
     expect(capsOptions(folder, "view+upload").map((o) => o.value)).toEqual([

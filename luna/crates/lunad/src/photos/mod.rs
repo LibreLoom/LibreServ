@@ -19,6 +19,10 @@ use serde::Serialize;
 /// upscale a little on the short edge.
 const THUMB_MAX: u32 = 640;
 const THUMB_JPEG_QUALITY: u8 = 85;
+/// Cap on decoder child address space. These children parse untrusted media;
+/// the cap keeps a crafted file from pushing the box into the OOM killer.
+/// HEIF decodes are serialized in `budget`, so one child's peak stays bounded.
+const DECODE_MEMORY: u64 = 768 * 1024 * 1024;
 /// Thumb recipe version, baked into the filename. Bump when size, filter,
 /// or quality changes — scans regenerate, stale names get swept.
 /// 3: thumbnails follow EXIF orientation (2 left phone portraits sideways).
@@ -1486,6 +1490,7 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
     // source on an inherited fd and writes its frame into a nobody-owned
     // staging dir; we copy the result out ourselves.
     let mut io = crate::sandbox::SandboxIo::new()?;
+    io.limit_memory(DECODE_MEMORY);
     let input = io.input_path(src)?;
     let frame = io.out_path("frame.jpg")?;
     let mut cmd = std::process::Command::new(ffmpeg);
@@ -1560,6 +1565,7 @@ fn probe_video_duration_secs(src: &Path) -> u32 {
     let Ok(mut io) = crate::sandbox::SandboxIo::new() else {
         return 0;
     };
+    io.limit_memory(DECODE_MEMORY);
     let Ok(input) = io.input_path(src) else {
         return 0;
     };

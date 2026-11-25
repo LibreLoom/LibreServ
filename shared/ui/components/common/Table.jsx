@@ -1,16 +1,37 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Plus } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 
 const CELL_BASE = "py-2.5 text-primary";
 const CELL_BG = "surface-secondary";
+const CELL_BG_PRIMARY = "surface-primary";
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CELL_BG_STRIPE = "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
-const CELL_FIRST = "pl-3 rounded-l-large-element";
-const CELL_LAST = "pr-3 rounded-r-large-element";
-const CELL_MIDDLE = "px-1";
+// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+const CELL_BG_STRIPE_PRIMARY = "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]";
+const CELL_FIRST = "rounded-l-large-element";
+const CELL_LAST = "rounded-r-large-element";
+
+/**
+ * Horizontal insets for one column. Header labels use the same insets as
+ * their cells — otherwise every label sits 12px in while its values sit 4px
+ * in, and nothing lines up.
+ *
+ * Phones get a full 12px gutter on both sides, because a dense result grid is
+ * the one table that cannot switch to phone cards. From `md` up — where the
+ * first and last cells round the row pill — only those outer ends keep the
+ * 12px and the cells between tighten to 4px.
+ *
+ * @param {number} index
+ * @param {number} count
+ */
+function columnInsets(index, count) {
+  if (count <= 1) return "px-3";
+  if (index === 0) return "pl-3 pr-3 md:pr-0";
+  if (index === count - 1) return "pl-3 pr-3 md:pl-0";
+  return "px-3 md:px-1";
+}
 
 const ALIGN = {
   left: "text-left",
@@ -18,16 +39,40 @@ const ALIGN = {
   right: "text-right",
 };
 
-// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
-const ROW_HOVER_BG = "hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
 const ROW_SLIDE =
-  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0";
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99]";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CARD_SLIDE =
-  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99] hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+// color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
+const CARD_SLIDE_PRIMARY =
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99] hover:bg-[color-mix(in_oklab,var(--primary)_85%,var(--secondary))]";
+
+/**
+ * Mobile cards normally sit on the page (a secondary card on a primary
+ * backdrop). A list nested in a secondary panel inverts that: a secondary
+ * card would blend into its backdrop, so `primary` paints the cards with the
+ * page token instead.
+ */
+const CARD_CHROME = {
+  secondary: {
+    bg: CELL_BG,
+    stripe: CELL_BG_STRIPE,
+    text: "text-primary",
+    border: "border-primary/10",
+    slide: CARD_SLIDE,
+  },
+  primary: {
+    bg: CELL_BG_PRIMARY,
+    stripe: CELL_BG_STRIPE_PRIMARY,
+    text: "text-secondary",
+    border: "border-secondary/10",
+    slide: CARD_SLIDE_PRIMARY,
+  },
+};
 
 /**
  * jsdom has no layout CSS, so mobile-card mode picks one chrome via matchMedia.
@@ -52,41 +97,7 @@ function useIsMdUp() {
 }
 
 /**
- * One slim extra row after the data, in the data rows' surface and motion,
- * with a centered label followed by an icon (a plus by default), e.g. "Add user +".
- * @typedef {{ label: string, onClick: () => void, icon?: import("react").ElementType, disabled?: boolean }} TableAddRow
- */
-
-/** @param {{ addRow: TableAddRow, className: string }} _ */
-function AddRowButton({ addRow, className }) {
-  const Icon = addRow.icon || Plus;
-  return (
-    <button
-      type="button"
-      disabled={addRow.disabled}
-      onClick={() => {
-        haptic("selection");
-        addRow.onClick();
-      }}
-      className={cn(
-        "w-full flex items-center justify-center rounded-large-element text-primary",
-        CELL_BG,
-        ROW_SLIDE,
-        ROW_HOVER_BG,
-        "disabled:opacity-50 disabled:cursor-not-allowed",
-        className,
-      )}
-    >
-      <span className="flex items-center gap-1.5 text-sm">
-        {addRow.label}
-        <Icon size={16} aria-hidden="true" />
-      </span>
-    </button>
-  );
-}
-
-/**
- * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, renderMobileCard?: (row: any, columns: any) => any, striped?: boolean, addRow?: TableAddRow }} _
+ * @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void, mobileCards?: boolean, renderMobileCard?: (row: any, columns: any, surface: "primary"|"secondary") => any, mobileCardSurface?: "primary"|"secondary", striped?: boolean, variant?: "data"|"description", surface?: "primary"|"secondary", ariaLabel?: string }} _
  */
 export default function Table({
   columns,
@@ -99,12 +110,19 @@ export default function Table({
   onRowClick,
   mobileCards = false,
   renderMobileCard,
+  mobileCardSurface = "secondary",
   striped = false,
-  addRow,
+  variant = "data",
+  surface = "secondary",
+  ariaLabel,
 }) {
   const isMdUp = useIsMdUp();
   const showCards = mobileCards && !isMdUp;
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
+  const chrome = CARD_CHROME[mobileCardSurface];
+  const isDescription = variant === "description";
+  const descriptionText = surface === "primary" ? "text-secondary" : "text-primary";
+  const descriptionRule = surface === "primary" ? "border-secondary/15" : "border-primary/15";
 
   if (showCards) {
     // Columns marked `hidden` are desktop-only (hidden + `{bp}:table-cell`).
@@ -114,7 +132,7 @@ export default function Table({
 
     return (
       <div className={cn(className)} data-slot="table">
-        <ul className="m-0 list-none space-y-3 p-0" aria-label="Rows">
+        <ul className="m-0 list-none space-y-3 p-0" aria-label={ariaLabel || "Rows"}>
           {data.map((row, rowIndex) => {
             const key = rowKey ? row[rowKey] : rowIndex;
             return (
@@ -122,9 +140,10 @@ export default function Table({
                 {renderMobileCard ? (
                   <article
                     className={cn(
-                      "rounded-large-element text-primary p-3",
-                      striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
-                      onRowClick && CARD_SLIDE,
+                      "rounded-large-element p-3",
+                      chrome.text,
+                      striped && rowIndex % 2 === 1 ? chrome.stripe : chrome.bg,
+                      onRowClick && chrome.slide,
                     )}
                     onClick={
                       onRowClick
@@ -136,15 +155,16 @@ export default function Table({
                         : undefined
                     }
                   >
-                    {renderMobileCard(row, columns)}
+                    {renderMobileCard(row, columns, mobileCardSurface)}
                   </article>
                 ) : (
                 <article
                   className={cn(
-                    "rounded-large-element text-primary p-4 flex flex-col gap-3",
-                    striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
+                    "rounded-large-element p-4 flex flex-col gap-3",
+                    chrome.text,
+                    striped && rowIndex % 2 === 1 ? chrome.stripe : chrome.bg,
                     onRowClick &&
-                      CARD_SLIDE,
+                      chrome.slide,
                   )}
                   onClick={
                     onRowClick
@@ -157,7 +177,7 @@ export default function Table({
                   }
                 >
                   {fieldColumns.map((col) => {
-                    const content = col.render ? col.render(row, rowIndex) : row[col.key];
+                    const content = col.render ? col.render(row, rowIndex, mobileCardSurface) : row[col.key];
                     return (
                       <div
                         key={col.key}
@@ -177,9 +197,9 @@ export default function Table({
                     );
                   })}
                   {actionColumns.length > 0 && (
-                    <div className="flex items-center justify-end gap-1 pt-1 border-t border-primary/10">
+                    <div className={cn("flex items-center justify-end gap-1 pt-1 border-t", chrome.border)}>
                       {actionColumns.map((col) => {
-                        const content = col.render ? col.render(row, rowIndex) : row[col.key];
+                        const content = col.render ? col.render(row, rowIndex, mobileCardSurface) : row[col.key];
                         return (
                           <div
                             key={col.key}
@@ -196,40 +216,46 @@ export default function Table({
               </li>
             );
           })}
-          {addRow && (
-            <li>
-              <AddRowButton addRow={addRow} className="py-2" />
-            </li>
-          )}
         </ul>
       </div>
     );
   }
 
   return (
-    <div className={cn("bg-primary/5 rounded-card p-3", className)} data-slot="table">
+    <div
+      className={cn(!isDescription && "bg-primary/5 rounded-card p-3", className)}
+      data-slot="table"
+    >
       <div className={scrollable ? "overflow-y-auto" : undefined} style={wrapperStyle}>
-        <table className="w-full text-sm border-separate border-spacing-y-2">
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  scope="col"
-                  className={cn(
-                    // Column labels use the same eyebrow the dashboard stat
-                    // cards and MfaCard sections use: mono
-                    // out and quiet, so the row pills stay the loud element.
-                    `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
-                    col.hidden ? `hidden ${col.hidden}:table-cell` : "",
-                    col.width || "",
-                  )}
-                >
-                  {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
+        <table
+          className={cn(
+            "w-full text-sm",
+            isDescription ? "border-collapse" : "border-separate border-spacing-y-2",
+          )}
+          aria-label={ariaLabel}
+        >
+          {!isDescription && (
+            <thead>
+              <tr>
+                {columns.map((col, colIndex) => (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    className={cn(
+                      // Column labels use the same eyebrow the dashboard stat
+                      // cards and MfaCard sections use: mono
+                      // out and quiet, so the row pills stay the loud element.
+                      `${ALIGN[col.align] || ALIGN.left} ${columnInsets(colIndex, columns.length)} pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal ${headClassName}`,
+                      col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                      col.width || "",
+                    )}
+                  >
+                    {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
           <tbody>
             {data.map((row, rowIndex) => {
               const key = rowKey ? row[rowKey] : rowIndex;
@@ -238,6 +264,7 @@ export default function Table({
                   key={key}
                   className={cn(
                     "group",
+                    isDescription && cn("border-b last:border-0", descriptionRule),
                     // The whole row slides on hover. `will-change: transform`
                     // keeps the cells in one composited layer: without it,
                     // Chrome rasterises each cell's background on its own and
@@ -258,14 +285,38 @@ export default function Table({
                   }
                 >
                   {columns.map((col, colIndex) => {
+                    if (isDescription) {
+                      const content = col.render
+                        ? col.render(row, rowIndex)
+                        : row[col.key];
+                      const Cell = colIndex === 0 ? "th" : "td";
+                      return (
+                        <Cell
+                          key={col.key}
+                          {...(Cell === "th" ? { scope: "row" } : {})}
+                          className={cn(
+                            "py-2 align-top",
+                            colIndex === 0 ? "pr-4 text-left font-normal" : "pl-4",
+                            ALIGN[col.align] || ALIGN.left,
+                            descriptionText,
+                            col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                            col.width || "",
+                          )}
+                          onClick={col.noRowClick ? (e) => e.stopPropagation() : undefined}
+                        >
+                          {content}
+                        </Cell>
+                      );
+                    }
+
                     const isFirst = colIndex === 0;
                     const isLast = colIndex === columns.length - 1;
                     const cellClasses = [
                       CELL_BASE,
                       striped && rowIndex % 2 === 1 ? CELL_BG_STRIPE : CELL_BG,
+                      columnInsets(colIndex, columns.length),
                       isFirst ? CELL_FIRST : "",
                       isLast ? CELL_LAST : "",
-                      !isFirst && !isLast ? CELL_MIDDLE : "",
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
                       // The tint has to live on the cells — that is where
                       // bg-secondary is, and a transition on the <tr> would never
@@ -293,14 +344,6 @@ export default function Table({
                 </tr>
               );
             })}
-            {addRow && (
-              <tr>
-                <td colSpan={columns.length} className="p-0">
-                  {/* A slim strip, so it reads as an action rather than an empty row. */}
-                  <AddRowButton addRow={addRow} className="py-2" />
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
@@ -330,11 +373,9 @@ Table.propTypes = {
   onRowClick: PropTypes.func,
   mobileCards: PropTypes.bool,
   renderMobileCard: PropTypes.func,
+  mobileCardSurface: PropTypes.oneOf(["primary", "secondary"]),
   striped: PropTypes.bool,
-  addRow: PropTypes.shape({
-    label: PropTypes.string.isRequired,
-    onClick: PropTypes.func.isRequired,
-    icon: PropTypes.elementType,
-    disabled: PropTypes.bool,
-  }),
+  variant: PropTypes.oneOf(["data", "description"]),
+  surface: PropTypes.oneOf(["primary", "secondary"]),
+  ariaLabel: PropTypes.string,
 };

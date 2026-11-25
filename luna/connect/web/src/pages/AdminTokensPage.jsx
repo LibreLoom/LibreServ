@@ -342,17 +342,7 @@ export default function AdminTokensPage() {
                       <td className="px-3 py-2">
                         <TokenReveal
                           hint={r.hint}
-                          code={r.code}
-                          onReveal={
-                            r.can_reveal && !r.code
-                              ? async () => {
-                                  const data = await adminApi(
-                                    `/admin/device-codes/${encodeURIComponent(r.id)}/reveal`,
-                                  );
-                                  return data.code || "";
-                                }
-                              : undefined
-                          }
+                          deviceId={r.can_reveal ? r.id : null}
                         />
                       </td>
                       <td className="px-3 py-2">

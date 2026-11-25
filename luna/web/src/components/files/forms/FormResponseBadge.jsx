@@ -15,7 +15,11 @@ import { fileSourceScope, useFileSource } from "../../../lib/fileSource.jsx";
 export default function FormResponseBadge({ driveId, formPath }) {
   const source = useFileSource();
   const scope = fileSourceScope(source, driveId);
-  const canView = !source.guest || ((source.capsBits ?? 0) & CAP.VIEW) !== 0;
+  // A member with Read sees the count. A guest link only reaches the
+  // manager responses route when it carries Write; a view link gets no
+  // badge instead of a 403 every time the folder is listed.
+  const canView =
+    !source.guest || ((source.capsBits ?? 0) & CAP.EDIT) === CAP.EDIT;
   const count = useQuery({
     // Its own key: the builder caches the full list under
     // ["form-responses", …]; this one only ever holds a number.

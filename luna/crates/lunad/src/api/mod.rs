@@ -4,8 +4,6 @@ pub mod backup_folder;
 pub mod backups;
 pub mod cloud_backups;
 pub mod cloud_phrase;
-pub mod cloud_restore;
-pub mod cloud_restore_private;
 pub mod connect;
 #[cfg(test)]
 pub(crate) mod contract;
@@ -13,6 +11,11 @@ pub mod device_tokens;
 pub mod drive_crypt;
 pub mod drive_format;
 pub mod drives;
+/// Rate-limit budgets, bucket keys, and upload quota for public form links.
+/// The file lives with the form handlers; while `forms` is still one file this
+/// declaration is what includes it.
+#[path = "forms/limits.rs"]
+pub mod form_limits;
 pub mod forms;
 pub mod health;
 pub mod network;
@@ -43,8 +46,6 @@ pub fn router() -> Router<AppState> {
         .merge(backups::router())
         .merge(cloud_backups::router())
         .merge(cloud_phrase::router())
-        .merge(cloud_restore::router())
-        .merge(cloud_restore_private::router())
         .merge(backup_folder::router())
         .merge(private_backups::router())
         .merge(connect::router())

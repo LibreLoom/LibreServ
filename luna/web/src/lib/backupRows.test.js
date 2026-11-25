@@ -84,6 +84,19 @@ describe("buildBackupRows", () => {
 });
 
 describe("needsALook", () => {
+  it("counts a recorded lock wait at 24 hours and keeps its waiting status", () => {
+    const row = cloud({
+      paused: "locked",
+      state: "waiting",
+      waiting_reason: "Unlock the original drive with its password.",
+      waiting_since: (NOW - DAY) / 1000,
+    });
+    expect(needsALook(row, NOW - 1)).toBe(false);
+    expect(needsALook(row, NOW)).toBe(true);
+    expect(needsALook({ ...row, waiting_since: null }, NOW)).toBe(false);
+    expect(backupStatus(row)).toEqual({ label: "Waiting", variant: "warning" });
+  });
+
   it("flags a failing or stale active drive backup", () => {
     expect(needsALook(drive({ state: "failing" }))).toBe(true);
     expect(needsALook(drive({ state: "stale" }))).toBe(true);
@@ -99,6 +112,22 @@ describe("needsALook", () => {
     expect(needsALook(drive({ status: "paused" }))).toBe(true);
   });
 
+  it("shows an active first upload and keeps independent check warnings", () => {
+    const uploading = cloud({
+      state: "in_progress",
+      waiting_reason: null,
+      last_error: "Your cloud storage is full.",
+      source_missing: true,
+    });
+    expect(needsALook(uploading, NOW)).toBe(false);
+    expect(backupStatus(uploading, NOW)).toEqual({ label: "First backup in progress", variant: "default" });
+    expect(backupHeadline([uploading])).toBe("First backup in progress");
+
+    const checkFailed = { ...uploading, check_problem: "The copy could not be read." };
+    expect(needsALook(checkFailed, NOW)).toBe(true);
+    expect(backupStatus(checkFailed, NOW)).toEqual({ label: "Check failed", variant: "warning" });
+  });
+
   it("flags a cloud row with a check problem", () => {
     expect(needsALook(cloud({ check_problem: "The copy could not be read." }))).toBe(true);
     expect(needsALook(cloud({ check_problem: "The copy could not be read.", status: "stopped" }))).toBe(false);
@@ -110,11 +139,13 @@ describe("needsALook", () => {
 });
 
 describe("backupStatus", () => {
-  it("shows Original is missing for a cloud row that held for a missing source", () => {
-    expect(backupStatus(cloud({ source_missing: true }))).toEqual({
-      label: "Original is missing",
-      variant: "warning",
-    });
+  it("shows Backup paused when either destination holds a large deletion", () => {
+    for (const backup of [cloud, drive]) {
+      expect(backupStatus(backup({ source_missing: true }))).toEqual({
+        label: "Backup paused",
+        variant: "warning",
+      });
+    }
   });
 
   it("labels drive rows in plain words", () => {

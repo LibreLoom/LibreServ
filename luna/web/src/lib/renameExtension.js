@@ -34,7 +34,7 @@ export function renameExtensionWarning(oldName, newName, isDir = false) {
     return {
       kind: "form",
       title: "Stop treating this as a form?",
-      message: `Its answers will stay in ${String(oldName).trim()}${RESPONSES_SUFFIX.slice(FORM_EXT.length)}.`,
+      message: `Its answers will stay in .${String(oldName).trim()}${RESPONSES_SUFFIX.slice(FORM_EXT.length)}.`,
       confirmLabel: "Rename",
     };
   }

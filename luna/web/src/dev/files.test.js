@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import "./fake/handlers/index.js";
 import { installFake } from "./fake/engine.js";
 import { createWorld } from "./fake/world.js";
-import { addFile, fsOf, fsOpts } from "./fake/handlers/files.js";
+import { addDir, addFile, fsOf, fsOpts } from "./fake/handlers/files.js";
 import { scenarioById, scenarios } from "./scenarios/registry.js";
 
 const call = async (method, url, body) => {
@@ -21,6 +21,18 @@ describe("files fake", () => {
     await call("POST", "/api/v1/drives/d1/files/restore", { path: `.luna-trash/${trash[0].name}`, dest: "Documents/notes.txt" });
     const list = (await call("GET", "/api/v1/drives/d1/files?path=Documents")).data;
     expect(list.map((e) => e.name)).toContain("notes.txt");
+  });
+
+  it("refuses to delete a folder that holds private items, naming owners to an Admin only", async () => {
+    const world = createWorld((w) => { addDir(w, "d1", "Documents/Vault", { private: true, owner: "u1" }); });
+    installFake({ world, scenario: {}, now: 0 });
+    // The signed-in person is the Admin, who owns the private folder.
+    const admin = await call("DELETE", "/api/v1/drives/d1/files?path=Documents");
+    expect(admin.status).toBe(403);
+    expect(admin.data).toMatchObject({ code: "holds_private", owners: ["Max"] });
+    expect(fsOf(world, "d1").nodes["Documents/Vault"]).toBeTruthy();
+    // The private folder itself can still go.
+    expect((await call("DELETE", "/api/v1/drives/d1/files?path=Documents/Vault")).status).toBe(200);
   });
 
   it("copy jobs finish and can fail partway", async () => {

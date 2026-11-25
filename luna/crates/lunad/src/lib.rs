@@ -149,6 +149,17 @@ pub struct AppState {
     /// One form's answers, from every address together — a flood cannot spend
     /// the form's `maxResponses` budget and close it for real respondents.
     pub form_submit_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// One form's uploads, from every address together. Keyed by a hash of
+    /// the form's drive and path, never the raw location.
+    pub form_upload_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Upload requests one address may start per minute, across every form.
+    pub form_upload_ip_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Answers reads one signed-in manager may make per minute.
+    pub form_read_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Public `/s/` page, picture, and API requests, per client address.
+    pub public_asset_ip_limiter: Arc<crate::rate_limit::RateLimiter>,
+    /// Public `/s/` requests through one link, from every address together.
+    pub public_asset_link_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub share_auth: Arc<crate::rate_limit::ShareAuthGuard>,
     pub data_dir: std::path::PathBuf,
     pub updates: std::sync::Arc<crate::system::updates::UpdateService>,
@@ -223,19 +234,43 @@ impl AppState {
                 std::time::Duration::from_secs(60),
                 20,
             )),
-            // Form answers arrive one submit at a time; a burst per IP is spam.
+            // Per-address form work. This is deliberately looser than the
+            // per-form budget: one school or office NAT must be able to send
+            // a class's answers, while the form bucket still bounds a flood.
             form_respond_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 db.clone(),
                 std::time::Duration::from_secs(60),
-                12,
+                crate::api::form_limits::submit_per_minute().saturating_mul(2),
             )),
             // A whole form's answer budget per minute, from every address
             // together. A real classroom stays far below it; a rotating-IP
-            // flood cannot outrun it. See `api::forms::FORM_SUBMIT_PER_MINUTE`.
-            form_submit_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+            // flood cannot outrun it.
+            form_submit_limiter: Arc::new(crate::api::form_limits::limiter(
                 db.clone(),
-                std::time::Duration::from_secs(60),
-                crate::api::forms::FORM_SUBMIT_PER_MINUTE,
+                crate::api::form_limits::submit_per_minute(),
+            )),
+            // Uploads are separate from answers: one form's files, one
+            // address's files across every form, and the manager reads.
+            form_upload_limiter: Arc::new(crate::api::form_limits::limiter(
+                db.clone(),
+                crate::api::form_limits::form_upload_per_minute(),
+            )),
+            form_upload_ip_limiter: Arc::new(crate::api::form_limits::limiter(
+                db.clone(),
+                crate::api::form_limits::form_upload_ip_per_minute(),
+            )),
+            form_read_limiter: Arc::new(crate::api::form_limits::limiter(
+                db.clone(),
+                crate::api::form_limits::response_reads_per_user_per_minute(),
+            )),
+            // Every public `/s/` request, before its handler or body runs.
+            public_asset_ip_limiter: Arc::new(crate::api::form_limits::limiter(
+                db.clone(),
+                crate::api::form_limits::public_asset_requests_per_minute(),
+            )),
+            public_asset_link_limiter: Arc::new(crate::api::form_limits::limiter(
+                db.clone(),
+                crate::api::form_limits::public_link_requests_per_minute(),
             )),
             share_auth: Arc::new(crate::rate_limit::ShareAuthGuard::new(db)),
             data_dir: data_dir.to_path_buf(),

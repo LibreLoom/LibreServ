@@ -90,8 +90,12 @@ func TestAPKSpec(t *testing.T) {
 	if !strings.Contains(argv, ks+":/keys/release.keystore:ro") || !strings.Contains(argv, "--interactive") {
 		t.Errorf("signing args:\n%s", argv)
 	}
-	if strings.Contains(argv, "sekret") || strings.Contains(argv, "/src") || strings.Contains(argv, "gradle") || len(sg.Caches) != 0 {
+	out := b.PartOutDir("apk")
+	if sg.Source != "" || sg.Out != out || len(sg.Caches) != 0 || len(sg.Mounts) != 1 || sg.Mounts[0].Host != ks {
 		t.Errorf("signing step sees more than the APK and the keystore:\n%s", argv)
+	}
+	if strings.Contains(argv, "sekret") || strings.Contains(argv, "/src") {
+		t.Errorf("signing step can reach a password or the source tree:\n%s", argv)
 	}
 	for k, v := range sg.Env {
 		if strings.Contains(v, "sekret") {

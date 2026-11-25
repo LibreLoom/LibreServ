@@ -940,6 +940,29 @@ pub fn strip_untrusted_forwarding_headers(headers: &mut HeaderMap, peer_is_loopb
 /// never report an existing session — it always reads an empty extension —
 /// and the web UI loses the sign-in state on every refresh of the auth
 /// context (after finishing setup, and after every login).
+/// With a device token set, LAN clients are refused unless root has enabled
+/// the override. The Connect tunnel reaches lunad from loopback, so loopback
+/// peers keep working — otherwise blocking the LAN would also block the
+/// remote path we recommend. This wraps every route, including auth and the
+/// WebDAV endpoints that sit outside `guard`.
+pub async fn lan_guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0);
+    let blocked = peer.is_some_and(|addr| {
+        !addr.ip().is_loopback()
+            && crate::api::auth::is_lan_request(&addr, req.headers())
+            && state.connect.is_connect_active()
+            && !state.connect.lan_override()
+    });
+    if blocked {
+        // No body: a LAN caller gets nothing to read back about this Luna.
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    next.run(req).await
+}
+
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let method = req.method().clone();

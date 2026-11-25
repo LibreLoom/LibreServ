@@ -80,9 +80,21 @@ pub(crate) fn resolve_public_link(
             "Too many wrong passwords. Wait a while and try again.",
         ));
     }
+    // HTTP header values cannot carry non-Latin-1 text: a share password
+    // with an em dash or emoji would fail in the browser before it reached
+    // us. New clients send the UTF-8 password base64-encoded; the raw header
+    // stays as a fallback for older clients.
     let provided = headers
-        .get("x-share-password")
+        .get("x-share-password-utf8")
         .and_then(|v| v.to_str().ok())
+        .and_then(|v| base64::engine::general_purpose::STANDARD.decode(v).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .or_else(|| {
+            headers
+                .get("x-share-password")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        })
         .filter(|s| !s.is_empty());
     let Some(password) = provided else {
         return Err(needs_password());
@@ -93,7 +105,7 @@ pub(crate) fn resolve_public_link(
             "Luna couldn't open this link.",
         )
     })?;
-    if auth::verify_password_hash(password, &parsed).is_err() {
+    if auth::verify_password_hash(&password, &parsed).is_err() {
         state.share_auth.record_failure(&link.id, &ip);
         return Err(needs_password());
     }
@@ -238,6 +250,15 @@ pub(super) fn scoped_child(
     rel: &str,
     lexical_err: ApiError,
 ) -> Result<String, ApiError> {
+    // Hidden names are an access rule on the public surface, not just a
+    // listing filter. Read routes check this too; doing it at the shared
+    // choke point also covers every write route (mkdir, create, rename,
+    // move, delete, upload destinations), which must not reach a hidden
+    // name by spelling it out. Answer with the same response as a read so
+    // a guest cannot use the difference to probe for hidden names.
+    if names_hidden(rel) {
+        return Err(not_in_share());
+    }
     let joined = child_under_link(&link.path, rel).ok_or(lexical_err)?;
     // A link whose own subject is not inside `.luna-trash` must never reach
     // it — and a raw `{prefix}-trash` name counts as reaching it, since the
@@ -780,6 +801,9 @@ pub(super) async fn public_upload_create(
                 "That file name can't be used. Try renaming it.",
             )
         })?;
+        if names_hidden(&name) {
+            return Err(not_in_share());
+        }
         let (drive_id, dest, name_override) = {
             let conn = state.db.lock().map_err(|_| busy())?;
             let (drive_id, dest, name_override) = upload_dest(&conn, &link, body.path.as_deref())?;
@@ -1215,6 +1239,9 @@ pub(super) fn map_guest_files_err(err: files::FilesError) -> ApiError {
         files::FilesError::Io(ref e) if e.kind() == ErrorKind::InvalidInput => {
             json_error(StatusCode::BAD_REQUEST, "That name isn't allowed here.")
         }
+        files::FilesError::HoldsPrivate(_) => {
+            json_error(StatusCode::FORBIDDEN, files::HOLDS_PRIVATE_MSG)
+        }
         _ => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna had a problem with that shared item. Try again, or ask the person who shared it to check the drive.",
@@ -1364,6 +1391,9 @@ pub(super) async fn public_rename(
         require_link_edit(&link)?;
         if link.subject_kind != KIND_PATH {
             return Err(gone());
+        }
+        if names_hidden(&body.new_name) {
+            return Err(not_in_share());
         }
         let rel = mutable_child(&link, &body.path)?;
         // Queue behind any other change on this drive (see `Db::drive_lock`).

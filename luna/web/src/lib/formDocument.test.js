@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   responseSentAt,
-  countResponses,
   latestResponses,
   newEditToken,
   newQuestionId,
   parseFormDocument,
-  parseResponsesJsonl,
   responsesSiblingPath,
   responsesToCsv,
   serializeFormDocument,
@@ -14,9 +12,9 @@ import {
 
 describe("formDocument", () => {
   it("names the sibling responses file next to the form", () => {
-    expect(responsesSiblingPath("forms/rsvp.lunaform")).toBe("forms/rsvp.lunaform.responses");
-    expect(responsesSiblingPath("Party.LUNAFORM")).toBe("Party.lunaform.responses");
-    expect(responsesSiblingPath("odd")).toBe("odd.lunaform.responses");
+    expect(responsesSiblingPath("forms/rsvp.lunaform")).toBe("forms/.rsvp.lunaform.responses.sqlite");
+    expect(responsesSiblingPath("Party.LUNAFORM")).toBe(".Party.lunaform.responses.sqlite");
+    expect(responsesSiblingPath("odd")).toBe(".odd.lunaform.responses.sqlite");
   });
 
   it("parses a real document and treats an empty file as a new form", () => {
@@ -73,37 +71,23 @@ describe("formDocument", () => {
     expect(newEditToken()).not.toBe(token);
   });
 
-  it("parses JSONL responses, skipping torn lines", () => {
-    const text = [
-      JSON.stringify({ v: 1, id: "r_1", at: 1, answers: { q_1: "Yes" } }),
-      "this is not json",
-      JSON.stringify({ no_id: true }),
-      "",
-      JSON.stringify({ v: 1, id: "r_2", at: 2, answers: {} }),
-    ].join("\n");
-    const records = parseResponsesJsonl(text);
-    expect(records.map((r) => r.id)).toEqual(["r_1", "r_2"]);
-  });
-
   it("resolves edits latest-wins without inflating the count", () => {
-    const text = [
-      JSON.stringify({ v: 1, id: "r_1", edit: "h1", at: 1, answers: { q_1: "Yes" } }),
-      JSON.stringify({ v: 1, id: "r_2", edit: "h2", at: 2, answers: { q_1: "No" } }),
-      JSON.stringify({ v: 1, id: "r_1", edit: "h1", at: 3, answers: { q_1: "Maybe" } }),
-    ].join("\n");
-    const latest = latestResponses(parseResponsesJsonl(text));
+    const latest = latestResponses([
+      { id: "r_1", at: 1, answers: { q_1: "Yes" } },
+      { id: "r_2", at: 2, answers: { q_1: "No" } },
+      { id: "r_1", at: 3, answers: { q_1: "Maybe" } },
+    ]);
     expect(latest).toHaveLength(2);
     // r_1 keeps its original slot but carries the edited answers.
     expect(latest[0].id).toBe("r_1");
     expect(latest[0].answers.q_1).toBe("Maybe");
-    expect(countResponses(text)).toBe(2);
-    expect(countResponses("")).toBe(0);
+    expect(latestResponses([])).toHaveLength(0);
   });
 
   it("exports CSV with a column per question, escaping commas and quotes", () => {
-    const responses = latestResponses(parseResponsesJsonl([
-      JSON.stringify({ v: 1, id: "r_1", at: 1727000000, answers: { q_1: "Yes, chef", q_2: ["a", "b"] } }),
-    ].join("\n")));
+    const responses = latestResponses([
+      { id: "r_1", at: 1727000000, answers: { q_1: "Yes, chef", q_2: ["a", "b"] } },
+    ]);
     const columns = [
       { id: "q_1", label: "Coming?" },
       { id: "q_2", label: "Sides" },
@@ -139,5 +123,21 @@ describe("formDocument", () => {
     expect(live.map((r) => r.id)).toEqual(["b"]);
     expect(responseSentAt({ id: "x", at: 9, sent_at: 4 })).toBe(4);
     expect(responseSentAt({ id: "x", at: 9 })).toBe(9);
+  });
+
+  it("keeps one slot per id across edits, deletes, and a later resend", () => {
+    const live = latestResponses([
+      { id: "a", at: 1, answers: { q: "first" } },
+      { id: "b", at: 2, answers: {} },
+      { id: "a", deleted: true, at: 3 },
+      { id: "c", at: 4, answers: {} },
+      { id: "a", at: 5, answers: { q: "again" } },
+      { id: "b", at: 6, answers: {} },
+    ]);
+    expect(live.map((r) => r.id)).toEqual(["a", "b", "c"]);
+    expect(live[0].answers.q).toBe("again");
+    expect(live[1].at).toBe(6);
+    // A tombstone with no earlier live record never creates a response.
+    expect(latestResponses([{ id: "x", deleted: true }])).toEqual([]);
   });
 });

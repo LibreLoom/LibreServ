@@ -127,7 +127,7 @@ WHERE d.id = ?`, deviceID).
 		"device_code_prefix": "",
 	}
 	// The full device token never ships in a detail response either; reveal
-	// goes through GET /admin/device-codes/{id}/reveal like the list rows.
+	// goes through POST /admin/device-codes/{id}/reveal like the list rows.
 	if sealed != "" {
 		if code, err := security.OpenString(sealed); err == nil && code != "" {
 			out["can_reveal"] = true

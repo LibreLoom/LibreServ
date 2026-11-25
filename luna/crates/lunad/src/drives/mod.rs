@@ -590,13 +590,19 @@ impl DriveManager {
         // Every file and folder Luna creates on this drive shares one
         // `.luna-<uuid>` prefix, picked so it can never collide with files
         // already there. A drive that already carries a marker (re-adopt, or
-        // shared between Lunas) reuses its existing prefix.
+        // shared between Lunas) reuses its existing prefix. So does a drive whose
+        // marker is gone (a factory reset removes it) but that still holds this
+        // prefix's backups, trash or private items: a fresh prefix would orphan
+        // the backup copies, because the backups folder is named after it.
         let prefix = match luna_core::marker::read_markers(&mount_point)
             .ok()
             .and_then(|all| all.into_iter().next().map(|(p, _)| p))
         {
             Some(existing) => existing,
-            None => match luna_core::marker::pick_prefix(&mount_point) {
+            None => match crate::drives::drive_db::prefix_in_use(&mount_point)
+                .map(Ok)
+                .unwrap_or_else(|| luna_core::marker::pick_prefix(&mount_point))
+            {
                 Ok(p) => p,
                 Err(e) => {
                     self.cleanup_adopt_mount(&mount_point, mounted_by_luna);
@@ -655,21 +661,12 @@ impl DriveManager {
             return Err(anyhow::anyhow!("Could not add this drive. {e}"));
         }
 
-        // Keep a copy of this Luna's cloud signing key on the drive, so a recovered
-        // Luna can find it. Best-effort: the drive is added either way.
-        if let Ok(Some(cloud)) = crate::backup::cloud::identity::load(conn)
-            && let Err(e) = crate::backup::cloud::identity::copy_to_drive_at(
-                &mount_point,
-                &cloud,
-                db::now_unix(),
-            )
-        {
-            tracing::warn!(error = %e, "could not copy the cloud signing key to the new drive");
-        }
-
-        db::get_drive(conn, &id)?
-            .map(Ok)
-            .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))
+        // Backups this drive holds (a drive from another Luna, or one whose Luna
+        // was reset) come back now, paused, not at the next restart.
+        let added = db::get_drive(conn, &id)?
+            .ok_or_else(|| anyhow::anyhow!("Drive was added but could not be read back."))?;
+        crate::backup::drive_backup::rebuild_for_drive(conn, &added);
+        Ok(added)
     }
 
     /// First mount for adopt: prefer an existing OS mount, else mount RW at a
@@ -1299,6 +1296,12 @@ impl DriveManager {
         for id in plan.remount_ids {
             push_remount(&mut remounted, conn, &id);
         }
+        // A drive that just came back may hold backups Luna has no record of.
+        for (id, _) in &remounted {
+            if let Ok(Some(drive)) = db::get_drive(conn, id) {
+                crate::backup::drive_backup::rebuild_for_drive(conn, &drive);
+            }
+        }
         Ok(remounted)
     }
 
@@ -1868,26 +1871,75 @@ mod tests {
     }
 
     #[test]
-    fn adopt_copies_the_cloud_signing_key_tagged_with_luna_id() {
+    fn adopt_does_not_copy_the_cloud_signing_key() {
         let mounter = shared_mock();
         let root = tempfile::tempdir().unwrap();
         let dir = root.path();
         let conn = db::open(&dir.join("luna.db")).unwrap();
-        let identity = crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
+        crate::backup::cloud::identity::load_or_create(&conn, 1).unwrap();
         let mgr = DriveManager::new(mounter.clone(), dir);
         let dev = detected("sdz", None);
 
         let row = mgr.adopt(&conn, &dev, "Photos Drive").unwrap();
 
         let drive = drive_db::open(Path::new(&row.mount_point)).unwrap();
-        let copies: Vec<String> = drive
-            .prepare("SELECT luna_id FROM cloud_signing_keys")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        assert_eq!(copies, vec![identity.luna_id.clone()]);
+        let has_signing_keys: bool = drive
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'cloud_signing_keys')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!has_signing_keys);
+    }
+
+    #[test]
+    fn a_drive_added_again_after_a_reset_keeps_its_backup_copies_and_they_come_back_paused() {
+        use crate::backup::drive_store::{MANIFEST_FORMAT, Manifest, Store};
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        // A backup drive after a factory reset: the marker is gone, the backups
+        // folder (named after the old prefix) is still there.
+        let drive = dir.join("backup-usb");
+        std::fs::create_dir_all(&drive).unwrap();
+        let old_prefix = format!("{}{}", luna_core::marker::MARKER_PREFIX, Uuid::new_v4());
+        let layout = crate::drives::layout::Layout::from_prefix(old_prefix.clone());
+        let store = Store::open(&drive, &layout, "b1").unwrap();
+        store
+            .write_manifest(&Manifest {
+                format: MANIFEST_FORMAT,
+                protection_id: "b1".into(),
+                luna_id: None,
+                source_drive_id: "gone-drive".into(),
+                source_drive_label: "Photos".into(),
+                source_path: "Docs".into(),
+                private_owner: None,
+                created_by: "someone-from-before".into(),
+                created_at: 1,
+                access: Default::default(),
+                last_ok_at: 0,
+                deleted: Default::default(),
+                paused_secs: 0,
+                paused_since: 0,
+            })
+            .unwrap();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter.clone(), dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", drive.to_str()), "Backup")
+            .unwrap();
+
+        // The drive took its old prefix back, so the backups folder is still its own.
+        assert!(
+            luna_core::marker::find_markers(Path::new(&row.mount_point))
+                .iter()
+                .any(|(prefix, _)| *prefix == old_prefix)
+        );
+        // And adding it brought the backup back at once, waiting to be resumed.
+        let back = db::get_protection(&conn, "b1").unwrap().unwrap();
+        assert_eq!(back.state, db::PROTECTION_PAUSED);
+        assert_eq!(back.target_drive, row.id);
     }
 
     #[test]

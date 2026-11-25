@@ -13,7 +13,7 @@
 import { fail } from "./router.js";
 import { nextId } from "./world.js";
 import {
-  CAP_EDIT, CAP_UPLOAD, CAP_VIEW, TRASH, hasCap, holdsUnreachablePrivate, isAdmin, isTrashPath, pathContains, privateBoundary,
+  CAP_EDIT, CAP_UPLOAD, CAP_VIEW, TRASH, hasCap, holdsUnreachablePrivate, isAdmin, isTrashPath, pathContains, privateBoundary, privateHeld,
 } from "./policy.js";
 import {
   base, clean, descendants, driveRow, driveUsable, ensureDirs, fsOf, fsOpts, join, moveToTrash, originalName, recordMove, trashEntry, uniqueName,
@@ -99,6 +99,10 @@ export function enqueueJob(world, user, body) {
     if (source.private) throw fail(409, "Luna can't keep two private items with the same name here. Choose Skip, or rename one first.", "keep_both_unsupported");
     name = uniqueName(to, toPath, name);
     destRoot = join(toPath, name);
+  }
+  // A move to another drive deletes the original, and a folder that holds private items can't be deleted.
+  if (kind === "move" && fromDrive !== toDrive && privateHeld(world, fromDrive, fromPath).length) {
+    throw fail(403, "This folder holds private items, so it can't move to another drive.");
   }
   if (kind === "move" && !fromTrash && holdsUnreachablePrivate(world, user, fromDrive, fromPath)) {
     throw fail(403, "This folder holds private items that only their owners can move.");

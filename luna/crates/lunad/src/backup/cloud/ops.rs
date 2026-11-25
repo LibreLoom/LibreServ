@@ -15,6 +15,7 @@ use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
 use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::{self, CloudOutcome};
+use crate::backup::cloud::source;
 use crate::backup::cloud::store::{CloudStore, StoreError};
 use crate::backup::drive_backup::{self, Refused};
 use crate::backup::status::{self, BackupState, Record};
@@ -277,7 +278,7 @@ fn check_new_backup(
 /// Run one cloud backup now, then tidy its old copies. Records the result on
 /// the row and returns what happened. A run already in progress is refused.
 /// `started_by` is the user who asked for the run, or empty for a scheduled one.
-/// `accept_missing` is passed to the run; see `run::run_once`.
+/// `accept_missing` confirms a large deletion on a source that still exists.
 pub fn run(
     db: &crate::Db,
     id: &str,
@@ -310,12 +311,15 @@ fn run_untimed(
     now: i64,
 ) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(db, id) else {
-        return problem_outcome("This backup is busy right now. Try again in a minute.");
+        return CloudOutcome {
+            busy: true,
+            ..problem_outcome("This backup is busy right now. Try again in a minute.")
+        };
     };
     // A stopped backup is final until someone starts it again, and a private backup's folder
     // must still be the owner's own: a restore writes that row from what a browser sent, so the
     // row on its own is not proof.
-    let (source_problem, private) = {
+    let (row, root) = {
         let conn = lock(db);
         let Some(row) = db::get_protection(&conn, id).ok().flatten() else {
             return problem_outcome("This backup no longer exists.");
@@ -326,13 +330,25 @@ fn run_untimed(
         ) {
             return problem_outcome(&stopped_message(&row));
         }
-        (
-            private_source_problem(&conn, &row),
-            !row.private_owner.is_empty(),
-        )
+        let root = source::resolve(&conn, &row);
+        (row, root)
     };
+    let root = match root {
+        Ok(root) => root,
+        Err(unavailable) => {
+            let outcome = unavailable
+                .record(db, id, now)
+                .unwrap_or_else(|err| problem_outcome(&err.to_string()));
+            if let Err(err) = record(db, id, now, &outcome) {
+                tracing::warn!(error = %err, id, "could not record a cloud backup problem");
+            }
+            return outcome;
+        }
+    };
+    let source_problem = private_source_problem(&lock(db), &row);
     if let Some(problem) = source_problem {
-        return problem_outcome(&problem);
+        return source::hold(db, id, now, &problem, false)
+            .unwrap_or_else(|err| problem_outcome(&err.to_string()));
     }
     // A backup of a parent folder already holds these files. Nothing is recorded, so this
     // backup starts again on its own if that parent backup stops or goes away.
@@ -344,19 +360,30 @@ fn run_untimed(
             return problem_outcome(&message);
         }
     }
+    // Confirm the signing key once before either kind of backup uploads anything.
+    let identity = match run_identity(db, connect, now) {
+        Ok(identity) => identity,
+        Err(err) => {
+            let outcome = problem_outcome(&err.to_string());
+            if let Err(err) = record(db, id, now, &outcome) {
+                tracing::warn!(error = %err, id, "could not record a cloud backup problem");
+            }
+            return outcome;
+        }
+    };
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
-    let users_problem = match publish_users(db, store, connect, now) {
+    let users_problem = match publish_users_with_identity(db, store, &identity) {
         Ok(()) => None,
         Err(err) => {
             tracing::warn!(error = %err, id, "could not publish the cloud user list");
             Some(USER_LIST_FAILED)
         }
     };
-    let ran = if private {
+    let ran = if !row.private_owner.is_empty() {
         // A private item's copy is sealed to its owner's keys, so it has its own run.
-        private_run::run_once(db, id, store, accept_missing, now)
+        private_run::run_from_folder(db, id, root, store, accept_missing, now)
     } else {
-        run::run_once(db, id, store, started_by, accept_missing, now)
+        run::run_from_folder(db, id, root, store, started_by, accept_missing, now)
     };
     // A move or re-seal holds the backup's lock: skip quietly. Nothing is recorded, so the
     // backup is not shown as failing, and the next run tries again.
@@ -396,6 +423,21 @@ fn run_untimed(
     outcome
 }
 
+fn run_identity(
+    db: &crate::Db,
+    connect: &ConnectService,
+    now: i64,
+) -> anyhow::Result<identity::Identity> {
+    let identity = identity::load_or_create(&lock(db), now)?;
+    if connect.is_connect_active()
+        && let Err(err) = identity::acknowledge_registration(db, connect, &identity)
+    {
+        tracing::warn!(error = %err, "could not confirm this Luna's signing key with Luna Connect");
+        bail!("Luna Connect could not confirm this Luna's signing key. Try again.");
+    }
+    Ok(identity)
+}
+
 /// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
 /// hand them to a browser that needs to check them. Connect keeps the last copy, so a failure
 /// here only delays the update until the next run.
@@ -407,6 +449,14 @@ pub fn publish_users(
 ) -> anyhow::Result<()> {
     // Connect and the drives are reached with no DB lock held.
     let identity = identity::load_or_create_connected(db, connect, now)?;
+    publish_users_with_identity(db, store, &identity)
+}
+
+fn publish_users_with_identity(
+    db: &crate::Db,
+    store: &dyn CloudStore,
+    identity: &identity::Identity,
+) -> anyhow::Result<()> {
     let users = db::list_user_keys(&lock(db))?;
     let listed = users
         .iter()
@@ -450,14 +500,27 @@ pub fn run_all(
     let before = active_states(db, now);
     match store {
         None => {
-            for (id, _) in &before {
-                if let Err(err) = record(db, id, now, &problem_outcome(NOT_SET_UP)) {
+            for (id, _, _) in &before {
+                let source = {
+                    let conn = lock(db);
+                    db::get_protection(&conn, id)
+                        .ok()
+                        .flatten()
+                        .map(|row| source::resolve(&conn, &row))
+                };
+                let outcome = match source {
+                    Some(Err(unavailable)) => unavailable
+                        .record(db, id, now)
+                        .unwrap_or_else(|err| problem_outcome(&err.to_string())),
+                    _ => problem_outcome(NOT_SET_UP),
+                };
+                if let Err(err) = record(db, id, now, &outcome) {
                     tracing::warn!(error = %err, id, "could not record a cloud backup problem");
                 }
             }
         }
         Some(store) => {
-            for (id, _) in &before {
+            for (id, _, _) in &before {
                 // Scheduled runs have no user who started them.
                 run(db, id, store, connect, "", false, now);
             }
@@ -577,10 +640,8 @@ pub fn reseal_until_done(
     false
 }
 
-/// Starts a run for each backup a phrase save marked to rotate, so new files are shut off from the
-/// old phrase within minutes instead of at the next scheduled run. A backup that a re-seal or move
-/// is holding is tried again a few times. A failed run is only logged: the mark stays, and the
-/// next run starts the new key version.
+/// Starts a run for each backup affected by an access or phrase change.
+/// Backups held by another operation are retried a few times.
 pub fn run_marked(
     db: &crate::Db,
     store: &dyn CloudStore,
@@ -598,7 +659,7 @@ pub fn run_marked(
         MARKED_RUN_DELAY,
     );
     for backup in left {
-        tracing::warn!(backup = %backup, "backup stayed busy; its run for a new phrase waits for the next run");
+        tracing::warn!(backup = %backup, "backup stayed busy; its access or phrase change waits for the next run");
     }
 }
 
@@ -627,7 +688,7 @@ fn run_marked_retrying(
             if outcome.busy {
                 busy.push(backup.clone());
             } else if let Some(problem) = outcome.problem {
-                tracing::warn!(backup = %backup, problem, "could not start the run for a new phrase");
+                tracing::warn!(backup = %backup, problem, "backup run after an access or phrase change failed");
             }
         }
         pending = busy;
@@ -803,13 +864,19 @@ fn scopes_of(conn: &Connection, protection_id: Option<&str>) -> anyhow::Result<V
     Ok(scopes)
 }
 
-fn active_states(db: &crate::Db, now: i64) -> Vec<(String, BackupState)> {
+fn active_states(db: &crate::Db, now: i64) -> Vec<(String, BackupState, String)> {
     let conn = lock(db);
     db::list_protections(&conn)
         .unwrap_or_default()
         .into_iter()
-        .filter(|r| r.kind == db::PROTECTION_CLOUD && r.state == db::PROTECTION_ACTIVE)
-        .map(|r| (r.id.clone(), state(&r, now)))
+        .filter(|r| {
+            r.kind == db::PROTECTION_CLOUD
+                && matches!(
+                    r.state.as_str(),
+                    db::PROTECTION_ACTIVE | db::PROTECTION_SOURCE_GONE
+                )
+        })
+        .map(|r| (r.id.clone(), state(&r, now), r.state))
         .collect()
 }
 
@@ -829,7 +896,9 @@ pub(crate) fn record(
             let access = access_list::for_row(&conn, &row)?;
             db::record_protection_ok(&conn, id, now, &serde_json::to_string(&access)?)?;
         }
-        Some(message) => db::record_protection_error(&conn, id, message, false, now)?,
+        Some(message) => {
+            db::record_protection_error(&conn, id, message, outcome.source_missing, now)?
+        }
     }
     db::set_meta(
         &conn,
@@ -892,6 +961,7 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
 
     let conn = lock(db);
     db::delete_protection(&conn, id)?;
+    retention::forget(&conn, id)?;
     rewrap::forget_backup(&conn, id)?;
     db::set_meta(&conn, &deleted_key(id), &now.to_string())?;
     conn.execute(
@@ -960,36 +1030,58 @@ pub fn visible_to(row: &ProtectionRow, user: &crate::auth::CurrentUser) -> bool 
     access.allows(&user.id, user.role == "admin")
 }
 
-/// Access to a folder changed. Re-saves the access list of every active cloud
-/// backup of that drive's folders, when it actually changed. Key versions
-/// change on the next run (`keys::ensure_key`).
-pub fn on_grants_changed(conn: &Connection, drive_id: &str) {
+/// Refreshes access for active shared cloud backups with an available source.
+/// Returns the backups whose readers changed so they can run again.
+pub fn on_grants_changed(conn: &Connection, drive_id: &str) -> Vec<String> {
     let rows = match db::list_protections(conn) {
         Ok(rows) => rows,
         Err(err) => {
             tracing::warn!(error = %err, "could not list cloud backups after an access change");
-            return;
+            return Vec::new();
         }
     };
-    for row in rows.iter().filter(|r| {
+    let Ok(drive) = crate::files::drive_root(conn, drive_id) else {
+        return Vec::new();
+    };
+    let mount = std::path::Path::new(&drive.mount_point);
+    if crate::drives::layout::Layout::detect(mount).is_none() {
+        return Vec::new();
+    }
+    let mut changed = Vec::new();
+    for row in rows.into_iter().filter(|r| {
         r.kind == db::PROTECTION_CLOUD
             && r.state == db::PROTECTION_ACTIVE
             && r.source_drive == drive_id
             && r.private_owner.is_empty()
     }) {
-        if let Err(err) = refresh_access(conn, row) {
-            tracing::warn!(error = %err, id = %row.id, "could not update a cloud backup's access");
+        if last_run_source_missing(conn, &row.id) {
+            continue;
+        }
+        let Ok((path, meta)) = crate::files::resolve_any_at(&drive, &row.source_path, false) else {
+            continue;
+        };
+        if !meta.is_dir() || std::fs::read_dir(path).is_err() {
+            continue;
+        }
+        match refresh_access(conn, &row) {
+            Ok(true) => changed.push(row.id),
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(error = %err, id = %row.id, "could not update a cloud backup's access");
+            }
         }
     }
+    changed
 }
 
-fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<()> {
+fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<bool> {
     let access = access_list::for_row(conn, row)?;
     let json = serde_json::to_string(&access)?;
-    if json != row.access_json {
-        db::set_protection_access(conn, &row.id, &json)?;
+    if json == row.access_json {
+        return Ok(false);
     }
-    Ok(())
+    db::set_protection_access(conn, &row.id, &json)?;
+    Ok(true)
 }
 
 /// Meta key for the last check's problem, empty when the check found nothing.
@@ -2101,7 +2193,7 @@ mod tests {
     }
 
     #[test]
-    fn on_grants_changed_leaves_private_rows_alone() {
+    fn on_grants_changed_refreshes_only_shared_rows_with_a_source() {
         let s = private_setup();
         fs::create_dir_all(s.root.join("Shared")).unwrap();
         fs::write(s.root.join("Shared").join("a.txt"), "hello").unwrap();
@@ -2115,7 +2207,11 @@ mod tests {
             db::set_protection_access(&conn, &shared, "stale").unwrap();
             db::set_protection_access(&conn, &private, "keep-me").unwrap();
         }
-        on_grants_changed(&lock(&s.db), "drive-src");
+        assert_eq!(
+            on_grants_changed(&lock(&s.db), "drive-src"),
+            std::slice::from_ref(&shared)
+        );
+        assert!(on_grants_changed(&lock(&s.db), "drive-src").is_empty());
         let conn = lock(&s.db);
         assert_ne!(
             db::get_protection(&conn, &shared)
@@ -2130,6 +2226,17 @@ mod tests {
                 .unwrap()
                 .access_json,
             "keep-me"
+        );
+
+        fs::rename(s.root.join("Shared"), s.root.join("Moved")).unwrap();
+        db::set_protection_access(&conn, &shared, "frozen").unwrap();
+        assert!(on_grants_changed(&conn, "drive-src").is_empty());
+        assert_eq!(
+            db::get_protection(&conn, &shared)
+                .unwrap()
+                .unwrap()
+                .access_json,
+            "frozen"
         );
     }
     /// Fails `put_record` for scope names listed in `fail`, while `allow` is false.

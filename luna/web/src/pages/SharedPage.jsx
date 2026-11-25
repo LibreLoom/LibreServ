@@ -20,7 +20,10 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { apiErrorMessage, deleteJson, getJson } from "../lib/api";
 import {
+  CAP,
   KIND_ALBUM,
+  canSeeLinks,
+  hasCap,
   capsLabel,
   shareSubjectFromRow,
   sharedItemAction,
@@ -33,6 +36,10 @@ import usePageTitle from "../hooks/usePageTitle.js";
 function SubjectIcon({ kind, isFile }) {
   const Icon = kind === KIND_ALBUM ? ImageIcon : isFile ? FileIcon : Folder;
   return <Icon size={18} className="shrink-0" aria-hidden="true" />;
+}
+
+function opensAlbumSharing(row) {
+  return row.kind === KIND_ALBUM && !hasCap(row.caps, CAP.VIEW) && canSeeLinks(row.caps);
 }
 
 function subjectSubtitle(row) {
@@ -212,7 +219,11 @@ export default function SharedPage() {
                         noRowClick: true,
                         render: (row) => (
                           <span className="flex items-center justify-end gap-2">
-                            {row.exists !== false ? (
+                            {row.exists !== false && opensAlbumSharing(row) ? (
+                              <Button size="sm" variant="primary" onClick={() => setManaging(shareSubjectFromRow(row))}>
+                                Share
+                              </Button>
+                            ) : row.exists !== false ? (
                               <Button size="sm" variant="primary" asChild>
                                 <Link to={sharedItemHref(row)}>{sharedItemAction(row)}</Link>
                               </Button>
@@ -239,7 +250,12 @@ export default function SharedPage() {
                     mobileCards
                     striped
                     onRowClick={(row) => {
-                      if (row.exists !== false) navigate(sharedItemHref(row));
+                      if (row.exists === false) return;
+                      if (opensAlbumSharing(row)) {
+                        setManaging(shareSubjectFromRow(row));
+                      } else {
+                        navigate(sharedItemHref(row));
+                      }
                     }}
                   />
                 </div>

@@ -50,6 +50,10 @@ fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router, crate:
             state.clone(),
             crate::auth::guard,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::api::public_limits::limit_public_requests,
+        ))
         .with_state(state.clone());
     (dir, app, state)
 }
@@ -134,7 +138,7 @@ async fn respond_get_serves_the_form_not_the_bytes() {
 }
 
 #[tokio::test]
-async fn respond_appends_jsonl_and_edits_reuse_the_id() {
+async fn respond_stores_sqlite_and_edits_reuse_the_id() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
     let (_dir, app, state) = test_app(mount.path());
@@ -159,14 +163,15 @@ async fn respond_appends_jsonl_and_edits_reuse_the_id() {
     assert_ne!(edit_token, "x", "client-chosen secrets are not stored");
     assert!(edit_token.len() >= 16, "minted secrets carry entropy");
 
-    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
-    let rec: Value = serde_json::from_str(jsonl.trim()).unwrap();
-    // The file stores the blake3 hash of the minted secret, never raw.
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    let store = super::store::FormStore::open(&db).unwrap();
+    let rec = store.get(&id).unwrap().unwrap();
+    // The database stores the blake3 hash of the minted secret, never raw.
     assert_eq!(
-        rec["edit"].as_str().unwrap(),
+        rec.edit_hash,
         blake3::hash(edit_token.as_bytes()).to_hex().to_string()
     );
-    assert_ne!(rec["edit"].as_str().unwrap(), edit_token);
+    assert_ne!(rec.edit_hash, edit_token);
 
     // The respondent can re-fetch their own answers with the secret.
     let res = call(
@@ -197,8 +202,9 @@ async fn respond_appends_jsonl_and_edits_reuse_the_id() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(body_json(res).await["id"], id);
-    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
-    assert_eq!(jsonl.lines().count(), 2);
+    let store = super::store::FormStore::open(&db).unwrap();
+    assert_eq!(store.live_count().unwrap(), 1);
+    assert_eq!(store.get(&id).unwrap().unwrap().answers["q_1"], "No");
 
     // The wrong secret can't touch someone else's response.
     let res = call(
@@ -246,7 +252,16 @@ async fn respond_requires_the_required_answers() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert!(!mount.path().join(".rsvp.lunaform.responses").exists());
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    if db.is_file() {
+        assert_eq!(
+            super::store::FormStore::open(&db)
+                .unwrap()
+                .live_count()
+                .unwrap(),
+            0
+        );
+    }
 }
 
 #[tokio::test]
@@ -310,9 +325,15 @@ async fn respond_refuses_edits_when_the_form_disallows_them() {
     .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
-    // None of the refusals touched the file — still just the one record.
-    let jsonl = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
-    assert_eq!(jsonl.lines().count(), 1);
+    // None of the refusals touched the database — still just the one record.
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    assert_eq!(
+        super::store::FormStore::open(&db)
+            .unwrap()
+            .live_count()
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -664,16 +685,13 @@ fn insert_link_full(
 }
 
 fn write_answers(mount: &std::path::Path) {
-    std::fs::write(
-        mount.join(".rsvp.lunaform.responses"),
-        concat!(
-            r#"{"id":"r_1","edit":"HASHSECRET","answers":{"q_1":"Yes"},"at":1}"#,
-            "\n",
-            r#"{"id":"r_1","edit":"HASHSECRET","answers":{"q_1":"No"},"at":2}"#,
-            "\n"
-        ),
-    )
-    .unwrap();
+    let db = super::store::db_path_for(&mount.join("rsvp.lunaform")).unwrap();
+    let mut store = super::store::FormStore::open(&db).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), Value::String("Yes".into()));
+    store.insert("r_1", "HASHSECRET", 1, &answers).unwrap();
+    answers.insert("q_1".into(), Value::String("No".into()));
+    store.update("r_1", 2, &answers).unwrap();
 }
 
 async fn register_and_login(
@@ -727,6 +745,25 @@ fn authed_req(method: Method, uri: &str, cookie: &str) -> HttpReq<Body> {
         .uri(uri)
         .header("cookie", cookie)
         .body(Body::empty())
+        .unwrap();
+    http.extensions_mut().insert(ConnectInfo(CLIENT));
+    http
+}
+
+fn authed_bytes(
+    method: Method,
+    uri: &str,
+    cookie: &str,
+    csrf: &str,
+    bytes: Vec<u8>,
+) -> HttpReq<Body> {
+    let mut http = HttpReq::builder()
+        .method(method)
+        .uri(uri)
+        .header("cookie", cookie)
+        .header("x-csrf-token", csrf)
+        .header("content-type", "application/vnd.sqlite3")
+        .body(Body::from(bytes))
         .unwrap();
     http.extensions_mut().insert(ConnectInfo(CLIENT));
     http
@@ -852,7 +889,7 @@ async fn responses_route_denies_respond_traversal_expired_and_password() {
         &app,
         req(
             Method::GET,
-            &format!("/s/{folder}/responses?path=.rsvp.lunaform.responses"),
+            &format!("/s/{folder}/responses?path=.rsvp.lunaform.responses.sqlite"),
             "",
         ),
     )
@@ -908,31 +945,24 @@ async fn responses_missing_empty_symlink_and_oversize_notice() {
         0
     );
 
-    let sibling = mount.path().join(".rsvp.lunaform.responses");
-    std::os::unix::fs::symlink("/etc/hostname", &sibling).unwrap();
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    std::os::unix::fs::symlink("/etc/hostname", &db).unwrap();
     let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
-    assert!(res.status().is_client_error(), "symlink answers must fail");
-    std::fs::remove_file(&sibling).unwrap();
+    assert!(res.status().is_server_error(), "symlink answers must fail");
+    std::fs::remove_file(&db).unwrap();
 
-    let f = std::fs::File::create(&sibling).unwrap();
-    f.set_len(super::MAX_RESPONSES_SEGMENT_BYTES + 1).unwrap();
-    drop(f);
+    std::fs::write(&db, b"this is not a sqlite database").unwrap();
     let res = call(&app, req(Method::GET, &format!("/s/{token}/responses"), "")).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let v = body_json(res).await;
-    assert_eq!(v["responses"].as_array().unwrap().len(), 0);
-    // The owner is told some answers couldn't be opened — not shown "none".
     assert!(
-        v["notice"].as_str().is_some_and(|n| !n.is_empty()),
-        "oversized answers must carry a notice: {v}"
+        res.status().is_server_error(),
+        "a corrupt answers database must fail"
     );
 }
 
-/// A member with a full file grant reads the form's answers — no parent
-/// folder access required — while a view-only member and a stranger get
-/// nothing: collected answers are manager data.
+/// Read members can read answers — the list, summary, download and editor —
+/// while delete/clear/save still need Write. That is the decided model.
 #[tokio::test]
-async fn member_full_grant_reads_responses_view_denied() {
+async fn read_member_reads_responses_and_delete_needs_write() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
     write_answers(mount.path());
@@ -956,7 +986,8 @@ async fn member_full_grant_reads_responses_view_denied() {
             },
         )
         .unwrap();
-        // View-only member: can open the form, must not read answers.
+        // View-only member with Read on the folder: can open the form and
+        // read its answers, but cannot change them.
         crate::db::insert_user(&conn, "u-bob", "bob", "Bob", "unused", "member").unwrap();
         crate::db::insert_access_member(
             &conn,
@@ -964,7 +995,7 @@ async fn member_full_grant_reads_responses_view_denied() {
                 id: "m-bob".into(),
                 subject_kind: crate::access::KIND_PATH.into(),
                 drive_id: "photos".into(),
-                path: "rsvp.lunaform".into(),
+                path: String::new(),
                 album_id: String::new(),
                 user_id: "u-bob".into(),
                 caps: crate::access::CAP_VIEW,
@@ -986,10 +1017,11 @@ async fn member_full_grant_reads_responses_view_denied() {
             .unwrap();
         }
     }
-    let (ann_cookie, _ann_csrf) = login(&app, "ann", "ann-password").await;
-    let (bob_cookie, _bob_csrf) = login(&app, "bob", "bob-password").await;
+    let (ann_cookie, ann_csrf) = login(&app, "ann", "ann-password").await;
+    let (bob_cookie, bob_csrf) = login(&app, "bob", "bob-password").await;
 
-    // View-only member: denied.
+    // Read member: the Responses list is readable, and the file itself is
+    // readable. Deleting still needs Write.
     let res = call(
         &app,
         authed_req(
@@ -999,7 +1031,158 @@ async fn member_full_grant_reads_responses_view_denied() {
         ),
     )
     .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        body_json(res).await["responses"].as_array().unwrap().len(),
+        1
+    );
+    let res = call(
+        &app,
+        authed_bytes(
+            Method::DELETE,
+            "/api/v1/forms/responses?drive_id=photos&path=rsvp.lunaform&id=r_1",
+            &bob_cookie,
+            &bob_csrf,
+            Vec::new(),
+        ),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/drives/photos/files/content?path=.rsvp.lunaform.responses.sqlite",
+            &bob_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "a Read member can read the answers file"
+    );
+
+    // The SQLite route is the same read path for ordinary and private forms.
+    // Read can open the database; only CAP_EDIT can replace it.
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/sqlite?drive_id=photos&path=rsvp.lunaform",
+            &bob_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let revision = res
+        .headers()
+        .get("x-form-revision")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let bytes = axum::body::to_bytes(res.into_body(), 20 * 1024 * 1024)
+        .await
+        .unwrap()
+        .to_vec();
+    assert!(bytes.starts_with(b"SQLite format 3"));
+    let save_uri =
+        format!("/api/v1/forms/sqlite?drive_id=photos&path=rsvp.lunaform&revision={revision}");
+    let res = call(
+        &app,
+        authed_bytes(
+            Method::PUT,
+            &save_uri,
+            &bob_cookie,
+            &bob_csrf,
+            bytes.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // An answer arrives while the editor holds its copy. Saving the old
+    // revision must refuse rather than overwrite that answer.
+    let respond = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
+    let res = call(
+        &app,
+        req(
+            Method::POST,
+            &format!("/s/{respond}/respond"),
+            r#"{"answers":{"q_1":"No"}}"#,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = call(
+        &app,
+        authed_bytes(
+            Method::PUT,
+            &save_uri,
+            &ann_cookie,
+            &ann_csrf,
+            bytes.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // Reloading after the conflict gives a snapshot with both answers and a
+    // fresh revision; this save is accepted, and its own old revision is not.
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/sqlite?drive_id=photos&path=rsvp.lunaform",
+            &ann_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let fresh_revision = res
+        .headers()
+        .get("x-form-revision")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let fresh = axum::body::to_bytes(res.into_body(), 20 * 1024 * 1024)
+        .await
+        .unwrap()
+        .to_vec();
+    let fresh_uri = format!(
+        "/api/v1/forms/sqlite?drive_id=photos&path=rsvp.lunaform&revision={fresh_revision}"
+    );
+    let res = call(
+        &app,
+        authed_bytes(
+            Method::PUT,
+            &fresh_uri,
+            &ann_cookie,
+            &ann_csrf,
+            fresh.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = call(
+        &app,
+        authed_bytes(Method::PUT, &fresh_uri, &ann_cookie, &ann_csrf, fresh),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/responses?drive_id=photos&path=rsvp.lunaform&count=1",
+            &ann_cookie,
+        ),
+    )
+    .await;
+    assert_eq!(body_json(res).await["count"], 2);
 
     let res = call(
         &app,
@@ -1012,7 +1195,7 @@ async fn member_full_grant_reads_responses_view_denied() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let v = body_json(res).await;
-    assert_eq!(v["responses"].as_array().unwrap().len(), 1);
+    assert_eq!(v["responses"].as_array().unwrap().len(), 2);
     assert!(
         v["responses"]
             .as_array()
@@ -1048,74 +1231,175 @@ async fn member_full_grant_reads_responses_view_denied() {
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
-/// A full answers file starts the next numbered segment; readers merge both
-/// in order and report no missing answers.
+/// The summary keeps value counts for choice questions but never ships every
+/// distinct free-text answer; usage reports the form's storage without
+/// answers.
 #[tokio::test]
-async fn rotation_starts_the_next_segment_and_readers_merge_them() {
+async fn summary_filters_text_values_and_usage_reports_storage() {
     let mount = tempfile::tempdir().unwrap();
-    std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
-    // The original file is already past the rotation point (a build without
-    // rotation could grow it there) and holds one live answer.
-    let base = mount.path().join(".rsvp.lunaform.responses");
     std::fs::write(
-        &base,
-        "{\"v\":1,\"id\":\"r_old\",\"edit\":\"h\",\"at\":1,\"answers\":{\"q_1\":\"No\"}}\n",
+        mount.path().join("rsvp.lunaform"),
+        r#"{
+    "version": 1,
+    "title": "Feedback",
+    "settings": { "collecting": true, "allowEdits": true },
+    "questions": [
+        { "id": "q_1", "type": "choice", "label": "Coming?", "config": { "options": ["Yes", "No"] } },
+        { "id": "q_2", "type": "long_text", "label": "Anything else?" }
+    ]
+}"#,
     )
     .unwrap();
-    let f = std::fs::File::options().append(true).open(&base).unwrap();
-    f.set_len(super::RESPONSES_SEGMENT_BYTES + 1).unwrap();
-    drop(f);
+    let (_dir, app, _state) = test_app(mount.path());
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    let mut store = super::store::FormStore::open(&db).unwrap();
+    for (i, (choice, note)) in [("Yes", "first note"), ("No", "second note")]
+        .into_iter()
+        .enumerate()
+    {
+        let mut answers = serde_json::Map::new();
+        answers.insert("q_1".into(), Value::String(choice.into()));
+        answers.insert("q_2".into(), Value::String(note.into()));
+        store
+            .insert(&format!("r_{i}"), "h", i as i64, &answers)
+            .unwrap();
+    }
+    drop(store);
+    let (cookie, _csrf) = register_and_login(&app, "max", "hunter22hunter1").await;
 
-    let (_dir, app, state) = test_app(mount.path());
-    let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
     let res = call(
         &app,
-        req(
-            Method::POST,
-            &format!("/s/{token}/respond"),
-            r#"{"answers":{"q_1":"Yes"}}"#,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/summary?drive_id=photos&path=rsvp.lunaform",
+            &cookie,
         ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["total"], 2);
+    let questions = body["questions"].as_array().unwrap();
+    let choice = questions.iter().find(|q| q["id"] == "q_1").unwrap();
+    assert_eq!(choice["answered"], 2);
+    assert_eq!(choice["values"].as_array().unwrap().len(), 2);
+    let text = questions.iter().find(|q| q["id"] == "q_2").unwrap();
+    assert_eq!(text["answered"], 2);
+    assert_eq!(text["values"].as_array().unwrap().len(), 0);
 
-    let second = mount.path().join(".rsvp.lunaform.responses.1");
-    assert!(second.is_file(), "a full segment must rotate");
-    assert_eq!(std::fs::read_to_string(&second).unwrap().lines().count(), 1);
-    // The full original was left exactly as it was.
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/usage?drive_id=photos&path=rsvp.lunaform",
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let usage = body_json(res).await;
+    assert!(usage["used_bytes"].as_u64().unwrap() > 0);
+    assert!(usage["quota_bytes"].as_u64().unwrap() > 0);
+}
+
+/// The owner can reset a form: every answer and respondent attachment goes,
+/// the revision moves, and the count drops to zero.
+#[tokio::test]
+async fn owner_can_clear_all_answers() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
+    write_answers(mount.path());
+    let (_dir, app, state) = test_app(mount.path());
+    let (cookie, csrf) = register_and_login(&app, "max", "hunter22hunter1").await;
+
+    let res = call(
+        &app,
+        authed_bytes(
+            Method::DELETE,
+            "/api/v1/forms/responses?drive_id=photos&path=rsvp.lunaform&clear=1",
+            &cookie,
+            &csrf,
+            Vec::new(),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = call(
+        &app,
+        authed_req(
+            Method::GET,
+            "/api/v1/forms/responses?drive_id=photos&path=rsvp.lunaform&count=1",
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(body_json(res).await["count"], 0);
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
     assert_eq!(
-        std::fs::metadata(&base).unwrap().len(),
-        super::RESPONSES_SEGMENT_BYTES + 1
+        super::store::FormStore::open(&db)
+            .unwrap()
+            .live_count()
+            .unwrap(),
+        0
     );
+    let _ = state;
+}
 
-    // One merged list, oldest segment first.
+/// Answers are paged in SQLite: each request carries a bounded page and the
+/// total, so the browser never has to receive the whole store.
+#[tokio::test]
+async fn responses_are_paged_and_counted() {
+    let mount = tempfile::tempdir().unwrap();
+    std::fs::write(mount.path().join("rsvp.lunaform"), FORM_DOC).unwrap();
+    let (_dir, app, state) = test_app(mount.path());
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    let mut store = super::store::FormStore::open(&db).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), Value::String("Yes".into()));
+    for i in 0..250 {
+        store
+            .insert(&format!("r_{i:03}"), "h", i, &answers)
+            .unwrap();
+    }
     let full = insert_link(&state, "rsvp.lunaform", crate::access::CAP_ALL);
-    let res = call(&app, req(Method::GET, &format!("/s/{full}/responses"), "")).await;
+
+    let res = call(
+        &app,
+        req(Method::GET, &format!("/s/{full}/responses?limit=100"), ""),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let v = body_json(res).await;
-    let responses = v["responses"].as_array().unwrap();
-    assert_eq!(responses.len(), 2, "{v}");
-    assert_eq!(responses[0]["id"], "r_old");
-    assert_eq!(responses[0]["answers"]["q_1"], "No");
-    assert!(responses[1]["id"].as_str().unwrap().starts_with("r_"));
-    assert!(
-        v.get("notice").is_none(),
-        "a complete read has no notice: {v}"
-    );
+    assert_eq!(v["responses"].as_array().unwrap().len(), 100);
+    assert_eq!(v["total"], 250);
+    assert_eq!(v["next_offset"], 100);
+    assert_eq!(v["responses"][0]["id"], "r_000");
 
-    // The count-only badge sees the merged list too.
+    let res = call(
+        &app,
+        req(
+            Method::GET,
+            &format!("/s/{full}/responses?offset=200&limit=100"),
+            "",
+        ),
+    )
+    .await;
+    let v = body_json(res).await;
+    assert_eq!(v["responses"].as_array().unwrap().len(), 50);
+    assert!(v["next_offset"].is_null());
+
     let res = call(
         &app,
         req(Method::GET, &format!("/s/{full}/responses?count=1"), ""),
     )
     .await;
-    assert_eq!(body_json(res).await["count"], 2);
+    assert_eq!(body_json(res).await["count"], 250);
 }
 
-/// `maxResponses` counts live answers wherever their segment is. Two answers
-/// spread over two files fill a cap of two.
+/// `maxResponses` counts live SQLite rows; the cap check and insert share
+/// the same per-form lock.
 #[tokio::test]
-async fn max_responses_counts_live_answers_across_segments() {
+async fn max_responses_counts_live_rows() {
     let mount = tempfile::tempdir().unwrap();
     std::fs::write(
         mount.path().join("rsvp.lunaform"),
@@ -1129,17 +1413,14 @@ async fn max_responses_counts_live_answers_across_segments() {
 }"#,
     )
     .unwrap();
-    std::fs::write(
-        mount.path().join(".rsvp.lunaform.responses"),
-        "{\"v\":1,\"id\":\"r_1\",\"edit\":\"h1\",\"at\":1,\"answers\":{\"q_1\":\"Ann\"}}\n",
-    )
-    .unwrap();
-    std::fs::write(
-        mount.path().join(".rsvp.lunaform.responses.1"),
-        "{\"v\":1,\"id\":\"r_2\",\"edit\":\"h2\",\"at\":2,\"answers\":{\"q_1\":\"Bob\"}}\n",
-    )
-    .unwrap();
     let (_dir, app, state) = test_app(mount.path());
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    let mut store = super::store::FormStore::open(&db).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), Value::String("Ann".into()));
+    store.insert("r_1", "h1", 1, &answers).unwrap();
+    answers.insert("q_1".into(), Value::String("Bob".into()));
+    store.insert("r_2", "h2", 2, &answers).unwrap();
     let token = insert_link(&state, "rsvp.lunaform", crate::access::CAP_RESPOND);
 
     let res = call(
@@ -1203,7 +1484,16 @@ async fn oversized_answers_are_refused_with_the_question_named() {
         v["error"].as_str().unwrap().contains("Your story"),
         "the refusal names the question: {v}"
     );
-    assert!(!mount.path().join(".rsvp.lunaform.responses").exists());
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    if db.is_file() {
+        assert_eq!(
+            super::store::FormStore::open(&db)
+                .unwrap()
+                .live_count()
+                .unwrap(),
+            0
+        );
+    }
 
     // The form's own smaller limit wins and is named too.
     let res = call(
@@ -1228,8 +1518,9 @@ async fn oversized_answers_are_refused_with_the_question_named() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
-    let saved = std::fs::read_to_string(mount.path().join(".rsvp.lunaform.responses")).unwrap();
-    assert!(saved.contains("It was a long day."), "the essay was stored");
+    let db = super::store::db_path_for(&mount.path().join("rsvp.lunaform")).unwrap();
+    let store = super::store::FormStore::open(&db).unwrap();
+    assert_eq!(store.live_count().unwrap(), 1, "the essay was stored");
 
     // Many answers that each pass still have to fit the payload cap.
     let questions: Vec<Value> = (0..5)

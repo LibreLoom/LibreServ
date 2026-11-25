@@ -152,7 +152,7 @@ fn compute(state: &AppState) -> crate::system::system_health::ComprehensiveHealt
         // Backup rows warn only, so they never change `healthy`.
         preflight
             .checks
-            .extend(backup_checks(&conn, crate::db::now_unix()));
+            .extend(backup_checks(&conn, crate::db::now_unix(), Some(&state.db)));
         let drives = crate::db::list_drives(&conn).unwrap_or_default();
         (preflight, drives)
     };
@@ -382,6 +382,7 @@ mod tests {
                 .extend(crate::system::system_health::backup_checks(
                     &conn,
                     db::now_unix(),
+                    Some(&state.db),
                 ));
             let drives = db::list_drives(&conn).unwrap_or_default();
             crate::system::system_health::finish_comprehensive(preflight, drives)

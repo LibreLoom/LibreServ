@@ -21,10 +21,13 @@ export function useModalClose() {
   return close;
 }
 
-/** Longest modal exit animation (overlay + card pop-out). */
-export const EXIT_ANIMATION_MS = 300;
+/** Close to unmount in ms: the exit animation plus slack for a late frame. */
+export const EXIT_ANIMATION_MS = 200;
 
-/** Card `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
+/** How long the dialog, dim and blur take to leave. */
+const EXIT_DURATION_MS = 160;
+
+/** Dialog `.pop-in` duration in `index.css` (fallback if `animationend` is skipped). */
 export const POP_IN_ANIMATION_MS = 300;
 
 /** Raise a second ModalCard above the default `z-50` overlay (same layer as lightbox-over dialogs). */
@@ -302,17 +305,42 @@ export default function ModalCard({
     ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-large-element"
     : "p-4";
 
+  // The blur and the dim fade together; the blur is never transformed or
+  // scaled, because Chrome re-blurs the whole page for every frame that a
+  // backdrop-filter layer changes shape.
+  const backdropMotion = isClosing ? "animate-out fade-out" : "animate-in fade-in";
+  // Closing is one quick beat: the shared pop-out / animate-out timings are
+  // too leisurely for a modal that the person has already dismissed.
+  const exitTiming = isClosing ? { animationDuration: `${EXIT_DURATION_MS}ms` } : undefined;
+
   return createPortal(
     <div
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
+        "fixed inset-0 flex items-center justify-center z-50",
         mobileFsClasses,
-        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95",
         overlayClassName,
       )}
       onClick={handleClose}
     >
+      {/*
+        Two backdrop layers, both fading: the blur and the dim. They only ever
+        change opacity — the dialog animates its own fade, rise and scale — so
+        Chrome can reuse the blurred backdrop instead of re-blurring the page
+        every frame, which is what made the old full-overlay scale choppy.
+      */}
+      <div
+        data-slot="dialog-blur"
+        aria-hidden="true"
+        className={cn("absolute inset-0 -z-10 backdrop-blur-sm", backdropMotion)}
+        style={exitTiming}
+      />
+      <div
+        data-slot="dialog-scrim"
+        aria-hidden="true"
+        className={cn("absolute inset-0 -z-10 bg-primary/60", backdropMotion)}
+        style={exitTiming}
+      />
       <div
         ref={setRefs}
         data-slot="dialog-content"
@@ -321,13 +349,19 @@ export default function ModalCard({
         aria-busy={loading || undefined}
         aria-labelledby={titleId}
         className={cn(
-          "w-full overflow-hidden rounded-large-element surface-secondary",
+          "relative w-full overflow-hidden rounded-large-element surface-secondary",
+          // One animation for the whole dialog, on its own layer: the surface
+          // and everything on it fade, rise and scale together. `pop-in` ends at
+          // `transform: none`, so no compositing layer is left behind; the
+          // backdrop blur lives outside this element and never moves.
+          isClosing ? "pop-out" : "pop-in",
           "transition-[height,max-width,max-height,width] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none",
           widthClasses,
           maxHeightClasses
         )}
-        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+        style={{ transitionDuration: "var(--motion-duration-medium2)", ...exitTiming }}
         onClick={(event) => event.stopPropagation()}
+        onAnimationEnd={handlePopInEnd}
       >
         {/*
           Scroller carries viewport max-height + overflow. Measure target is a
@@ -346,14 +380,13 @@ export default function ModalCard({
               ? "overflow-y-auto overflow-x-hidden"
               : "overflow-hidden",
           )}
-          onAnimationEnd={handlePopInEnd}
         >
           <div ref={innerRef} data-slot="dialog-measure">
             <ModalCloseContext.Provider value={handleClose}>
               <Card
                 noHeightAnim
                 noPopIn
-                className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
+                className={cn("relative overflow-hidden", className)}
               >
                 {showCloseButton && (
                   <button

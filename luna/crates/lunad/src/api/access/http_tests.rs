@@ -340,7 +340,7 @@ async fn view_link_cannot_read_hidden_files() {
     std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
     std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
     std::fs::write(
-        mount.path().join("family/.rsvp.lunaform.responses"),
+        mount.path().join("family/.rsvp.lunaform.responses.sqlite"),
         "{\"answers\":{}}\n",
     )
     .unwrap();
@@ -355,7 +355,7 @@ async fn view_link_cannot_read_hidden_files() {
     .await;
     let token = link["token"].as_str().unwrap();
 
-    for name in [".secret", ".rsvp.lunaform.responses"] {
+    for name in [".secret", ".rsvp.lunaform.responses.sqlite"] {
         let (s, b) = public_get(&app, &format!("/s/{token}/file?path={name}")).await;
         assert_eq!(s, StatusCode::NOT_FOUND, "{name}: {b}");
         // The link's own download spelling must refuse it too.
@@ -387,7 +387,7 @@ async fn view_link_cannot_read_hidden_files() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-/// The guest's folder zip leaves out every hidden name — the answers file
+/// The guest's folder zip leaves out every hidden name — the answers database
 /// and dotfiles alike. A member's own download keeps them.
 #[tokio::test]
 async fn folder_zip_omits_hidden_names_for_guests() {
@@ -396,7 +396,11 @@ async fn folder_zip_omits_hidden_names_for_guests() {
     std::fs::write(mount.path().join("family/note.txt"), "hi").unwrap();
     std::fs::write(mount.path().join("family/.secret"), "hidden").unwrap();
     std::fs::write(mount.path().join("family/.hidden/inside.txt"), "in").unwrap();
-    std::fs::write(mount.path().join("family/.rsvp.lunaform.responses"), "{}\n").unwrap();
+    std::fs::write(
+        mount.path().join("family/.rsvp.lunaform.responses.sqlite"),
+        "{}\n",
+    )
+    .unwrap();
     let (_dir, app) = test_app(mount.path());
     let (cookie, csrf) = admin(&app).await;
     let link = make_link(
@@ -604,7 +608,7 @@ async fn guest_ops_cannot_escape_or_touch_the_link_root() {
     let (_dir, app) = test_app(mount.path());
     let token = edit_link(&app, "full").await;
 
-    // Traversal out of scope.
+    // Traversal is refused like any other item outside the share.
     for (method, uri, body) in [
         (
             Method::DELETE,
@@ -623,7 +627,7 @@ async fn guest_ops_cannot_escape_or_touch_the_link_root() {
         ),
     ] {
         let (s, _) = public_json(&app, method, &uri, body).await;
-        assert_eq!(s, 400);
+        assert_eq!(s, 404);
     }
     assert!(mount.path().join("secret.txt").is_file());
     assert!(mount.path().join("family/note.txt").is_file());
@@ -1383,7 +1387,7 @@ async fn guest_collab_ws_view_only_follows_and_bad_targets_are_refused() {
     // Escapes, non-document files, and missing files are refused pre-upgrade.
     // (Text and form files are allowed: a guest joins their room too.)
     let res = ws_connect(addr, &ws(&token, "../plan.drawio"), &[]).await;
-    assert_eq!(res.status, 400, "{}", res.head);
+    assert_eq!(res.status, 404, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "note.docx"), &[]).await;
     assert_eq!(res.status, 400, "{}", res.head);
     let res = ws_connect(addr, &ws(&token, "missing.drawio"), &[]).await;
@@ -1725,6 +1729,89 @@ async fn make_album(app: &axum::Router, cookie: &str, csrf: &str, name: &str) ->
     .await;
     assert_eq!(res.status(), 200);
     body_json(res).await["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn album_links_follow_file_link_permissions() {
+    let mount = tempfile::tempdir().unwrap();
+    let (_dir, app) = test_app(mount.path());
+    let (owner, csrf) = admin(&app).await;
+    let (reader, reader_csrf, reader_id) = member(&app, &owner, &csrf, "reader").await;
+    let (sharer, sharer_csrf, sharer_id) = member(&app, &owner, &csrf, "sharer").await;
+    let album_id = make_album(&app, &owner, &csrf, "Trip").await;
+    let subject_url =
+        format!("/api/v1/access/subject?kind=album&drive_id=photos&album_id={album_id}");
+    let subject_body = |caps: &str| {
+        serde_json::json!({
+            "kind": "album",
+            "drive_id": "photos",
+            "album_id": album_id,
+            "caps": caps,
+        })
+    };
+
+    for (id, caps) in [(reader_id, "view"), (sharer_id, "upload+share")] {
+        let mut body = subject_body(caps);
+        body["user_id"] = serde_json::json!(id);
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/members",
+                &body.to_string(),
+                Some(&owner),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+    }
+
+    let link = make_link(
+        &app,
+        &sharer,
+        &sharer_csrf,
+        &subject_body("upload").to_string(),
+    )
+    .await;
+    let id = link["id"].as_str().unwrap();
+    for (session, can_manage) in [(&reader, false), (&sharer, true), (&owner, true)] {
+        let res = call(
+            &app,
+            json_req(Method::GET, &subject_url, "", Some(session), None),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let state = body_json(res).await;
+        let row = &state["links"][0];
+        assert_eq!(row["id"], id, "{state}");
+        assert_eq!(row["caps"], "upload", "{state}");
+        assert_eq!(row["can_manage"], can_manage, "{state}");
+        assert_eq!(row["url"].is_string(), can_manage, "{state}");
+    }
+
+    for (session, token) in [(&reader, &reader_csrf), (&sharer, &sharer_csrf)] {
+        let res = call(
+            &app,
+            json_req(
+                Method::POST,
+                "/api/v1/access/links",
+                &subject_body("view").to_string(),
+                Some(session),
+                Some(token),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 403);
+    }
+    assert_eq!(
+        link_call(&app, Method::DELETE, id, "", &reader, &reader_csrf).await,
+        403
+    );
+    assert_eq!(
+        link_call(&app, Method::DELETE, id, "", &owner, &csrf).await,
+        200
+    );
 }
 
 #[tokio::test]

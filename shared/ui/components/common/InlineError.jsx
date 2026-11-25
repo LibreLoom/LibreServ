@@ -9,21 +9,35 @@ import { ICON_SIZE } from "../../lib/ui-tokens";
  * error shape — a tinted card draws attention away from the field and reads
  * as a page-wide problem when only one answer was refused.
  *
- * Use it inside a form or dialog. For a page-level problem that needs its own
- * heading or a retry action, use PageNotice.
+ * Use it inside a form, dialog, or inline editor. For a page-level problem
+ * that needs its own heading or a retry action, use PageNotice.
+ *
+ * `surface` names the backdrop it sits on, like Button: the default is a
+ * card (`secondary`), and a field-level error on the page passes `primary`
+ * so its words stay the page's text color.
  *
  * @param {{
  *   children: import("react").ReactNode,
  *   id?: string,
  *   className?: string,
+ *   surface?: "primary" | "secondary",
  * }} props
  */
-export default function InlineError({ children, id, className = "" }) {
+export default function InlineError({
+  children,
+  id,
+  className = "",
+  surface = "secondary",
+}) {
   return (
     <p
       id={id}
       role="alert"
-      className={cn("flex items-start gap-2 text-sm text-primary", className)}
+      className={cn(
+        "flex items-start gap-2 text-sm",
+        surface === "primary" ? "text-secondary" : "text-primary",
+        className,
+      )}
     >
       <AlertCircle size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
       <span>{children}</span>
@@ -35,4 +49,5 @@ InlineError.propTypes = {
   children: PropTypes.node.isRequired,
   id: PropTypes.string,
   className: PropTypes.string,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
 };

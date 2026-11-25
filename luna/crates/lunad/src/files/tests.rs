@@ -252,14 +252,17 @@ fn a_forms_answers_stay_inside_the_private_folder() {
     create(&conn, &id, "Mine/rsvp.lunaform").unwrap();
     let form = root.join(crate::private::disk_rel(&root, "Mine/rsvp.lunaform"));
     let answers = crate::api::forms::responses_file_for(&root, &form).unwrap();
-    std::fs::write(&answers, b"{}").unwrap();
-    // Ordinary form inside a private folder: the answers sibling keeps the
-    // ordinary name and sits inside the same private disk directory.
-    assert_eq!(answers, form.with_file_name(".rsvp.lunaform.responses"));
+    crate::api::forms::store::FormStore::open(&answers).unwrap();
+    // Ordinary form inside a private folder: the answers sidecar keeps the
+    // ordinary hidden name and sits inside the same private disk directory.
+    assert_eq!(
+        answers,
+        form.with_file_name(".rsvp.lunaform.responses.sqlite")
+    );
     assert!(
         files_in(&root.join(crate::private::disk_rel(&root, "Mine")))
             .iter()
-            .any(|n| n == ".rsvp.lunaform.responses")
+            .any(|n| n == ".rsvp.lunaform.responses.sqlite")
     );
 }
 
@@ -584,7 +587,10 @@ fn make_form(root: &std::path::Path, dir: &str, name: &str) {
     std::fs::create_dir_all(&files).unwrap();
     std::fs::write(files.join("pic.png"), b"png").unwrap();
     let responses = crate::api::forms::responses_file_for(root, &form).unwrap();
-    std::fs::write(responses, b"{}\n").unwrap();
+    let mut store = crate::api::forms::store::FormStore::open(&responses).unwrap();
+    let mut answers = serde_json::Map::new();
+    answers.insert("q_1".into(), serde_json::Value::String("Yes".into()));
+    store.insert("r_1", "h", 1, &answers).unwrap();
 }
 
 fn form_parts_exist(root: &std::path::Path, form: &std::path::Path) -> (bool, bool) {
@@ -723,6 +729,50 @@ fn rename_in_trash_retitles_the_origin() {
     let api_rel = format!(".luna-trash/{entry}");
     restore_from_trash(&conn, &id, &api_rel, "docs/new.txt").unwrap();
     assert!(root.join("docs/new.txt").exists());
+}
+
+#[test]
+fn a_folder_holding_private_items_cannot_be_deleted_at_any_depth() {
+    let (_dir, conn, id) = drive_dir();
+    let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+        .to_path_buf();
+    mkdir(&conn, &id, "Shared").unwrap();
+    mkdir(&conn, &id, "Shared/Deep").unwrap();
+    mkdir_as(&conn, &id, "Shared/Deep/Vault", Some("alice")).unwrap();
+    create(&conn, &id, "Shared/Deep/Vault/a.txt").unwrap();
+
+    for rel in ["Shared", "Shared/Deep"] {
+        match delete_to_trash(&conn, &id, rel) {
+            Err(FilesError::HoldsPrivate(items)) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].owner, "alice");
+                assert_eq!(items[0].path, "Shared/Deep/Vault");
+            }
+            other => panic!("{rel} should be refused, got {other:?}"),
+        }
+    }
+    assert!(crate::private::item_at(&root, "Shared/Deep/Vault").is_some());
+    assert!(list_dir(&conn, &id, "Shared/Deep/Vault").is_ok());
+
+    // The private folder itself can still be deleted, and then its parents.
+    let trashed = delete_to_trash(&conn, &id, "Shared/Deep/Vault").unwrap();
+    delete_to_trash(&conn, &id, "Shared").unwrap();
+    // A trashed private item is not a reason to refuse purging its own entry.
+    purge_trash(&conn, &id, &trashed).unwrap();
+}
+
+#[test]
+fn private_held_names_what_blocks_a_delete_and_ignores_a_private_folders_own_tree() {
+    let (_dir, conn, id) = drive_dir();
+    mkdir(&conn, &id, "Old").unwrap();
+    mkdir_as(&conn, &id, "Old/Vault", Some("alice")).unwrap();
+    mkdir(&conn, &id, "Old/Vault/Inner").unwrap();
+    mkdir_as(&conn, &id, "Old/Vault/Inner/Deeper", Some("alice")).unwrap();
+    let held = private_held(&conn, &id, "Old");
+    assert_eq!(held.len(), 2);
+    // Inside a private folder, what lies below it travels with it.
+    assert!(private_held(&conn, &id, "Old/Vault/Inner").is_empty());
+    assert!(private_held(&conn, &id, "Old/Vault").is_empty());
 }
 
 #[test]

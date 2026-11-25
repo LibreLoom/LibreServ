@@ -13,7 +13,6 @@ import (
 
 func TestAdminSeedLoginAndMint(t *testing.T) {
 	d := testDeps(t)
-	config.C.Server.AdminToken = ""
 	config.C.Auth.AdminSeedToken = ""
 	config.C.Auth.SessionTTLHours = 24
 	adm := AdminAuthHandler{Deps: d}

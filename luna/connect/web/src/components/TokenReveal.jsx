@@ -1,77 +1,99 @@
 import { useState } from "react";
+import { adminApi } from "../context/AdminAuthContext.jsx";
 import { Button } from "./ui/button.jsx";
+import { Input } from "./ui/input.jsx";
 
-/**
- * Shows a short token hint by default. The full token is only fetched when the
- * admin asks: pass `onReveal` (async, returns the code) for rows whose token is
- * stored sealed — the list response itself never contains it.
- */
-export default function TokenReveal({ hint, code = null, onReveal = null, label = "token", compact = false }) {
-  const [revealed, setRevealed] = useState(false);
-  const [fetched, setFetched] = useState("");
+export default function TokenReveal({ hint, deviceId = null, compact = false }) {
+  const [code, setCode] = useState("");
+  const [prompting, setPrompting] = useState(false);
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [revealError, setRevealError] = useState("");
   const [copied, setCopied] = useState(false);
-  const full = code || fetched;
-  const display = revealed && full ? full : hint || "None";
-  const canReveal = Boolean(full) || Boolean(onReveal);
-  const showNoun = label === "token" ? "token" : "code";
 
-  async function toggle() {
-    if (!revealed && !full && onReveal) {
-      setBusy(true);
-      setRevealError("");
-      try {
-        const c = await onReveal();
-        if (c) {
-          setFetched(c);
-          setRevealed(true);
-        } else {
-          setRevealError(`Only the hint is stored for this ${showNoun}.`);
-        }
-      } catch (err) {
-        setRevealError(err.message || `Could not show the full ${showNoun}.`);
-      } finally {
-        setBusy(false);
+  async function reveal(event) {
+    event.preventDefault();
+    if (busy || !password) return;
+    setBusy(true);
+    setRevealError("");
+    setPassword("");
+    try {
+      const data = await adminApi(
+        `/admin/device-codes/${encodeURIComponent(deviceId)}/reveal`,
+        { method: "POST", body: JSON.stringify({ password }) },
+      );
+      if (data.code) {
+        setCode(data.code);
+        setPrompting(false);
+      } else {
+        setRevealError(data.message || "Only the hint is stored for this token.");
       }
-      return;
+    } catch (err) {
+      setRevealError(err.message || "Could not show the full token.");
+    } finally {
+      setBusy(false);
     }
-    setRevealed((v) => !v);
   }
 
   async function copy() {
-    if (!full) return;
     try {
-      await navigator.clipboard.writeText(full);
+      await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* clipboard may be blocked; full value is still on screen when revealed */
+      /* clipboard may be blocked; the full token is still on screen */
     }
   }
 
   return (
     <div className={compact ? "space-y-1" : "space-y-1 min-w-[12rem]"} data-testid="token-reveal">
-      <p className={`font-mono break-all ${compact ? "text-xs" : "text-sm"}`}>{display}</p>
-      <div className="flex flex-wrap gap-1">
-        {canReveal && (
-          <Button
-            size="sm"
-            variant="ghost"
-            loading={busy}
-            onClick={toggle}
-            aria-pressed={revealed}
-          >
-            {revealed ? `Hide full ${showNoun}` : `Show full ${showNoun}`}
+      <p className={`font-mono break-all ${compact ? "text-xs" : "text-sm"}`}>{code || hint || "None"}</p>
+      {deviceId && !prompting && (
+        <div className="flex flex-wrap gap-1">
+          <Button size="sm" variant="ghost" onClick={() => {
+            if (code) {
+              setCode("");
+              setCopied(false);
+            } else {
+              setPrompting(true);
+            }
+          }}>
+            {code ? "Hide full token" : "Show full token"}
           </Button>
-        )}
-        {revealed && full && (
-          <Button size="sm" variant="ghost" onClick={copy}>
-            {copied ? "Copied" : "Copy"}
-          </Button>
-        )}
-      </div>
-      {revealError && <p className="text-xs text-error">{revealError}</p>}
+          {code && (
+            <Button size="sm" variant="ghost" onClick={copy}>
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          )}
+        </div>
+      )}
+      {prompting && (
+        <form className="space-y-1" onSubmit={reveal} aria-busy={busy}>
+          <label className="block text-sm">
+            Staff password
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              disabled={busy}
+              autoFocus
+            />
+          </label>
+          <div className="flex flex-wrap gap-1">
+            <Button type="submit" size="sm" loading={busy}>Reveal token</Button>
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => {
+              setPassword("");
+              setRevealError("");
+              setPrompting(false);
+            }}>
+              Cancel
+            </Button>
+          </div>
+          {revealError && <p className="text-xs" role="alert">{revealError}</p>}
+        </form>
+      )}
     </div>
   );
 }

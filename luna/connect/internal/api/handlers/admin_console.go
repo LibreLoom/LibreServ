@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
@@ -436,7 +437,7 @@ WHERE 1=1`
 			"device_code_prefix": "",
 		}
 		// The full device token never ships in a list response; reveal goes
-		// through GET /admin/device-codes/{id}/reveal for a single row.
+		// through POST /admin/device-codes/{id}/reveal for a single row.
 		if sealed != "" {
 			if code, err := security.OpenString(sealed); err == nil && code != "" {
 				item["can_reveal"] = true
@@ -462,13 +463,57 @@ WHERE 1=1`
 // RevealDeviceCode opens the sealed device token for one row (support path).
 // The list endpoint only ever returns the hint and the 8-char setup prefix.
 func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	adminID := AdminIDFrom(r.Context())
+	if adminID == "" {
+		JSONError(w, http.StatusForbidden, "Sign in with a staff account to see the device token.")
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "Enter your staff password to see the device token.")
+		return
+	}
+	loginKey := adminLoginNetworkKey(r)
+	if guessBlocked(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow) {
+		JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
+		return
+	}
+	var email, hash string
+	err := h.DB.QueryRowContext(r.Context(), `SELECT email, password_hash FROM admin_accounts WHERE id = ? AND is_active = 1`, adminID).
+		Scan(&email, &hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		JSONError(w, http.StatusForbidden, "Sign in with an active staff account to see the device token.")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not check your password. Try again.")
+		return
+	}
+	// Share the sign-in limits so moving between endpoints cannot reset them.
+	accountKey := signInAccountKey("admin", email)
+	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
+	if auth.VerifyPassword(hash, req.Password) != nil {
+		if accountCapped ||
+			!allowGuess(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow) ||
+			!allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow) {
+			JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
+			return
+		}
+		JSONError(w, http.StatusForbidden, revealWrongPassword)
+		return
+	}
+	clearSignInAccountAttempts(h.DB, accountKey)
+
 	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
 	if id == "" {
 		JSONError(w, http.StatusBadRequest, "Device token id is required.")
 		return
 	}
 	var hint, sealed string
-	err := h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(code_sealed,'') FROM devices WHERE id = ?`, id).
+	err = h.DB.QueryRowContext(r.Context(), `SELECT COALESCE(code_hint,''), COALESCE(code_sealed,'') FROM devices WHERE id = ?`, id).
 		Scan(&hint, &sealed)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "That device token was not found.")
@@ -490,7 +535,7 @@ func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Req
 		JSONError(w, http.StatusInternalServerError, "Could not read the device token. Try again.")
 		return
 	}
-	slog.Info("device token revealed by support", "admin_id", AdminIDFrom(r.Context()), "device_id", id)
+	slog.Info("device token revealed by support", "admin_id", adminID, "device_id", id)
 	JSON(w, http.StatusOK, map[string]any{
 		"code":               code,
 		"code_hint":          hint,

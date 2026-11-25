@@ -157,10 +157,17 @@ pub const CLOUD_BACKUP_NOT_LINKED: &str = "not_linked";
 pub const CLOUD_BACKUP_NO_PAYMENT: &str = "no_payment";
 pub const CLOUD_BACKUP_READY: &str = "ready";
 
+/// Root-console escape hatch for local access. Only a root-owned file in the
+/// data directory can allow LAN traffic while a device token is set.
+pub const LAN_OVERRIDE_FILE: &str = "lan-override";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectStatus {
     /// True when `{data_dir}/device-token` exists and holds a valid device token.
     pub connect_active: bool,
+    /// True when root has created the LAN-override file, allowing LAN access
+    /// even while a device token is set.
+    pub lan_override: bool,
     pub enabled: bool,
     pub base_url: String,
     pub hostname: Option<String>,
@@ -337,6 +344,15 @@ impl ConnectService {
         self.has_valid_device_code()
     }
 
+    /// Root's LAN escape hatch. The file lives beside the device token in the
+    /// data directory, so only someone with root on this Luna can allow LAN
+    /// traffic while a device token is set.
+    pub fn lan_override(&self) -> bool {
+        self.token_path
+            .parent()
+            .is_some_and(|data_dir| data_dir.join(LAN_OVERRIDE_FILE).exists())
+    }
+
     /// Luna's known external/WAN IP address if learned from Connect or fallback check.
     pub fn wan_ip(&self) -> Option<std::net::IpAddr> {
         *self.cached_wan_ip.lock().unwrap()
@@ -366,6 +382,7 @@ impl ConnectService {
     fn inactive_status(&self) -> ConnectStatus {
         ConnectStatus {
             connect_active: false,
+            lan_override: self.lan_override(),
             enabled: false,
             base_url: self.base_url.clone(),
             domain: None,
@@ -415,6 +432,7 @@ impl ConnectService {
                     .unwrap_or(false));
         ConnectStatus {
             connect_active: true,
+            lan_override: self.lan_override(),
             enabled,
             base_url: self.base_url.clone(),
             domain: hostname.clone(),
@@ -1069,30 +1087,6 @@ impl ConnectService {
         ))
     }
 
-    /// The Luna ids this account already holds on Connect, and whether each
-    /// one has its signing key registered (`GET /api/v1/storage/luna-ids`).
-    pub fn list_luna_ids(&self) -> Result<Vec<ConnectLunaId>, ConnectError> {
-        let token = self.token()?;
-        let reply = self.call_json_status("GET", "/api/v1/storage/luna-ids", Some(&token), None)?;
-        let rows = reply
-            .get("luna_ids")
-            .and_then(Value::as_array)
-            .ok_or_else(luna_ids_unreadable)?;
-        rows.iter()
-            .map(|row| {
-                let luna_id = row.get("luna_id").and_then(Value::as_str);
-                let has_signing_key = row.get("has_signing_key").and_then(Value::as_bool);
-                match (luna_id, has_signing_key) {
-                    (Some(luna_id), Some(has_signing_key)) => Ok(ConnectLunaId {
-                        luna_id: luna_id.to_string(),
-                        has_signing_key,
-                    }),
-                    _ => Err(luna_ids_unreadable()),
-                }
-            })
-            .collect()
-    }
-
     /// Registers this Luna's signing public key (64 hex characters) with
     /// Connect (`POST /api/v1/storage/luna-ids/{id}/signing-public`).
     pub fn register_signing_public(
@@ -1653,13 +1647,6 @@ impl ConnectService {
     }
 }
 
-/// One Luna id on this account, as Luna Connect lists it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnectLunaId {
-    pub luna_id: String,
-    pub has_signing_key: bool,
-}
-
 /// Call `on_exit` from a new thread once process `pid` (a child not yet
 /// reaped) exits. The thread sleeps in `poll` on a pidfd: no timer, and
 /// reaping by `Child::wait` elsewhere is unaffected. False when the kernel
@@ -1702,12 +1689,6 @@ pub(crate) fn watch_child_exit(pid: u32, on_exit: impl FnOnce() + Send + 'static
         let _ = (pid, on_exit);
         false
     }
-}
-
-fn luna_ids_unreadable() -> ConnectError {
-    ConnectError::Other(
-        "Luna Connect answered, but Luna could not use the reply. Luna will try again.".into(),
-    )
 }
 
 fn map_transport_error(err: ureq::Error) -> ConnectError {
@@ -2805,43 +2786,6 @@ mod tests {
             }
         });
         format!("http://{addr}")
-    }
-
-    #[test]
-    fn list_luna_ids_reads_each_id_and_its_signing_key_flag() {
-        let url = serve_once(
-            200,
-            r#"{"luna_ids":[{"luna_id":"luna-ABCDEFGHJKMNPQRSTVWXYZ2345","has_signing_key":true,"created_at":1700000000},{"luna_id":"luna-ZYXWVUTSRQPNMKJHGFEDCBA234","has_signing_key":false,"created_at":1700000001}]}"#,
-        );
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        let ids = service.list_luna_ids().unwrap();
-        assert_eq!(
-            ids,
-            vec![
-                ConnectLunaId {
-                    luna_id: "luna-ABCDEFGHJKMNPQRSTVWXYZ2345".into(),
-                    has_signing_key: true,
-                },
-                ConnectLunaId {
-                    luna_id: "luna-ZYXWVUTSRQPNMKJHGFEDCBA234".into(),
-                    has_signing_key: false,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn list_luna_ids_refuses_a_reply_it_cannot_read() {
-        let url = serve_once(200, r#"{"luna_ids":[{"luna_id":"luna-X"}]}"#);
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(url));
-        service.set_oss_code("ABCD-EFGH-JKMN-PQRS-TVWX").unwrap();
-        assert!(matches!(
-            service.list_luna_ids(),
-            Err(ConnectError::Other(_))
-        ));
     }
 
     #[test]

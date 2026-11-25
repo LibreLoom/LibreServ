@@ -24,6 +24,8 @@ import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
 import { InfoHint, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import ModalErrorNotice from "@libreloom/ui/components/common/ModalErrorNotice.jsx";
+import HoldsPrivateNotice from "./HoldsPrivateNotice.jsx";
+import { holdsPrivateOf } from "../../lib/holdsPrivate.js";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
@@ -154,7 +156,13 @@ export default function DriveFileExplorer({
     onPathChange?.(next);
   }
 
-  const [actionError, setActionError] = useState(/** @type {string|null} */ (null));
+  const [actionError, setActionErrorText] = useState(/** @type {string|null} */ (null));
+  // A delete refused because private items sit inside has its own wording.
+  const [actionHold, setActionHold] = useState(/** @type {ReturnType<typeof holdsPrivateOf>} */ (null));
+  const setActionError = (/** @type {string|null} */ text) => {
+    setActionErrorText(text);
+    setActionHold(null);
+  };
   const [deletePaths, setDeletePaths] = useState(/** @type {string[]|null} */ (null));
   const [renameTarget, setRenameTarget] = useState(/** @type {{ fullPath: string, name: string, isDir: boolean }|null} */ (null));
   const [renameValue, setRenameValue] = useState("");
@@ -327,6 +335,7 @@ export default function DriveFileExplorer({
     onError: (err) => {
       haptic("error");
       setActionError(apiErrorMessage(err, "Couldn't move that to Trash. Try again."));
+      setActionHold(holdsPrivateOf(err));
     },
   });
 
@@ -357,14 +366,22 @@ export default function DriveFileExplorer({
 
   const createFileMutation = useMutation({
     mutationFn: async (/** @type {string} */ fullPath) => {
-      if (createKind?.stub || createKind?.initialContent) {
+      if (
+        createKind?.stub ||
+        createKind?.initialContent ||
+        createKind?.initialBytes
+      ) {
         const folder = fullPath.includes("/")
           ? fullPath.slice(0, fullPath.lastIndexOf("/"))
           : "";
         const name = fullPath.split("/").pop() || fullPath;
-        const blob = createKind.initialContent
-          ? new Blob([createKind.initialContent()], { type: "application/json" })
-          : blankOfficeStub(createKind.stub);
+        const blob = createKind.initialBytes
+          ? new Blob([new Uint8Array(createKind.initialBytes())], {
+              type: "application/vnd.sqlite3",
+            })
+          : createKind.initialContent
+            ? new Blob([createKind.initialContent()], { type: "application/json" })
+            : blankOfficeStub(createKind.stub);
         const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
         await source.uploadFile(driveId, file, folder, name);
         return fullPath;
@@ -395,7 +412,7 @@ export default function DriveFileExplorer({
     if (!createKind) return Promise.reject(new Error("Choose what to create."));
     const parsed = parseCreateName(
       createName,
-      createKind.stub || createKind.initialContent
+      createKind.stub || createKind.initialContent || createKind.initialBytes
         ? { forceExt: createKind.defaultExt || `.${createKind.stub}` }
         : createKind.defaultExt
           ? { defaultExt: createKind.defaultExt }
@@ -719,14 +736,25 @@ export default function DriveFileExplorer({
     return actions;
   }, [access.data, driveId, guest, guestCaps, source, isAdmin, showProtect, canView, inBackups]);
 
-  const renderRowActions = useCallback((ctx) => {
+  const renderRowActions = useCallback((ctx, extraActions = []) => {
     // Keyed by file: long folders recycle row elements, and a restore error
     // must not carry over to the next file that takes the row.
-    if (inBackups) return <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />;
+    if (inBackups) {
+      return (
+        <>
+          <BackupRowActions key={ctx.fullPath} driveId={driveId} ctx={ctx} onVersions={openVersions} />
+          {extraActions.length ? (
+            <IconActions key={`${ctx.fullPath}-extra`} actions={extraActions} surface="secondary" iconSize={ICON_SIZE.sm} />
+          ) : null}
+        </>
+      );
+    }
     const actions = rowActionsFor(ctx);
     if (!actions) return null;
     // One shared tooltip and plain buttons: every row carries these (W4/W6).
-    return <IconActions actions={actions} surface="secondary" iconSize={ICON_SIZE.sm} />;
+    // `extraActions` is the row's own Properties button, kept in the same
+    // group so a row mounts one IconActions, not two.
+    return <IconActions actions={[...actions, ...extraActions]} surface="secondary" iconSize={ICON_SIZE.sm} />;
   }, [rowActionsFor, inBackups, driveId, openVersions]);
 
   // The phone sheet: the same actions as labeled rows, in the shared shape.
@@ -1019,7 +1047,9 @@ export default function DriveFileExplorer({
               <InlinePill>{deleteLabel}</InlinePill> will move to
               Luna&apos;s trash on this drive. You can get it back later from Trash.
             </p>
-            <ModalErrorNotice error={actionError} />
+            {actionHold
+              ? <HoldsPrivateNotice hold={actionHold} />
+              : <ModalErrorNotice error={actionError} />}
             <div className="mt-4 flex gap-3">
               <Button
                 variant="danger"

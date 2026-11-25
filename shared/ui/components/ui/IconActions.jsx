@@ -4,7 +4,7 @@ import { cn } from "../../lib/utils";
 import { haptic } from "../../utils/haptics.js";
 import { buttonVariants } from "./Button.jsx";
 import { TooltipTargets } from "./Tooltip.jsx";
-import IconImage from "./IconImage.jsx";
+import { iconImageElement } from "./IconImage.jsx";
 import { useToneColor } from "../../lib/iconImage.js";
 
 /** @type {Map<string, string>} */
@@ -72,7 +72,7 @@ export default function IconActions({
           "aria-label": aria,
           tabIndex,
         };
-        const icon = <IconImage icon={Icon} size={iconSize} color={color} />;
+        const icon = iconImageElement(Icon, { size: iconSize, color });
         if (to) {
           return (
             <Link

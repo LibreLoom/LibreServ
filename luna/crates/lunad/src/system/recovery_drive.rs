@@ -47,7 +47,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::auth::hash_password_unchecked;
+use crate::auth::hash_password;
 use crate::db;
 use crate::drives::DriveManager;
 use crate::drives::detect::DetectedDrive;
@@ -239,8 +239,10 @@ pub fn execute_recovery(
     conn: &Connection,
     payload: &RecoveryPayload,
 ) -> anyhow::Result<RecoveryReport> {
-    let hash = hash_password_unchecked(&payload.password)
-        .map_err(|e| anyhow::anyhow!("Could not hash recovery password: {e}"))?;
+    // A USB recovery password becomes the account's real password, so it must
+    // pass the same policy as keyboard recovery — never hash it unchecked.
+    let hash = hash_password(&payload.password)
+        .map_err(|e| anyhow::anyhow!("Luna couldn't use the recovery password. {e}"))?;
     let mut report = RecoveryReport::default();
     for selector in payload.user.selectors() {
         apply_selector(conn, selector, &hash, &mut report)?;
@@ -434,6 +436,7 @@ pub fn scan_at_boot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::hash_password_unchecked;
     use rusqlite::Connection;
     use tempfile::TempDir;
 
@@ -659,7 +662,7 @@ mod tests {
         let recovery_file = usb_dir.path().join("luna-recover-sec-token-123.luna");
         fs::write(
             &recovery_file,
-            r#"{"user": "g-admin", "password": "recoveredpassword"}"#,
+            r#"{"user": "g-admin", "password": "recoveredpassword1"}"#,
         )
         .unwrap();
         // OS junk is tolerated on a dedicated stick.
@@ -682,7 +685,7 @@ mod tests {
         let admin = db::get_user_by_username(&conn, "admin").unwrap().unwrap();
         assert!(
             crate::auth::verify_password_hash(
-                "recoveredpassword",
+                "recoveredpassword1",
                 &argon2::PasswordHash::new(&admin.password_hash).unwrap()
             )
             .is_ok()

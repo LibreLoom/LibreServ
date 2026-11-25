@@ -36,7 +36,9 @@ object PairingQr {
         for (part in query.split('&')) {
             val eq = part.indexOf('=')
             if (eq <= 0) continue
-            params[dec(part.substring(0, eq))] = dec(part.substring(eq + 1))
+            val key = dec(part.substring(0, eq)) ?: return null
+            val value = dec(part.substring(eq + 1)) ?: return null
+            params[key] = value
         }
         val url = trimUrl(params["url"] ?: "")
         val token = (params["token"] ?: "").trim()
@@ -50,6 +52,11 @@ object PairingQr {
     private fun enc(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")
 
-    private fun dec(value: String): String =
-        URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    /** A malformed escape such as `%ZZ` throws; treat that payload as invalid. */
+    private fun dec(value: String): String? =
+        try {
+            URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+        } catch (e: IllegalArgumentException) {
+            null
+        }
 }

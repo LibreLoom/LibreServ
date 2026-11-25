@@ -22,6 +22,7 @@
 import { del, fail, get, json, patch, post, put } from "../engine.js";
 import { nextId } from "../world.js";
 import { photoKey } from "../photos.js";
+import { CAP, CAP_MANAGE, canMakeLinks, canSeeLinks, capsBits, capsCover } from "../../../lib/access.js";
 
 const sharing = (w) => {
   if (!w.sharing) w.sharing = { subjects: [], withMe: [] };
@@ -45,7 +46,7 @@ function subjectFor(w, user, q) {
   const found = s.subjects.find((x) => sameSubject(x, q));
   if (found) return found;
   const isAlbum = q.kind === "album";
-  const album = isAlbum ? w.albums.find((a) => a.id === q.album_id) : null;
+  const album = isAlbum ? w.albums.find((a) => a.id === q.album_id && a.home_drive_id === q.drive_id) : null;
   if (isAlbum && !album) return null;
   const created = {
     kind: isAlbum ? "album" : "path",
@@ -55,7 +56,7 @@ function subjectFor(w, user, q) {
     album_id: q.album_id || "",
     name: isAlbum ? album.name : pathName(q.path) || driveLabel(w, q.drive_id),
     is_file: /\.[A-Za-z0-9]{1,5}$/.test(q.path || ""),
-    owner_id: user.id,
+    owner_id: isAlbum ? album.owner_user_id : user.id,
     my_caps: "full+share",
     private: false,
     members: [],
@@ -74,29 +75,40 @@ const memberRow = (w, s, m, me) => ({
   effective_caps: m.effective_caps || m.caps,
   created_by: m.created_by ?? s.owner_id,
   shared_by: userName(w, m.created_by || s.owner_id),
-  can_manage: s.my_caps.includes("share"),
-  can_remove: s.my_caps.includes("share") || m.user_id === me.id,
+  can_manage: s.kind === "album" ? canRetuneAlbumMember(s, m, me) : s.my_caps.includes("share"),
+  can_remove: m.user_id === me.id || (s.kind === "album"
+    ? capsBits(s.my_caps) === CAP_MANAGE || (s.my_caps.includes("share") && strictCover(capsBits(s.my_caps), m.caps))
+    : s.my_caps.includes("share")),
 });
-// Caps as bits, enough for the link rule: view 1, upload 2, edit 4, respond 8, share 16.
-const capBits = (caps) => {
-  const c = String(caps || "");
-  if (c === "respond") return 8;
-  let bits = c.includes("share") ? 16 : 0;
-  const base = c.replace(/\+?share$/, "");
-  if (base === "full" || base === "edit") bits |= 7;
-  else for (const part of base.split("+")) bits |= { view: 1, read: 1, upload: 2 }[part] || 0;
-  return bits;
+function callerCaps(w, s, user) {
+  if (s.kind !== "album") return capsBits(s.my_caps);
+  if (s.owner_id === user.id || user.role === "admin") return CAP_MANAGE;
+  const grant = s.members.find((m) => m.user_id === user.id);
+  if (grant) return capsBits(grant.caps);
+  const album = w.albums.find((a) => a.id === s.album_id && a.home_drive_id === s.drive_id);
+  return album?.shared_with?.includes(user.id) ? CAP.VIEW : 0;
+}
+
+const albumContentCaps = (caps) => [CAP.VIEW, CAP.UPLOAD, CAP.VIEW | CAP.UPLOAD].includes(caps);
+const wireCaps = (bits) => {
+  if (bits === CAP_MANAGE) return "full+share";
+  const base = { 1: "view", 2: "upload", 3: "view+upload" }[bits & ~CAP.SHARE] || "none";
+  return bits & CAP.SHARE ? `${base}+share` : base;
 };
-const seesLinks = (s) => (capBits(s.my_caps) & (1 | 16)) !== 0;
-const makesLinks = (s) => {
-  const mine = capBits(s.my_caps);
-  return (mine & 16) !== 0 || ((mine & 1) !== 0 && (mine & (2 | 4)) !== 0);
-};
+const forCaller = (w, s, user) =>
+  s.kind === "album" ? { ...s, my_caps: wireCaps(callerCaps(w, s, user)) } : s;
+const strictCover = (mine, want) => mine !== capsBits(want) && capsCover(mine, want);
+function canRetuneAlbumMember(s, m, user) {
+  const mine = capsBits(s.my_caps);
+  if (m.user_id === user.id) return capsCover(mine, m.caps);
+  return mine === CAP_MANAGE || ((mine & CAP.SHARE) !== 0 && strictCover(mine, m.caps));
+}
+
 const managesLink = (s, l) => {
-  const mine = capBits(s.my_caps);
-  const want = capBits(l.caps);
-  const covers = want === 8 ? (mine & (2 | 4)) !== 0 : (mine & want) === want;
-  return makesLinks(s) && covers;
+  const mine = capsBits(s.my_caps);
+  const want = capsBits(l.caps);
+  const covers = want === CAP.RESPOND ? (mine & (CAP.UPLOAD | CAP.EDIT)) !== 0 : capsCover(mine, want);
+  return canMakeLinks(s.my_caps) && covers;
 };
 const linkRow = (s, l) => ({
   id: l.id,
@@ -111,9 +123,10 @@ const linkRow = (s, l) => ({
 });
 
 get("/api/v1/access/subject", ({ world, user, query }) => {
-  const s = subjectFor(world, user, query);
-  if (!s) return fail(404, "That album no longer exists.");
-  if (s.hidden) return fail(403, "You don't have access to this.");
+  const stored = subjectFor(world, user, query);
+  if (!stored) return fail(404, "That album no longer exists.");
+  const s = forCaller(world, stored, user);
+  if (s.hidden || (s.kind === "album" && !capsBits(s.my_caps))) return fail(403, "You don't have access to this.");
   return {
     subject: { kind: s.kind, name: s.name, path: s.path, is_file: s.is_file, private: s.private, private_folder: Boolean(s.private_folder), album_id: s.album_id, drive_id: s.drive_id, exists: s.exists !== false, item_count: itemCount(world, s), owner: s.owner_id },
     my_caps: s.my_caps,
@@ -122,7 +135,7 @@ get("/api/v1/access/subject", ({ world, user, query }) => {
     member_count: s.members.length,
     // Like lunad, the roster only goes to callers with the share bit.
     members: s.my_caps.includes("share") ? s.members.map((m) => memberRow(world, s, m, user)) : [],
-    links: seesLinks(s) ? s.links.map((l) => linkRow(s, l)) : [],
+    links: canSeeLinks(s.my_caps) ? s.links.map((l) => linkRow(s, l)) : [],
     inherited_members: s.inherited_members || [],
     inherited_links: s.inherited_links || [],
   };
@@ -133,7 +146,13 @@ post("/api/v1/access/members", ({ world, user, body }) => {
   if (sh.failAdd) return fail(500, "Luna couldn't add that person.");
   const s = subjectFor(world, user, body);
   if (!s) return fail(404, "That album no longer exists.");
-  if (!s.my_caps.includes("share")) return fail(403, "You can't share this.");
+  const mine = callerCaps(world, s, user);
+  if (!(mine & CAP.SHARE)) return fail(403, "You can't share this.");
+  if (s.kind === "album") {
+    const want = capsBits(body.caps || "view");
+    if (!albumContentCaps(want & ~CAP.SHARE)) return fail(400, "That access level doesn't apply here.");
+    if (mine !== CAP_MANAGE && !strictCover(mine, want)) return fail(403, "You can only give less access than you have.");
+  }
   if (!world.users.some((u) => u.id === body.user_id)) return fail(404, "That person no longer has an account.");
   if (s.members.some((m) => m.user_id === body.user_id)) return fail(409, "That person already has access.");
   const m = { id: nextId("m"), user_id: body.user_id, caps: body.caps || "view" };
@@ -143,7 +162,7 @@ post("/api/v1/access/members", ({ world, user, body }) => {
     const album = world.albums.find((a) => a.id === s.album_id);
     if (album) album.shared_with = [...(album.shared_with || []), body.user_id];
   }
-  return memberRow(world, s, m, user);
+  return memberRow(world, forCaller(world, s, user), m, user);
 });
 
 function findMember(w, id) {
@@ -153,15 +172,30 @@ function findMember(w, id) {
   }
   return null;
 }
-patch("/api/v1/access/members/:id", ({ world, params, body }) => {
+patch("/api/v1/access/members/:id", ({ world, user, params, body }) => {
   const hit = findMember(world, params.id);
   if (!hit) return fail(404, "That person's access is already gone.");
+  if (hit.s.kind === "album") {
+    const mine = callerCaps(world, hit.s, user);
+    const want = capsBits(body.caps);
+    if (!albumContentCaps(want & ~CAP.SHARE)) return fail(400, "That access level doesn't apply here.");
+    const allowed = hit.m.user_id === user.id
+      ? capsCover(hit.m.caps, want) || (capsCover(mine, hit.m.caps) && capsCover(mine, want))
+      : mine === CAP_MANAGE || ((mine & CAP.SHARE) && strictCover(mine, hit.m.caps) && strictCover(mine, want));
+    if (!allowed) return fail(403, "You can't change access at or above your own level.");
+  }
   hit.m.caps = body.caps;
   return {};
 });
-del("/api/v1/access/members/:id", ({ world, params }) => {
+del("/api/v1/access/members/:id", ({ world, user, params }) => {
   const hit = findMember(world, params.id);
   if (hit) {
+    if (hit.s.kind === "album" && hit.m.user_id !== user.id) {
+      const mine = callerCaps(world, hit.s, user);
+      if (!(mine & CAP.SHARE) || !strictCover(mine, hit.m.caps)) {
+        return fail(403, "You can't remove access wider than your own.");
+      }
+    }
     hit.s.members = hit.s.members.filter((x) => x !== hit.m);
     if (hit.s.kind === "album") {
       const album = world.albums.find((a) => a.id === hit.s.album_id);
@@ -180,7 +214,12 @@ post("/api/v1/access/links", ({ world, user, body }) => {
   if (sh.failLink) return fail(500, "Luna couldn't make that link.");
   const s = subjectFor(world, user, body);
   if (!s) return fail(404, "That album no longer exists.");
-  if (!makesLinks(s)) return fail(403, "You can make links only for things you can change.");
+  const subject = forCaller(world, s, user);
+  if (!canMakeLinks(subject.my_caps)) return fail(403, "You can make links only for things you can change.");
+  if (s.kind === "album") {
+    if (!albumContentCaps(capsBits(body.caps))) return fail(400, "That access level doesn't apply here.");
+    if (!managesLink(subject, body)) return fail(403, "You can only share access you already have.");
+  }
   const l = {
     id: nextId("ln"),
     token: `t${Math.random().toString(36).slice(2, 10)}${nextId("")}`,
@@ -201,11 +240,15 @@ function findLink(w, id) {
   }
   return null;
 }
-patch("/api/v1/access/links/:id", ({ world, params, body }) => {
+patch("/api/v1/access/links/:id", ({ world, user, params, body }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link no longer exists.");
-  if (!managesLink(hit.s, hit.l)) return fail(403, "You can't change this link.");
-  if (body.caps !== undefined && !managesLink(hit.s, { caps: body.caps })) {
+  const subject = forCaller(world, hit.s, user);
+  if (!managesLink(subject, hit.l)) return fail(403, "You can't change this link.");
+  if (body.caps !== undefined && hit.s.kind === "album" && !albumContentCaps(capsBits(body.caps))) {
+    return fail(400, "That access level doesn't apply here.");
+  }
+  if (body.caps !== undefined && !managesLink(subject, { caps: body.caps })) {
     return fail(403, "You can't give a link more access than you have.");
   }
   if (body.caps !== undefined) hit.l.caps = body.caps;
@@ -213,10 +256,10 @@ patch("/api/v1/access/links/:id", ({ world, params, body }) => {
   if (body.password !== undefined) hit.l.password = body.password || "";
   return {};
 });
-del("/api/v1/access/links/:id", ({ world, params }) => {
+del("/api/v1/access/links/:id", ({ world, user, params }) => {
   const hit = findLink(world, params.id);
   if (!hit) return fail(404, "That link is already gone.");
-  if (!managesLink(hit.s, hit.l)) return fail(403, "You can't remove this link.");
+  if (!managesLink(forCaller(world, hit.s, user), hit.l)) return fail(403, "You can't remove this link.");
   hit.s.links = hit.s.links.filter((x) => x !== hit.l);
   (sharing(world).revoked ||= []).push(hit.l.token);
   return {};
@@ -252,13 +295,14 @@ get("/api/v1/access/mine", ({ world, user }) => {
   const sh = sharing(world);
   const sharingRows = sh.subjects
     .filter((s) => !s.pristine && (s.owner_id === user.id || user.role === "admin") && (s.members.length || s.links.length || s.keepEmpty))
+    .map((s) => forCaller(world, s, user))
     .map((s) => ({
       kind: s.kind, drive_id: s.drive_id, drive_label: s.drive_label, path: s.path, album_id: s.album_id,
       name: s.name, is_file: s.is_file, exists: s.exists !== false,
       item_count: itemCount(world, s),
       my_caps: s.my_caps,
       members: s.members.map((m) => ({ id: m.id, user_id: m.user_id, name: userName(world, m.user_id), caps: m.caps })),
-      links: seesLinks(s) ? s.links.map((l) => linkRow(s, l)) : [],
+      links: canSeeLinks(s.my_caps) ? s.links.map((l) => linkRow(s, l)) : [],
     }));
   return { sharing: sharingRows, with_me: myRows(world, user) };
 });
@@ -277,6 +321,46 @@ get("/api/v1/me/access", ({ world, user }) => [
 // ── Forms (signed-in side) ──────────────────────────────────────────────────
 const formsOf = (w) => (w.forms ||= {});
 const formKey = (q) => `${q.drive_id}\0${q.path}`;
+function formPage(list, query) {
+  const offset = Math.max(0, Number(query.offset) || 0);
+  const limit = Math.min(500, Math.max(1, Number(query.limit) || 100));
+  const responses = list.slice(offset, offset + limit);
+  const next = offset + responses.length;
+  return {
+    responses,
+    total: list.length,
+    next_offset: next < list.length ? next : null,
+    revision: 0,
+  };
+}
+
+function formSummary(list) {
+  const byQuestion = new Map();
+  for (const rec of list) {
+    for (const [id, value] of Object.entries(rec.answers || {})) {
+      let entry = byQuestion.get(id);
+      if (!entry) {
+        entry = { id, answered: 0, values: new Map() };
+        byQuestion.set(id, entry);
+      }
+      entry.answered += 1;
+      const key = JSON.stringify(value ?? null);
+      entry.values.set(key, (entry.values.get(key) || 0) + 1);
+    }
+  }
+  return {
+    total: list.length,
+    questions: [...byQuestion.values()].map((entry) => ({
+      id: entry.id,
+      answered: entry.answered,
+      values: [...entry.values].map(([key, count]) => ({
+        value: JSON.parse(key),
+        count,
+      })),
+    })),
+  };
+}
+
 get("/api/v1/forms/responses", ({ world, query }) => {
   const list = formsOf(world)[formKey(query)] || [];
   if (query.count) return { count: list.length };
@@ -284,10 +368,19 @@ get("/api/v1/forms/responses", ({ world, query }) => {
     const r = list.find((x) => x.id === query.id);
     return r ? r : fail(404, "That answer is gone.");
   }
-  return { responses: list };
+  return formPage(list, query);
 });
+get("/api/v1/forms/summary", ({ world, query }) => {
+  const list = formsOf(world)[formKey(query)] || [];
+  return formSummary(list);
+});
+get("/api/v1/forms/usage", () => ({ used_bytes: 0, quota_bytes: 512 * 1024 * 1024, free_bytes: 0 }));
 del("/api/v1/forms/responses", ({ world, query }) => {
   const k = formKey(query);
+  if (query.clear) {
+    formsOf(world)[k] = [];
+    return {};
+  }
   formsOf(world)[k] = (formsOf(world)[k] || []).filter((x) => x.id !== query.id);
   return {};
 });
@@ -318,7 +411,16 @@ function open(w, token, headers, { download = false } = {}) {
   const { s, l } = hit;
   if (l.disabled) return { err: fail(403, "This link has been turned off.") };
   if (l.expires_at && l.expires_at < nowSec()) return { err: fail(410, "This link has expired or been removed.") };
-  if (l.password && header(headers, "x-share-password") !== l.password) return { err: fail(401, "This link needs its password.") };
+  let supplied = header(headers, "x-share-password");
+  const encoded = header(headers, "x-share-password-utf8");
+  if (encoded) {
+    try {
+      supplied = new TextDecoder().decode(Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)));
+    } catch {
+      supplied = null;
+    }
+  }
+  if (l.password && supplied !== l.password) return { err: fail(401, "This link needs its password.") };
   if (download && l.download_limit != null && (l.downloads || 0) >= l.download_limit) {
     return { err: fail(403, "This link has reached its download limit.") };
   }
@@ -367,6 +469,7 @@ publicGet("/s/:token", ({ world, params, headers }) => {
 publicGet("/s/:token/items", ({ world, params, query, headers }) => {
   const r = open(world, params.token, headers);
   if (r.err) return r.err;
+  if (!(capsBits(r.l.caps) & CAP.VIEW)) return fail(403, "This link only lets you add photos.");
   const keys = new Set(world.albumItems?.[r.s.album_id] || []);
   const all = (world.photos || []).filter((p) => keys.has(photoKey(p)));
   const limit = Number(query.limit) || 80;

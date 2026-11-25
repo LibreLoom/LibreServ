@@ -22,7 +22,3 @@ func ConstantTimeEqual(a, b string) bool {
 	hb := sha256.Sum256([]byte(b))
 	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
-
-func AdminAuthorized(header, want string) bool {
-	return ConstantTimeEqual(BearerToken(header), want)
-}

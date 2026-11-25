@@ -237,7 +237,7 @@ describe("CloudBackupCategory", () => {
     stubApi({ connected: true, cardOnFile: false, backups: [sampleBackup] });
     renderCard();
     expect(await screen.findByText("Pictures")).toBeInTheDocument();
-    expect(screen.getByText(/Backups stay paused until then/)).toBeInTheDocument();
+    expect(screen.getByText(/Backups wait until then/)).toBeInTheDocument();
   });
 
   it("describes the 6-hour copy schedule and the kept versions", async () => {

@@ -179,8 +179,41 @@ pub enum FilesError {
     Path(luna_core::path::PathError),
     #[error("{0}")]
     Io(#[source] std::io::Error),
+    #[error("{}", HOLDS_PRIVATE_MSG)]
+    HoldsPrivate(Vec<crate::private::Item>),
     #[error("{0}")]
     Db(#[source] anyhow::Error),
+}
+
+/// Shown wherever a refusal cannot say whose items are inside.
+pub const HOLDS_PRIVATE_MSG: &str =
+    "This folder can't be deleted because it holds items you can't see. An Admin can help.";
+
+/// Private items that make a delete of `rel` (a real path) refuse: every
+/// private item at or below it, unless `rel` is itself inside a private item
+/// (that item's own boundary carries what is below it, so deleting it takes
+/// nothing out from under anyone else).
+pub fn private_inside(root: &Path, rel: &str) -> Vec<crate::private::Item> {
+    if crate::private::boundary_for(root, rel).is_some() {
+        return Vec::new();
+    }
+    crate::private::under(root, rel)
+}
+
+/// [`private_inside`] for a drive id and an API path (trash alias included).
+pub fn private_held(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Vec<crate::private::Item> {
+    let Ok(drive) = drive_root(conn, drive_id) else {
+        return Vec::new();
+    };
+    let root = PathBuf::from(&drive.mount_point);
+    let Ok(rel) = canonical_rel(rel) else {
+        return Vec::new();
+    };
+    private_inside(&root, &real_rel(&root, &rel))
 }
 
 impl From<luna_core::path::PathError> for FilesError {
@@ -1630,6 +1663,14 @@ pub fn delete_to_trash(
     let was_dir = std::fs::symlink_metadata(&path)
         .map(|m| m.is_dir())
         .unwrap_or(false);
+    // A folder holding private items never goes to the trash: it would carry
+    // them out of their owners' sight.
+    if was_dir {
+        let held = private_inside(&root, &rel);
+        if !held.is_empty() {
+            return Err(FilesError::HoldsPrivate(held));
+        }
+    }
     let Some(name) = path.file_name().map(|s| s.to_string_lossy().into_owned()) else {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -2257,14 +2298,16 @@ pub fn restore_from_trash(
     for rel in &made {
         note_write(conn, drive_id, rel);
     }
-    crate::api::forms::repath_form_files_named(
-        &root,
-        &src,
-        trash_entry_name(&trash_rel).unwrap_or(&dest_name),
-        &root,
-        &dest,
-        &dest_name,
-    );
+    // A private item's disk name carries no extension, so use the restored
+    // name to decide whether this is a form and to name its files folder.
+    let from_name = if private_leaf.is_some() {
+        dest_name.to_string()
+    } else {
+        trash_entry_name(&trash_rel)
+            .unwrap_or(&dest_name)
+            .to_string()
+    };
+    crate::api::forms::repath_form_files_named(&root, &src, &from_name, &root, &dest, &dest_name);
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -2310,6 +2353,12 @@ pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Resu
     };
     let path = resolve_child(&root, trash_rel.as_ref())?;
     let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
+    if meta.is_dir() {
+        let held = private_inside(&root, &trash_rel);
+        if !held.is_empty() {
+            return Err(FilesError::HoldsPrivate(held));
+        }
+    }
     // Where the item was before it was trashed — its preview cache is keyed
     // by that path, not the trash path. Read before the entry's trash_meta
     // row is removed below.
@@ -2321,7 +2370,7 @@ pub fn purge_trash_at(drive: &DriveRow, drive_id: &str, trash_rel: &str) -> Resu
         std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
     } else {
         std::fs::remove_file(&path).map_err(FilesError::Io)?;
-        // A form's files folder and answers file go with it.
+        // A form's files folder and answers database go with it.
         crate::api::forms::remove_form_files(&root, &path);
     }
     crate::private::remove_under(&root, &trash_rel).map_err(FilesError::Db)?;

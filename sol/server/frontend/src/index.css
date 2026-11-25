@@ -5,6 +5,24 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Press feedback: every button scales down where it sits and never moves.
+   :where keeps the specificity at zero, so a component's own scale utility
+   (Button's 95%, rows at 99%) still wins; the base transition only smooths
+   buttons that bring no transition of their own. A drag handle or a
+   full-screen backdrop opts out with data-no-press-scale. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :where(button:not([data-no-press-scale]), [role="button"]:not([data-no-press-scale])) {
+      transition-property: scale;
+      transition-duration: var(--motion-duration-short2);
+      transition-timing-function: var(--motion-easing-standard);
+    }
+    :where(button:not([data-no-press-scale]):not(:disabled):active, [role="button"]:not([data-no-press-scale]):not([aria-disabled="true"]):active) {
+      scale: 95%;
+    }
+  }
+}
+
 /* Load FreeMono font locally */
 @font-face {
   font-family: 'FreeMono';
@@ -470,63 +488,6 @@ textarea::placeholder {
     .comet-spinner__dot:nth-child(2),
     .comet-spinner__dot:nth-child(3) {
         opacity: 0.9;
-    }
-}
-
-/* Document editor loading screen — dot matrix wave */
-@keyframes matrix-wave {
-    0%,
-    100% {
-        opacity: 0.12;
-    }
-    15% {
-        opacity: 0.16;
-    }
-    35% {
-        opacity: 0.35;
-    }
-    45% {
-        opacity: 0.65;
-    }
-    50% {
-        opacity: 1;
-    }
-    55% {
-        opacity: 0.65;
-    }
-    65% {
-        opacity: 0.35;
-    }
-    85% {
-        opacity: 0.16;
-    }
-}
-
-.matrix-loader {
-    display: grid;
-    place-content: center;
-    overflow: hidden;
-    user-select: none;
-    pointer-events: none;
-    color: inherit;
-}
-
-.matrix-loader__dot {
-    display: block;
-    width: 4px;
-    height: 4px;
-    border-radius: 9999px;
-    background-color: currentColor;
-    opacity: 0.12;
-    animation: matrix-wave 3600ms linear infinite;
-    animation-delay: calc(var(--wave-delay, 0ms));
-    will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .matrix-loader__dot {
-        animation: none;
-        opacity: 0.25;
     }
 }
 

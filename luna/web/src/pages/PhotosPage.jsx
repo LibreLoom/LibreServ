@@ -1924,31 +1924,31 @@ export default function PhotosPage() {
               </Button>
             )}
             {albumView && canManageAlbum(albumView, user) && (
-              <>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  onClick={() => {
-                    setRenameAlbum(albumView);
-                    setRenameValue(albumView.name || "");
-                  }}
-                >
-                  <Pencil size={14} /> Rename
-                </Button>
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  size="sm"
-                  aria-label="Share album"
-                  onClick={() => {
-                    setError(null);
-                    setShareAlbum(albumView);
-                  }}
-                >
-                  <Share2 size={14} /> Share
-                </Button>
-              </>
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                onClick={() => {
+                  setRenameAlbum(albumView);
+                  setRenameValue(albumView.name || "");
+                }}
+              >
+                <Pencil size={14} /> Rename
+              </Button>
+            )}
+            {albumView && (
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="sm"
+                aria-label="Share album"
+                onClick={() => {
+                  setError(null);
+                  setShareAlbum(albumView);
+                }}
+              >
+                <Share2 size={14} /> Share
+              </Button>
             )}
           </div>
         </div>
@@ -2756,7 +2756,6 @@ function AlbumsPanel({
                   {!manage && <p className="text-xs mt-1">Shared with you</p>}
                 </div>
               </button>
-              {manage ? (
               <div className="px-3 pb-3 flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -2767,28 +2766,31 @@ function AlbumsPanel({
                 >
                   <Share2 size={14} /> Share
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="iconSm"
-                  surface="secondary"
-                  className="shrink-0"
-                  aria-label={`Rename album ${album.name}`}
-                  onClick={() => onRename(album)}
-                >
-                  <Pencil size={16} aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="iconSm"
-                  surface="secondary"
-                  className="shrink-0"
-                  aria-label={`Delete album ${album.name}`}
-                  onClick={() => onDelete(album)}
-                >
-                  <Trash2 size={16} aria-hidden="true" />
-                </Button>
+                {manage && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      surface="secondary"
+                      className="shrink-0"
+                      aria-label={`Rename album ${album.name}`}
+                      onClick={() => onRename(album)}
+                    >
+                      <Pencil size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      surface="secondary"
+                      className="shrink-0"
+                      aria-label={`Delete album ${album.name}`}
+                      onClick={() => onDelete(album)}
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                    </Button>
+                  </>
+                )}
               </div>
-              ) : null}
             </div>
             );
           })}

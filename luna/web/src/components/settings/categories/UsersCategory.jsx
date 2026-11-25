@@ -23,6 +23,13 @@ import EditUserModal from "./EditUserModal.jsx";
 import useStrandedErrorToast from "../../../hooks/useStrandedErrorToast";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 
+/** @type {"primary"|"secondary"} */
+const DEFAULT_CELL_SURFACE = "secondary";
+
+/** Text token for a table cell painted on `surface`. Phone cards can invert. */
+const cellTextClass = (surface) =>
+  surface === "primary" ? "text-secondary" : "text-primary";
+
 /** One line of what a removed person left behind, drive by drive. */
 function orphanDriveLine(owner) {
   return owner.drives
@@ -199,6 +206,10 @@ export default function UsersCategory() {
   const loading = users.isLoading;
   const showList = !loading && !users.isError && list.length > 0;
   const showEmpty = !loading && !users.isError && list.length === 0;
+  const openCreateUser = () => {
+    setError(null);
+    setCreating(true);
+  };
 
   return (
     <>
@@ -332,10 +343,7 @@ export default function UsersCategory() {
               <Button
                 size="sm"
                 variant="primary"
-                onClick={() => {
-                  setError(null);
-                  setCreating(true);
-                }}
+                onClick={openCreateUser}
               >
                 <UserPlus size={14} aria-hidden="true" />
                 Add user
@@ -350,14 +358,14 @@ export default function UsersCategory() {
                     {
                       key: "display_name",
                       label: "Name",
-                      render: (row) => {
+                      render: (row, _index, surface = DEFAULT_CELL_SURFACE) => {
                         const isSelf = row.id === user?.id;
                         const content = (
                           <>
                             <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <User size={14} aria-hidden="true" />
                             </span>
-                            <span className="text-sm text-primary">
+                            <span className={`text-sm ${cellTextClass(surface)}`}>
                               {row.display_name || row.username}
                             </span>
                           </>
@@ -382,8 +390,8 @@ export default function UsersCategory() {
                     {
                       key: "username",
                       label: "Username",
-                      render: (row) => (
-                        <span className="text-sm text-primary">
+                      render: (row, _index, surface = DEFAULT_CELL_SURFACE) => (
+                        <span className={`text-sm ${cellTextClass(surface)}`}>
                           <InlinePill>{row.username}</InlinePill>
                         </span>
                       ),
@@ -391,7 +399,7 @@ export default function UsersCategory() {
                     {
                       key: "role",
                       label: "Role",
-                      render: (row) =>
+                      render: (row, _index, surface = DEFAULT_CELL_SURFACE) =>
                         row.role === "admin" ? (
                           <span className="inline-flex items-center gap-1">
                             <Pill variant="accent">
@@ -399,6 +407,7 @@ export default function UsersCategory() {
                               Admin
                             </Pill>
                             <InfoHint
+                              surface={surface}
                               label="What Admin means"
                               content="An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
                             />
@@ -410,6 +419,7 @@ export default function UsersCategory() {
                               Member
                             </Pill>
                             <InfoHint
+                              surface={surface}
                               label="What Member means"
                               content="A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
                             />
@@ -423,7 +433,7 @@ export default function UsersCategory() {
                       srOnly: true,
                       width: "w-16",
                       noRowClick: true,
-                      render: (row) => {
+                      render: (row, _index, surface = DEFAULT_CELL_SURFACE) => {
                         const isSelf = row.id === user?.id;
                         return (
                           <span className="flex items-center justify-center gap-1">
@@ -432,7 +442,7 @@ export default function UsersCategory() {
                                 asChild
                                 variant="ghost"
                                 size="iconSm"
-                                surface="secondary"
+                                surface={surface}
                                 aria-label={`Edit ${row.display_name || row.username}`}
                               >
                                 <Link to={SELF_SECURITY}>
@@ -443,7 +453,7 @@ export default function UsersCategory() {
                               <Button
                                 variant="ghost"
                                 size="iconSm"
-                                surface="secondary"
+                                surface={surface}
                                 aria-label={`Edit ${row.display_name || row.username}`}
                                 onClick={() => setEditing(row)}
                               >
@@ -453,7 +463,7 @@ export default function UsersCategory() {
                             <Button
                               variant="ghost"
                               size="iconSm"
-                              surface="secondary"
+                              surface={surface}
                               disabled={isSelf || deleteMutation.isPending}
                               onClick={() =>
                                 setUserToDelete({
@@ -475,16 +485,10 @@ export default function UsersCategory() {
                   onRowClick={(row) => (
                     row.id === user?.id ? navigate(SELF_SECURITY) : setEditing(row)
                   )}
-                  addRow={{
-                    label: "Add user",
-                    onClick: () => {
-                      setError(null);
-                      setCreating(true);
-                    },
-                  }}
                   mobileCards
-                  renderMobileCard={(row, columns) => {
-                    const cell = (key) => columns.find((col) => col.key === key)?.render?.(row, 0);
+                  mobileCardSurface="primary"
+                  renderMobileCard={(row, columns, surface) => {
+                    const cell = (key) => columns.find((col) => col.key === key)?.render?.(row, 0, surface);
                     return (
                       <div className="flex items-center gap-3">
                         <div className="min-w-0 flex-1">
@@ -500,6 +504,12 @@ export default function UsersCategory() {
                   }}
                 />
               </div>
+            )}
+            {showList && (
+              <Button variant="primary" fullWidth className="mt-3" onClick={openCreateUser}>
+                <UserPlus size={16} aria-hidden="true" />
+                Add user
+              </Button>
             )}
           </SettingsCard>
         </section>
@@ -518,7 +528,7 @@ export default function UsersCategory() {
         open={!!userToDelete}
         title="Remove user"
         disabledConfirm={privateCountQuery.isPending || privateCountQuery.isError}
-        message={`Remove "${userToDelete?.name}" from this Luna? They can no longer sign in, and their share links stop working.${
+        message={`Remove "${userToDelete?.name}" from this Luna? They can no longer sign in. Share links they made keep working.${
           privateCountQuery.isError ? " Luna couldn't check for their private folders, so removing is paused. Close this and try again." : ""
         }${
           privateCount > 0

@@ -395,7 +395,7 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText("Backup is full, so the copy of photos stopped.")).toBeInTheDocument();
   });
 
-  it("offers Run anyway for a blocked mass-delete and sends the override", async () => {
+  it("offers Back up anyway for a blocked mass-delete and sends the override", async () => {
     const user = userEvent.setup();
     const onRun = vi.fn();
     stubBackupApi({
@@ -409,6 +409,7 @@ describe("ProtectSheet", () => {
           target_drive: "d2",
           target_drive_name: "Backup",
           hard: true,
+          source_missing: true,
           last_error: "Most of the files in photos would be deleted, so Luna stopped.",
           state: "failing",
         }),
@@ -416,7 +417,7 @@ describe("ProtectSheet", () => {
       onRun,
     });
     renderSheet();
-    await user.click(await screen.findByRole("button", { name: "Run anyway" }));
+    await user.click(await screen.findByRole("button", { name: "Back up anyway" }));
     await waitFor(() => expect(onRun).toHaveBeenCalledWith({ allow_mass_delete: true }));
   });
 
@@ -442,6 +443,28 @@ describe("ProtectSheet", () => {
     expect(await screen.findByText("Backup deleted.")).toBeInTheDocument();
   });
 
+  it("shows notes and the waiting reason when the backup drive is unplugged", async () => {
+    stubBackupApi({
+      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
+      backups: [
+        backup({
+          id: "b1",
+          target_drive: "d2",
+          target_drive_name: "Backup",
+          state: "failing",
+          last_error: "Waiting: Backup isn't connected.",
+          notes: ["Removed older versions to make room."],
+        }),
+      ],
+    });
+    renderSheet();
+    expect(await screen.findByText("Backup isn't connected.")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Backup notes" })).getByText(
+      "Removed older versions to make room.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText("Last backup failed")).not.toBeInTheDocument();
+  });
+
   it("shows a backup that came back from a drive as Paused, with Resume for who may", async () => {
     const user = userEvent.setup();
     const onResume = vi.fn();
@@ -458,7 +481,7 @@ describe("ProtectSheet", () => {
       onRun,
     });
     renderSheet();
-    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    expect(await screen.findAllByText("Paused")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Why this backup is paused" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Resume" }));
@@ -478,7 +501,7 @@ describe("ProtectSheet", () => {
       ],
     });
     renderSheet();
-    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    expect(await screen.findAllByText("Paused")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   });
 

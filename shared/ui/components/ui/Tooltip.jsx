@@ -490,7 +490,7 @@ export function InfoHint({ content, surface = "secondary", delayMs, className, l
             "inline-flex items-center justify-center size-5 rounded-pill shrink-0",
             "cursor-help no-focus-outline",
             "focus-visible:ring-2 focus-visible:ring-accent",
-            "hover:bg-current/15 motion-safe:transition-colors motion-safe:duration-150",
+            "hover:bg-current/15 motion-safe:transition-[color,background-color,scale] motion-safe:duration-150",
             textClass,
           )}
         >

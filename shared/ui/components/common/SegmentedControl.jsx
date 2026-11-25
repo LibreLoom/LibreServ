@@ -57,7 +57,7 @@ export default function SegmentedControl({
         style={{
           width: `calc((100% - 6px) / ${options.length})`,
           transform: `translateX(${selectedIndex * 100}%)`,
-          transitionDuration: "var(--motion-duration-medium3)",
+          transitionDuration: "var(--motion-duration-short4)",
         }}
       >
         <div
@@ -80,7 +80,7 @@ export default function SegmentedControl({
           }}
           className={cn(
             "relative z-10 flex items-center justify-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-pill min-w-0",
-            "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
+            "text-xs font-medium transition-[color,background-color,scale] ease-[var(--motion-easing-standard)]",
             disabled
               ? cn(idleTextClass, "opacity-50 cursor-not-allowed")
               : value === optValue

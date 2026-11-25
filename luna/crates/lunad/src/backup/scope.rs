@@ -82,6 +82,12 @@ fn walk_dir(
 
     for (name, ft, path) in kids {
         let rel = join_rel(rel_dir, &name);
+        // SQLite's journal and editor snapshot files are not part of the
+        // answer database's content. Copying a hot journal beside a snapshot
+        // can only confuse recovery; the database itself is snapshotted.
+        if !inside_form && is_sqlite_scratch(&name) {
+            continue;
+        }
         if !inside_form && is_luna_segment(&name) {
             let is_matched_form_folder =
                 ft.is_dir() && form_folder_tag(&name).is_some_and(|tag| visible_tags.contains(tag));
@@ -102,6 +108,25 @@ fn walk_dir(
         }
     }
     Ok(())
+}
+
+/// A SQLite hot journal, WAL sidecar, or the editor's restore snapshot.
+fn is_sqlite_scratch(name: &str) -> bool {
+    let base = if let Some(stem) = name.strip_suffix(".bak") {
+        stem
+    } else if let Some(stem) = name
+        .strip_suffix("-journal")
+        .or_else(|| name.strip_suffix("-wal"))
+        .or_else(|| name.strip_suffix("-shm"))
+    {
+        stem
+    } else {
+        return false;
+    };
+    // Only a form's own answers sidecar. A user's `notes.sqlite-wal` is a
+    // real file and must still be backed up.
+    base.ends_with(".lunaform.responses.sqlite")
+        || (base.starts_with(".luna-") && base.ends_with(".responses.sqlite"))
 }
 
 /// The hex tag of a `<luna-prefix>-form-<16 hex>` folder name, if it is one.
@@ -231,6 +256,22 @@ mod tests {
         assert_eq!(
             rels(root),
             [format!("{folder}/answers/1.txt"), form.to_string()]
+        );
+    }
+
+    #[test]
+    fn sqlite_scratch_files_are_skipped_but_the_database_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "survey.lunaform");
+        touch(root, ".survey.lunaform.responses.sqlite");
+        touch(root, ".survey.lunaform.responses.sqlite-journal");
+        touch(root, ".survey.lunaform.responses.sqlite-wal");
+        touch(root, ".survey.lunaform.responses.sqlite-shm");
+        touch(root, ".survey.lunaform.responses.sqlite.bak");
+        assert_eq!(
+            rels(root),
+            [".survey.lunaform.responses.sqlite", "survey.lunaform"]
         );
     }
 

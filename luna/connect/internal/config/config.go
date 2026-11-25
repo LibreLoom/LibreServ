@@ -69,7 +69,6 @@ type ServerConfig struct {
 	Port       int    `mapstructure:"port"`
 	BaseURL    string `mapstructure:"base_url"`
 	PublicZone string `mapstructure:"public_zone"`
-	AdminToken string `mapstructure:"admin_token"`
 	AtRestKey  string `mapstructure:"at_rest_key"`
 	WebDir     string `mapstructure:"web_dir"`
 }

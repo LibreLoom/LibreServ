@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use luna_feed::{self as feed, FeedError, Part};
 use serde::{Deserialize, Serialize};
@@ -147,10 +147,77 @@ fn seen_key(channel: Channel) -> String {
     format!("{UNIT}/{}", channel.as_str())
 }
 
+// Match lunad's feed date policy, including clocks that boot before the floor.
+const CLOCK_FLOOR_SECS: u64 = 1_793_491_200; // 2026-11-01T00:00:00Z
+const FEED_CLOCK_SKEW_SECS: u64 = 24 * 3600;
+
+struct FeedDates {
+    ceiling: String,
+    trusted: bool,
+}
+
+impl FeedDates {
+    fn at(now_secs: u64) -> Self {
+        Self {
+            ceiling: utc_stamp(
+                now_secs
+                    .max(CLOCK_FLOOR_SECS)
+                    .saturating_add(FEED_CLOCK_SKEW_SECS),
+            ),
+            trusted: now_secs >= CLOCK_FLOOR_SECS,
+        }
+    }
+
+    fn refuses(&self, published: &str) -> bool {
+        self.trusted && published > self.ceiling.as_str()
+    }
+
+    fn usable_seen<'a>(&self, seen: &'a str) -> &'a str {
+        if self.refuses(seen) { "" } else { seen }
+    }
+
+    fn mark<'a>(&'a self, published: &'a str) -> &'a str {
+        published.min(self.ceiling.as_str())
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` (the feed's `published` shape) for Unix seconds.
+fn utc_stamp(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    // Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CheckError {
+    Feed(FeedError),
+    FutureDated,
+}
+
+impl From<FeedError> for CheckError {
+    fn from(error: FeedError) -> Self {
+        Self::Feed(error)
+    }
+}
+
 /// The decision: verify the feed bytes and say whether a newer Windows
-/// installer is on offer. Records the feed's `published` in `stored` when it
-/// is newer than what was seen (the caller saves). Never offers an equal or
-/// lower version.
+/// installer is on offer. Advances the replay watermark in `stored` after
+/// checking the feed date (the caller saves). Only offers newer versions.
 pub fn decide(
     feed_bytes: &[u8],
     sig: &[u8],
@@ -158,9 +225,40 @@ pub fn decide(
     channel: Channel,
     installed_version: &str,
     stored: &mut Stored,
-) -> Result<Option<Available>, FeedError> {
+) -> Result<Option<Available>, CheckError> {
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    decide_at(
+        feed_bytes,
+        sig,
+        keys,
+        channel,
+        installed_version,
+        stored,
+        now_secs,
+    )
+}
+
+fn decide_at(
+    feed_bytes: &[u8],
+    sig: &[u8],
+    keys: &[&str],
+    channel: Channel,
+    installed_version: &str,
+    stored: &mut Stored,
+    now_secs: u64,
+) -> Result<Option<Available>, CheckError> {
+    let dates = FeedDates::at(now_secs);
     let key = seen_key(channel);
-    let seen = stored.seen.get(&key).cloned().unwrap_or_default();
+    let seen = dates.usable_seen(
+        stored
+            .seen
+            .get(&key)
+            .map(String::as_str)
+            .unwrap_or_default(),
+    );
     let verified = feed::check(
         feed_bytes,
         sig,
@@ -172,11 +270,15 @@ pub fn decide(
             os: OS,
             arch: ARCH,
             installed_version,
-            newest_published_seen: &seen,
+            newest_published_seen: seen,
         },
     )?;
-    if verified.feed.published > seen {
-        stored.seen.insert(key, verified.feed.published.clone());
+    if dates.refuses(&verified.feed.published) {
+        return Err(CheckError::FutureDated);
+    }
+    let mark = dates.mark(&verified.feed.published);
+    if mark > seen {
+        stored.seen.insert(key, mark.to_owned());
     }
     if !verified.newer {
         return Ok(None);
@@ -200,7 +302,12 @@ pub fn check_with(
     let url = format!("{feed_base}/{}.json", channel.as_str());
     let body = fetch(&url)?;
     let sig = fetch(&format!("{url}.minisig"))?;
-    decide(&body, &sig, keys, channel, installed_version, stored).map_err(|e| plain_feed_error(&e))
+    decide(&body, &sig, keys, channel, installed_version, stored).map_err(|e| match e {
+        CheckError::Feed(e) => plain_feed_error(&e),
+        CheckError::FutureDated => {
+            "The update list is dated later than this computer’s clock, so it was ignored.".into()
+        }
+    })
 }
 
 /// Ask the real feed. Reads and saves the replay state in the data folder.
@@ -329,15 +436,16 @@ mod tests {
         std::fs::read(testdata().join(name)).unwrap()
     }
 
-    fn windows_feed(installed: &str, stored: &mut Stored) -> Result<Option<Available>, FeedError> {
+    fn windows_feed(installed: &str, stored: &mut Stored) -> Result<Option<Available>, CheckError> {
         let key = test_key();
-        decide(
+        decide_at(
             &read("luna-desktop-stable.json"),
             &read("luna-desktop-stable.json.minisig"),
             &[key.as_str()],
             Channel::Stable,
             installed,
             stored,
+            CLOCK_FLOOR_SECS,
         )
     }
 
@@ -370,10 +478,33 @@ mod tests {
         let mut stored = Stored::default();
         stored
             .seen
-            .insert("luna-desktop/stable".into(), "2027-01-01T00:00:00Z".into());
+            .insert("luna-desktop/stable".into(), "2026-11-02T00:00:00Z".into());
         let err = windows_feed("0.3.0", &mut stored).unwrap_err();
-        assert_eq!(err, FeedError::Replayed);
-        assert_eq!(stored.seen["luna-desktop/stable"], "2027-01-01T00:00:00Z");
+        assert_eq!(err, CheckError::Feed(FeedError::Replayed));
+        assert_eq!(stored.seen["luna-desktop/stable"], "2026-11-02T00:00:00Z");
+    }
+
+    #[test]
+    fn poisoned_watermark_is_replaced_by_a_verified_date() {
+        let mut stored = Stored::default();
+        stored
+            .seen
+            .insert("luna-desktop/stable".into(), "9999-12-31T23:59:59Z".into());
+        assert_eq!(windows_feed("0.5.0", &mut stored).unwrap(), None);
+        assert_eq!(stored.seen["luna-desktop/stable"], "2026-10-12T14:03:00Z");
+    }
+
+    #[test]
+    fn feed_date_ceiling_depends_on_clock_trust() {
+        let trusted = FeedDates::at(CLOCK_FLOOR_SECS);
+        assert!(!trusted.refuses("2026-11-02T00:00:00Z"));
+        assert!(trusted.refuses("2026-11-02T00:00:01Z"));
+
+        let unset = FeedDates::at(CLOCK_FLOOR_SECS - 1);
+        let future = "9999-12-31T23:59:59Z";
+        assert!(!unset.refuses(future));
+        assert_eq!(unset.mark(future), "2026-11-02T00:00:00Z");
+        assert_eq!(unset.usable_seen(future), future);
     }
 
     #[test]
@@ -381,7 +512,7 @@ mod tests {
         let mut stored = Stored::default();
         stored
             .seen
-            .insert("luna-desktop/beta".into(), "2027-01-01T00:00:00Z".into());
+            .insert("luna-desktop/beta".into(), "2026-11-02T00:00:00Z".into());
         assert!(windows_feed("0.3.0", &mut stored).unwrap().is_some());
     }
 
@@ -397,7 +528,10 @@ mod tests {
             "0.3.0",
             &mut stored,
         );
-        assert_eq!(tampered.unwrap_err(), FeedError::BadSignature);
+        assert_eq!(
+            tampered.unwrap_err(),
+            CheckError::Feed(FeedError::BadSignature)
+        );
         // Signed by the test key, but not a key this build trusts.
         let other = std::fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../keys/luna.minisign.pub"),
@@ -412,7 +546,10 @@ mod tests {
             "0.3.0",
             &mut stored,
         );
-        assert_eq!(wrong.unwrap_err(), FeedError::BadSignature);
+        assert_eq!(
+            wrong.unwrap_err(),
+            CheckError::Feed(FeedError::BadSignature)
+        );
         assert!(stored.seen.is_empty());
     }
 
@@ -428,7 +565,7 @@ mod tests {
             "0.3.0",
             &mut stored,
         );
-        assert_eq!(r.unwrap_err(), FeedError::WrongUnit);
+        assert_eq!(r.unwrap_err(), CheckError::Feed(FeedError::WrongUnit));
     }
 
     #[test]
@@ -443,7 +580,7 @@ mod tests {
             "0.3.0",
             &mut stored,
         );
-        assert_eq!(r.unwrap_err(), FeedError::WrongChannel);
+        assert_eq!(r.unwrap_err(), CheckError::Feed(FeedError::WrongChannel));
     }
 
     #[test]

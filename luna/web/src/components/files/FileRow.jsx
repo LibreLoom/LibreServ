@@ -17,7 +17,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import AnimatedCheckbox from "@libreloom/ui/components/ui/AnimatedCheckbox.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
-import IconImage from "@libreloom/ui/components/ui/IconImage.jsx";
+import { iconImageElement } from "@libreloom/ui/components/ui/IconImage.jsx";
 import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
@@ -26,7 +26,9 @@ import { openableKind, isFormFile } from "../../lib/fileKinds.js";
 import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
-import { PropertiesButton } from "./PropertiesSheet.jsx";
+import BackupNotes from "../protect/BackupNotes.jsx";
+import { backupStatus, backupWaitingReason } from "../../lib/backupRows.js";
+import PausedByLockNote from "../protect/PausedByLockNote.jsx";
 import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
 import { warmTextEditor } from "./editorWarm.js";
 
@@ -168,16 +170,18 @@ function FileRow({
       run: () => window.location.assign(source.downloadHref(driveId, fullPath, entry.kind)),
     });
   }
-  // The row renders Properties itself, beside the action row, so it is only
-  // in the sheet's list.
-  actions.push({
+  // The row draws Properties in the same icon row as the rest, so the folder
+  // does not mount a second IconActions for every row (W4). It stays out of
+  // the row's own action list (`rowHidden`) but remains in the phone sheet.
+  const propertiesAction = {
     key: "properties",
     label: "Properties",
     aria: `Properties for ${displayName}`,
     icon: Info,
     rowHidden: true,
     run: () => api.openProperties(ctx),
-  });
+  };
+  actions.push(propertiesAction);
   if (hasDelete) {
     actions.push({
       key: "delete",
@@ -208,7 +212,11 @@ function FileRow({
       );
     }
 
-    if (renderRowActions) return renderRowActions(ctx);
+    // The explorer supplies its own action row; hand it Properties so the
+    // whole row is one icon group instead of a second IconActions beside it.
+    if (renderRowActions) {
+      return renderRowActions(ctx, !isPicker && isSmUp ? [propertiesAction] : []);
+    }
     if (isPicker) {
       const canPick = pickerMode === "any"
         || (pickerMode === "folder" && isDir)
@@ -234,7 +242,9 @@ function FileRow({
     const share = rowActions.find((action) => action.text);
     // Plain icon buttons with one shared tooltip: every row carries these,
     // and a Button plus a Tooltip each made rows slow to mount (W4/W6).
+    // Properties rides in the same group on wide screens.
     const icons = rowActions.filter((action) => !action.text);
+    if (!isPicker && isSmUp) icons.push(propertiesAction);
     return (
       <div className="flex items-center gap-0.5 flex-wrap justify-end">
         {share ? (
@@ -255,10 +265,13 @@ function FileRow({
     );
   }
 
+  const backup = entry.backupRoot ? { ...entry.backup, kind: "drive" } : null;
+  const backupHealth = backup ? backupStatus(backup) : null;
+  const waiting = backupHealth?.label === "Waiting" ? backupWaitingReason(backup) : null;
   const Icon = isDir ? Folder : FileIcon;
   const label = (
     <>
-      <IconImage icon={Icon} size={16} color={iconColor} className="shrink-0" />
+      {iconImageElement(Icon, { size: 16, color: iconColor, className: "shrink-0" })}
       <span className="font-mono text-sm truncate">{displayName}</span>
     </>
   );
@@ -374,7 +387,17 @@ function FileRow({
       ) : null}
 
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        {name}
+        {backup ? (
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {name}
+              <Pill variant={backupHealth.variant}>{backupHealth.label}</Pill>
+            </div>
+            {waiting && <p className="text-sm break-words">{waiting}</p>}
+            {backup.status === "active" && !backup.covered_by && <PausedByLockNote backup={backup} />}
+            <BackupNotes notes={backup.notes} />
+          </div>
+        ) : name}
         {entry.private || entry.in_private ? (
           <PrivateBadge
             className={fg}
@@ -400,13 +423,6 @@ function FileRow({
         onMouseDown={(e) => e.stopPropagation()}
       >
         {renderActions()}
-        {!isPicker && isSmUp && (
-          <PropertiesButton
-            label={displayName}
-            onClick={() => api.openProperties(ctx)}
-            surface={surface}
-          />
-        )}
       </div>
     </li>
   );
