@@ -16,6 +16,7 @@ export function useSystemHealthCheck(refreshInterval) {
       return res.json();
     },
     refetchInterval: refreshInterval ?? 60_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 }

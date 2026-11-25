@@ -332,3 +332,53 @@ roughly twice the LAN one.
 - Left to try for W8 remote: fewer bytes per screen (a ~200 px variant
   for 1x screens, or one batched request per screen), or HTTP-level
   priority so the strip's requests overtake the ahead tier.
+
+## Round 15 (2026-11-23, draft PR #254)
+
+First-load asset size measured with `npm run perf:bundle` from `luna/web`,
+before and after the shared FreeMono faces were converted to WOFF2. The report
+counts the entry script, its preloads, the CSS and all shipped font faces;
+a TTF beside a WOFF2 is a fallback and is not counted. Excalidraw's canvas
+fonts are lazy assets and are not part of W1.
+
+| Journey | Before | After | Ratio |
+|---|---|---|---|
+| W1 first-load bytes, regular face actually fetched | 1298.9 KiB | 912.4 KiB | 1.42x |
+| W1 first-load bytes, upper bound (all faces) | 2258.2 KiB | 1160.6 KiB | 1.95x |
+
+W1 renders only the regular mono face (189,468 B after, 584,424 B before), so
+1.42x is the journey number. The 1.95x all-faces figure is an upper bound, not
+a W1 result; the 1.5x claim in this pass applies to Sol's transferred bytes.
+
+Both sides used the current `bundle-report.js`: the before build had the font
+edits reverted, the after build is this branch. Each was rebuilt with a clean
+output directory, then measured with `npm run perf:bundle`. Lunad embeds
+`web/dist` and serves files verbatim, with no `.gz` lookup and no compression
+layer, so `totals.initial.wire` is raw bytes throughout. Before = 728.2 KiB
+JS/CSS + 1530.0 KiB TTF; after = 727.4 KiB JS/CSS + 433.2 KiB WOFF2. An
+earlier draft used gzip sizes for JS/CSS, which lunad never sends. Raw reports
+are `perf/results/bundle-<time>.json`.
+
+A browser run against the built app with this harness's remote profile
+(80 ms RTT, 20 Mbit/s, API responses mocked) saw the fetched regular face drop
+from 584,424 B to 189,468 B of font data (3.08x; the browser reported
+189,768 B including headers), while W1 p50 moved from 1394 ms to 1286 ms
+(1.08x). The remaining time is JS parse, layout and round trips; the byte win
+does not become a 1.5x wall-clock win in that setup. A few mono labels use a
+500 weight or bold text inside a mono container, so the two bold faces remain:
+they keep Latin-1, Latin Extended-A and common symbols: `FreeMonoBold` in a
+51.4 KiB WOFF2 subset, `FreeMonoBoldOblique` in a 52.0 KiB one. A non-Latin
+bold-mono string would need those subsets widened. Regular and oblique retain every
+codepoint in the original TTF `cmap`.
+
+Daemon changes in this round: `Layout::detect` caches the drive marker prefix
+for 60 s and validates it with one stat per hit, instead of a full `read_dir`
+of the drive root per photo and per thumbnail request. The cache lock is
+released before filesystem I/O so a slow or ejected USB drive cannot stall
+other drives. A `/proc/meminfo` cache was tried and removed before merge: a
+stale `MemAvailable` could keep handing out large decode caps during a scan on
+the 2 GiB target.
+
+Not measured here: W/D/K/C journey times. The bundle figure is an asset-size
+measurement, not a browser timing, and the full 3040 stand-in run was not done.
+See `sol/perf/RESULTS.md` for the Sol side and the conversion commands.

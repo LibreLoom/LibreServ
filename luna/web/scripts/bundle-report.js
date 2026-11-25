@@ -17,6 +17,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST = path.resolve(HERE, "../../crates/lunad/web/dist");
 const RESULTS_DIR = path.resolve(HERE, "../../perf/results");
 const PAGE_CHUNK = /^assets\/[A-Za-z]+Page-[\w-]+\.js$/;
+const FONT_RE = /\.(?:ttf|woff2?|otf)$/;
 
 /** @param {string} dir @returns {string[]} paths relative to `dir` */
 function walk(dir, base = dir) {
@@ -53,28 +54,47 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
   if (!existsSync(indexHtml)) throw new Error(`No build at ${distDir} (index.html missing). Run npm run build first.`);
   const initial = initialFiles(readFileSync(indexHtml, "utf8"));
 
-  const files = walk(distDir)
-    .filter((f) => /\.(?:js|css)$/.test(f))
+  const all = walk(distDir);
+  // Fonts come from CSS, not index.html. A TTF next to a WOFF2 is a fallback
+  // a modern browser never downloads: count the preferred face and leave the
+  // fallback out of every total, including `lazy`.
+  const fallbacks = new Set(
+    all.filter((f) => /\.ttf$/.test(f) && all.includes(f.replace(/\.ttf$/, ".woff2"))),
+  );
+  for (const file of all) {
+    if (!FONT_RE.test(file) || !file.startsWith("fonts/") || fallbacks.has(file)) continue;
+    initial.add(file);
+  }
+
+  const files = all
+    .filter((f) => /\.(?:js|css|ttf|woff2?|otf)$/.test(f) && !fallbacks.has(f))
     .map((file) => {
       const bytes = readFileSync(path.join(distDir, file));
-      // A prebuilt .gz next to the file is what lunad would serve; else compress.
-      const gz = existsSync(path.join(distDir, `${file}.gz`))
-        ? statSync(path.join(distDir, `${file}.gz`)).size
-        : gzipSync(bytes, { level: 9 }).length;
+      // Informational only: lunad has no gzip layer, so `wire` below uses the
+      // raw bytes regardless of this hypothetical compressed size.
+      const gz = gzipSync(bytes, { level: 9 }).length;
+      // lunad embeds web/dist and serves every file verbatim: no .gz lookup,
+      // no compression layer. What you see here is what the browser gets.
+      const wire = bytes.length;
       const group = initial.has(file) ? "initial" : PAGE_CHUNK.test(file) ? "pages" : "lazy";
-      return { file, group, bytes: bytes.length, gzip: gz };
+      return { file, group, bytes: bytes.length, gzip: gz, wire };
     })
     .sort((a, b) => b.gzip - a.gzip);
 
   /** @param {string} group */
   const total = (group) => {
     const list = files.filter((f) => f.group === group);
-    return { files: list.length, bytes: list.reduce((n, f) => n + f.bytes, 0), gzip: list.reduce((n, f) => n + f.gzip, 0) };
+    return {
+      files: list.length,
+      bytes: list.reduce((n, f) => n + f.bytes, 0),
+      gzip: list.reduce((n, f) => n + f.gzip, 0),
+      wire: list.reduce((n, f) => n + f.wire, 0),
+    };
   };
   const report = {
     generated_at: new Date().toISOString(),
     dist: distDir,
-    note: "initial = what index.html loads before the first page; pages = per-route chunks (one loads per first visit); lazy = editors, viewers and the rest.",
+    note: "initial = entry JS, preloads, CSS and all shipped font faces; pages = per-route chunks; lazy = editors, viewers and the rest. 'wire' is what lunad sends: embedded dist files verbatim, with no gzip layer. A font face is only fetched when something uses it.",
     totals: { initial: total("initial"), pages: total("pages"), lazy: total("lazy") },
     files,
   };
@@ -88,7 +108,7 @@ export function writeBundleReport({ distDir = DEFAULT_DIST, resultsDir = RESULTS
 
   if (!quiet) {
     const t = report.totals;
-    console.log(`Bundle (gzip KiB): initial ${kb(t.initial.gzip)} in ${t.initial.files} files, pages ${kb(t.pages.gzip)}, lazy ${kb(t.lazy.gzip)}`);
+    console.log(`Bundle (wire KiB, upper bound): initial ${kb(t.initial.wire)} in ${t.initial.files} files, pages ${kb(t.pages.wire)}, lazy ${kb(t.lazy.wire)}`);
     for (const f of files.filter((x) => x.group !== "lazy")) {
       console.log(`  ${f.group.padEnd(7)} ${String(kb(f.gzip)).padStart(8)} KiB gz  ${String(kb(f.bytes)).padStart(8)} KiB  ${f.file}`);
     }

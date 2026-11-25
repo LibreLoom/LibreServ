@@ -12,6 +12,7 @@ export function useAppMetrics(appId) {
     },
     enabled: !!appId,
     refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   });
 }

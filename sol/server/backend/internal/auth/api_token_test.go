@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -122,5 +123,107 @@ func TestAPITokenLimit(t *testing.T) {
 	}
 	if _, _, err := svc.CreateAPIToken(ctx, user.ID, "t3"); err != nil {
 		t.Fatalf("create after revoke: expected success, got %v", err)
+	}
+}
+
+func TestAPITokenLastUsedIsThrottled(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	svc := NewService(db, "testsecret", slog.Default())
+	user, err := svc.Register(ctx, &RegisterRequest{
+		Username: "carol", Password: "SuperSecret123", Email: "carol@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, rec, err := svc.CreateAPIToken(ctx, user.ID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastUsed := func() string {
+		var value string
+		if err := db.QueryRowContext(ctx, `SELECT COALESCE(last_used_at, '') FROM api_tokens WHERE id = ?`, rec.ID).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+
+	if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+		t.Fatal(err)
+	}
+	first := lastUsed()
+	if first == "" {
+		t.Fatal("first validation should write last_used_at")
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+			t.Fatalf("validate %d: %v", i, err)
+		}
+	}
+	if got := lastUsed(); got != first {
+		t.Fatalf("validations inside the window should not rewrite last_used_at: %q then %q", first, got)
+	}
+
+	// Revoking drops the throttle entry, so a recreated token is not held back.
+	toks, err := svc.ListAPITokens(ctx, user.ID)
+	if err != nil || len(toks) != 1 {
+		t.Fatalf("list: err=%v len=%d", err, len(toks))
+	}
+	if err := svc.RevokeAPIToken(ctx, user.ID, toks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.apiTokenLastUsed) != 0 {
+		t.Fatalf("revoke should forget the throttle entry, got %v", svc.apiTokenLastUsed)
+	}
+}
+
+func TestAPITokenLastUsedThrottleUnderConcurrency(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	svc := NewService(db, "testsecret", slog.Default())
+	user, err := svc.Register(ctx, &RegisterRequest{
+		Username: "dave", Password: "SuperSecret123", Email: "dave@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, _, err := svc.CreateAPIToken(ctx, user.ID, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Count real UPDATEs in the database instead of adding a test hook to the
+	// service. Without the slot reservation a burst can issue one write per
+	// goroutine before any of them records the timestamp.
+	if _, err := db.Exec(`CREATE TABLE token_touch_count (n INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO token_touch_count VALUES (0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		CREATE TRIGGER api_token_touch AFTER UPDATE OF last_used_at ON api_tokens
+		BEGIN UPDATE token_touch_count SET n = n + 1; END`); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := svc.ValidateAPIToken(ctx, plaintext); err != nil {
+				t.Errorf("validate: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	var writes int
+	if err := db.QueryRowContext(ctx, `SELECT n FROM token_touch_count`).Scan(&writes); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 {
+		t.Fatalf("eight concurrent validations should write last_used_at once, wrote %d times", writes)
 	}
 }

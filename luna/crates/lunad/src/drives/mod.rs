@@ -254,6 +254,10 @@ impl DriveManager {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
+        // Photo/thumbnail layout shares the same marker identity. Clearing
+        // only the manager's memo would leave the photo cache believing an
+        // ejected or reformatted drive still has its old prefix.
+        layout::forget_all_cached();
     }
 
     /// Mark a drive as being ejected or removed until the guard is dropped.

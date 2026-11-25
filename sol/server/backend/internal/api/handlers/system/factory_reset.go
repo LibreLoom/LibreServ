@@ -141,6 +141,9 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusInternalServerError, "We couldn't complete the factory reset. Please try again.")
 		return
 	}
+	// The reset rewrote the file's tables, so every cached answer about the
+	// old database is stale.
+	h.db.InvalidateCaches()
 
 	JSON(w, http.StatusOK, map[string]string{
 		"message":  "factory reset complete",

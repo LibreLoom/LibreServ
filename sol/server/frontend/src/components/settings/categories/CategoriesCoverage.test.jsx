@@ -956,3 +956,333 @@ describe("settings category coverage", () => {
     expect(logoutMock).toHaveBeenCalled();
   });
 });
+
+describe("AboutCategory database integrity action", () => {
+  function renderAbout() {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    return render(
+      <AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />,
+    );
+  }
+
+  beforeEach(() => {
+    apiMock.mockImplementation(async () => ({
+      json: async () => ({ status: "ok" }),
+    }));
+  });
+
+  it("reports corruption, names the next step and updates the header", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect(apiMock.mock.calls.some(([path, opts]) => path === "/system/database/integrity" && opts?.method === "POST")).toBe(true);
+  });
+
+  it("treats an unavailable file as a problem, not a clean result", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", reason: "missing", corrupt: false, message: "The database file is missing. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    renderAbout();
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/database file is missing/)).length).toBeGreaterThan(0);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+
+  it("aborts an in-flight poll when the card unmounts", async () => {
+    const user = userEvent.setup();
+    /** @type {AbortSignal | null} */
+    let statusSignal = null;
+    apiMock.mockImplementation(async (path, options = {}) => {
+      if (!path.endsWith("/status")) return { json: async () => ({ status: "running" }) };
+      statusSignal = options.signal;
+      return new Promise((_, reject) => {
+        options.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    });
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    if (!statusSignal) throw new Error("status poll was not started");
+    view.unmount();
+    expect(statusSignal.aborted).toBe(true);
+  });
+});
+
+describe("AboutCategory integrity failure kinds", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("keeps the header healthy when the check merely timed out", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", reason: "timeout", corrupt: false, message: "The database check took too long. Please try again." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/took too long/)).toBeVisible();
+    expect(screen.getByText("1 of 1 checks passed — everything looks good.")).toBeVisible();
+  });
+
+  it("shows the manual verdict in the database row when corruption is found", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/found a problem/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Sol found a problem with the database file.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+  });
+});
+
+describe("AboutCategory integrity error result", () => {
+  it("keeps a failed check retryable rather than calling the file damaged", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "unavailable", reason: "error", corrupt: false, message: "Sol couldn't check the database file right now. Please try again." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/couldn't check the database file right now/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("The database file needs attention.")).not.toBeInTheDocument();
+  });
+});
+
+describe("AboutCategory detected corruption shape", () => {
+  it("flags a problem when the handler reports a damaged file with reason corrupt", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+  });
+});
+
+describe("AboutCategory integrity gate and successful check", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("does not offer the admin action to a member", () => {
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Check the database file" })).not.toBeInTheDocument();
+  });
+
+  it("shows a successful file check without upgrading the live database row", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Ready")).toBeVisible();
+  });
+
+  it("keeps the action when the periodic health query failed", () => {
+    healthState.data = null;
+    const originalError = healthState.error;
+    healthState.error = new Error("health query failed");
+    try {
+      render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+      expect(screen.getByRole("button", { name: "Check the database file" })).toBeVisible();
+    } finally {
+      healthState.error = originalError;
+    }
+  });
+});
+
+describe("AboutCategory manual check recount", () => {
+  it("keeps the live failure visible when a manual file check succeeds", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: {
+        database: { status: "failed", message: "Could not reach the database" },
+        runtime: { status: "passed", message: "Ready" },
+      },
+      summary: { passed: 1, failed: 1 },
+    };
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+    expect(screen.getByText("1 of 2 checks need attention.")).toBeVisible();
+    expect(screen.getByText("Issues found")).toBeVisible();
+  });
+});
+
+describe("AboutCategory fresh health snapshot", () => {
+  it("drops a manual ok when a newer health poll reports the database failed", async () => {
+    const user = userEvent.setup();
+    const okSnapshot = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+    healthState.data = okSnapshot;
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "ok", reason: "ok", corrupt: false }
+        : { status: "running" }),
+    }));
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText("The database file is fine.")).length).toBeGreaterThan(0);
+
+    const failedSnapshot = {
+      checks: { database: { status: "failed", message: "Could not reach the database" } },
+      summary: { passed: 0, failed: 1 },
+    };
+    healthState.data = failedSnapshot;
+    view.rerender(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    expect(screen.getByText("Could not reach the database")).toBeVisible();
+    expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
+  });
+});
+
+describe("AboutCategory corruption verdict persistence", () => {
+  it("keeps a manual corrupt verdict when unrelated health fields change", async () => {
+    const user = userEvent.setup();
+    const first = {
+      checks: { database: { status: "passed", message: "Ready" }, disk: { status: "passed", message: "40% used" } },
+      summary: { passed: 2, failed: 0 },
+    };
+    healthState.data = first;
+    apiMock.mockImplementation(async (path) => ({
+      json: async () => (path.endsWith("/status")
+        ? { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file. Restore a database backup in Settings → Backups." }
+        : { status: "running" }),
+    }));
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" }, disk: { status: "passed", message: "90% used" } },
+      summary: { passed: 2, failed: 0 },
+    };
+    view.rerender(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect((await screen.findAllByText(/Restore a database backup in Settings/)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("AboutCategory manual OK lifetime", () => {
+  it("drops a manual OK when a new health snapshot arrives", async () => {
+    const user = userEvent.setup();
+    healthState.data = {
+      checks: { database: { status: "failed", message: "Could not reach the database" } },
+      summary: { passed: 0, failed: 1 },
+    };
+    apiMock.mockImplementation(async (path) => {
+      if (path === "/system/database/integrity") return { json: async () => ({ status: "running" }) };
+      if (path.endsWith("/status")) return { json: async () => ({ status: "ok", reason: "ok" }) };
+      return { json: async () => ({}) };
+    });
+    const view = render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect((await screen.findAllByText(/The database file is fine/)).length).toBeGreaterThan(0);
+
+    healthState.data = {
+      checks: { database: { status: "failed", message: "Could not reach the database" } },
+      summary: { passed: 0, failed: 1 },
+      timestamp: Date.now(),
+    };
+    view.rerender(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    expect(screen.getByText("Could not reach the database")).toBeVisible();
+    expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
+  });
+});
+
+describe("AboutCategory mount fetch and idle retry", () => {
+  beforeEach(() => {
+    healthState.data = {
+      checks: { database: { status: "passed", message: "Ready" } },
+      summary: { passed: 1, failed: 0 },
+    };
+  });
+
+  it("ignores a slow mount verdict that resolves after a manual check", async () => {
+    const user = userEvent.setup();
+    /** @type {Array<(value: any) => void>} */
+    const statusResolvers = [];
+    apiMock.mockImplementation(async (path) => {
+      if (path === "/system/database/integrity") return { json: async () => ({ status: "running" }) };
+      if (path.endsWith("/status")) {
+        return { json: () => new Promise((resolve) => statusResolvers.push(resolve)) };
+      }
+      return { json: async () => ({}) };
+    });
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    if (statusResolvers.length < 2) throw new Error("mount and poll status requests were not both started");
+
+    const corrupt = { status: "corrupt", reason: "corrupt", corrupt: true, message: "Sol found a problem with the database file." };
+    statusResolvers[1](corrupt);
+    expect(await screen.findByText("The database file needs attention.")).toBeVisible();
+    statusResolvers[0]({ status: "ok", reason: "ok" });
+    expect(screen.getByText("The database file needs attention.")).toBeVisible();
+    expect(screen.queryByText("The database file is fine.")).not.toBeInTheDocument();
+  });
+
+  it("restarts once on idle then says the check never started", async () => {
+    const user = userEvent.setup();
+    let posts = 0;
+    apiMock.mockImplementation(async (path) => {
+      if (path === "/system/database/integrity") {
+        posts++;
+        return { json: async () => ({ status: "running" }) };
+      }
+      if (path.endsWith("/status")) return { json: async () => ({ status: "idle" }) };
+      return { json: async () => ({}) };
+    });
+    render(<AboutCategory settings={{ updates: {} }} onUpdateSourceSave={vi.fn()} isAdmin />);
+    await user.click(screen.getByRole("button", { name: "Check the database file" }));
+    expect(await screen.findByText(/hasn't started yet/)).toBeVisible();
+    expect(posts).toBe(2);
+  });
+});

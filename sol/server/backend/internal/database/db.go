@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/constants"
@@ -20,6 +24,36 @@ import (
 type DB struct {
 	db   *sql.DB
 	path string
+
+	// onReplace holds callbacks from services that cache rows from this DB.
+	// They run once a restored file is in place, before migration. The mutex
+	// allows a late registration without racing an in-flight restore.
+	onReplaceMu sync.RWMutex
+	onReplace   []func()
+
+	// Each distinct health failure warns once per outage, not once per probe.
+	healthStatWarned   atomic.Bool
+	healthSchemaWarned atomic.Bool
+	healthEmptyWarned  atomic.Bool
+}
+
+// OnReplace adds a cache-invalidation hook for database restores. Registration
+// is additive: setup state and the admin integrity verdict both need it.
+func (d *DB) OnReplace(fn func()) {
+	d.onReplaceMu.Lock()
+	defer d.onReplaceMu.Unlock()
+	d.onReplace = append(d.onReplace, fn)
+}
+
+// InvalidateCaches runs every registered hook. Callers that replace or rewrite
+// the database outside ReplaceFile (for example a factory reset) use it.
+func (d *DB) InvalidateCaches() {
+	d.onReplaceMu.RLock()
+	hooks := append([]func(){}, d.onReplace...)
+	d.onReplaceMu.RUnlock()
+	for _, fn := range hooks {
+		fn()
+	}
 }
 
 // Open opens or creates the SQLite database at dbPath.
@@ -156,6 +190,19 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return errors.New("db target path is empty")
 	}
 
+	// Check the replacement before the swap, on its own handle with the
+	// caller's context and a short budget, so the page walk does not consume
+	// the restore request's whole write timeout alongside the migration.
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	corrupt, err := integrityCheckFile(checkCtx, replacementPath)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if corrupt {
+		return errors.New("restored database failed its integrity check")
+	}
+
 	// Close the current DB handle first to release file locks.
 	if d.db != nil {
 		_ = d.db.Close()
@@ -197,12 +244,10 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return fmt.Errorf("failed to reopen database after restore: %w", err)
 	}
 	d.db = newDB.db
+	d.InvalidateCaches()
 
-	// Ensure schema is compatible with current binary and verify integrity.
+	// Ensure schema is compatible with current binary.
 	if err := d.Migrate(); err != nil {
-		return err
-	}
-	if err := d.HealthCheck(); err != nil {
 		return err
 	}
 
@@ -215,24 +260,162 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 	return nil
 }
 
-// HealthCheck performs a quick self-diagnostic
+// HealthCheck is a cheap liveness probe. It runs on every health endpoint hit
+// and on the dashboard's monitoring poll, so it must not walk every page.
+// It stats the file and reads the schema through the already-open pool, which
+// catches a deleted or unreadable database but not page-level corruption; that
+// needs IntegrityCheck.
 func (d *DB) HealthCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The open handle can keep serving from an unlinked file. A stat on every
+	// probe is cheap and makes /health/ready stop lying when the file is gone.
+	if d.path != ":memory:" {
+		if _, err := os.Stat(d.path); err != nil {
+			// These errors travel through public health endpoints. Log the
+			// path here; callers only get the sentinel. A missing file makes
+			// every probe fail, so only the first gets a warning.
+			if d.healthStatWarned.Swap(true) {
+				slog.Debug("database file stat failed", "path", d.path, "error", err)
+			} else {
+				slog.Warn("database file stat failed", "path", d.path, "error", err)
+			}
+			if errors.Is(err, fs.ErrNotExist) {
+				return ErrDatabaseFileMissing
+			}
+			return ErrDatabaseUnreadable
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var count int
-	err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count)
-	if err != nil {
+	if err := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
+		// This probe also backs the public comprehensive check and its
+		// background refresh; warn once per outage so those paths are logged.
+		if !d.healthSchemaWarned.Swap(true) {
+			slog.Warn("database schema read failed", "error", err)
+		} else {
+			slog.Debug("database schema read failed", "error", err)
+		}
 		return fmt.Errorf("database health check failed: %w", err)
+	}
+	if count == 0 {
+		// An empty file is a valid SQLite database but not a usable Sol one.
+		if !d.healthEmptyWarned.Swap(true) {
+			slog.Warn("database has no schema tables")
+		} else {
+			slog.Debug("database has no schema tables")
+		}
+		return ErrDatabaseUnreadable
+	}
+	// A new outage after recovery deserves a new warning.
+	d.healthStatWarned.Store(false)
+	d.healthSchemaWarned.Store(false)
+	d.healthEmptyWarned.Store(false)
+	return nil
+}
+
+// IntegrityCheck walks every page of the database. It is intentionally not
+// part of HealthCheck: probes hit that on a short interval and a full scan on
+// every request added disk IO proportional to database size. The bool reports
+// corruption found by a completed check; an error means the check could not
+// run, which is a different thing to tell an admin.
+func (d *DB) IntegrityCheck() (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return d.IntegrityCheckContext(ctx)
+}
+
+func (d *DB) IntegrityCheckContext(ctx context.Context) (bool, error) {
+	// A new handle to an in-memory path would be a different, empty database.
+	// Use the real pool for that rare case; the page walk is serialized there.
+	if d.path == ":memory:" {
+		return integrityCheckOn(ctx, d.db)
+	}
+	// The main pool has a single connection. A page walk on it would block
+	// every other query and make the 2 s health probe report the database as
+	// unhealthy, so diagnostics on a real file use their own handle.
+	return integrityCheckFile(ctx, d.path)
+}
+
+func integrityCheckFile(ctx context.Context, path string) (bool, error) {
+	// mode=rw never creates a file; the stat below also gives a clear error
+	// when the database has been deleted or unmounted. Plain sql.Open would
+	// create a fresh empty database that passes integrity_check.
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, fmt.Errorf("database integrity check failed: %w", err)
+	}
+	// SQLite treats a zero-byte file as a valid empty database. Swapping one
+	// in would pass integrity_check, then Migrate would rebuild an empty box.
+	if info.Size() == 0 {
+		return false, fmt.Errorf("%w: the database file is empty", ErrDatabaseCorrupt)
+	}
+	dsn := "file:" + url.PathEscape(path) + "?mode=rw"
+	tmp, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return false, fmt.Errorf("database integrity check failed: %w", err)
+	}
+	defer tmp.Close()
+	tmp.SetMaxOpenConns(1)
+	_, _ = tmp.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+
+	// A valid but unrelated SQLite file must not replace the live database.
+	var tables int
+	if err := tmp.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'setup_state')`).Scan(&tables); err != nil {
+		return false, integrityQueryError(err)
+	}
+	if tables < 2 {
+		return false, fmt.Errorf("%w: the database is missing its core tables", ErrDatabaseCorrupt)
+	}
+	return integrityCheckOn(ctx, tmp)
+}
+
+// ErrDatabaseCorrupt marks a file that SQLite says is damaged or is not a
+// database at all. Retrying such a check never helps; the admin needs to
+// restore a backup.
+var (
+	ErrDatabaseCorrupt = errors.New("database file is corrupt")
+	// ErrDatabaseFileMissing is returned by the cheap probe when the file has
+	// been deleted or unmounted; handlers keep the path out of public responses.
+	ErrDatabaseFileMissing = errors.New("database file is missing")
+	// ErrDatabaseUnreadable covers permissions and IO errors; restoring a
+	// backup is not the right next step for those.
+	ErrDatabaseUnreadable = errors.New("database file is unreadable")
+)
+
+func integrityQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "not a database") ||
+		strings.Contains(message, "malformed") ||
+		strings.Contains(message, "database image") ||
+		strings.Contains(message, "file is encrypted") {
+		return fmt.Errorf("%w: %v", ErrDatabaseCorrupt, err)
+	}
+	return fmt.Errorf("database integrity check failed: %w", err)
+}
+
+func integrityCheckOn(ctx context.Context, conn *sql.DB) (bool, error) {
+	var count int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master").Scan(&count); err != nil {
+		return false, integrityQueryError(err)
 	}
 
 	var integrityOk string
-	err = d.db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk)
-	if err != nil || integrityOk != "ok" {
-		return fmt.Errorf("database integrity check failed (result: %s): %v", integrityOk, err)
+	if err := conn.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityOk); err != nil {
+		return false, integrityQueryError(err)
 	}
-
-	return nil
+	if integrityOk != "ok" {
+		// The public response carries only a verdict. Keep SQLite's detail
+		// in the server log so support can see which page or table failed.
+		slog.Warn("database integrity check found damage", "result", integrityOk)
+		return true, nil
+	}
+	return false, nil
 }
 
 // CopyFile is a helper to copy a file from src to dst.

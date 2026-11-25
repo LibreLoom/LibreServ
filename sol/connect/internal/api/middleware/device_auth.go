@@ -55,9 +55,13 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Update last seen
-			_, _ = db.ExecContext(r.Context(),
-				"UPDATE devices SET last_seen_at = $1 WHERE id = $2", time.Now(), deviceID)
+			// Conditional last_seen update. Bind one Go time for both the value
+			// and the window: other writers store time.Now(), and a TIMESTAMP
+			// without time zone would otherwise drift with the session zone.
+			seenAt := time.Now()
+			_, _ = db.ExecContext(r.Context(), `
+				UPDATE devices SET last_seen_at = $2 WHERE id = $1
+				AND (last_seen_at IS NULL OR last_seen_at < $2 - interval '90 seconds')`, deviceID, seenAt)
 
 			ctx := context.WithValue(r.Context(), deviceContext{}, deviceID)
 			next.ServeHTTP(w, r.WithContext(ctx))
