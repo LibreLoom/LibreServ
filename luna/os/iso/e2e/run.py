@@ -6,7 +6,6 @@ import re
 import shutil
 import sys
 import time
-from pathlib import Path
 
 from lib import DIST, KVM, WORK, Luna, VM, check, say, sh, summary
 
@@ -1942,6 +1941,52 @@ def stage_recovery():
     vm.quit()
 
 
+def slot_fs_uuid(disk, n):
+    """The filesystem UUID ext4 recorded in partition `n`, read offline."""
+    return sh(
+        f"tune2fs -l '{disk}?offset={parts(disk)[n][0]}' 2>/dev/null | awk '/Filesystem UUID/ {{print $3}}'"
+    ).strip()
+
+
+MENU_COPIES = ("/grub/grub.cfg", "/EFI/BOOT/grub.cfg", "/EFI/BOOT/grub/grub.cfg")
+
+
+def downgrade_boot_menu(disk):
+    """Put the startup menu back to the shape 0.0.11 wrote.
+
+    That menu starts the other slot with `root=UUID=`, which needs an initramfs
+    this image does not carry (the kernel cannot find its root and panics), and
+    asks for `rootflags=ro,noatime`, which ext4 refuses for the root filesystem.
+    A box updated from 0.0.11 still has exactly that menu, so an update has to
+    replace it before it arms the other slot — otherwise the box boots the new
+    slot once, fails, and rolls back.
+    """
+    uuid_b = slot_fs_uuid(disk, 4)  # slot B is GPT partition 4
+    check("the old menu has slot B's filesystem UUID", len(uuid_b) == 36, uuid_b)
+    wrote = 0
+    for path in MENU_COPIES:
+        cfg = esp_cat(disk, path)
+        if "luna.slot=B" not in cfg:
+            continue
+        out = []
+        for line in cfg.splitlines():
+            if "luna.slot=B" in line and line.lstrip().startswith("linux "):
+                line = re.sub(r"root=PARTUUID=\S+", f"root=UUID={uuid_b}", line)
+                line = line.replace("rootflags=ro ", "rootflags=ro,noatime ")
+                out.append(line)
+                out.append("      initrd /boot/initramfs-lts")
+            else:
+                out.append(line)
+        esp_put(disk, path, "\n".join(out) + "\n")
+        wrote += 1
+    after = esp_cat(disk, "/grub/grub.cfg")
+    check(
+        "the startup menu is back to its 0.0.11 shape",
+        wrote >= 1 and "root=UUID=" in after and "noatime" in after and "initrd /boot/initramfs-lts" in after,
+        f"{wrote} copies",
+    )
+
+
 def set_grubenv(disk, **kv):
     """Write ESP/grub/grubenv offline (a fixed 1024-byte block, as grub-editenv would)."""
     body = "# GRUB Environment Block\n" + "".join(f"{k}={v}\n" for k, v in kv.items())
@@ -2240,7 +2285,9 @@ def stage_update():
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
     check("nothing executable is ever written to the data partition", "No such file" in o or "lunad" not in o, o)
 
-    # OS update to slot B
+    # OS update to slot B, from a box whose menu is still the 0.0.11 one: the
+    # update has to write a menu that starts its slot, or the box rolls back.
+    downgrade_boot_menu(g)
     good_v2 = os_image_variant("v2", {})
     publish(fv(6), key="good", os_img=good_v2)
     c, b = api_check(lu)
@@ -2253,6 +2300,23 @@ def stage_update():
     check("it is now running slot B", slot_of(vm) == "B")
     rc, o = vm.sh("cat /etc/luna-os-release")
     check("slot B holds the new OS image", "e2e-v2" in o, o)
+    rc, o = vm.sh(
+        "mkdir -p /tmp/espread && mount -o ro LABEL=LUNAESP /tmp/espread && "
+        "cat /tmp/espread/grub/grub.cfg; umount /tmp/espread && echo MENU-READ"
+    )
+    check(
+        "the update rewrote the startup menu for the new system",
+        "MENU-READ" in o and "root=PARTUUID=" in o and "initrd " not in o and "noatime" not in o,
+        o[:600],
+    )
+    # A dirty boot partition is what makes the *next* update fail: FAT turns
+    # itself read-only halfway through the menu.
+    rc, o = vm.sh(f"fsck.fat -n $(blkid -t PARTLABEL=LUNAESP -o device) || true")
+    check(
+        "the boot partition is left clean for the next update",
+        "Dirty bit" not in o and "cluster chain length is 0" not in o,
+        o[-600:],
+    )
     c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
     check("accounts and data survived the OS update", c == 200, f"{c} {b}")
     time.sleep(20)

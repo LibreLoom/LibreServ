@@ -86,6 +86,7 @@ assert_file_has "$BUILD" 'dm-crypt' "rootfs must load dm-crypt for encrypted dri
 assert_file_has "$BUILD" 'cryptsetup' "rootfs must ship cryptsetup to open encrypted drives"
 assert_file_has "$BUILD" 'fsck.exfat' "rootfs must ship fsck.exfat to repair exFAT drives after a power cut"
 assert_file_has "$BUILD" 'exfatprogs' "rootfs must ship exfatprogs (mkfs.exfat and fsck.exfat)"
+assert_file_has "$BUILD" 'dosfstools' "rootfs must ship dosfstools (fsck.fat repairs the boot partition before an update)"
 assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
 assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
 assert_file_has "$BUILD" 'hid-generic' "rootfs must load hid-generic"

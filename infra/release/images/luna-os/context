@@ -1,0 +1,5 @@
+# The luna-os image builds from the source tree: Containerfile.os is a symlink
+# to it, and it copies kernel-build.sh from beside it. podman cannot copy
+# through a symlink that leaves the build context, so the context is the
+# build directory itself.
+../../../../luna/os/build

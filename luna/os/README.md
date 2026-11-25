@@ -118,6 +118,23 @@ OS slot A (`LUNA_A`), OS slot B (`LUNA_B`), and data (`LUNA_DATA` at
 `/var/lib/luna`). GRUB tryboot selects the slot; a failed boot rolls back.
 GRUB is installed for `i386-pc` and `x86_64-efi`.
 
+The startup menu names each slot by its GPT partition UUID (`root=PARTUUID=`)
+next to the slot's filesystem UUID (`luna.fsuuid=`), and carries an `initrd`
+line only for a slot that has an initramfs. A partition UUID is per install, so
+a retired Luna disk plugged in beside the real one cannot win the lookup, and it
+survives updates because an update writes inside partitions, never the partition
+table. An update renders and writes this menu before it arms the other slot, so
+the menu always describes the software it starts.
+
+Boxes installed from the 0.0.11 image are the one exception, and it is
+deliberate: 0.0.11's lunad only ticks the tryboot counter and never renders a
+menu, so its menu stays as it was — an `initrd` line for an image with no
+initramfs and `rootflags=ro,noatime`, neither of which this kernel and ext4
+accept for a root filesystem. The new slot fails to start and the box rolls back
+to the slot it is running now, so nothing is lost, but such a box cannot take
+this release as an over-the-air update and has to be flashed again. Nothing
+older can be fixed from the old side, and there are no installed boxes yet.
+
 This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system: built
 here from Alpine's linux-lts config, upstream source, with the storage path in the
 kernel so the slot boots without an initramfs. The

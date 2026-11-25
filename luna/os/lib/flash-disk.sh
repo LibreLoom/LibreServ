@@ -42,12 +42,18 @@ _find_boot_images() {
 # Dual-slot GRUB menu with tryboot. Lives on the ESP so rewriting a slot
 # cannot erase the bootloader config. grubenv keys:
 #   luna_slot=A|B  luna_boot_ok=0|1  luna_tries=0|1|2|3
+# Slots are named by their GPT partition UUID, never by the partition label:
+# every Luna disk carries the same labels, so a retired disk plugged in beside
+# the real one could win the lookup. The filesystem UUID stays in luna.fsuuid=
+# because an update keeps each slot's UUID across a write.
 _write_grub_cfg() {
 	_cfgpath="$1"
 	_uuid_a="$2"
 	_uuid_b="$3"
-	_k="$4"
-	_i="$5"
+	_puuid_a="$4"
+	_puuid_b="$5"
+	_k="$6"
+	_i="$7"
 
 	mkdir -p "$(dirname "$_cfgpath")"
 	{
@@ -100,20 +106,20 @@ _write_grub_cfg() {
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_B luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_A luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
 		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 		echo 'menuentry "Luna (other system)" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_A luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=PARTLABEL=LUNA_B luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
+		echo "      linux /boot/${_k} root=PARTUUID=${_puuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
 		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
@@ -404,6 +410,14 @@ PART
 		echo "Could not read the Luna slot UUIDs for GRUB." >&2
 		return 1
 	fi
+	# The GPT partition UUIDs are what the kernel mounts by: random per install,
+	# unlike the partition names every Luna disk shares.
+	_puuid_a="$(blkid -s PARTUUID -o value "$_root_a")"
+	_puuid_b="$(blkid -s PARTUUID -o value "$_root_b")"
+	if [ -z "$_puuid_a" ] || [ -z "$_puuid_b" ]; then
+		echo "Could not read the Luna slot partition UUIDs for GRUB." >&2
+		return 1
+	fi
 
 	_mnt_a="$(mktemp -d /tmp/luna-a.XXXXXX)" || return 1
 	_mnt_b="$(mktemp -d /tmp/luna-b.XXXXXX)" || {
@@ -454,10 +468,10 @@ PART
 	fi
 	_k="$(printf '%s\n' "$_boot_imgs" | sed -n '1p')"
 	_i="$(printf '%s\n' "$_boot_imgs" | sed -n '2p')"
-	_write_grub_cfg "$_espmnt/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_espmnt/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
 	# Mirror onto both slots so a BIOS boot-directory fallback still works.
-	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
-	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_mnt_a/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
+	_write_grub_cfg "$_mnt_b/boot/grub/grub.cfg" "$_uuid_a" "$_uuid_b" "$_puuid_a" "$_puuid_b" "$_k" "$_i"
 	_write_grubenv "$_espmnt" A
 
 	_bios_ok=0

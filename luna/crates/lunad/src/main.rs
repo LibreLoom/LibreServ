@@ -62,32 +62,50 @@ fn block_devices() -> Vec<String> {
     names
 }
 
-/// Wait until the list of block devices holds still for `quiet`, capped by
-/// `budget`, and return how long that took.
+/// Every USB device the kernel has enumerated (hubs, sticks, keyboards): a USB
+/// stick shows up here before its block device does.
+fn usb_devices() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir("/sys/bus/usb/devices")
+        .map(|dir| {
+            dir.flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// What boot-time hardware discovery looks like at one instant.
+#[derive(Default, PartialEq, Eq, Debug, Clone)]
+struct BootDevices {
+    /// Whole disks: `/sys/block` (a stick becomes `sdb` here).
+    block: Vec<String>,
+    /// USB devices, which appear one step earlier than their disk does.
+    usb: Vec<String>,
+}
+
+fn sample_boot_devices() -> BootDevices {
+    BootDevices {
+        block: block_devices(),
+        usb: usb_devices(),
+    }
+}
+
+/// Wait until discovery holds still for `quiet`, capped by `budget`, and return
+/// how long that took.
 ///
 /// A USB stick plugged in at power-on is still being enumerated while the
 /// system boots, and the password-recovery scan below is the only look at it
-/// before the network is up. Waiting for the device list to settle gives that
-/// scan the same chance a fixed sleep did, without stalling a boot where the
-/// hardware was ready all along.
-fn wait_for_block_devices_to_settle(
+/// before the network is up. So the wait follows both lists: a stick that
+/// appears as a USB device (before it has a disk name at all) restarts the
+/// quiet clock, which is what a fixed sleep used to buy, without stalling a
+/// boot whose hardware was ready all along.
+fn wait_for_boot_devices_to_settle(
     budget: std::time::Duration,
     quiet: std::time::Duration,
 ) -> std::time::Duration {
-    let start = std::time::Instant::now();
-    let mut seen = block_devices();
-    let mut last_change = start;
-    while start.elapsed() < budget {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let now = block_devices();
-        if now != seen {
-            seen = now;
-            last_change = std::time::Instant::now();
-        } else if last_change.elapsed() >= quiet {
-            break;
-        }
-    }
-    let waited = start.elapsed();
+    let waited = settle_until_stable(budget, quiet, &mut sample_boot_devices);
     if waited > std::time::Duration::from_millis(200) {
         tracing::info!(
             seconds = waited.as_secs_f32(),
@@ -95,6 +113,30 @@ fn wait_for_block_devices_to_settle(
         );
     }
     waited
+}
+
+/// The polling loop behind the wait, with the sampler passed in so a test can
+/// invent a stick that arrives late.
+fn settle_until_stable(
+    budget: std::time::Duration,
+    quiet: std::time::Duration,
+    sample: &mut dyn FnMut() -> BootDevices,
+) -> std::time::Duration {
+    const POLL: std::time::Duration = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+    let mut seen = sample();
+    let mut last_change = start;
+    while start.elapsed() < budget {
+        std::thread::sleep(POLL.min(budget.saturating_sub(start.elapsed())));
+        let now = sample();
+        if now != seen {
+            seen = now;
+            last_change = std::time::Instant::now();
+        } else if last_change.elapsed() >= quiet {
+            break;
+        }
+    }
+    start.elapsed()
 }
 
 async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
@@ -159,9 +201,10 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
     // USB sticks need a couple of seconds after power-on to show up, and this
     // is the only look at them before the password-recovery stick scan below
     // (it runs once, before the network is up). Give the kernel until 8 seconds
-    // of uptime at most, and stop as soon as the device list stops growing, so
-    // a boot whose hardware is already settled does not wait for the cap.
-    let usb_wait = wait_for_block_devices_to_settle(
+    // of uptime at most, and stop as soon as nothing new is being found — a USB
+    // device counts, so a stick still being enumerated holds the wait open past
+    // the quiet window rather than being missed.
+    let usb_wait = wait_for_boot_devices_to_settle(
         time_until_uptime(8.0),
         std::time::Duration::from_millis(2500),
     );
@@ -1040,4 +1083,67 @@ async fn shutdown_signal() {
         }
     }
     let _ = ctrl_c.await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn devices(block: &[&str], usb: &[&str]) -> BootDevices {
+        BootDevices {
+            block: block.iter().map(|s| s.to_string()).collect(),
+            usb: usb.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    /// Nothing new ever appears: the wait ends one quiet window in, not at the
+    /// cap, so a settled boot stays fast.
+    #[test]
+    fn settle_stops_at_the_quiet_window_when_nothing_appears() {
+        let quiet = Duration::from_millis(200);
+        let budget = Duration::from_millis(3000);
+        let mut seen = devices(&["sda"], &["usb1"]);
+        let waited = settle_until_stable(budget, quiet, &mut || seen.clone());
+        assert!(waited >= quiet, "{waited:?}");
+        assert!(waited < Duration::from_millis(1000), "{waited:?}");
+        seen.block.clear();
+    }
+
+    /// A slow USB stack is still enumerating: the disk appears a second after
+    /// the first quiet window would have ended, and the wait must catch it.
+    #[test]
+    fn settle_keeps_waiting_while_usb_discovery_is_still_running() {
+        let quiet = Duration::from_millis(400);
+        let budget = Duration::from_millis(3000);
+        let start = std::time::Instant::now();
+        let waited = settle_until_stable(budget, quiet, &mut || {
+            let t = start.elapsed();
+            if t > Duration::from_millis(500) {
+                // The stick's disk has a name.
+                devices(&["sda", "sdb"], &["usb1", "1-1"])
+            } else if t > Duration::from_millis(200) {
+                // The stick is a USB device but has no disk yet.
+                devices(&["sda"], &["usb1", "1-1"])
+            } else if t > Duration::from_millis(100) {
+                devices(&["sda"], &["usb1"])
+            } else {
+                devices(&[], &[])
+            }
+        });
+        assert!(waited >= Duration::from_millis(500), "{waited:?}");
+        assert!(waited < budget, "{waited:?}");
+    }
+
+    /// Never longer than the budget, however much is happening.
+    #[test]
+    fn settle_never_runs_past_the_budget() {
+        let budget = Duration::from_millis(400);
+        let mut n = 0;
+        let waited = settle_until_stable(budget, Duration::from_millis(250), &mut || {
+            n += 1;
+            devices(&["sda"], &[format!("usb{n}").as_str()])
+        });
+        assert!(waited <= budget + Duration::from_millis(200), "{waited:?}");
+    }
 }

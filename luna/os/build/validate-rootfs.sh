@@ -38,7 +38,7 @@ done
 chroot "$ROOTFS" /bin/sh -eu -c '
     for b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk \
         partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout \
-        logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm \
+        logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat fsck.fat pdftotext pdftoppm \
         tesseract fstrim findfs lsblk mount umount reboot; do
         command -v "$b" || exit 1
     done

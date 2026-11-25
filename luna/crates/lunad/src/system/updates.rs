@@ -308,7 +308,14 @@ impl Installer for DataDirInstaller {
         let (_, inactive) = inactive_slot_device()?;
         activate_prepared_image(
             || self.mark_os_pending(hash, version),
-            || set_tryboot_slot(inactive),
+            || {
+                // The startup menu goes in first. An update from a box whose
+                // menu still describes the older boot scheme (an initrd line
+                // for an image without an initramfs, noatime in rootflags)
+                // would write the new slot and then never start it.
+                write_boot_menu()?;
+                set_tryboot_slot(inactive)
+            },
         )
     }
 
@@ -914,6 +921,59 @@ fn set_tryboot_slot(slot: char) -> Result<(), UpdateError> {
     })
 }
 
+/// Rewrite the startup menu for both slots before an update is armed.
+///
+/// Same renderer as the installer, so the menu always names the software it
+/// starts: partition UUIDs (not the labels every Luna disk shares), the
+/// read-only root flag ext4 accepts, and an initrd line only on a slot that
+/// has one.
+fn write_boot_menu() -> Result<(), UpdateError> {
+    use crate::system::boot_menu::{self, SlotEntry};
+    let slot_entry = |letter: char| -> Result<SlotEntry, UpdateError> {
+        let dev = resolve_partlabel(&format!("LUNA_{letter}")).ok_or_else(|| {
+            UpdateError::Other(
+                "Luna couldn't find both operating-system slots, so the update was not activated."
+                    .into(),
+            )
+        })?;
+        Ok(SlotEntry {
+            letter,
+            fs_uuid: read_ext4_uuid(&dev)?,
+            part_uuid: read_partuuid(&dev)?,
+        })
+    };
+    let a = slot_entry('A')?;
+    let b = slot_entry('B')?;
+    let boot = Path::new("/boot");
+    let kernel = boot_menu::kernel_name(boot).ok_or_else(|| {
+        UpdateError::Other(
+            "Luna couldn't find its own kernel, so the update was not activated.".into(),
+        )
+    })?;
+    let initrd = boot_menu::initrd_name(boot);
+    let menu = boot_menu::render(&a, &b, &kernel, initrd.as_deref());
+    let esp = find_esp_mount_or_temp()?;
+    tracing::info!(esp = %esp.path.display(), tmp = esp.tmp, "wrote startup menu");
+    boot_menu::write_to_esp(&esp.path, &menu)
+}
+
+/// GPT partition UUID of a block device, the form `root=PARTUUID=` takes.
+fn read_partuuid(dev: &Path) -> Result<String, UpdateError> {
+    let out = Command::new("blkid")
+        .args(["-o", "value", "-s", "PARTUUID"])
+        .arg(dev)
+        .output()
+        .map_err(update_io)?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || id.len() != 36 {
+        return Err(UpdateError::Other(
+            "Luna couldn't identify its operating-system slots, so the update was not activated."
+                .into(),
+        ));
+    }
+    Ok(id)
+}
+
 fn tryboot_settings(slot: char) -> [String; 3] {
     [
         format!("luna_slot={slot}"),
@@ -929,12 +989,29 @@ struct EspGuard {
 
 impl Drop for EspGuard {
     fn drop(&mut self) {
-        if self.tmp {
-            let _ = crate::sandbox::hardened_tool("umount")
-                .arg(&self.path)
-                .status();
-            let _ = std::fs::remove_dir(&self.path);
+        if !self.tmp {
+            return;
         }
+        // An update reboots the box moments after this. A boot partition left
+        // mounted, or unmounted before its writes reached the card, comes back
+        // with the new menu's cluster chain half-committed (FAT says the file
+        // owns no clusters) and its dirty bit set; the next update then cannot
+        // write the partition at all.
+        unsafe { libc::sync() };
+        let unmount = |extra: Option<&str>| {
+            let mut cmd = crate::sandbox::hardened_tool("umount");
+            if let Some(extra) = extra {
+                cmd.arg(extra);
+            }
+            cmd.arg(&self.path)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if !unmount(None) && !unmount(Some("-l")) {
+            tracing::warn!(path = %self.path.display(), "could not unmount the boot partition");
+        }
+        let _ = std::fs::remove_dir(&self.path);
     }
 }
 
@@ -982,6 +1059,32 @@ fn find_esp_mount_or_temp() -> Result<EspGuard, UpdateError> {
         UpdateError::Other("Luna couldn't find the boot partition for the update.".into())
     })?;
     ensure_on_boot_disk(&dev)?;
+    // The boot partition is FAT, and FAT gives up on a chain it cannot follow:
+    // a card pulled mid-update leaves it dirty, the kernel marks the whole
+    // partition read-only partway through the new menu, and every later update
+    // fails. Repair it before writing — the menu is rewritten from scratch.
+    match crate::sandbox::hardened_tool("fsck.fat")
+        .arg("-a")
+        .arg(&dev)
+        .output()
+    {
+        Ok(out) => {
+            // 0 = nothing wrong, 1 = errors corrected.
+            if !matches!(out.status.code(), Some(0) | Some(1)) {
+                tracing::warn!(
+                    device = %dev.display(), code = out.status.code(),
+                    out = %String::from_utf8_lossy(&out.stdout).trim(),
+                    "could not repair the boot partition"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                device = %dev.display(), error = %e,
+                "could not run the boot partition repair"
+            )
+        }
+    }
     let tmp = std::env::temp_dir().join(format!("luna-esp-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| UpdateError::Other(e.to_string()))?;
     let status = crate::sandbox::hardened_tool("mount")

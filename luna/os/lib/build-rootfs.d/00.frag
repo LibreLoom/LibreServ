@@ -48,7 +48,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     alpine-base openrc linux-lts kmod \
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
     avahi acpid \
-    e2fsprogs e2fsprogs-extra exfatprogs \
+    e2fsprogs e2fsprogs-extra exfatprogs dosfstools \
     cryptsetup device-mapper \
     smartmontools syslinux util-linux \
     grub \
@@ -65,9 +65,10 @@ done
 # the update fails after the new system is already written. cryptsetup and
 # mkfs.ext4 build and open encrypted drives (a Luna without them cannot unlock
 # a drive it already owns); mkfs.exfat and fsck.exfat make plain drives and
-# repair them after a power cut (exFAT has no journal). pdftotext, pdftoppm and
-# tesseract let search read PDFs, scans and screenshots.
-for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm tesseract; do
+# repair them after a power cut (exFAT has no journal); fsck.fat does the same
+# for the boot partition before an update writes the startup menu. pdftotext,
+# pdftoppm and tesseract let search read PDFs, scans and screenshots.
+for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat fsck.fat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm tesseract; do
     _have=0
     for _d in sbin usr/sbin bin usr/bin; do
         if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi

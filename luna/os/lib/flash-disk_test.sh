@@ -22,6 +22,16 @@ assert_has() {
 	fi
 }
 
+assert_file_lacks() {
+	_file="$1"
+	_pat="$2"
+	_msg="$3"
+	if grep -q "$_pat" "$_file"; then
+		echo "FAIL $_msg: unexpected '$_pat' in $_file" >&2
+		fail=$((fail + 1))
+	fi
+}
+
 assert_true() {
 	if ! "$@"; then
 		echo "FAIL expected true: $*" >&2
@@ -44,10 +54,15 @@ mkdir -p "$_tmp/grub"
 _write_grub_cfg "$_tmp/grub/grub.cfg" \
 	'11111111-2222-3333-4444-555555555555' \
 	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	'99999999-8888-7777-6666-555555555555' \
+	'77777777-6666-5555-4444-333333333333' \
 	vmlinuz-lts initramfs-lts
 assert_has "$_tmp/grub/grub.cfg" 'menuentry "Luna"' "grub.cfg needs Luna menuentry"
 assert_has "$_tmp/grub/grub.cfg" 'search_fs_uuid' "grub.cfg must search by UUID"
-assert_has "$_tmp/grub/grub.cfg" 'root=PARTLABEL=LUNA_A' "grub.cfg must start slot A by its partition label"
+# Partition labels are shared by every Luna disk; the partition UUID is not.
+assert_has "$_tmp/grub/grub.cfg" 'root=PARTUUID=99999999-8888-7777-6666-555555555555' "grub.cfg must start slot A by its partition UUID"
+assert_has "$_tmp/grub/grub.cfg" 'root=PARTUUID=77777777-6666-5555-4444-333333333333' "grub.cfg must start slot B by its partition UUID"
+assert_file_lacks "$_tmp/grub/grub.cfg" 'root=PARTLABEL=' "grub.cfg must not start a slot by the label every Luna disk shares"
 assert_has "$_tmp/grub/grub.cfg" 'luna.fsuuid=11111111-2222-3333-4444-555555555555' "grub.cfg must record slot A's filesystem ID for the updater"
 assert_has "$_tmp/grub/grub.cfg" 'luna.fsuuid=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' "grub.cfg must record slot B's filesystem ID for the updater"
 assert_has "$_tmp/grub/grub.cfg" 'initrd /boot/initramfs-lts' "grub.cfg must pass an initramfs when the slot has one"
@@ -64,19 +79,23 @@ mkdir -p "$_esptmp/grub"
 _write_grub_cfg "$_esptmp/grub/grub.cfg" \
 	'11111111-2222-3333-4444-555555555555' \
 	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	'99999999-8888-7777-6666-555555555555' \
+	'77777777-6666-5555-4444-333333333333' \
 	vmlinuz-lts initramfs-lts
 _write_efi_grub_cfg "$_esptmp"
 assert_has "$_esptmp/EFI/BOOT/grub.cfg" 'menuentry "Luna"' "after shared cfg exists, EFI/BOOT/grub.cfg must be the full menu (grub-install prefix)"
 assert_has "$_tmp/grub/grub.cfg" 'search --no-floppy --file --set=esp /grub/grubenv' "shared grub.cfg must find ESP by grubenv file"
 
-# A slot image without an initramfs boots straight from the partition label.
+# A slot image without an initramfs boots straight from the partition UUID.
 rm -f "$_tmp/boot/initramfs-lts"
 _write_grub_cfg "$_tmp/grub/grub.cfg.nokern" \
 	'11111111-2222-3333-4444-555555555555' \
 	'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' \
+	'99999999-8888-7777-6666-555555555555' \
+	'77777777-6666-5555-4444-333333333333' \
 	vmlinuz-lts ''
 assert_false grep -q 'initrd ' "$_tmp/grub/grub.cfg.nokern"
-assert_has "$_tmp/grub/grub.cfg.nokern" 'root=PARTLABEL=LUNA_A' "a slot without an initramfs still starts by label"
+assert_has "$_tmp/grub/grub.cfg.nokern" 'root=PARTUUID=99999999-8888-7777-6666-555555555555' "a slot without an initramfs still starts by partition UUID"
 
 if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
 	_install_grub_modules "$_tmp/grub" x86_64-efi
@@ -85,15 +104,6 @@ if [ -f /usr/lib/grub/x86_64-efi/ext2.mod ]; then
 		fail=$((fail + 1))
 	}
 fi
-assert_file_lacks() {
-	_file="$1"
-	_pat="$2"
-	_msg="$3"
-	if grep -q "$_pat" "$_file"; then
-		echo "FAIL $_msg: unexpected '$_pat' in $_file" >&2
-		fail=$((fail + 1))
-	fi
-}
 assert_file_lacks "$_tmp/grub/grub.cfg" 'insmod ext4' "grub.cfg must use ext2.mod, not ext4"
 # Mounted-disk guard: flash_luna_disk refuses any device whose whole node or
 # partitions appear mounted. A full trigger needs a real block device (root),
