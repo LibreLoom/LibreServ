@@ -16,6 +16,10 @@
     "ok": "boolean",
     "trash_path": "string"
   },
+  "DELETE /api/v1/forms/responses": {
+    "ok": "boolean",
+    "revision": "number"
+  },
   "DELETE /api/v1/photos/albums/{home}/{id}/items": {
     "ok": "boolean"
   },
@@ -42,7 +46,8 @@
     "trash_path": "string"
   },
   "DELETE /s/{token}/responses": {
-    "ok": "boolean"
+    "ok": "boolean",
+    "revision": "number"
   },
   "GET /api/v1/access/mine": {
     "sharing": [
@@ -181,9 +186,14 @@
       }
     ]
   },
+  "GET /api/v1/auth/status": {
+    "connect_active": "boolean",
+    "has_admin": "boolean"
+  },
   "GET /api/v1/backups": [
     {
       "can_delete": "boolean",
+      "can_resume": "boolean",
       "covered_by": {
         "$oneOf": [
           "null",
@@ -207,13 +217,16 @@
       "running": "boolean",
       "source_drive": "string",
       "source_drive_name": "string",
+      "source_missing": "boolean",
       "source_name": "string",
       "source_path": "string",
       "state": "string",
       "status": "string",
       "stop_reason": "string",
       "target_drive": "string",
-      "target_drive_name": "string"
+      "target_drive_name": "string",
+      "waiting_reason": "null",
+      "waiting_since": "null"
     }
   ],
   "GET /api/v1/cloud/backups": [
@@ -228,6 +241,7 @@
       "last_checked_at": "number",
       "last_error": "string",
       "last_ok_at": "number",
+      "locked_drive_names": [],
       "moving": "null",
       "next_check": "number",
       "notes": [],
@@ -240,6 +254,7 @@
           }
         ]
       },
+      "paused": "null",
       "private": "boolean",
       "running": "boolean",
       "size": "number",
@@ -250,7 +265,9 @@
       "source_path": "string",
       "state": "string",
       "status": "string",
-      "stop_reason": "string"
+      "stop_reason": "string",
+      "waiting_reason": "null|string",
+      "waiting_since": "null|number"
     }
   ],
   "GET /api/v1/cloud/phrase": {
@@ -286,19 +303,6 @@
       }
     ]
   },
-  "GET /api/v1/cloud/restore": {
-    "cloud_snapshots": "number",
-    "indexed_snapshots": "number",
-    "luna_id": "null",
-    "needed": "boolean",
-    "signing_public": "null"
-  },
-  "GET /api/v1/cloud/restore-private": {
-    "luna_id": "null",
-    "needed": "boolean",
-    "scopes": "number",
-    "signing_public": "null"
-  },
   "GET /api/v1/connect/status": {
     "backup_sources": [],
     "backup_unlocked": "boolean",
@@ -310,6 +314,7 @@
     "domain": "null",
     "enabled": "boolean",
     "hostname": "null",
+    "lan_override": "boolean",
     "paired": "boolean",
     "subdomain": "null",
     "tunnel_active": "boolean",
@@ -463,16 +468,51 @@
     "used_bytes": "null|number"
   },
   "GET /api/v1/forms/responses": {
-    "responses": [
+    "count?": "number",
+    "next_offset?": "null",
+    "responses?": [
       {
         "answers": {
           "q_1": "string"
         },
         "at": "number",
         "id": "string",
-        "sent_at": "number"
+        "sent_at": "number",
+        "v": "number"
       }
-    ]
+    ],
+    "revision?": "number",
+    "total?": "number"
+  },
+  "GET /api/v1/forms/summary": {
+    "questions": [
+      {
+        "answered": "number",
+        "id": "string",
+        "values": [
+          {
+            "count": "number",
+            "value": "string"
+          }
+        ]
+      }
+    ],
+    "total": "number"
+  },
+  "GET /api/v1/forms/usage": {
+    "free_bytes": "number",
+    "quota_bytes": "number",
+    "used_bytes": "number"
+  },
+  "GET /api/v1/health": {
+    "api": {
+      "oldest_supported": "number",
+      "version": "number"
+    },
+    "product": "string",
+    "status": "string",
+    "uptime_seconds": "number",
+    "version": "string"
   },
   "GET /api/v1/jobs": [
     {
@@ -608,9 +648,153 @@
     "name": "string",
     "setup_completed": "boolean",
     "step_data": {
-      "network_connected": "boolean",
+      "network_connected?": "boolean",
       "preflight_passed?": "boolean"
     }
+  },
+  "GET /api/v1/setup/preflight": {
+    "checks": {
+      "clock": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "data_path_writable": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "database": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "diagram_pack": {
+        "category": "string",
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "disk_space": {
+        "category": "string",
+        "details": {
+          "free_bytes": "number",
+          "free_human": "string"
+        },
+        "message": "string",
+        "status": "string"
+      },
+      "drive_tools": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "heic_tools": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "logs_path_writable": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "meaning_search": {
+        "category": "string",
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "network": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "ntfs_support": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "office_pack": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "photo_search": {
+        "category": "string",
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "search_inside": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "smart_tool": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "trim_tool": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "update_signing": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      },
+      "video_tools": {
+        "category": "string",
+        "details": {
+          "missing": [
+            "string"
+          ]
+        },
+        "message": "string",
+        "more": "string",
+        "status": "string"
+      },
+      "whiteboard": {
+        "category": "string",
+        "message": "string",
+        "status": "string"
+      }
+    },
+    "healthy": "boolean",
+    "timestamp": "number"
   },
   "GET /api/v1/system/health/check": {
     "checks": {
@@ -888,7 +1072,7 @@
   },
   "GET /s/{token}/responses": {
     "count?": "number",
-    "notice?": "string",
+    "next_offset?": "null|number",
     "responses?": [
       {
         "answers": {
@@ -897,9 +1081,11 @@
         "at": "number",
         "id": "string",
         "sent_at": "number",
-        "v?": "number"
+        "v": "number"
       }
-    ]
+    ],
+    "revision?": "number",
+    "total?": "number"
   },
   "GET /s/{token}/stat": {
     "children": {
@@ -970,9 +1156,39 @@
     "username": "string",
     "warning": "string"
   },
+  "POST /api/v1/backups/{id}/resume": {
+    "can_delete": "boolean",
+    "can_resume": "boolean",
+    "covered_by": "null",
+    "created_by": "string",
+    "first_done": "boolean",
+    "hard": "boolean",
+    "id": "string",
+    "kind": "string",
+    "last_error": "string",
+    "last_ok_at": "number",
+    "locked_drive_names": [],
+    "notes": [],
+    "paused": "null",
+    "private": "boolean",
+    "running": "boolean",
+    "source_drive": "string",
+    "source_drive_name": "string",
+    "source_missing": "boolean",
+    "source_name": "string",
+    "source_path": "string",
+    "state": "string",
+    "status": "string",
+    "stop_reason": "string",
+    "target_drive": "string",
+    "target_drive_name": "string",
+    "waiting_reason": "null",
+    "waiting_since": "null"
+  },
   "POST /api/v1/backups/{id}/run": {
     "done": "boolean",
-    "problem": "string"
+    "problem": "string",
+    "source_missing?": "boolean"
   },
   "POST /api/v1/cloud/backups": {
     "can_delete": "boolean",
@@ -985,10 +1201,12 @@
     "last_checked_at": "number",
     "last_error": "string",
     "last_ok_at": "number",
+    "locked_drive_names": [],
     "moving": "null",
     "next_check": "number",
     "notes": [],
     "old_phrase_copies": "null",
+    "paused": "null",
     "private": "boolean",
     "running": "boolean",
     "size": "number",
@@ -999,7 +1217,9 @@
     "source_path": "string",
     "state": "string",
     "status": "string",
-    "stop_reason": "string"
+    "stop_reason": "string",
+    "waiting_reason": "null",
+    "waiting_since": "null"
   },
   "POST /api/v1/cloud/backups/{id}/check": {
     "done": "boolean",
@@ -1021,6 +1241,9 @@
   },
   "POST /api/v1/connect/device-token": {
     "message": "string",
+    "ok": "boolean"
+  },
+  "POST /api/v1/connect/unbind": {
     "ok": "boolean"
   },
   "POST /api/v1/device-tokens": {
@@ -1220,7 +1443,8 @@
   "POST /s/{token}/respond": {
     "edit_token": "null|string",
     "id": "string",
-    "ok": "boolean"
+    "ok": "boolean",
+    "revision": "number"
   },
   "POST /s/{token}/respond-file": {
     "name": "string",
@@ -1244,6 +1468,10 @@
     "resealing": "boolean",
     "set": "boolean",
     "set_at": "number"
+  },
+  "PUT /api/v1/forms/sqlite": {
+    "ok": "boolean",
+    "revision": "number"
   },
   "PUT /api/v1/system/updates/source": {
     "channel": "string",

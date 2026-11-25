@@ -86,13 +86,14 @@ assert_file_has "$BUILD" 'dm-crypt' "rootfs must load dm-crypt for encrypted dri
 assert_file_has "$BUILD" 'cryptsetup' "rootfs must ship cryptsetup to open encrypted drives"
 assert_file_has "$BUILD" 'fsck.exfat' "rootfs must ship fsck.exfat to repair exFAT drives after a power cut"
 assert_file_has "$BUILD" 'exfatprogs' "rootfs must ship exfatprogs (mkfs.exfat and fsck.exfat)"
+assert_file_has "$BUILD" 'dosfstools' "rootfs must ship dosfstools (fsck.fat repairs the boot partition before an update)"
 assert_file_has "$BUILD" 'luna-input-up' "rootfs must ship keyboard / HID bring-up script"
 assert_file_has "$BUILD" 'usbhid' "rootfs must load usbhid for USB keyboards"
 assert_file_has "$BUILD" 'hid-generic' "rootfs must load hid-generic"
 assert_file_has "$BUILD" 'evdev' "rootfs must load evdev for /dev/input/event*"
 assert_file_has "$BUILD" 'atkbd' "rootfs must load atkbd for PS/2 keyboards"
-assert_file_has "$BUILD" ' alpine-base openrc linux-lts kmod ' \
-	"rootfs must install kmod so gzipped .ko.gz modules load"
+assert_file_has "$BUILD" ' alpine-base openrc linux-lts mkinitfs kmod ' \
+	"rootfs must install mkinitfs and kmod for the storage initramfs"
 assert_file_has "$BUILD" 'linux-firmware-none' \
 	"rootfs must use linux-firmware-none instead of the full firmware meta package"
 assert_file_has "$BUILD" 'virtio_net' \
@@ -178,8 +179,8 @@ assert_file_has "$ROOT/os/build/image.sh" 'zstd -"\$ZSTD_LEVEL"' \
 	"image.sh must compress the slot image with zstd"
 
 FLASH="$ROOT/os/lib/flash-disk.sh"
-assert_file_has "$FLASH" 'rootflags=ro,noatime' \
-	"installed kernel cmdline must mount OS slots read-only with noatime"
+assert_file_has "$FLASH" 'rootflags=ro panic=10 quiet' \
+	"installed kernel cmdline must mount OS slots read-only"
 assert_file_has "$FLASH" 'LUNA_A' \
 	"flash must create OS slot A"
 assert_file_has "$FLASH" 'LUNA_B' \
@@ -188,6 +189,8 @@ assert_file_has "$FLASH" 'LUNA_DATA' \
 	"flash must create the data partition"
 assert_file_has "$FLASH" 'luna_boot_ok' \
 	"flash GRUB must implement tryboot rollback"
+assert_file_has "$FLASH" 'has no storage initramfs' \
+	"flash must reject an image that cannot resolve root=UUID"
 
 # Only flag an apk install of the meta package, not comments mentioning it.
 if grep -E 'apk add' "$BUILD" | grep -qE '(^|[[:space:]])linux-firmware([[:space:]]|$)'; then
@@ -204,6 +207,30 @@ if ! grep -q 'hwdrivers' "$BUILD"; then
 	echo "FAIL: hwdrivers must be enabled so cold-plugged keyboards bind at boot" >&2
 	exit 1
 fi
+
+# 06.frag replaces the apk kernel, builds a storage-only initramfs from that
+# kernel's modules, and only then trims runtime modules. The initramfs is what
+# keeps broad root-disk support.
+assert_file_has "$BUILD" 'cp /kout/vmlinuz-lts "$ROOTFS/boot/vmlinuz-lts"' \
+	"rootfs must ship the kernel built with the boot storage path in it"
+assert_file_has "$BUILD" 'chroot "$ROOTFS" /sbin/mkinitfs' \
+	"rootfs must build an initramfs for the custom kernel"
+assert_file_has "$BUILD" 'base ata ext4 mmc nvme raid scsi usb virtio luna-storage' \
+	"the initramfs must carry broad root-storage support"
+assert_file_has "$BUILD" 'kernel/drivers/block/\*' \
+	"the initramfs must include PCIe block controllers such as mtip32xx"
+assert_file_has "$BUILD" 'kernel/drivers/firewire/\*' \
+	"the initramfs must include FireWire storage"
+assert_file_has "$BUILD" 'depmod -b "$ROOTFS" -a "$KV"' \
+	"rootfs must rewrite the module index after trimming drivers"
+assert_file_lacks "$BUILD" 'fs/erofs' \
+	"runtime modules must keep EROFS support for read-only drives"
+assert_file_lacks "$BUILD" 'fs/f2fs' \
+	"runtime modules must keep F2FS support"
+assert_file_has "$ROOT/os/build/validate-rootfs.sh" 'for _driver in aacraid hpsa megaraid_sas mpt3sas vmw_pvscsi smartpqi mtip32xx firewire-sbp2' \
+	"image validation must prove the initramfs carries broad root-storage drivers"
+assert_file_has "$ROOT/os/lib/host-podman.sh" 'refresh=%s' \
+	"a requested package refresh must also invalidate the cached kernel image"
 
 # cloudflared must be checked against its pinned SHA-256, on download and on
 # every cache hit; a bad cache entry is deleted.

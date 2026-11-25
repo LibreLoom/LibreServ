@@ -569,7 +569,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             ref={exitButtonRef}
             type="button"
             /* color-scan: ignore-next-line cinema ghost exit button */
-            className="absolute top-4 right-4 md:top-6 md:right-6 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-white/10 text-white hover:bg-white/20 active:bg-white/30 motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black no-focus-outline"
+            className="absolute top-4 right-4 md:top-6 md:right-6 z-10 flex h-10 w-10 items-center justify-center rounded-pill bg-white/10 text-white hover:bg-white/20 active:bg-white/30 motion-safe:transition-[background-color,scale] focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black no-focus-outline"
             onClick={() => {
               haptic("light");
               setExpanded(false);

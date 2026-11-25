@@ -60,10 +60,44 @@ describe("SqliteGrid", () => {
 
   it("adds rows and columns from inside the grid", () => {
     const { props } = mount();
-    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    const addRow = screen.getByRole("button", { name: "Add row" });
+    expect(addRow).toHaveAttribute("data-variant", "ghost");
+    fireEvent.click(addRow);
     expect(props.onAddRow).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    const addColumn = screen.getByRole("button", { name: "Add column" });
+    expect(addColumn).toHaveAttribute("data-variant", "outline");
+    fireEvent.click(addColumn);
     expect(props.onAddColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it("outlines Add row under a No rows yet heading", () => {
+    const { props } = mount({ rows: [], total: 0 });
+    const note = screen.getByRole("heading", { name: "No rows yet." });
+    expect(note).toHaveClass("font-mono");
+    const add = screen.getByRole("button", { name: "Add row" });
+    expect(add).toHaveAttribute("data-variant", "outline");
+    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+    expect(
+      note.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(add);
+    expect(props.onAddRow).toHaveBeenCalledTimes(1);
+  });
+
+  it("says No rows without an Add row when the table is read-only", () => {
+    mount({ rows: [], total: 0, canWrite: false });
+    expect(screen.getByText("No rows.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add row" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps Add row below an empty page of a table that has rows", () => {
+    mount({ rows: [], total: 5, page: 2 });
+    expect(screen.getByText("No rows on this page.")).toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add row" });
+    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1);
+    expect(add).toHaveAttribute("data-variant", "ghost");
   });
 
   it("shows no row or column actions when the table is read-only", () => {

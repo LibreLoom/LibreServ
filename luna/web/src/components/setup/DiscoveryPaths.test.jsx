@@ -50,7 +50,7 @@ describe("DiscoveryPaths", () => {
       "fetch",
       stubFetch({
         network: { ipv4: ["192.168.1.118"] },
-        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true },
+        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true, lan_override: true },
       }),
     );
     renderPaths();
@@ -90,6 +90,7 @@ describe("DiscoveryPaths", () => {
           hostname: "kitchen.luna.servers.libreloom.org",
           enabled: false,
           device_token_error: "Connect did not accept this device token.",
+          lan_override: true,
         },
       }),
     );
@@ -97,5 +98,19 @@ describe("DiscoveryPaths", () => {
     expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();
     expect(screen.queryByText("From anywhere (when Luna Connect is on):")).toBeNull();
     expect(screen.queryByRole("link", { name: "kitchen.luna.servers.libreloom.org" })).toBeNull();
+  });
+
+  it("hides local addresses while Connect is on without the LAN override", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubFetch({
+        network: { ipv4: ["192.168.1.20"] },
+        connect: { hostname: "kitchen.luna.servers.libreloom.org", enabled: true },
+      }),
+    );
+    renderPaths();
+    expect(await screen.findByText("From anywhere (when Luna Connect is on):")).toBeTruthy();
+    expect(screen.queryByText("On your local network:")).toBeNull();
+    expect(screen.queryByRole("link", { name: "192.168.1.20" })).toBeNull();
   });
 });

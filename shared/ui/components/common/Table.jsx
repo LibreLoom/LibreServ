@@ -40,16 +40,16 @@ const ALIGN = {
 };
 
 const ROW_SLIDE =
-  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0";
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99]";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CARD_SLIDE =
-  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99] hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]";
 // color-scan: ignore-next-line mixes theme CSS vars only (no hardcoded hex)
 const CARD_SLIDE_PRIMARY =
-  "cursor-pointer motion-safe:transition-[translate,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0 hover:bg-[color-mix(in_oklab,var(--primary)_85%,var(--secondary))]";
+  "cursor-pointer motion-safe:transition-[translate,scale,background-color] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:scale-[0.99] hover:bg-[color-mix(in_oklab,var(--primary)_85%,var(--secondary))]";
 
 /**
  * Mobile cards normally sit on the page (a secondary card on a primary

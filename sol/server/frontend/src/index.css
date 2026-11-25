@@ -5,6 +5,24 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Press feedback: every button scales down where it sits and never moves.
+   :where keeps the specificity at zero, so a component's own scale utility
+   (Button's 95%, rows at 99%) still wins; the base transition only smooths
+   buttons that bring no transition of their own. A drag handle or a
+   full-screen backdrop opts out with data-no-press-scale. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    :where(button:not([data-no-press-scale]), [role="button"]:not([data-no-press-scale])) {
+      transition-property: scale;
+      transition-duration: var(--motion-duration-short2);
+      transition-timing-function: var(--motion-easing-standard);
+    }
+    :where(button:not([data-no-press-scale]):not(:disabled):active, [role="button"]:not([data-no-press-scale]):not([aria-disabled="true"]):active) {
+      scale: 95%;
+    }
+  }
+}
+
 /* Load FreeMono font locally */
 @font-face {
   font-family: 'FreeMono';

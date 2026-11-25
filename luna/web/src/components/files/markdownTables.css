@@ -200,7 +200,7 @@ thead .md-table-cell {
 }
 
 .md-table-add:active {
-  transform: scale(0.94);
+  scale: 0.94;
 }
 
 .md-table-add-col {

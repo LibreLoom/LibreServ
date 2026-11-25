@@ -324,3 +324,66 @@ func TestExportCleansUp(t *testing.T) {
 		}
 	}
 }
+
+// An image may build from a context outside its own dir (luna-os builds from
+// luna/os/build, which the Containerfile copies from). The context is hashed
+// too, so an edited script inside it rebuilds the image.
+func TestLoadImageContext(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "Containerfile.os"), []byte("FROM scratch\nCOPY run.sh /run.sh\n"), 0o644)
+	os.WriteFile(filepath.Join(src, "run.sh"), []byte("echo one\n"), 0o644)
+	dir := filepath.Join(root, "images", "os")
+	os.MkdirAll(dir, 0o755)
+	if err := os.Symlink(filepath.Join(src, "Containerfile.os"), filepath.Join(dir, "Containerfile")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Comments and blank lines are for the reader: the path is the only
+	// non-comment line, and a comment must not end up in the build context.
+	os.WriteFile(filepath.Join(dir, ContextFile), []byte("# the source tree\n\n../../src\n"), 0o644)
+
+	img, err := LoadImage(filepath.Join(root, "images"), "os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(img.Context) != filepath.Clean(src) {
+		t.Fatalf("context %q, want %q", img.Context, src)
+	}
+	h1 := img.Hash
+	os.WriteFile(filepath.Join(src, "run.sh"), []byte("echo two\n"), 0o644)
+	img2, err := LoadImage(filepath.Join(root, "images"), "os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img2.Hash == h1 {
+		t.Fatal("a change in the context must change the image hash")
+	}
+	// No context file: the image dir is the context, and an absolute path in
+	// the hash would make the tag depend on where the checkout lives.
+	os.Remove(filepath.Join(dir, ContextFile))
+	img3, err := LoadImage(filepath.Join(root, "images"), "os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(img3.Context) != filepath.Clean(dir) {
+		t.Fatalf("context %q, want the image dir", img3.Context)
+	}
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, "images", "os"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Symlink(filepath.Join(src, "Containerfile.os"), filepath.Join(other, "images", "os", "Containerfile"))
+	same, err := LoadImage(filepath.Join(other, "images"), "os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Hash != img3.Hash {
+		t.Fatalf("hash depends on the checkout path: %s vs %s", same.Hash, img3.Hash)
+	}
+	// A missing context is an error, not a silent fallback.
+	os.WriteFile(filepath.Join(dir, ContextFile), []byte("no-such-dir\n"), 0o644)
+	if _, err := LoadImage(filepath.Join(root, "images"), "os"); err == nil {
+		t.Fatal("missing context accepted")
+	}
+}

@@ -5,7 +5,7 @@ import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import { SqliteEditorSession } from "./SqliteEditor.jsx";
 
 vi.mock("./sqliteClient.js", () => {
-  const tables = [
+  const baseTables = [
     {
       name: "events",
       columns: [
@@ -26,33 +26,53 @@ vi.mock("./sqliteClient.js", () => {
     },
   ];
   return {
-    createSqliteClient: () => ({
-      open: async () => ({ tables }),
-      schema: async () => ({ tables }),
-      exec: async (sql) => {
-        if (/COUNT\(/i.test(sql)) {
-          return { columns: ["count"], rows: [[1]], rowCount: 1, changes: 0, truncated: false };
-        }
-        if (sql.includes('"members"')) {
+    createSqliteClient: () => {
+      const tables = structuredClone(baseTables);
+      return {
+        open: async () => ({ tables: structuredClone(tables) }),
+        schema: async () => ({ tables: structuredClone(tables) }),
+        exec: async (sql) => {
+          const renamed = sql.match(
+            /^ALTER TABLE "((?:[^"]|"")+)" RENAME TO "((?:[^"]|"")+)"/,
+          );
+          if (renamed) {
+            const from = renamed[1].replaceAll('""', '"');
+            const to = renamed[2].replaceAll('""', '"');
+            const table = tables.find((entry) => entry.name === from);
+            if (table) table.name = to;
+            return { columns: [], rows: [], rowCount: 0, changes: 1, truncated: false };
+          }
+          const dropped = sql.match(/^DROP TABLE "((?:[^"]|"")+)"/);
+          if (dropped) {
+            const name = dropped[1].replaceAll('""', '"');
+            const index = tables.findIndex((entry) => entry.name === name);
+            if (index >= 0) tables.splice(index, 1);
+            return { columns: [], rows: [], rowCount: 0, changes: 1, truncated: false };
+          }
+          if (/COUNT\(/i.test(sql)) {
+            return { columns: ["count"], rows: [[1]], rowCount: 1, changes: 0, truncated: false };
+          }
+          if (sql.includes('"members"')) {
+            return {
+              columns: ["id", "name"],
+              rows: [[1, "Ada"]],
+              rowCount: 1,
+              changes: 0,
+              truncated: false,
+            };
+          }
           return {
-            columns: ["id", "name"],
-            rows: [[1, "Ada"]],
+            columns: ["id", "title"],
+            rows: [[1, "Party"]],
             rowCount: 1,
             changes: 0,
             truncated: false,
           };
-        }
-        return {
-          columns: ["id", "title"],
-          rows: [[1, "Party"]],
-          rowCount: 1,
-          changes: 0,
-          truncated: false,
-        };
-      },
-      exportBytes: async () => new Uint8Array([1]),
-      dispose: () => {},
-    }),
+        },
+        exportBytes: async () => new Uint8Array([1]),
+        dispose: () => {},
+      };
+    },
   };
 });
 
@@ -102,6 +122,79 @@ describe("SqliteEditorSession table switching", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       /language for reading and changing a database/i,
     );
+  });
+
+  it("starts with the SQL editor folded and opens it on demand", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    const body = document.getElementById("sqlite-sql-editor-body");
+    expect(body).toHaveAttribute("aria-hidden", "true");
+    expect(body).toHaveAttribute("inert");
+    expect(
+      screen.queryByRole("button", { name: "Run" }),
+    ).not.toBeInTheDocument();
+
+    const show = screen.getByRole("button", { name: "Show SQL editor" });
+    expect(show).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(show);
+    expect(body).not.toHaveAttribute("aria-hidden");
+    expect(body).not.toHaveAttribute("inert");
+    expect(
+      screen.getByRole("button", { name: "Run" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide SQL editor" }));
+    expect(body).toHaveAttribute("aria-hidden", "true");
+    expect(
+      screen.queryByRole("button", { name: "Run" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renames a table from its row menu", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for table events" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename table" }));
+
+    const input = await screen.findByLabelText("Table name");
+    expect(input).toHaveValue("events");
+    fireEvent.change(input, { target: { value: "gatherings" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename table" }));
+
+    expect(await screen.findByText("Table renamed")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /^gatherings,/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^events,/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("deletes a table after confirming, and moves to another table", async () => {
+    mountSession();
+    await screen.findByText("Party");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Actions for table events" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete table" }));
+    expect(
+      await screen.findByText(/Every row in it is removed/i),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete table" }));
+
+    expect(await screen.findByText("Table deleted")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /^members,/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^events,/i }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Ada")).toBeInTheDocument();
   });
 
   it("explains cell editing from the table header", async () => {

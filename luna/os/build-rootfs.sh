@@ -28,7 +28,7 @@ fi
 CONSOLE_BIN="${LUNA_CONSOLE_BIN:-$(dirname "$BIN")/luna-console}"
 [ -x "$CONSOLE_BIN" ] || luna_die "missing luna-console next to lunad ($CONSOLE_BIN): set LUNA_CONSOLE_BIN"
 
-IMAGE="$(luna_build_image os "$OSDIR/build/Containerfile.os" "ALPINE_IMAGE=$ALPINE_IMAGE")"
+IMAGE="$(luna_build_image os "$OSDIR/build/Containerfile.os" "ALPINE_IMAGE=$ALPINE_IMAGE" "KERNEL_RECIPE=$(luna_kernel_recipe)")"
 podman volume exists "$LUNA_ROOTFS_VOLUME" || podman volume create "$LUNA_ROOTFS_VOLUME" >/dev/null
 podman volume exists "$LUNA_CACHE_VOLUME" || podman volume create "$LUNA_CACHE_VOLUME" >/dev/null
 

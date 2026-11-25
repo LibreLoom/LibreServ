@@ -96,9 +96,10 @@ Staff sessions used to keep the admin bearer in `localStorage`, readable by any
 JavaScript on the origin, so one XSS in the admin app could exfiltrate a
 credential with full admin scope and no expiry. `/admin/login` now sets an
 `HttpOnly`, `Secure`, `SameSite=Strict` session cookie scoped to `/admin`, and
-staff session tokens are refused as Bearer. Only the static `server.admin_token`
-stays as a script credential, and new installs leave it empty. Writes keep the
-existing CSRF and Origin checks (`admin_auth_mw.go`, `AdminAuthContext.jsx`).
+staff session tokens are refused as Bearer. There is no static admin Bearer
+credential: scripts sign in as a real admin account, with its two-factor
+authentication when enabled. Writes keep the existing CSRF and Origin checks
+(`admin_auth_mw.go`, `AdminAuthContext.jsx`).
 
 **L3 — HIBP response body unbounded in Connect**
 
@@ -202,10 +203,10 @@ prevents off-zone construction; backup object paths reject `..`, `\`, and NUL
 with per-account/per-device ownership enforced in parameterized SQL; local and
 B2 stores both re-validate keys and confine to account/device namespaces; admin
 login is rate-limited, staff sessions are HttpOnly cookies (refused as Bearer)
-and hashed at rest, the static admin token is compared in constant time, and
-`/admin/seed` is loopback-only without an explicit seed token; outbound HTTP
-clients (Resend, HIBP, providers) refuse redirects so credentials can't leak to
-a redirect target.
+and hashed at rest, and `/admin/seed` is loopback-only without an explicit seed
+token; device-token reveals require the staff member's current password;
+outbound HTTP clients (Resend, HIBP, providers) refuse redirects so credentials
+can't leak to a redirect target.
 
 **Frontends.** No `dangerouslySetInnerHTML`/`innerHTML`/`eval` sinks in shipped
 code; the diagram iframe's `postMessage` handler validates both `origin` and

@@ -111,7 +111,7 @@ async function openSearchOverlay() {
 }
 
 describe("FileSearch", () => {
-  it("opens a morphing overlay from the header search button", async () => {
+  it("opens the overlay from the header search button", async () => {
     renderSearch([]);
     expect(screen.queryByRole("dialog", { name: "Search for a file" })).not.toBeInTheDocument();
     const dialog = await openSearchOverlay();

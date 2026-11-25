@@ -21,7 +21,7 @@ if luna_os_image_current "$OUT"; then
 fi
 podman volume exists "$LUNA_ROOTFS_VOLUME" || luna_die "no rootfs yet: run os/build-rootfs.sh first"
 
-IMAGE="$(luna_build_image os "$OSDIR/build/Containerfile.os" "ALPINE_IMAGE=$ALPINE_IMAGE")"
+IMAGE="$(luna_build_image os "$OSDIR/build/Containerfile.os" "ALPINE_IMAGE=$ALPINE_IMAGE" "KERNEL_RECIPE=$(luna_kernel_recipe)")"
 mkdir -p "$OUT"
 echo "==> OS slot image (ext4 + zstd)"
 podman run --rm --security-opt label=disable --memory "$LUNA_BUILD_MEMORY" \
