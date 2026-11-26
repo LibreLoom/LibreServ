@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { BackupsTab } from "./BackupsPage.jsx";
 import { accountSource } from "../lib/cloudSource.js";
-import { groupByStarter, loadTree, unlockBackups } from "../lib/cloudUnlock.js";
+import { loadTree, unlockBackups } from "../lib/cloudUnlock.js";
 import { listShareLinks } from "../lib/shareLinks.js";
 
 vi.mock("../lib/cloudSource.js", () => ({
@@ -16,7 +16,6 @@ vi.mock("../lib/cloudUnlock.js", async (importOriginal) => {
     ...actual,
     unlockBackups: vi.fn(),
     loadTree: vi.fn(),
-    groupByStarter: vi.fn(actual.groupByStarter),
   };
 });
 
@@ -208,6 +207,20 @@ describe("BackupsPage", () => {
     expect(screen.queryByText(/They are deleted on/)).toBeNull();
   });
 
+  it("groups backups from before a factory reset under their own heading", () => {
+    renderTab({
+      lunas: [
+        { luna_id: "l0", name: "Home", linked: true, before_reset: true },
+        { luna_id: "l1", name: "Home", linked: true, before_reset: false },
+      ],
+    });
+    expect(screen.getByRole("heading", { name: "Before reset" })).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Before reset" });
+    expect(group.querySelectorAll("button")).toHaveLength(1);
+    const current = screen.getByRole("group", { name: "Choose a Luna" });
+    expect(current.querySelector("button").getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("shows the empty state when no Luna is linked", () => {
     renderTab({ lunas: [] });
     expect(screen.getByTestId("backup-empty-state")).toBeTruthy();
@@ -234,13 +247,13 @@ describe("BackupsPage", () => {
     expect(screen.queryByRole("button", { name: "Lock" })).toBeNull();
   });
 
-  it("passes the private owners from the unlock to the browser", async () => {
-    unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()], privateOwners: ["u2"] });
+  it("always shows one Private backups area once unlocked, with no per-owner rows", async () => {
+    unlockBackups.mockResolvedValue({ userIds: [], backups: [makeBackup()] });
     renderTab({ lunas: [HOME] });
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "one two three" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     expect(await screen.findByRole("button", { name: "Lock" })).toBeTruthy();
-    expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), ["u2"]);
+    expect(screen.getAllByRole("region", { name: "Private backups" })).toHaveLength(1);
   });
 
   it("offers a Share link button per group and per backup once unlocked", async () => {

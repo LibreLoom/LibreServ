@@ -354,6 +354,18 @@ impl ConnectService {
 
     /// LAN lockdown and normal Connect work depend on a bound rolling
     /// credential, never on the presence of human-facing pairing material.
+    /// The Connect account this Luna was claimed by, learned when it was claimed.
+    /// `None` while not linked, or for a link made before Connect reported it.
+    pub fn bound_account_id(&self) -> Option<String> {
+        if !self.is_connect_active() {
+            return None;
+        }
+        self.load()
+            .get("account_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    }
+
     pub fn is_connect_active(&self) -> bool {
         if self.unbind_pending() || self.rejected() {
             return false;
@@ -903,8 +915,17 @@ impl ConnectService {
                 // fails (or power is lost now), retain the issued credential:
                 // the next poll reconciles it instead of claiming forever.
                 let device_id = device_id.to_string();
+                let account_id = claimed
+                    .get("account_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string);
                 if let Err(err) = self.update_state(|state| {
                     clear_bound_fields(state);
+                    if let Some(account_id) = &account_id {
+                        state["account_id"] = json!(account_id);
+                    }
                     state["state"] = json!("bound");
                     state["bound"] = json!(true);
                     state["paired"] = json!(true);

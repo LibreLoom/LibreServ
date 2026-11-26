@@ -19,35 +19,21 @@ function makeBackup(overrides = {}) {
 }
 
 describe("PrivateItemsRow", () => {
-  it("says a person has no private items, and shows any actions beside the status", () => {
-    const { rerender } = render(<PrivateItemsRow kind="none" backups={[]} onOpen={vi.fn()} />);
-    const row = screen.getByRole("region", { name: "Private items" });
-    expect(within(row).getByText("None")).toBeTruthy();
-    expect(within(row).getByText("This person has no private items backed up.")).toBeTruthy();
-
-    rerender(<PrivateItemsRow kind="other" backups={[]} onOpen={vi.fn()} actions={<button type="button">Share link</button>} />);
-    expect(within(screen.getByRole("region", { name: "Private items" })).getByText("Has private items")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Share link" })).toBeTruthy();
-  });
-
-  it("for another person shows only the title and the line, with no names, counts or sizes", () => {
-    render(<PrivateItemsRow kind="other" backups={[makeBackup()]} onOpen={vi.fn()} />);
-
-    const row = screen.getByRole("region", { name: "Private items" });
-    expect(within(row).getByRole("heading", { name: "Private items" })).toBeTruthy();
-    expect(within(row).getByText("Only this person's recovery phrase opens these.")).toBeTruthy();
+  it("looks the same for every phrase until something opens: no names, counts or owners", () => {
+    render(<PrivateItemsRow backups={[]} onOpen={vi.fn()} />);
+    const row = screen.getByRole("region", { name: "Private backups" });
+    expect(within(row).getByRole("heading", { name: "Private backups" })).toBeTruthy();
+    expect(within(row).getByText("Only the owner's recovery phrase opens private backups.")).toBeTruthy();
     expect(within(row).queryByRole("button")).toBeNull();
     expect(row.textContent).not.toMatch(/\d/);
-    expect(row.textContent).not.toContain("Diary");
-    expect(row.textContent).not.toContain("version");
   });
 
-  it("for you lists each private backup with its name and an Open button", () => {
+  it("lists every private backup the phrase opened together, each with an Open button", () => {
     const onOpen = vi.fn();
     const backups = [makeBackup(), makeBackup({ protectionId: "p2", name: "Taxes" })];
-    render(<PrivateItemsRow kind="mine" backups={backups} onOpen={onOpen} />);
+    render(<PrivateItemsRow backups={backups} onOpen={onOpen} />);
 
-    const row = screen.getByRole("region", { name: "Private items" });
+    const row = screen.getByRole("region", { name: "Private backups" });
     expect(within(row).getByText("Opened with your recovery phrase.")).toBeTruthy();
     expect(within(row).getByText("Diary")).toBeTruthy();
     expect(within(row).getByText("Taxes")).toBeTruthy();

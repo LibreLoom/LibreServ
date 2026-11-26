@@ -36,6 +36,18 @@ pub fn aad(purpose: &str, luna_id: &str, scope: &str) -> Vec<u8> {
     ])
 }
 
+/// The opaque namespace of one owner's private records: the first 16 bytes of
+/// SHA-256("luna-private-namespace-v1" 0x00 auth public key), as 32 hex characters. It is derived
+/// from the phrase-derived public key, so Connect can group records without knowing who owns them,
+/// and the browser derives the same value locally from the entered phrase.
+pub fn private_namespace(auth_public: &SigPublic) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"luna-private-namespace-v1\0");
+    hasher.update(&auth_public[..]);
+    hasher.finalize()[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// The scope id and its public name (the first 16 bytes of the id, as 32 hex characters).
 pub fn scope_of(dedup: &[u8; 32]) -> ([u8; 32], String) {
     let id = crypto::chunk_id(dedup, b"luna-scope-v1");
@@ -387,7 +399,8 @@ pub fn publish_scope(
     let record = ScopeRecord {
         luna_id: luna_id.to_string(),
         scope: scope.scope.clone(),
-        user_id: scope.owner.clone(),
+        // The record's `user_id` field carries the opaque namespace, never a Luna user ID.
+        user_id: private_namespace(auth_public),
         seal_public: owner_public,
         auth_public: *auth_public,
         created_at: scope.created_at,
@@ -444,6 +457,15 @@ mod tests {
             sealed_scope_secret: vec![8u8; crypto::sealed_len(crypto::SEAL_SECRET_LEN)],
             sealed_dedup,
         }
+    }
+
+    #[test]
+    fn private_namespace_is_opaque_and_stable() {
+        let keys = keys();
+        let ns = private_namespace(&keys.auth_public);
+        assert_eq!(ns.len(), 32);
+        assert_eq!(ns, private_namespace(&keys.auth_public));
+        assert!(!ns.contains("owner"));
     }
 
     #[test]

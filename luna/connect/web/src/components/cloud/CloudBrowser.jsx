@@ -15,13 +15,11 @@ const SELECT_CLASS =
  * Backups grouped by who started them, with a version picker and downloads.
  * @param {{ source: import("../../lib/cloudSource.js").CloudSource,
  *   backups: import("../../lib/cloudUnlock.js").CloudBackup[],
- *   privateOwners?: string[],
- *   showPrivateStatus?: boolean,
- *   privateActions?: (group: { startedBy: string, name: string }) => import("react").ReactNode,
+ *   showPrivateArea?: boolean,
  *   groupActions?: (group: { startedBy: string, name: string, backups: import("../../lib/cloudUnlock.js").CloudBackup[] }) => import("react").ReactNode,
  *   backupActions?: (backup: import("../../lib/cloudUnlock.js").CloudBackup) => import("react").ReactNode }} props
  */
-export function CloudBrowser({ source, backups, privateOwners = [], showPrivateStatus = false, privateActions, groupActions, backupActions }) {
+export function CloudBrowser({ source, backups, showPrivateArea = false, groupActions, backupActions }) {
   const versionId = useId();
   const [selectedId, setSelectedId] = useState(/** @type {string | null} */ (null));
   const [versionIdx, setVersionIdx] = useState(0);
@@ -82,8 +80,9 @@ export function CloudBrowser({ source, backups, privateOwners = [], showPrivateS
   }
 
   if (!selected) {
-    const groups = groupByStarter(backups, privateOwners);
-    if (groups.length === 0) {
+    const groups = groupByStarter(backups);
+    const privateBackups = backups.filter((backup) => backup.private);
+    if (groups.length === 0 && privateBackups.length === 0 && !showPrivateArea) {
       return <p className="text-sm text-muted-foreground">No backups here yet.</p>;
     }
     return (
@@ -95,7 +94,6 @@ export function CloudBrowser({ source, backups, privateOwners = [], showPrivateS
               {groupActions?.(group)}
             </div>
             {group.backups
-              .filter((backup) => !backup.private)
               .map((backup) => (
                 <BackupRow
                   key={backup.protectionId}
@@ -104,16 +102,9 @@ export function CloudBrowser({ source, backups, privateOwners = [], showPrivateS
                   actions={backupActions?.(backup)}
                 />
               ))}
-            {group.privateRow || showPrivateStatus ? (
-              <PrivateItemsRow
-                kind={group.privateRow || "none"}
-                backups={group.backups.filter((backup) => backup.private)}
-                onOpen={openBackup}
-                actions={group.privateRow ? privateActions?.(group) : null}
-              />
-            ) : null}
           </section>
         ))}
+        {showPrivateArea || privateBackups.length > 0 ? <PrivateItemsRow backups={privateBackups} onOpen={openBackup} /> : null}
       </div>
     );
   }

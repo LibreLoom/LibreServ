@@ -3,36 +3,34 @@ import { Chip } from "./Chip.jsx";
 import { BackupRow } from "./BackupRow.jsx";
 
 /**
- * The "Private items" block at the end of a user's group. Connect never shows
- * names, counts or sizes for someone else's private items; only that person's
- * recovery phrase opens them.
- * @param {{ kind: "mine" | "other" | "none",
- *   backups: import("../../lib/cloudUnlock.js").CloudBackup[],
- *   onOpen: (protectionId: string) => void,
- *   actions?: import("react").ReactNode }} props
+ * The "Private backups" area. It is always shown and never lists owners: it looks the same for
+ * every phrase until one opens something, and then it holds every private backup that phrase opens.
+ * @param {{ backups: import("../../lib/cloudUnlock.js").CloudBackup[],
+ *   onOpen: (protectionId: string) => void }} props
  */
-export function PrivateItemsRow({ kind, backups, onOpen, actions = null }) {
-  const mine = kind === "mine";
-  const none = kind === "none";
+export function PrivateItemsRow({ backups, onOpen }) {
+  const opened = backups.length > 0;
   return (
-    <section aria-label="Private items" className="rounded-large-element border border-dashed border-border p-4 space-y-3">
+    <section aria-label="Private backups" className="rounded-large-element border border-dashed border-border p-4 space-y-3">
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-pill bg-secondary" aria-hidden="true">
           <Lock className="size-4" />
         </span>
         <div className="space-y-1">
-          <h4 className="font-mono text-base">Private items</h4>
+          <h4 className="font-mono text-base">Private backups</h4>
           <p className="text-sm text-muted-foreground">
-            {none ? "This person has no private items backed up." : "Only this person's recovery phrase opens these."}
+            {opened ? "Opened with your recovery phrase." : "Only the owner's recovery phrase opens private backups."}
           </p>
-          {mine ? <p className="text-sm text-muted-foreground">Opened with your recovery phrase.</p> : null}
         </div>
-        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
-          <Chip>{none ? "None" : "Has private items"}</Chip>
-          {actions}
-        </div>
+        {opened ? (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <Chip>Opened</Chip>
+          </div>
+        ) : null}
       </div>
-      {mine ? backups.map((backup) => <BackupRow key={backup.protectionId} backup={backup} onOpen={onOpen} />) : null}
+      {backups.map((backup) => (
+        <BackupRow key={backup.protectionId} backup={backup} onOpen={onOpen} />
+      ))}
     </section>
   );
 }

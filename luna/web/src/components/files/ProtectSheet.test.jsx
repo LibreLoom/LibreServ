@@ -607,47 +607,6 @@ describe("ProtectSheet", () => {
     expect(screen.queryByText(/Add a payment card/)).not.toBeInTheDocument();
   });
 
-  it("offers Back up anyway when a cloud run says the source looks missing, and sends accept_missing", async () => {
-    const user = userEvent.setup();
-    const onCloudRun = vi.fn();
-    stubBackupApi({
-      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      connect: { connect_active: true },
-      cloudBackups: [cloudBackup({ id: "c1" })],
-      cloudRunReply: {
-        status: 200,
-        body: { done: false, problem: "Luna cannot find this folder on the drive.", source_missing: true },
-      },
-      onCloudRun,
-    });
-    renderSheet();
-    await user.click(await screen.findByRole("button", { name: "Back up now" }));
-    expect(await screen.findByText("Luna cannot find this folder on the drive.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back up anyway" }));
-    await waitFor(() =>
-      expect(onCloudRun).toHaveBeenLastCalledWith(
-        expect.stringContaining("/api/v1/cloud/backups/c1/run?accept_missing=true"),
-      ),
-    );
-  });
-
-  it("does not offer Back up anyway to someone who cannot delete the cloud backup", async () => {
-    const user = userEvent.setup();
-    stubBackupApi({
-      drives: [{ id: "d1", label: "Main", mount_point: "/mnt/main" }],
-      connect: { connect_active: true },
-      cloudBackups: [cloudBackup({ id: "c1", can_delete: false })],
-      cloudRunReply: {
-        status: 200,
-        body: { done: false, problem: "Luna cannot find this folder on the drive.", source_missing: true },
-      },
-    });
-    renderSheet();
-    await user.click(await screen.findByRole("button", { name: "Back up now" }));
-    expect(await screen.findByText("Luna cannot find this folder on the drive.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back up anyway" })).not.toBeInTheDocument();
-  });
-
   it("keeps Back up to the cloud disabled while it is being added, then shows the cloud row", async () => {
     const user = userEvent.setup();
     /** @type {((value?: unknown) => void) | undefined} */

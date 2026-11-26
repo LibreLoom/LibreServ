@@ -334,6 +334,7 @@ fn unbound_device_polls_claim_until_it_receives_a_credential() {
             json!({
                 "auth_token": first,
                 "device_id": "connect-device-1",
+                "account_id": "acct-1",
                 "refresh_after_seconds": 300,
             }),
         ),
@@ -355,6 +356,7 @@ fn unbound_device_polls_claim_until_it_receives_a_credential() {
     assert_eq!(connect.token().unwrap(), first);
     assert_eq!(connect.device_uid().unwrap(), UID);
     assert_eq!(connect.verification_code().unwrap(), CODE);
+    assert_eq!(connect.bound_account_id().as_deref(), Some("acct-1"));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

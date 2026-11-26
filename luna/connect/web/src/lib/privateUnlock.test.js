@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { derive, verify } from "@libreloom/ui/lib/cloud/backupCrypto.js";
-import { findMyPrivateScopes, privateOpenMessage } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
+import { findMyPrivateScopes, privateNamespace, privateOpenMessage } from "@libreloom/ui/lib/cloud/cloudPrivate.js";
 import fixture from "../../../../crates/lunad/src/backup/cloud/fixture.json";
 import { openPrivateScope, unlockPrivate } from "./privateUnlock.js";
 
@@ -48,6 +48,18 @@ function privateSource({ openError = null } = {}) {
   };
   return source;
 }
+
+describe("privateNamespace", () => {
+  it("is 32 hex characters derived only from the phrase's auth public key", () => {
+    const k = derive(entropy(), fixture.luna_id);
+    const ns = privateNamespace(k.authPublic);
+    expect(ns).toMatch(/^[0-9a-f]{32}$/);
+    expect(ns).toBe(privateNamespace(k.authPublic));
+    expect(ns).not.toContain(priv.owner_user_id);
+    const other = derive(new Uint8Array(16), fixture.luna_id);
+    expect(privateNamespace(other.authPublic)).not.toBe(ns);
+  });
+});
 
 describe("openPrivateScope", () => {
   it("opens the scope with a signed challenge and returns one private backup named Diary", async () => {

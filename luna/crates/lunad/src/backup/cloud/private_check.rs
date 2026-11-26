@@ -287,6 +287,12 @@ mod tests {
     }
 
     impl CloudStore for CorruptStore {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             id: &[u8; 32],

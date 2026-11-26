@@ -226,6 +226,7 @@ export default function LunaPage() {
   const state = luna && DEVICE_STATES.has(luna.state) ? luna.state : null;
   const stateUnavailable = Boolean(luna && !state);
   const disconnectState = state === "pairing" || state === "bound" ? state : null;
+  const paysForBackups = Boolean(me?.has_card || me?.billing_status === "active");
   const publicHostname = state === "bound" ? (luna?.hostname || "") : "";
   const resumePath = me?.onboarding_path;
   const resumeStep = me?.onboarding_step;
@@ -246,12 +247,15 @@ export default function LunaPage() {
     return load().finally(() => setLoading(false));
   }
 
-  async function disconnect() {
+  async function disconnect(cancelBilling = false) {
     if (!luna || !disconnectState) return;
     setError("");
     setDisconnecting(true);
     try {
-      await api(`/api/v1/devices/${encodeURIComponent(luna.id)}`, { method: "DELETE" });
+      await api(`/api/v1/devices/${encodeURIComponent(luna.id)}`, {
+        method: "DELETE",
+        ...(cancelBilling ? { body: JSON.stringify({ cancel_billing: true }) } : {}),
+      });
       setDevices([]);
       setConfirmDisconnect(false);
       setChangingAddress(false);
@@ -459,12 +463,19 @@ export default function LunaPage() {
                   <p className="text-sm leading-relaxed text-foreground">
                     {disconnectState === "pairing"
                       ? "This cancels the pairing attempt. Luna keeps its Device ID and Verification code, and you can pair it again later."
-                      : "This disconnects Luna from your account, and you can pair it again later with its Device ID and Verification code. Cloud backups stay on this account, and you keep paying for them until you turn off payment in Cloud backups."}
+                      : paysForBackups
+                        ? "Disconnecting keeps your cloud backups and your payment going unless you cancel billing here. Canceling billing charges this month so far and deletes every cloud backup right away."
+                        : "This disconnects Luna from your account, and you can pair it again later with its Device ID and Verification code."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Button variant="destructive" loading={disconnecting} onClick={disconnect}>
-                      {disconnectState === "pairing" ? "Cancel pairing" : "Disconnect"}
+                    <Button variant="destructive" loading={disconnecting} onClick={() => disconnect(false)}>
+                      {disconnectState === "pairing" ? "Cancel pairing" : paysForBackups ? "Disconnect and keep backups" : "Disconnect"}
                     </Button>
+                    {disconnectState === "bound" && paysForBackups && (
+                      <Button variant="destructive" disabled={disconnecting} onClick={() => disconnect(true)}>
+                        Disconnect and cancel billing
+                      </Button>
+                    )}
                     <Button variant="outline" disabled={disconnecting} onClick={() => setConfirmDisconnect(false)}>
                       {disconnectState === "pairing" ? "Keep pairing" : "Keep this Luna"}
                     </Button>

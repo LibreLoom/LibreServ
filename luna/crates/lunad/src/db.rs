@@ -219,6 +219,17 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             PRIMARY KEY (snapshot_id, pack_id)
         );
         CREATE INDEX IF NOT EXISTS cloud_snapshot_packs_pack ON cloud_snapshot_packs (pack_id);
+        -- Snapshot records committed locally but not yet acknowledged by the cloud. Written in the
+        -- same transaction as the snapshot; cleared only after the cloud has the record.
+        CREATE TABLE IF NOT EXISTS cloud_publish_outbox (
+            snapshot_id TEXT PRIMARY KEY,
+            protection_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            bytes BLOB NOT NULL,
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS cloud_runs (
             id TEXT PRIMARY KEY,
             protection_id TEXT NOT NULL,
@@ -630,6 +641,7 @@ pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
         "cloud_chunks",
         "cloud_snapshots",
         "cloud_snapshot_packs",
+        "cloud_publish_outbox",
         "cloud_runs",
         "cloud_private_scopes",
         "cloud_private_kept",
@@ -2011,6 +2023,8 @@ pub fn mark_unused_packs_tx(
             "SELECT id FROM cloud_packs
              WHERE scope = ?1 AND state = 'live'
                AND id NOT IN (SELECT pack_id FROM cloud_snapshot_packs)
+               AND id NOT IN (SELECT sp.pack_id FROM cloud_snapshot_packs sp
+                              JOIN cloud_publish_outbox o ON o.snapshot_id = sp.snapshot_id)
              ORDER BY id",
         )?;
         stmt.query_map(params![scope], |r| r.get(0))?
@@ -2024,6 +2038,65 @@ pub fn mark_unused_packs_tx(
     }
     tx.commit()?;
     Ok(ids)
+}
+
+/// One snapshot record waiting to reach the cloud.
+#[derive(Debug, Clone)]
+pub struct OutboxRow {
+    pub snapshot_id: String,
+    pub scope: String,
+    pub kind: String,
+    pub name: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Queue a snapshot's signed record for publication, inside the transaction that commits the
+/// snapshot. The row stays until `clear_outbox` runs after the cloud acknowledges the record.
+pub(crate) fn insert_outbox_in(
+    tx: &rusqlite::Transaction,
+    snapshot_id: &str,
+    protection_id: &str,
+    scope: &str,
+    kind: &str,
+    name: &str,
+    bytes: &[u8],
+    now: i64,
+) -> anyhow::Result<()> {
+    tx.execute(
+        "INSERT INTO cloud_publish_outbox (snapshot_id, protection_id, scope, kind, name, bytes, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![snapshot_id, protection_id, scope, kind, name, bytes, now],
+    )?;
+    Ok(())
+}
+
+/// Snapshot records still waiting for the cloud, oldest first.
+pub fn pending_outbox(conn: &Connection) -> anyhow::Result<Vec<OutboxRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT snapshot_id, scope, kind, name, bytes FROM cloud_publish_outbox
+         ORDER BY created_at, snapshot_id",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(OutboxRow {
+                snapshot_id: r.get(0)?,
+                scope: r.get(1)?,
+                kind: r.get(2)?,
+                name: r.get(3)?,
+                bytes: r.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Remove a snapshot's outbox row once the cloud has its record.
+pub fn clear_outbox(conn: &Connection, snapshot_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM cloud_publish_outbox WHERE snapshot_id = ?1",
+        params![snapshot_id],
+    )?;
+    Ok(())
 }
 
 /// Startup cleanup after a crash or restart: no cloud run can still be going, so every run
@@ -2061,6 +2134,8 @@ pub fn deletable_packs(conn: &Connection, scope: &str, now: i64) -> anyhow::Resu
     let mut stmt = conn.prepare(
         "SELECT p.id FROM cloud_packs p
          WHERE p.scope = ?1 AND p.state = 'marked' AND ?2 - p.marked_at >= 86400
+           AND p.id NOT IN (SELECT sp.pack_id FROM cloud_snapshot_packs sp
+                            JOIN cloud_publish_outbox o ON o.snapshot_id = sp.snapshot_id)
            AND NOT EXISTS (
                SELECT 1 FROM cloud_runs r
                WHERE r.scope = ?1 AND r.started_at <= p.marked_at AND r.ended_at = 0)

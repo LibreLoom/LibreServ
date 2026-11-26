@@ -412,7 +412,7 @@ export default [
   },
   {
     id: "files/protect-cloud-on", area: A, title: "Cloud backup with Luna Connect on", url: "/files/d1",
-    seed: (w) => { demo(w); w.connect = { paired: true, enabled: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents", source_missing: false })); },
+    seed: (w) => { demo(w); w.connect = { paired: true, enabled: true, backup_unlocked: true }; w.connectActive = true; w.cloudBackups.push(cloudBackup({ source_drive: "d1", source_path: "Documents", source_name: "Documents" })); },
     check: ["Documents shows a cloud backup row with last backed up time", "Photos offers to start one", "Older versions option asks first"],
   },
   {

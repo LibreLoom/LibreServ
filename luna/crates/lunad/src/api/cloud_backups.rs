@@ -17,7 +17,6 @@ use crate::auth::CurrentUser;
 use crate::backup::cloud::check::{CheckReport, Sample};
 use crate::backup::cloud::identity;
 use crate::backup::cloud::ops::{self, NOT_SET_UP};
-use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::{CloudOutcome, first_upload_in_progress};
 use crate::backup::cloud::store::HttpStore;
 use crate::backup::drive_backup::{self, Refused};
@@ -394,7 +393,6 @@ fn backup_json(
         "last_error": row.last_error,
         "last_checked_at": row.last_checked_at,
         "check_problem": ops::last_check_problem(conn, &row.id),
-        "source_missing": !uploading && ops::last_run_source_missing(conn, &row.id),
         "next_check": next_check,
         "size": ops::size(conn, &row.id),
         "first_done": row.first_done,
@@ -404,8 +402,6 @@ fn backup_json(
         "old_phrase_copies": old_phrase_copies_json(conn, row, user),
         "running": drive_backup::is_running(db, &row.id),
         "notes": row.notes.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>(),
-        // `{percent, paused_full}` while older packs move to the newest recovery phrase, else null.
-        "moving": rewrap::status_json_for(conn, row, user),
     })
 }
 
@@ -420,14 +416,13 @@ fn old_phrase_copies_json(conn: &Connection, row: &ProtectionRow, user: &Current
         .unwrap_or(Value::Null)
 }
 
-/// What the Run button hears back: done, or the problem and whether the source looks gone.
+/// What the Run button hears back: done, or the problem.
 fn run_answer(outcome: &CloudOutcome) -> Value {
     match &outcome.problem {
         None => json!({ "done": true }),
         Some(problem) => json!({
             "done": false,
             "problem": problem,
-            "source_missing": outcome.source_missing,
         }),
     }
 }
@@ -484,8 +479,6 @@ fn folder_name(source_path: &str, drive_label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::run_answer;
-    use crate::backup::cloud::ops;
     use axum::Router;
     use axum::body::Body;
     use axum::http::Request;
@@ -493,7 +486,6 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::backup::cloud::ops::NOT_SET_UP;
-    use crate::backup::cloud::run::CloudOutcome;
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
     use crate::{AppState, db};
@@ -630,57 +622,6 @@ mod tests {
         )
         .await;
         assert_eq!(ids(&body), vec!["c-admin".to_string()]);
-    }
-
-    #[test]
-    fn run_answer_says_when_the_source_looks_missing() {
-        let held = CloudOutcome {
-            problem: Some("The source looks missing.".into()),
-            source_missing: true,
-            ..CloudOutcome::default()
-        };
-        let body = run_answer(&held);
-        assert_eq!(body["done"], false);
-        assert_eq!(body["source_missing"], true);
-        assert_eq!(run_answer(&CloudOutcome::default())["done"], true);
-
-        let other = CloudOutcome {
-            problem: Some(NOT_SET_UP.into()),
-            ..CloudOutcome::default()
-        };
-        assert_eq!(run_answer(&other)["source_missing"], false);
-    }
-
-    #[tokio::test]
-    async fn list_row_keeps_source_missing_after_a_held_run_until_a_clean_one() {
-        let f = fixture();
-        seed(&f.state, "c-held", r#"{"users":[],"admins":true}"#);
-        let held = CloudOutcome {
-            problem: Some("The source looks missing.".into()),
-            source_missing: true,
-            ..CloudOutcome::default()
-        };
-        ops::record(&f.state.db, "c-held", 100, &held).unwrap();
-        let (_, body) = send(
-            &f.router,
-            "GET",
-            "/api/v1/cloud/backups",
-            &f.admin_token,
-            None,
-        )
-        .await;
-        assert_eq!(body[0]["source_missing"], true);
-
-        ops::record(&f.state.db, "c-held", 200, &CloudOutcome::default()).unwrap();
-        let (_, body) = send(
-            &f.router,
-            "GET",
-            "/api/v1/cloud/backups",
-            &f.admin_token,
-            None,
-        )
-        .await;
-        assert_eq!(body[0]["source_missing"], false);
     }
 
     #[tokio::test]

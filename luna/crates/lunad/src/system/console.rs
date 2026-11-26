@@ -344,8 +344,6 @@ pub fn watch_db(conn: &mut rusqlite::Connection) {
             }
             if shown_table(table) {
                 request_refresh();
-            } else if table == "backup_keys" {
-                crate::backup::cloud::rewrap::nudge();
             }
         },
     ));

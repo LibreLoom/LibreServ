@@ -21,7 +21,7 @@ import BackupItem from "../../protect/BackupItem.jsx";
 import BackupStatusNotice from "../../common/BackupStatusNotice.jsx";
 import RecoveryPhraseCard from "../../cloud/RecoveryPhraseCard.jsx";
 
-function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSource, onCheck, onDelete, pending }) {
+function CloudBackupRow({ backup, needsPayment, onRun, onCheck, onDelete, pending }) {
   const active = backup.status === "active";
   const item = {
     ...backup,
@@ -35,7 +35,7 @@ function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSourc
   const size = formatBytes(backup.size);
   // Each button shows only its own work. One backup running must not put a
   // spinner on every other row's buttons.
-  const running = pending === "run" || pending === "runAnyway";
+  const running = pending === "run";
   const checking = pending === "check";
   const busy = running || checking;
   return (
@@ -76,18 +76,6 @@ function CloudBackupRow({ backup, needsPayment, onRun, onRunAnyway, missingSourc
           Back up now
         </Button>
       )}
-      {active && missingSource && (
-        <Button
-          size="sm"
-          variant="outline"
-          surface="primary"
-          loading={pending === "runAnyway"}
-          disabled={busy}
-          onClick={() => onRunAnyway(backup)}
-        >
-          Back up anyway
-        </Button>
-      )}
       {active && (
         <Button
           size="sm"
@@ -118,11 +106,9 @@ export default function CloudBackupCategory() {
   const { addToast } = useToast();
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  // Which button on which backup is working: `{ [backupId]: "run" | "runAnyway" | "check" }`.
+  // Which button on which backup is working: `{ [backupId]: "run" | "check" }`.
   // Keeping it per backup means one click never spins every button in the card.
   const [pending, setPending] = useState(/** @type {Record<string, string>} */ ({}));
-  // Set when a run stopped because the source looks missing; holds the backup id for "Back up anyway".
-  const [missingSourceId, setMissingSourceId] = useState(null);
 
   const auth = useOptionalAuth();
   const isAdmin = auth?.user?.role === "admin";
@@ -147,22 +133,19 @@ export default function CloudBackupCategory() {
   const backups = cloudQuery.data || [];
 
   const runBackup = useMutation({
-    mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
-      postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
-    onSuccess: (res, { id, acceptMissing = false }) => {
+    mutationFn: (/** @type {{id: string}} */ { id }) =>
+      postJson(`/api/v1/cloud/backups/${id}/run`, {}),
+    onSuccess: (res) => {
       // A problem stays on this card, next to the backup, not in a success toast.
       if (res?.problem) {
         if (backupWaitingReason({ kind: "cloud", last_error: res.problem })) {
-          setMissingSourceId(null);
           setError(null);
           return;
         }
         haptic("error");
         setError(res.problem);
-        setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
-      setMissingSourceId(null);
       setError(null);
       addToast({
         type: "success",
@@ -297,14 +280,9 @@ export default function CloudBackupCategory() {
                   backup={backup}
                   needsPayment={needsPayment}
                   pending={pending[backup.id] ?? null}
-                  missingSource={missingSourceId === backup.id || backup.source_missing === true}
                   onRun={(b) => {
                     setPending((prev) => ({ ...prev, [b.id]: "run" }));
                     runBackup.mutate({ id: b.id });
-                  }}
-                  onRunAnyway={(b) => {
-                    setPending((prev) => ({ ...prev, [b.id]: "runAnyway" }));
-                    runBackup.mutate({ id: b.id, acceptMissing: true });
                   }}
                   onCheck={(b) => {
                     setPending((prev) => ({ ...prev, [b.id]: "check" }));

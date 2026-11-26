@@ -12,7 +12,6 @@ pub mod private;
 pub mod private_check;
 pub mod private_run;
 pub mod retention;
-pub mod rewrap;
 pub mod run;
 mod source;
 pub mod store;

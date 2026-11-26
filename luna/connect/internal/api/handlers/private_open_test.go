@@ -189,6 +189,12 @@ func TestPrivateSessionExpires(t *testing.T) {
 	}
 }
 
+// privNsA and privNsB are two opaque private namespaces (32 hex characters), as the browser derives them.
+const (
+	privNsA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	privNsB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
 func TestShareUserLinkOnlyOpensItsUser(t *testing.T) {
 	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
 	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
@@ -197,12 +203,8 @@ func TestShareUserLinkOnlyOpensItsUser(t *testing.T) {
 	s := readScope{AccountID: acct, LunaID: privTestLuna, Kind: "user", Value: scopePart("user_a")}
 	now := time.Now()
 
+	// Connect no longer knows which user a scope belongs to; only the owner's phrase signature opens it.
 	ch, _ := newPrivateChallenge(d, s, linkID, now)
-	if _, _, err := openPrivateSession(d, s, linkID, "other", ch, privSign(t, authPriv, "other", ch), now); !errors.Is(err, errPrivateDenied) {
-		t.Fatalf("other user's scope err = %v; want denied", err)
-	}
-
-	ch, _ = newPrivateChallenge(d, s, linkID, now)
 	token, _, err := openPrivateSession(d, s, linkID, "main", ch, privSign(t, authPriv, "main", ch), now)
 	if err != nil {
 		t.Fatalf("own scope: %v", err)

@@ -258,11 +258,11 @@ export default [
       w.connectActive = true;
       w.cloudBackups = [
         cloudBackup({ source_name: "Documents" }),
-        cloudBackup({ source_name: "Old photos", source_missing: true }),
+        cloudBackup({ source_name: "Old photos" }),
         cloudBackup({ source_name: "Taxes", check_problem: "The cloud copy could not be read." }),
       ];
     },
-    check: ["The page holds both the Luna Connect address and cloud backup", "Run now works on the first", "'Run anyway' appears only for the missing folder and then succeeds", "Check works and clears the problem", "Delete asks first", "While one backup runs, only that row's buttons show it working"],
+    check: ["The page holds both the Luna Connect address and cloud backup", "Run now works on the first", "Check works and clears the problem", "Delete asks first", "While one backup runs, only that row's buttons show it working"],
   },
   {
     id: "settings/cloud-no-card",

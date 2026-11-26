@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,7 +75,7 @@ func (h CloudReadHandler) ListLunas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.DB.Query(`SELECT l.luna_id, COALESCE(d.name, ''),
-CASE WHEN d.id IS NULL THEN 0 ELSE 1 END, l.purge_after
+CASE WHEN d.id IS NULL THEN 0 ELSE 1 END, l.purge_after, l.device_id
 FROM luna_ids l LEFT JOIN devices d ON d.id = l.device_id AND d.account_id = l.account_id
 WHERE l.account_id = ? ORDER BY l.created_at`, accountID)
 	if err != nil {
@@ -87,12 +88,18 @@ WHERE l.account_id = ? ORDER BY l.created_at`, accountID)
 		Name       string `json:"name"`
 		Linked     bool   `json:"linked"`
 		PurgeAfter int64  `json:"purge_after"`
+		// BeforeReset is true for a cloud identity this Luna used before a factory reset
+		// minted a newer one on the same device. Its backups stay, openable and billed to that Luna.
+		BeforeReset bool `json:"before_reset"`
 	}
 	out := make([]lunaItem, 0)
+	deviceOf := make([]string, 0)
+	newest := map[string]int{}
 	for rows.Next() {
 		var it lunaItem
 		var linked int
-		if err := rows.Scan(&it.LunaID, &it.Name, &linked, &it.PurgeAfter); err != nil {
+		var deviceID string
+		if err := rows.Scan(&it.LunaID, &it.Name, &linked, &it.PurgeAfter, &deviceID); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
 			return
 		}
@@ -101,11 +108,17 @@ WHERE l.account_id = ? ORDER BY l.created_at`, accountID)
 		if it.PurgeAfter < 0 {
 			it.PurgeAfter = 0
 		}
+		// Rows come oldest first, so the last one seen per device is its current identity.
+		newest[deviceID] = len(out)
+		deviceOf = append(deviceOf, deviceID)
 		out = append(out, it)
 	}
 	if err := rows.Err(); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not list your Lunas. Try again.")
 		return
+	}
+	for i := range out {
+		out[i].BeforeReset = newest[deviceOf[i]] != i
 	}
 	JSON(w, http.StatusOK, map[string]any{"lunas": out})
 }
@@ -121,7 +134,7 @@ func (h CloudReadHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "That Luna has no cloud backups on this account.")
 		return
 	}
-	writeRecords(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "kind"), "", r.Header.Get(privateTokenHeader))
+	writeRecords(h.Deps, w, readScope{AccountID: accountID, LunaID: lunaID}, chi.URLParam(r, "kind"), "", r.Header.Get(privateTokenHeader), r.URL.Query().Get("namespace"))
 }
 
 // GetPack streams one pack of a Luna on the signed-in account.
@@ -359,7 +372,8 @@ const privatePackReadErr = "Cloud storage could not read this backup. Try again.
 
 // writeRecords and writePack do the HTTP part for both the account and share routes.
 // linkID is the share link, or "" for the account owner. token is the X-Private-Token header.
-func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, token string) {
+// namespace is only read for pscopes: the opaque private namespace the browser derived from the phrase.
+func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, token, namespace string) {
 	if !browserKinds[kind] {
 		JSONError(w, http.StatusNotFound, "That kind of backup record is not available.")
 		return
@@ -388,7 +402,7 @@ func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, toke
 		return
 	}
 	if kind == "pscopes" {
-		recs, err = filterPrivateScopes(d, s, recs)
+		recs, err = filterPrivateScopes(d, s, recs, namespace)
 		if err != nil {
 			JSONError(w, http.StatusInternalServerError, readErr)
 			return
@@ -423,14 +437,19 @@ func writeRecords(d Deps, w http.ResponseWriter, s readScope, kind, linkID, toke
 	JSON(w, http.StatusOK, map[string]any{"records": out})
 }
 
-// filterPrivateScopes keeps the pscopes records the scope may see. The account owner sees all of
-// them, a user share link sees only the record for its own user, and every other link sees none.
-func filterPrivateScopes(d Deps, s readScope, recs []storedRecord) ([]storedRecord, error) {
-	if s.Kind == "" {
-		return recs, nil
-	}
+// privateNamespacePattern is the shape of a private namespace: 32 lowercase hex characters.
+var privateNamespacePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// filterPrivateScopes keeps the pscopes records of one private namespace, and nothing without one.
+// Connect never lists private records before the browser asks for the namespace it derived from the
+// phrase, so a missing, malformed or unused namespace all give the same empty answer. Links that are
+// not for one user see none.
+func filterPrivateScopes(d Deps, s readScope, recs []storedRecord, namespace string) ([]storedRecord, error) {
 	out := []storedRecord{}
-	if s.Kind != "user" {
+	if s.Kind != "" && s.Kind != "user" {
+		return out, nil
+	}
+	if !privateNamespacePattern.MatchString(namespace) {
 		return out, nil
 	}
 	_, signingHex, found, err := lookupLuna(d, s.AccountID, s.LunaID)
@@ -442,7 +461,8 @@ func filterPrivateScopes(d Deps, s readScope, recs []storedRecord) ([]storedReco
 	}
 	for _, rec := range recs {
 		parsed, ok := parseScopeRecord(rec.Data, signingHex)
-		if ok && scopePart(parsed.UserID) == s.Value {
+		// The signed record's user_id field carries the namespace, never a Luna user ID.
+		if ok && parsed.UserID == namespace {
 			out = append(out, rec)
 		}
 	}

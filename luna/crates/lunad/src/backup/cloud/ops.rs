@@ -13,7 +13,6 @@ use crate::backup::cloud::private::{self, snapshot_record_ref};
 use crate::backup::cloud::private_check;
 use crate::backup::cloud::private_run;
 use crate::backup::cloud::retention;
-use crate::backup::cloud::rewrap;
 use crate::backup::cloud::run::{self, CloudOutcome};
 use crate::backup::cloud::source;
 use crate::backup::cloud::store::{CloudStore, StoreError};
@@ -504,6 +503,11 @@ fn tidy(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::R
 /// Packs nothing uses any more in any scope are marked and later deleted. This
 /// also finishes the pack clean-up of backups deleted earlier.
 pub(super) fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
+    // Snapshot records committed locally but not yet in the cloud go first: their packs must not be
+    // cleaned up before the cloud has the record that uses them.
+    if let Err(err) = run::publish_outbox(db, store) {
+        tracing::warn!(error = %err, "could not publish an earlier cloud snapshot; it will be retried");
+    }
     let scopes = {
         let conn = lock(db);
         scopes_of(&conn, None)
@@ -511,10 +515,6 @@ pub(super) fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
     if let Err(err) = retention::retire_old_phrases(db, store, now) {
         tracing::warn!(error = %err, "could not remove old-phrase private backups");
     }
-    // Move older packs to the newest key a few steps at a time. Each step takes its backup's run
-    // lock and does nothing while the store is full. This also finishes any new record that did
-    // not reach the cloud, which has to happen before the clean-up below may delete anything.
-    rewrap::trickle(db, Some(store), now);
     publish_pending_scopes(db, store);
     match scopes {
         Ok(scopes) => {
@@ -854,15 +854,8 @@ pub(crate) fn record(
             let access = access_list::for_row(&conn, &row)?;
             db::record_protection_ok(&conn, id, now, &serde_json::to_string(&access)?)?;
         }
-        Some(message) => {
-            db::record_protection_error(&conn, id, message, outcome.source_missing, now)?
-        }
+        Some(message) => db::record_protection_error(&conn, id, message, false, now)?,
     }
-    db::set_meta(
-        &conn,
-        &source_held_key(id),
-        if outcome.source_missing { "1" } else { "" },
-    )?;
     Ok(())
 }
 
@@ -898,10 +891,6 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
         let conn = lock(db);
         db::delete_cloud_snapshot(&conn, &snap.id)?;
     }
-    // Its snapshots are gone, so no record upload can still be pending for it. Left behind, a
-    // marker would hold back every pack cleanup, including the one just below.
-    rewrap::forget_backup(&lock(db), id)?;
-
     // Key and recipient records are named "<backup id>.…". The kinds match
     // `keys::KEYS_KIND` and `keys::RECIPIENTS_KIND`.
     let prefix = format!("{id}.");
@@ -919,7 +908,6 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
 
     let conn = lock(db);
     db::delete_protection(&conn, id)?;
-    rewrap::forget_backup(&conn, id)?;
     db::set_meta(&conn, &deleted_key(id), &now.to_string())?;
     conn.execute(
         "DELETE FROM backup_keys WHERE protection_id = ?1",
@@ -1011,9 +999,6 @@ pub fn on_grants_changed(conn: &Connection, drive_id: &str) -> Vec<String> {
             && r.source_drive == drive_id
             && r.private_owner.is_empty()
     }) {
-        if last_run_source_missing(conn, &row.id) {
-            continue;
-        }
         let Ok((path, meta)) = crate::files::resolve_any_at(&drive, &row.source_path, false) else {
             continue;
         };
@@ -1044,17 +1029,6 @@ fn refresh_access(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<bool
 /// Meta key for the last check's problem, empty when the check found nothing.
 fn check_key(id: &str) -> String {
     format!("cloud_check:{id}")
-}
-
-/// Meta key: "1" while the last run was held because the source looks missing.
-fn source_held_key(id: &str) -> String {
-    format!("cloud_source_held:{id}")
-}
-
-/// True when the last run was held because most of the source looks gone, so the
-/// "Back up anyway" choice should be offered again after a reload.
-pub fn last_run_source_missing(conn: &Connection, id: &str) -> bool {
-    matches!(db::get_meta(conn, &source_held_key(id)), Ok(Some(v)) if v == "1")
 }
 
 /// Bytes stored in the cloud for this backup: the live packs of every scope it
@@ -1326,12 +1300,6 @@ mod tests {
             assert!(err.to_string().contains("busy right now"));
             assert!(db::get_protection(&lock(&s.db), &id).unwrap().is_some());
         }
-        // While a run or delete holds the drive-backup lock, a move step does nothing.
-        let _hold = drive_backup::try_hold(&s.db, &id).unwrap();
-        assert_eq!(
-            rewrap::step(&s.db, &id, &store, NOW).unwrap(),
-            rewrap::Step::Busy
-        );
     }
 
     #[test]
@@ -1427,35 +1395,16 @@ mod tests {
         assert_eq!(row.last_error, NOT_SET_UP);
     }
 
-    #[test]
-    fn a_held_run_is_remembered_until_a_later_run_clears_it() {
-        let s = setup();
-        let id = make_backup(&s);
-        let held = CloudOutcome {
-            problem: Some("The source looks missing or unplugged.".into()),
-            source_missing: true,
-            ..CloudOutcome::default()
-        };
-        record(&s.db, &id, NOW, &held).unwrap();
-        assert!(last_run_source_missing(&lock(&s.db), &id));
-
-        // A different failure is not the source hold, so the choice goes away.
-        let other = CloudOutcome {
-            problem: Some(NOT_SET_UP.into()),
-            ..CloudOutcome::default()
-        };
-        record(&s.db, &id, NOW + 1, &other).unwrap();
-        assert!(!last_run_source_missing(&lock(&s.db), &id));
-
-        record(&s.db, &id, NOW + 2, &held).unwrap();
-        record(&s.db, &id, NOW + 3, &CloudOutcome::default()).unwrap();
-        assert!(!last_run_source_missing(&lock(&s.db), &id));
-    }
-
     /// A store whose key copy writes are refused, to check that the backup still runs.
     struct KeyCopyRefused(MemoryStore);
 
     impl CloudStore for KeyCopyRefused {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             id: &[u8; 32],
@@ -1546,6 +1495,12 @@ mod tests {
         "Add a payment card at connect.luna.libreloom.org to store your cloud backup.";
 
     impl CloudStore for NoCard {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             _id: &[u8; 32],
@@ -1684,43 +1639,6 @@ mod tests {
         let conn = lock(&s.db);
         assert!(db::get_protection(&conn, &id).unwrap().is_none());
         assert!(db::get_meta(&conn, &deleted_key(&id)).unwrap().is_some());
-    }
-
-    #[test]
-    fn delete_forgets_pending_record_uploads_and_a_stray_marker_never_blocks_cleanup() {
-        let s = setup();
-        let id = make_backup(&s);
-        let other = "no-such-backup";
-        {
-            let conn = lock(&s.db);
-            for key in [
-                format!("rewrap_resync:{id}:snap-1"),
-                format!("cloud_move:{id}"),
-                format!("cloud_move_paused:{id}"),
-            ] {
-                db::set_meta(&conn, &key, "1:5").unwrap();
-            }
-            // A marker left by an earlier bug for a backup that is already gone.
-            db::set_meta(&conn, &format!("rewrap_resync:{other}:snap-9"), "1").unwrap();
-            // While the backup exists its own marker counts as pending.
-            assert!(rewrap::record_upload_pending(&conn).unwrap());
-        }
-        delete(&s.db, &id, &MemoryStore::new(), NOW).unwrap();
-        let conn = lock(&s.db);
-        for key in [
-            format!("rewrap_resync:{id}:snap-1"),
-            format!("cloud_move:{id}"),
-            format!("cloud_move_paused:{id}"),
-        ] {
-            assert!(db::get_meta(&conn, &key).unwrap().is_none(), "{key}");
-        }
-        // The stray marker stays, but does not hold back pack cleanup.
-        assert!(
-            db::get_meta(&conn, &format!("rewrap_resync:{other}:snap-9"))
-                .unwrap()
-                .is_some()
-        );
-        assert!(!rewrap::record_upload_pending(&conn).unwrap());
     }
 
     #[test]
@@ -2187,6 +2105,12 @@ mod tests {
     }
 
     impl CloudStore for ScopeFlaky {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, b)
         }
@@ -2337,6 +2261,12 @@ mod tests {
     }
 
     impl CloudStore for RequeueDuringSend<'_> {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, b)
         }

@@ -86,7 +86,6 @@ function backupJson(world, row, user) {
     source_name: row.source_name ?? folderName(row.source_path, srcLabel),
     ...(row.kind === "cloud" ? { next_check: (row.last_checked_at ? row.last_checked_at + 14 * 86400 : now), size: row.size ?? 0, old_phrase_copies: row.old_phrase_copies ?? null, moving: row.moving ?? null } : { hard: row.hard ?? false, target_drive_name: row.target_drive_name ?? label(world, row.target_drive), can_resume: row.status === "paused" && canDelete(world, row, user) }),
     state: waiting ? "waiting" : uploading ? "in_progress" : health,
-    ...(uploading ? { source_missing: false } : {}),
     can_delete: canDelete(world, row, user),
     private: Boolean(owner),
     running: Boolean(row.running),
@@ -260,16 +259,13 @@ post("/api/v1/cloud/backups/:id/check", ({ world, user, params }) => {
   return {};
 });
 
-post("/api/v1/cloud/backups/:id/run", ({ world, user, params, query }) => {
+post("/api/v1/cloud/backups/:id/run", ({ world, user, params }) => {
   const b = world.cloudBackups.find((x) => x.id === params.id);
   if (!b || !visibleTo(world, b, user)) throw noBackup();
   if (b.status === "source_gone") {
-    return { done: false, source_missing: false, problem: b.stop_reason || "Original is gone." };
+    return { done: false, problem: b.stop_reason || "Original is gone." };
   }
-  if (b.source_missing && (query.accept_missing !== "true" || !canDelete(world, b, user))) {
-    return { done: false, source_missing: true, problem: "Most of the files in this folder are gone. Check the folder before running the backup again." };
-  }
-  Object.assign(b, { last_ok_at: nowS(), state: "ok", last_error: "", first_done: true, source_missing: false });
+  Object.assign(b, { last_ok_at: nowS(), state: "ok", last_error: "", first_done: true });
   return { done: true };
 });
 

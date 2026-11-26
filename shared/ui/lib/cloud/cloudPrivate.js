@@ -1,7 +1,8 @@
 // Opens private backup items: scope records, sealed keys and signatures for backups only their owner
 // can open. Browser side of luna/crates/lunad/src/backup/cloud/private.rs. Every signature is checked
 // before a key is used.
-import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import {
 	canonical,
 	chunkId,
@@ -260,6 +261,17 @@ export function privateOpenMessage(lunaId, scope, challenge) {
  */
 export function signPrivateOpen(authSecret, lunaId, scope, challenge) {
 	return sign(authSecret, PRIVATE_OPEN_DOMAIN, privateOpenMessage(lunaId, scope, challenge));
+}
+
+/**
+ * The opaque namespace of one phrase's private records: the first 16 bytes of
+ * SHA-256("luna-private-namespace-v1" 0x00 auth public key), as 32 hex characters. Matches
+ * `private_namespace` in lunad. Connect lists private records only for a namespace the browser asks for.
+ * @param {Uint8Array} authPublic the phrase-derived auth public key
+ * @returns {string}
+ */
+export function privateNamespace(authPublic) {
+	return bytesToHex(sha256(concatBytes(utf8ToBytes('luna-private-namespace-v1\0'), authPublic))).slice(0, 32);
 }
 
 /**

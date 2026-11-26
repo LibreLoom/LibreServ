@@ -1,5 +1,8 @@
-use std::io::ErrorKind;
-use std::os::unix::fs::MetadataExt;
+use std::ffi::CString;
+use std::fs::{File, Metadata, OpenOptions};
+use std::io::{self, ErrorKind};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -110,11 +113,17 @@ impl Folder {
 
     pub(super) fn walk(self) -> Result<Walk, Unavailable> {
         self.verify()?;
+        // Reads go through this descriptor, so a path swapped after this point cannot redirect them.
+        let dir = open_dir(&self.root).map_err(|_| Unavailable::Waiting(UNREADABLE.into()))?;
+        if dir_identity(&dir) != Some(self.identity) {
+            return Err(Unavailable::Waiting(UNREADABLE.into()));
+        }
         let result = scope::walk(&self.root);
         self.verify()?;
         let files = result.map_err(|_| Unavailable::Waiting(UNREADABLE.into()))?;
         Ok(Walk {
             folder: self,
+            dir,
             files,
         })
     }
@@ -122,12 +131,59 @@ impl Folder {
 
 pub(crate) struct Walk {
     folder: Folder,
+    dir: File,
     pub files: Vec<scope::Entry>,
+}
+
+/// A file's metadata as one comparable value. Two equal stamps mean the file did not change
+/// between them: a write bumps mtime and ctime, and a replacement changes the inode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct Stamp {
+    pub size: u64,
+    pub mtime: i64,
+    dev: u64,
+    ino: u64,
+    mtime_nsec: i64,
+    ctime: i64,
+    ctime_nsec: i64,
+}
+
+impl Stamp {
+    fn of(meta: &Metadata) -> Self {
+        Self {
+            size: meta.size(),
+            mtime: meta.mtime(),
+            dev: meta.dev(),
+            ino: meta.ino(),
+            mtime_nsec: meta.mtime_nsec(),
+            ctime: meta.ctime(),
+            ctime_nsec: meta.ctime_nsec(),
+        }
+    }
 }
 
 impl Walk {
     pub(super) fn verify(&self) -> Result<(), Unavailable> {
         self.folder.verify()
+    }
+
+    /// Runs `read` on `rel` (relative to the selected root), opened without following symlinks
+    /// at any component. If the file's stamp changes while `read` runs, the file is read once
+    /// more; `Ok(None)` means it still changed, and the caller should skip it this run.
+    pub(super) fn read_file<T>(
+        &self,
+        rel: &str,
+        mut read: impl FnMut(&mut File) -> anyhow::Result<T>,
+    ) -> anyhow::Result<Option<(T, Stamp)>> {
+        for _ in 0..2 {
+            let mut file = open_rel(&self.dir, rel)?;
+            let before = Stamp::of(&file.metadata()?);
+            let value = read(&mut file)?;
+            if Stamp::of(&file.metadata()?) == before {
+                return Ok(Some((value, before)));
+            }
+        }
+        Ok(None)
     }
 
     pub(super) fn read_error(&self, db: &crate::Db, id: &str) -> anyhow::Result<CloudOutcome> {
@@ -168,9 +224,116 @@ fn folder_identity(root: &Path) -> Result<(u64, u64), Unavailable> {
     }
 }
 
+fn open_dir(root: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(root)
+}
+
+fn dir_identity(dir: &File) -> Option<(u64, u64)> {
+    let meta = dir.metadata().ok()?;
+    meta.is_dir().then(|| (meta.dev(), meta.ino()))
+}
+
+/// Opens `rel` one component at a time from `dir` with `openat` and `O_NOFOLLOW`, so a symlink
+/// anywhere on the path (including one swapped in after the walk) is refused, not followed.
+fn open_rel(dir: &File, rel: &str) -> io::Result<File> {
+    let invalid = || io::Error::new(ErrorKind::InvalidInput, "unsafe path in the backup source");
+    let parts: Vec<&str> = rel.split('/').collect();
+    let mut current: Option<File> = None;
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() || *part == "." || *part == ".." {
+            return Err(invalid());
+        }
+        let name = CString::new(*part).map_err(|_| invalid())?;
+        let last = index + 1 == parts.len();
+        // O_NONBLOCK keeps a FIFO swapped in at the last name from blocking the open; the
+        // regular-file check below then refuses it.
+        let flags = libc::O_RDONLY
+            | libc::O_NOFOLLOW
+            | libc::O_CLOEXEC
+            | if last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+        let parent = current.as_ref().unwrap_or(dir).as_raw_fd();
+        // SAFETY: `parent` is an open descriptor that outlives this call, and `name` is a
+        // NUL-free C string that lives until the call returns.
+        let fd = unsafe { libc::openat(parent, name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `openat` returned a new descriptor that nothing else owns.
+        current = Some(unsafe { File::from_raw_fd(fd) });
+    }
+    let file = current.ok_or_else(invalid)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(ErrorKind::InvalidData, "not a regular file"));
+    }
+    Ok(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symlink_swapped_in_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        std::fs::write(root.join("a.txt"), b"inside").unwrap();
+        let handle = open_dir(&root).unwrap();
+
+        // The walked file is replaced by a link to a file outside the selected tree.
+        std::fs::remove_file(root.join("a.txt")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("a.txt")).unwrap();
+        assert!(open_rel(&handle, "a.txt").is_err());
+
+        // A directory component swapped for a link to outside is refused too.
+        std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
+        assert!(open_rel(&handle, "linked/secret.txt").is_err());
+    }
+
+    #[test]
+    fn file_changing_during_read_is_not_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"first").unwrap();
+        let walk = Walk {
+            folder: Folder::at(&root).ok().unwrap(),
+            dir: open_dir(&root).unwrap(),
+            files: Vec::new(),
+        };
+
+        // Every read rewrites the file, so the stamp never settles and nothing is committed.
+        let mut reads = 0;
+        let torn = walk
+            .read_file("a.txt", |file| {
+                reads += 1;
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(file, &mut buf)?;
+                std::fs::write(root.join("a.txt"), format!("changed {reads}"))?;
+                Ok(buf)
+            })
+            .unwrap();
+        assert!(torn.is_none());
+        assert_eq!(reads, 2, "the file is retried once before it is skipped");
+
+        // A file that stays put reads cleanly on the first try.
+        let (data, stamp) = walk
+            .read_file("a.txt", |file| {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(file, &mut buf)?;
+                Ok(buf)
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(data, format!("changed {}", reads).into_bytes());
+        assert_eq!(stamp.size, data.len() as u64);
+    }
 
     #[test]
     fn only_a_forgotten_drive_is_gone() {

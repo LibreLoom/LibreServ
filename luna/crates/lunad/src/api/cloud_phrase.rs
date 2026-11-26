@@ -22,7 +22,7 @@ use crate::api::auth::login_user_key;
 use crate::api::cloud_backups::connect_store;
 use crate::api::response::json_error;
 use crate::auth::CurrentUser;
-use crate::backup::cloud::{crypto, identity, keys, ops, private, rewrap};
+use crate::backup::cloud::{crypto, identity, keys, ops, private};
 use crate::db::{self, UserKeys};
 
 /// How long a challenge stays good after it is issued.
@@ -217,8 +217,6 @@ async fn status(
         },
         // True while Luna is still re-sealing this person's cloud backup keys to the new phrase.
         "resealing": resealing,
-        // `{percent, paused_full}` while any backup's older packs are moving to the newest key, else null.
-        "moving": rewrap::status_for_luna(&conn, &user),
         "luna_id": identity.as_ref().map(|i| i.luna_id()),
         // The browser seals this key with its self key, so Connect can never swap it.
         "signing_public": identity.as_ref().map(|i| STANDARD.encode(i.public())),
@@ -574,6 +572,10 @@ async fn check(
                 "No recovery phrase is set for your account yet.",
             )
         })?;
+    // A phrase check proves the stored keys still open, so every stored key must be usable.
+    if !stored_keys_usable(&keys) {
+        return Err(bad_keys());
+    }
     let auth_public =
         crypto::SigPublic::try_from(keys.auth_public.as_slice()).map_err(|_| bad_keys())?;
     let proven = decode_signature(&body.signature)
@@ -595,6 +597,15 @@ async fn check(
     // The new phrase is checked, so the old one no longer needs to open earlier private backups.
     db::clear_kept_scope_secrets(&conn, &user.id).map_err(|_| save_failed())?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Whether every key stored for a phrase is usable: the sealing key passes the key checks, the
+/// authentication key parses, and the self-sealed signing key copy is present.
+fn stored_keys_usable(keys: &db::UserKeys) -> bool {
+    let seal_ok = crypto::SealPublic::try_from(keys.seal_public.as_slice())
+        .is_ok_and(|public| crypto::check_public_key(&public).is_ok());
+    let auth_ok = crypto::SigPublic::try_from(keys.auth_public.as_slice()).is_ok();
+    seal_ok && auth_ok && !keys.self_sealed.is_empty()
 }
 
 /// Decode a base64 public key, which must be exactly `N` bytes.
@@ -2515,5 +2526,32 @@ mod tests {
     #[test]
     fn check_not_due_when_no_phrase_is_set() {
         assert!(!phrase_check_due(None, 100_000_000));
+    }
+
+    #[test]
+    fn a_phrase_check_needs_every_stored_key_to_be_usable() {
+        let derived = crate::backup::cloud::crypto::derive(&[7u8; 16], "luna-test");
+        let good = db::UserKeys {
+            user_id: "alice".into(),
+            seal_public: derived.seal_public.to_vec(),
+            auth_public: derived.auth_public.to_vec(),
+            self_sealed: vec![1; 48],
+            phrase_set_at: 1,
+            last_checked_at: 0,
+            phrase_words: 12,
+        };
+        assert!(super::stored_keys_usable(&good));
+
+        let mut no_self = good.clone();
+        no_self.self_sealed.clear();
+        assert!(!super::stored_keys_usable(&no_self));
+
+        let mut short_auth = good.clone();
+        short_auth.auth_public.truncate(31);
+        assert!(!super::stored_keys_usable(&short_auth));
+
+        let mut short_seal = good;
+        short_seal.seal_public.truncate(32);
+        assert!(!super::stored_keys_usable(&short_seal));
     }
 }

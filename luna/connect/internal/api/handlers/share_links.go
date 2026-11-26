@@ -241,7 +241,7 @@ func (h ShareLinkHandler) Records(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeRecords(h.Deps, w, scope, chi.URLParam(r, "kind"), linkID, r.Header.Get(privateTokenHeader))
+	writeRecords(h.Deps, w, scope, chi.URLParam(r, "kind"), linkID, r.Header.Get(privateTokenHeader), r.URL.Query().Get("namespace"))
 }
 
 // Pack streams one pack the link's scope may read. Each link may download up to 3 times the

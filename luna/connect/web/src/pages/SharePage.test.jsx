@@ -114,41 +114,7 @@ describe("SharePage", () => {
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
   });
 
-  it("passes the private owners from the unlock to the browser", async () => {
-    getShareInfo.mockResolvedValue(userInfo({ scope: { kind: "user", value: userRecordPart(OWNER_ID) } }));
-    unlockBackups.mockResolvedValue({
-      userIds: [OWNER_ID],
-      backups: [{ protectionId: "p1", name: "Photos", startedBy: OWNER_ID, startedByName: "Alex", versions: [{ createdAt: NOW }] }],
-      privateOwners: [OWNER_ID],
-    });
-    render(<SharePage />);
-    fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
-    await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
-    expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), [OWNER_ID]);
-  });
-
-  it("does not pass private owners or show a Private items row for a backup link", async () => {
-    getShareInfo.mockResolvedValue(userInfo({ scope: { kind: "backup", value: "p1" }, sent_by: "Sam" }));
-    unlockBackups.mockResolvedValue({
-      userIds: [OWNER_ID],
-      backups: [
-        { protectionId: "p1", name: "Photos", startedBy: OWNER_ID, startedByName: "Alex", versions: [{ createdAt: NOW }] },
-        { protectionId: "p2", name: "Notes", startedBy: "owner-2", startedByName: "Jo", versions: [{ createdAt: NOW }] },
-      ],
-      privateOwners: [OWNER_ID, "owner-2"],
-    });
-    render(<SharePage />);
-    fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
-    fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
-    await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
-    expect(groupByStarter).toHaveBeenLastCalledWith(expect.anything(), []);
-    expect(screen.queryByRole("region", { name: "Private items" })).toBeNull();
-    expect(screen.queryByText("Private items")).toBeNull();
-    expect(screen.queryByText("Notes")).toBeNull();
-  });
-
-  it("drops a private backup that matches the link's scope, so no Private items row shows", async () => {
+  it("drops a private backup that matches the link's scope, so no Private backups area shows", async () => {
     getShareInfo.mockResolvedValue(userInfo({ scope: { kind: "backup", value: "p1" }, sent_by: "Sam" }));
     unlockBackups.mockResolvedValue({
       userIds: [OWNER_ID],
@@ -162,15 +128,14 @@ describe("SharePage", () => {
           private: {},
         },
       ],
-      privateOwners: [OWNER_ID],
     });
     render(<SharePage />);
     fireEvent.change(await screen.findByLabelText("Recovery phrase"), { target: { value: "one two three" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock backups" }));
     await waitFor(() => expect(screen.getByText("Viewing shared backups.")).toBeTruthy());
-    expect(groupByStarter).toHaveBeenLastCalledWith([], []);
-    expect(screen.queryByRole("region", { name: "Private items" })).toBeNull();
-    expect(screen.queryByText("Private items")).toBeNull();
+    expect(groupByStarter).toHaveBeenLastCalledWith([]);
+    expect(screen.queryByRole("region", { name: "Private backups" })).toBeNull();
+    expect(screen.queryByText("Private backups")).toBeNull();
     expect(screen.queryByText("Private photos")).toBeNull();
   });
 });

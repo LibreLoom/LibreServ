@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CloudBrowser } from "./CloudBrowser.jsx";
-import { groupByStarter, loadTree } from "../../lib/cloudUnlock.js";
+import { loadTree } from "../../lib/cloudUnlock.js";
 import { downloadFile, downloadFolder } from "../../lib/cloudDownload.js";
 
 vi.mock("../../lib/cloudUnlock.js", async (importOriginal) => {
@@ -9,7 +9,6 @@ vi.mock("../../lib/cloudUnlock.js", async (importOriginal) => {
   return {
     ...actual,
     loadTree: vi.fn(),
-    groupByStarter: vi.fn(actual.groupByStarter),
   };
 });
 
@@ -126,28 +125,23 @@ describe("CloudBrowser", () => {
     await waitFor(() => expect(downloadFile).toHaveBeenCalledWith(SOURCE, expect.anything(), expect.anything(), expect.objectContaining({ path: "notes.txt" })));
   });
 
-  it("ends a group with the private items row for another person, without their names", () => {
+  it("shows one Private backups area after the groups, with no per-owner rows", () => {
     const shared = makeBackup();
-    const hidden = makeBackup({ protectionId: "p9", name: "Diary", private: { scope: "s1" } });
-    groupByStarter.mockReturnValueOnce([{ startedBy: "u1", name: "Alex", backups: [shared, hidden], privateRow: "other" }]);
-    render(<CloudBrowser source={SOURCE} backups={[shared, hidden]} privateOwners={["u1"]} />);
+    render(<CloudBrowser source={SOURCE} backups={[shared]} showPrivateArea />);
 
-    const section = screen.getByRole("region", { name: "Alex" });
-    const privateRow = within(section).getByRole("region", { name: "Private items" });
-    expect(groupByStarter).toHaveBeenLastCalledWith([shared, hidden], ["u1"]);
+    const privateRow = screen.getByRole("region", { name: "Private backups" });
     expect(privateRow.compareDocumentPosition(screen.getByText("Photos")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-    expect(within(privateRow).getByText("Only this person's recovery phrase opens these.")).toBeTruthy();
-    expect(screen.queryByText("Diary")).toBeNull();
+    expect(within(privateRow).getByText("Only the owner's recovery phrase opens private backups.")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Private items" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Open" })).toHaveLength(1);
   });
 
   it("opens a private backup for you and shows its versions", async () => {
     const shared = makeBackup();
     const mine = makeBackup({ protectionId: "p9", name: "Diary", private: { scope: "s1" } });
-    groupByStarter.mockReturnValueOnce([{ startedBy: "u1", name: "Alex", backups: [shared, mine], privateRow: "mine" }]);
     render(<CloudBrowser source={SOURCE} backups={[shared, mine]} />);
 
-    const privateRow = screen.getByRole("region", { name: "Private items" });
+    const privateRow = screen.getByRole("region", { name: "Private backups" });
     fireEvent.click(within(privateRow).getByRole("button", { name: "Open" }));
     expect(screen.getByRole("combobox", { name: "Version" })).toBeTruthy();
     expect(await screen.findByText("notes.txt")).toBeTruthy();

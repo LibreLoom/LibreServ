@@ -4,7 +4,7 @@ import { api } from "../api.js";
 /**
  * @typedef {object} CloudSource
  * @property {string} lunaId
- * @property {(kind: string) => Promise<CloudRecord[]>} listRecords
+ * @property {(kind: string, namespace?: string) => Promise<CloudRecord[]>} listRecords namespace: the opaque private namespace, for pscopes only
  * @property {(idHex: string) => Promise<Uint8Array>} getPack
  * @property {() => Promise<string>} privateChallenge hex challenge for a private session
  * @property {(args: { scope: string, challenge: string, signature: string }) => Promise<{ token: string, expiresAt: number }>} privateOpen
@@ -112,7 +112,11 @@ function buildSource(lunaId, routes) {
   const { recordsUrl, packsUrl, privateUrl, headers } = routes;
   return {
     lunaId,
-    listRecords: (kind) => fetchRecords(`${recordsUrl}/${encodeURIComponent(kind)}`, headers),
+    listRecords: (kind, namespace) =>
+      fetchRecords(
+        `${recordsUrl}/${encodeURIComponent(kind)}${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ""}`,
+        headers,
+      ),
     getPack: (idHex) => fetchPack(`${packsUrl}/${encodeURIComponent(idHex)}`, headers),
     privateChallenge: async () => {
       const body = await postPrivate(`${privateUrl}/challenge`, headers);

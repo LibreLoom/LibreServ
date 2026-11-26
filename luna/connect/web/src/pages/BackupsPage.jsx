@@ -121,23 +121,39 @@ function CancelPaymentSection({ confirmCancel, setConfirmCancel, busy, onCancel,
 }
 
 function LunaPicker({ lunas, chosenId, onChoose }) {
+  const button = (luna) => {
+    const selected = luna.luna_id === chosenId;
+    return (
+      <Button
+        key={luna.luna_id}
+        type="button"
+        size="sm"
+        variant={selected ? "default" : "outline"}
+        aria-pressed={selected}
+        onClick={() => onChoose(luna.luna_id)}
+      >
+        {luna.name || "Luna"}
+      </Button>
+    );
+  };
+  const current = lunas.filter((luna) => !luna.before_reset);
+  const earlier = lunas.filter((luna) => luna.before_reset);
   return (
-    <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a Luna">
-      {lunas.map((luna) => {
-        const selected = luna.luna_id === chosenId;
-        return (
-          <Button
-            key={luna.luna_id}
-            type="button"
-            size="sm"
-            variant={selected ? "default" : "outline"}
-            aria-pressed={selected}
-            onClick={() => onChoose(luna.luna_id)}
-          >
-            {luna.name || "Luna"}
-          </Button>
-        );
-      })}
+    <div className="space-y-3">
+      {current.length > 0 ? (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a Luna">
+          {current.map(button)}
+        </div>
+      ) : null}
+      {earlier.length > 0 ? (
+        <div className="space-y-2 rounded-large-element bg-secondary px-4 py-3">
+          <h3 className="font-mono text-sm">Before reset</h3>
+          <p className="text-sm">Backups from before a factory reset. Open them with your phrase.</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Before reset">
+            {earlier.map(button)}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -150,11 +166,13 @@ function BackupFilesCard({ lunas, paired }) {
   const [linkRefresh, setLinkRefresh] = useState(0);
   const bump = () => setLinkRefresh((n) => n + 1);
 
-  const chosen = lunas?.find((luna) => luna.luna_id === chosenId) || lunas?.[0] || null;
+  const chosen = lunas?.find((luna) => luna.luna_id === chosenId) ||
+    lunas?.find((luna) => !luna.before_reset) ||
+    lunas?.[0] ||
+    null;
   const lunaId = chosen?.luna_id || "";
   const source = useMemo(() => (lunaId ? accountSource(lunaId) : null), [lunaId]);
   const backups = unlocked && unlocked.lunaId === lunaId ? unlocked.backups : null;
-  const privateOwners = unlocked && unlocked.lunaId === lunaId ? unlocked.privateOwners : [];
 
   function choose(id) {
     setUnlocked(null);
@@ -163,7 +181,7 @@ function BackupFilesCard({ lunas, paired }) {
 
   async function unlock(words) {
     const result = await unlockBackups(source, words);
-    setUnlocked({ lunaId, backups: result.backups, privateOwners: result.privateOwners || [] });
+    setUnlocked({ lunaId, backups: result.backups });
   }
 
   let body = null;
@@ -196,19 +214,7 @@ function BackupFilesCard({ lunas, paired }) {
             <CloudBrowser
               source={source}
               backups={backups}
-              privateOwners={privateOwners}
-              showPrivateStatus
-              privateActions={(g) =>
-                g.startedBy ? (
-                  <ShareLinkButton
-                    lunaId={lunaId}
-                    scope={{ kind: "user", value: userRecordPart(g.startedBy) }}
-                    label={g.name}
-                    sentence={`Anyone with this link and ${g.name}'s recovery phrase can download ${g.name}'s private items, along with their other backups, for 7 days. The link alone opens nothing.`}
-                    onCreated={bump}
-                  />
-                ) : null
-              }
+              showPrivateArea
               groupActions={(g) =>
                 g.startedBy ? (
                   <ShareLinkButton

@@ -273,6 +273,20 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
+	message, ok := h.cancelBillingFor(w, acct)
+	if !ok {
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": message,
+	})
+}
+
+// cancelBillingFor turns payment off and deletes the cloud copies. On failure
+// it has already written the error response and returns ok=false; on success
+// the caller writes the response.
+func (h AccountHandler) cancelBillingFor(w http.ResponseWriter, acct Account) (string, bool) {
 	// The card only goes with the cloud copies: storage nobody pays for is never kept.
 	// Bill this month so far first, then delete. Stored data or a billable month
 	// means a final invoice; an account that never stored anything just stops.
@@ -283,8 +297,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 	var status string
 	_ = h.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE id = ?`, acct.ID).Scan(&hasCard, &status)
 	if status == "canceling" {
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Payment is already being turned off."})
-		return
+		return "Payment is already being turned off.", true
 	}
 	finalBill := acct.StripeSub != "" && (owesThisMonth || stored > 0)
 	if finalBill {
@@ -296,7 +309,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		// a new subscription waits (it would bill the same meters).
 		if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceling' WHERE id = ?`, acct.ID); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
-			return
+			return "", false
 		}
 		if _, _, ok := billing.ReportAccountUsage(h.DB, acct.ID); !ok {
 			slog.Warn("turn off payment: could not report this month's usage; the final bill uses the last hourly report", "account", acct.ID)
@@ -304,7 +317,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		if _, err := billing.ScheduleFinalCharge(acct.StripeSub); err != nil {
 			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ? WHERE id = ?`, hasCard, status, acct.ID)
 			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
-			return
+			return "", false
 		}
 		if billing.DevBypass() {
 			// Local test setup: no Stripe, so no webhook will ever end it.
@@ -317,13 +330,13 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		// webhooks for this cancel match no account.
 		if _, err := h.DB.Exec(`UPDATE accounts SET has_card = 0, billing_status = 'canceled', stripe_subscription_id = '' WHERE id = ?`, acct.ID); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
-			return
+			return "", false
 		}
 		if err := billing.CancelSubscription(acct.StripeSub); err != nil {
 			_, _ = h.DB.Exec(`UPDATE accounts SET has_card = ?, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`,
 				hasCard, status, acct.StripeSub, acct.ID)
 			writeBillingErr(w, err, "Could not turn off payment. Nothing was charged or deleted. Try again in a few minutes.")
-			return
+			return "", false
 		}
 	}
 	message := "Payment is off."
@@ -334,10 +347,7 @@ func (h AccountHandler) CancelBilling(w http.ResponseWriter, r *http.Request) {
 		deleteCloudCopiesNow(h.Deps, acct.ID, acct.Email)
 		message += " Luna Connect is deleting your cloud backups."
 	}
-	JSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"message": message,
-	})
+	return message, true
 }
 
 func writeBillingErr(w http.ResponseWriter, err error, fallback string) {

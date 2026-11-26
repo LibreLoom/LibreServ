@@ -240,16 +240,8 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
                 // What the HDMI console shows of Connect; a change asks it to look again.
                 let mut shown = lunad::system::console::ConnectShown::default();
 
-                // A successful claim wakes this loop; the cloud backup key
-                // mover sleeps until the device is bound.
-                let mut was_active = false;
                 while !stop.load(Ordering::Relaxed) {
                     let _ = connect.poll_status();
-                    let active = connect.is_connect_active();
-                    if active && !was_active {
-                        lunad::backup::cloud::rewrap::nudge();
-                    }
-                    was_active = active;
                     // Supervisor: if Connect poll failed/flapped but local tunnel credentials exist,
                     // keep (re)starting cloudflared so DNS does not stick on Error 1033.
                     connect.ensure_tunnel_if_needed();
@@ -591,50 +583,6 @@ async fn async_main(started: std::time::Instant) -> anyhow::Result<()> {
             if changed {
                 cloud_health.invalidate();
             }
-        }
-    }));
-
-    // Cloud backups moving to the newest key: a few small steps every minute, only while Luna
-    // Connect is active. Steps take each backup's run lock, so they never overlap a backup.
-    let move_db = state.db.clone();
-    let move_connect = state.connect.clone();
-    // With nothing to move (the usual case) the wait doubles up to 30 minutes,
-    // and a new key version (see console::watch_db) cuts it short. Without
-    // Connect there is nothing to move, so it sleeps with no timer until a
-    // nudge: a new key version, or Connect turning on (the Connect status loop).
-    bg_tasks.push(tokio::spawn(async move {
-        const STEP_GAP: std::time::Duration = std::time::Duration::from_secs(60);
-        const IDLE_MAX: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-        let mut wait = STEP_GAP;
-        loop {
-            if move_connect.is_connect_active() {
-                tokio::select! {
-                    _ = lunad::clock::sleep(wait) => {}
-                    _ = lunad::backup::cloud::rewrap::nudged() => wait = STEP_GAP,
-                }
-            } else {
-                lunad::backup::cloud::rewrap::nudged().await;
-                wait = STEP_GAP;
-            }
-            if !move_connect.is_connect_active() {
-                continue;
-            }
-            let db = move_db.clone();
-            let connect = move_connect.clone();
-            let worked = tokio::task::spawn_blocking(move || {
-                let store = lunad::api::cloud_backups::connect_store(&connect, &db);
-                let store_ref = store
-                    .as_ref()
-                    .map(|s| s as &dyn lunad::backup::cloud::store::CloudStore);
-                lunad::backup::cloud::rewrap::trickle(&db, store_ref, lunad::db::now_unix())
-            })
-            .await
-            .unwrap_or(0);
-            wait = if worked > 0 {
-                STEP_GAP
-            } else {
-                (wait * 2).min(IDLE_MAX)
-            };
         }
     }));
 

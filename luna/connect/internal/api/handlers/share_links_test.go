@@ -429,8 +429,8 @@ func TestInfoIgnoresDeviceOfAnotherAccount(t *testing.T) {
 
 func TestShareUserLinkPrivateItems(t *testing.T) {
 	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
-	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
-	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "main", privNsA, authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", privNsB, authPub, lunaPriv)
 	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "main.0123", []byte("a"))
 	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "other.0123", []byte("b"))
 	cloudPack(t, d, acct, privTestLuna, hexPack('f'), "main", []byte("private pack"))
@@ -439,7 +439,7 @@ func TestShareUserLinkPrivateItems(t *testing.T) {
 	h := ShareLinkHandler{Deps: d}
 	records := func(token, kind string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		h.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": kind}, token))
+		h.Records(rec, shareReq("", http.MethodGet, "/x?namespace="+privNsA, "", map[string]string{"kind": kind}, token))
 		return rec
 	}
 
@@ -568,12 +568,12 @@ func TestShareOpenThroughRoute(t *testing.T) {
 // TestUserLinkSeesOnlyItsUsersScopes checks the scope list a user link shows: its own user's scope only.
 func TestUserLinkSeesOnlyItsUsersScopes(t *testing.T) {
 	d, acct, lunaPriv, authPub, _ := privFixture(t)
-	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
-	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "main", privNsA, authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", privNsB, authPub, lunaPriv)
 	_, userTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"user","scope_value":"`+scopePart("user_a")+`"}`)
 
 	rec := httptest.NewRecorder()
-	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": "pscopes"}, userTok))
+	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x?namespace="+privNsA, "", map[string]string{"kind": "pscopes"}, userTok))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -585,11 +585,11 @@ func TestUserLinkSeesOnlyItsUsersScopes(t *testing.T) {
 // TestBackupLinkSeesNoPscopes checks that a backup link lists no private scopes at all.
 func TestBackupLinkSeesNoPscopes(t *testing.T) {
 	d, acct, lunaPriv, authPub, _ := privFixture(t)
-	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "main", privNsA, authPub, lunaPriv)
 	_, backupTok := createShare(t, d, acct, `{"luna_id":"`+privTestLuna+`","scope_kind":"backup","scope_value":"`+cloudProtA+`"}`)
 
 	rec := httptest.NewRecorder()
-	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x", "", map[string]string{"kind": "pscopes"}, backupTok))
+	ShareLinkHandler{Deps: d}.Records(rec, shareReq("", http.MethodGet, "/x?namespace="+privNsA, "", map[string]string{"kind": "pscopes"}, backupTok))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
 	}

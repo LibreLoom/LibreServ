@@ -486,13 +486,21 @@ func listedNames(t *testing.T, rec *httptest.ResponseRecorder) []string {
 
 func TestCloudPrivateScopesAndSnapshotsNeedSession(t *testing.T) {
 	d, acct, lunaPriv, authPub, authPriv := privFixture(t)
-	privWriteScope(t, d, acct, "main", "user_a", authPub, lunaPriv)
-	privWriteScope(t, d, acct, "other", "user_b", authPub, lunaPriv)
+	privWriteScope(t, d, acct, "main", privNsA, authPub, lunaPriv)
+	privWriteScope(t, d, acct, "other", privNsB, authPub, lunaPriv)
 	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "main.0123", []byte("a"))
 	cloudRecord(t, d, acct, privTestLuna, "psnapshots", "other.0123", []byte("b"))
 	h := CloudReadHandler{Deps: d}
+	var listNS func(token, kind, namespace string) *httptest.ResponseRecorder
 	list := func(token, kind string) *httptest.ResponseRecorder {
-		req := cloudReq(acct, http.MethodGet, "/x", map[string]string{"lunaID": privTestLuna, "kind": kind})
+		return listNS(token, kind, "")
+	}
+	listNS = func(token, kind, namespace string) *httptest.ResponseRecorder {
+		target := "/x"
+		if namespace != "" {
+			target += "?namespace=" + namespace
+		}
+		req := cloudReq(acct, http.MethodGet, target, map[string]string{"lunaID": privTestLuna, "kind": kind})
 		if token != "" {
 			req.Header.Set(privateTokenHeader, token)
 		}
@@ -505,8 +513,14 @@ func TestCloudPrivateScopesAndSnapshotsNeedSession(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pscopes status %d: %s", rec.Code, rec.Body.String())
 	}
-	if names := listedNames(t, rec); len(names) != 2 {
-		t.Fatalf("owner pscopes = %v; want both scopes", names)
+	if names := listedNames(t, rec); len(names) != 0 {
+		t.Fatalf("pscopes without a namespace = %v; want none", names)
+	}
+	if names := listedNames(t, listNS("", "pscopes", privNsA)); len(names) != 1 || names[0] != "main" {
+		t.Fatalf("pscopes for namespace A = %v; want [main]", names)
+	}
+	if names := listedNames(t, listNS("", "pscopes", "cccccccccccccccccccccccccccccccc")); len(names) != 0 {
+		t.Fatalf("pscopes for an unused namespace = %v; want none", names)
 	}
 
 	if rec := list("", "psnapshots"); rec.Code != http.StatusForbidden {
@@ -580,5 +594,45 @@ func TestCloudPrivatePackNeedsSessionForItsScope(t *testing.T) {
 	rec := get(token)
 	if rec.Code != http.StatusOK || rec.Body.String() != "private pack" {
 		t.Fatalf("private pack with session status %d body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListLunasMarksIdentitiesBeforeAReset(t *testing.T) {
+	d := testDeps(t)
+	owner := cloudAccount(t, d, "reset@example.com")
+	cloudLuna(t, d, owner, "old-luna", "Living room drive")
+	var devID string
+	if err := d.DB.QueryRow(`SELECT device_id FROM luna_ids WHERE luna_id = 'old-luna'`).Scan(&devID); err != nil {
+		t.Fatal(err)
+	}
+	// A factory reset minted a newer identity on the same device.
+	if _, err := d.DB.Exec(`UPDATE luna_ids SET created_at = created_at - 100 WHERE luna_id = 'old-luna'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at)
+VALUES (?, 'new-luna', ?, '', 0, ?)`, owner, devID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	cloudLuna(t, d, owner, "other-luna", "Spare drive")
+
+	rec := httptest.NewRecorder()
+	CloudReadHandler{Deps: d}.ListLunas(rec, cloudReq(owner, http.MethodGet, "/cloud/lunas", nil))
+	var got struct {
+		Lunas []struct {
+			LunaID      string `json:"luna_id"`
+			BeforeReset bool   `json:"before_reset"`
+		} `json:"lunas"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"old-luna": true, "new-luna": false, "other-luna": false}
+	if len(got.Lunas) != 3 {
+		t.Fatalf("got %+v", got.Lunas)
+	}
+	for _, l := range got.Lunas {
+		if l.BeforeReset != want[l.LunaID] {
+			t.Fatalf("%s before_reset = %v", l.LunaID, l.BeforeReset)
+		}
 	}
 }

@@ -198,6 +198,11 @@ pub trait CloudStore: Send + Sync {
     }
 
     fn usage(&self) -> Result<Usage, StoreError>;
+    /// The Connect device this store talks to. Publication acks are kept per device, so
+    /// an ack made through one device never counts for another. `None` means unknown.
+    fn device_binding(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Checks shared by both stores, so a bad request fails the same way everywhere.
@@ -292,6 +297,10 @@ impl MemoryStore {
 }
 
 impl CloudStore for MemoryStore {
+    fn device_binding(&self) -> Option<String> {
+        Some("memory".into())
+    }
+
     fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
         check_pack(id, scope, bytes)?;
         let mut inner = self.lock();
@@ -716,6 +725,13 @@ fn connect_sentence(body: &[u8]) -> String {
 }
 
 impl CloudStore for HttpStore {
+    fn device_binding(&self) -> Option<String> {
+        match &self.credential {
+            Credential::Rolling(connect) => connect.device_uid().ok(),
+            Credential::Static(_) => None,
+        }
+    }
+
     fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
         check_pack(id, scope, bytes)?;
         let url = self.url(&format!("/packs/{}", hex_id(id)));

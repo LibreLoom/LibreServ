@@ -246,6 +246,27 @@ describe("LunaPage one Luna", () => {
     expect(refreshMe).toHaveBeenCalled();
   });
 
+  it("offers to cancel billing when disconnecting a paying account", async () => {
+    authState.me = { ...authState.me, has_card: true };
+    api.mockImplementation(async (path, opts) => {
+      if (path === "/api/v1/account/devices") return { devices: [boundDevice({ online: false })] };
+      if (path === "/api/v1/devices/dev_1" && opts?.method === "DELETE") return { ok: true };
+      return {};
+    });
+    mount();
+
+    fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Disconnect/i }));
+    const confirm = screen.getByTestId("luna-disconnect-confirm");
+    expect(within(confirm).getByText(/deletes every cloud backup right away/i)).toBeTruthy();
+    expect(within(confirm).getByRole("button", { name: "Disconnect and keep backups" })).toBeTruthy();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Disconnect and cancel billing" }));
+
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1", {
+      method: "DELETE",
+      body: JSON.stringify({ cancel_billing: true }),
+    }));
+  });
+
   it("keeps a failed Disconnect inside the confirmation", async () => {
     api.mockImplementation(async (path, opts) => {
       if (path === "/api/v1/account/devices") return { devices: [boundDevice()] };

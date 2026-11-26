@@ -49,11 +49,15 @@ describe("unlockBackups", () => {
     expect(backup.keys[fixture.key_version]).toBeDefined();
   });
 
-  it("opens the alice phrase's private backup and lists alice as a private owner", async () => {
-    const { backups, privateOwners } = await unlockBackups(fixtureSource(), alicePhrase());
+  it("opens the alice phrase's private backup and asks for only its own derived namespace", async () => {
+    const source = fixtureSource();
+    const { backups } = await unlockBackups(source, alicePhrase());
     expect(privateOf(backups)).toHaveLength(1);
     expect(privateOf(backups)[0].private.scope).toBe(PRIVATE.scope);
-    expect(privateOwners).toEqual([PRIVATE.owner_user_id]);
+    const asked = source.listRecords.mock.calls.filter(([kind]) => kind === "pscopes");
+    expect(asked).toHaveLength(1);
+    expect(asked[0][1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(source.listRecords.mock.calls.filter(([kind]) => kind !== "pscopes").every(([, ns]) => ns === undefined)).toBe(true);
   });
 
   it("keeps the shared backup when requireLatest is set, since alice has the latest key version", async () => {
@@ -78,10 +82,9 @@ describe("unlockBackups", () => {
 
   it("opens a private backup when the phrase has no shared keys at all", async () => {
     const records = { self: fixture.records.self, recipients: fixture.records.recipients };
-    const { backups, privateOwners } = await unlockBackups(fixtureSource(records), alicePhrase());
+    const { backups } = await unlockBackups(fixtureSource(records), alicePhrase());
     expect(sharedOf(backups)).toHaveLength(0);
     expect(privateOf(backups)).toHaveLength(1);
-    expect(privateOwners).toEqual([PRIVATE.owner_user_id]);
   });
 
   it("throws NO_BACKUPS for a valid phrase that opens nothing on this Luna", async () => {
@@ -91,29 +94,20 @@ describe("unlockBackups", () => {
 });
 
 describe("groupByStarter", () => {
-  it("groups alice's shared and private backups under her name, marked as hers", async () => {
-    const { backups, privateOwners } = await unlockBackups(fixtureSource(), alicePhrase());
-    const groups = groupByStarter(backups, privateOwners);
+  it("groups alice's shared backups under her name and leaves private backups out", async () => {
+    const { backups } = await unlockBackups(fixtureSource(), alicePhrase());
+    const groups = groupByStarter(backups);
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe("Alice");
     expect(groups[0].startedBy).toBe("alice");
-    expect(groups[0].backups).toHaveLength(2);
-    expect(groups[0].privateRow).toBe("mine");
+    expect(groups[0].backups).toHaveLength(1);
+    expect(groups[0].backups[0].private).toBeUndefined();
   });
 
-  it("adds an 'Another person on this Luna' group for a private owner with no backups opened", () => {
-    const groups = groupByStarter([], ["bob"]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].name).toBe("Another person on this Luna");
-    expect(groups[0].startedBy).toBe("bob");
-    expect(groups[0].backups).toHaveLength(0);
-    expect(groups[0].privateRow).toBe("other");
-  });
-
-  it("leaves privateRow null for a shared-only starter", async () => {
-    const { backups } = await unlockBackups(fixtureSource(fixture.records, { withPrivate: false }), alicePhrase());
-    const groups = groupByStarter(backups);
-    expect(groups[0].privateRow).toBeNull();
+  it("returns no groups when only private backups opened", async () => {
+    const records = { self: fixture.records.self, recipients: fixture.records.recipients };
+    const { backups } = await unlockBackups(fixtureSource(records), alicePhrase());
+    expect(groupByStarter(backups)).toEqual([]);
   });
 });
 

@@ -5,6 +5,7 @@
 //! held briefly for each read or write and never while copying or uploading.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::fs::File;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
@@ -58,8 +59,6 @@ pub struct CloudOutcome {
     pub reused_chunks: u64,
     pub snapshot_id: Option<String>,
     pub problem: Option<String>,
-    /// Always false now: a run is no longer held because most of the source looks gone.
-    pub source_missing: bool,
     /// True when the backup's lock was taken by another run, a key move or a re-seal. This is not
     /// a failure: nothing is recorded, and the next scheduled run tries again.
     pub busy: bool,
@@ -95,6 +94,12 @@ pub(super) fn run_from_folder(
         return Ok(busy_outcome());
     };
 
+    // Send any snapshot record an earlier run committed but could not publish, before this run
+    // can clean up packs. A failure only leaves that record queued for the next attempt.
+    if let Err(err) = publish_outbox(db, store) {
+        tracing::warn!(error = %err, "could not publish an earlier cloud snapshot; it will be retried");
+    }
+
     // Finish any re-seal owed after a phrase change. Best effort: a failure never holds this backup.
     for result in keys::reseal_pending_holding(db, store, Some(protection_id)) {
         match result {
@@ -125,7 +130,7 @@ pub(super) fn run_from_folder(
     };
 
     // Failing here means no run row was opened, so there is nothing to close.
-    let (ctx, publish) = match prepare(db, protection_id, now) {
+    let (ctx, publish) = match prepare(db, protection_id, now, store) {
         Ok(prepared) => prepared,
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
@@ -257,7 +262,20 @@ pub(crate) struct RunContext {
 }
 
 /// Reads the key and recipients and opens the run row. Nothing after `start_run` can fail.
-fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext, Publish)> {
+/// The Connect device an ack must match. A store that cannot name its device publishes nothing.
+fn store_device(store: &dyn CloudStore) -> Result<String> {
+    store
+        .device_binding()
+        .ok_or_else(|| anyhow!("Luna could not confirm which device it is linked to. Try again."))
+}
+
+fn prepare(
+    db: &crate::Db,
+    protection_id: &str,
+    now: i64,
+    store: &dyn CloudStore,
+) -> Result<(RunContext, Publish)> {
+    let device = store_device(store)?;
     let conn = lock(db);
     let row = db::get_protection(&conn, protection_id)?
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
@@ -293,8 +311,8 @@ fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext,
     }
     let recipients = Recipients::new(ids);
     let key = keys::ensure_key(&conn, protection_id, &recipients, now)?;
-    let needs_publish = !keys::is_published(&conn, &key, &identity.luna_id)?;
-    let older = pending_older_versions(&conn, &key, &recipients, &identity.luna_id)
+    let needs_publish = !keys::is_published(&conn, &key, &identity.luna_id, &device)?;
+    let older = pending_older_versions(&conn, &key, &recipients, &identity.luna_id, &device)
         .unwrap_or_else(|error| {
             tracing::warn!(%error, protection_id, "could not plan repair of older cloud backup keys");
             Vec::new()
@@ -372,11 +390,12 @@ fn pending_older_versions(
     current: &BackupKey,
     eligible: &Recipients,
     luna_id: &str,
+    device: &str,
 ) -> Result<Vec<(BackupKey, Recipients)>> {
     let mut older = Vec::new();
     for key in db::list_backup_keys(conn, &current.protection_id)? {
         if key.version < current.version
-            && !keys::is_published(conn, &key, luna_id)?
+            && !keys::is_published(conn, &key, luna_id, device)?
             && let Some(recipients) = keys::recoverable_readers(conn, &key, eligible)?
         {
             older.push((key, recipients));
@@ -407,7 +426,7 @@ fn publish_and_copy(
             recipients,
             |user| publish.user_pub.get(user).copied(),
         )?;
-        keys::acknowledge_publication(&lock(db), key, &ctx.luna_id)
+        keys::acknowledge_publication(&lock(db), key, &ctx.luna_id, &store_device(store)?)
     };
     if let Some((key, recipients)) = &publish.current {
         publish_version(key, recipients)?;
@@ -561,29 +580,33 @@ pub(crate) fn copy_and_commit(
 
     // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
     let mut drafts: Vec<(String, u64, i64, Vec<[u8; 32]>)> = Vec::new();
+    // Files that kept changing while they were read. They are left out of this run's tree.
+    let mut unstable: Vec<String> = Vec::new();
     let files = &walk.files;
     for entry in files {
-        let mut file = match File::open(&entry.abs) {
-            Ok(file) => file,
-            Err(err) => {
-                tracing::warn!(error = %err, path = %entry.rel, "could not open a cloud backup source file");
-                return walk.read_error(db, &ctx.protection_id);
-            }
-        };
-        let mut chunk_ids = Vec::new();
-        let read = format::chunks(&mut file, |plain| {
-            bytes_read += plain.len() as u64;
-            chunk_ids.push(copy.chunk(plain)?);
-            Ok(())
+        let read = walk.read_file(&entry.rel, |file| {
+            let mut chunk_ids = Vec::new();
+            format::chunks(file, |plain| {
+                bytes_read += plain.len() as u64;
+                chunk_ids.push(copy.chunk(plain)?);
+                Ok(())
+            })?;
+            Ok(chunk_ids)
         });
-        if let Err(err) = read {
-            if err.is::<fastcdc::v2020::Error>() {
+        let (chunk_ids, stamp) = match read {
+            Ok(Some(done)) => done,
+            Ok(None) => {
+                tracing::warn!(path = %entry.rel, "a cloud backup source file kept changing while it was read; skipped it this run");
+                unstable.push(entry.rel.clone());
+                continue;
+            }
+            Err(err) if err.is::<fastcdc::v2020::Error>() || err.is::<std::io::Error>() => {
                 tracing::warn!(error = %err, path = %entry.rel, "could not read a cloud backup source file");
                 return walk.read_error(db, &ctx.protection_id);
             }
-            return Err(err);
-        }
-        drafts.push((entry.rel.clone(), entry.size, entry.mtime, chunk_ids));
+            Err(err) => return Err(err),
+        };
+        drafts.push((entry.rel.clone(), stamp.size, stamp.mtime, chunk_ids));
     }
     // Plain debug line, not a perf timer: ops.rs already times the whole D7 run.
     tracing::debug!(
@@ -670,10 +693,10 @@ pub(crate) fn copy_and_commit(
     if let Err(unavailable) = walk.verify() {
         return unavailable.record(db, &ctx.protection_id);
     }
-    store
-        .put_record(kind, &name, &signed_bytes)
-        .map_err(|e| anyhow!("{e}"))?;
 
+    // Commit the snapshot and queue its record in one transaction, before anything is published.
+    // A crash after this point leaves the record in the outbox, so the next run publishes it
+    // and its packs stay referenced until then.
     {
         let mut conn = lock(db);
         let tx = conn.transaction()?;
@@ -685,23 +708,74 @@ pub(crate) fn copy_and_commit(
                 created_at: now,
                 key_version: i64::from(ctx.key_version),
                 tree_pack_id: tree_pack_id.clone(),
-                record: signed_bytes,
+                record: signed_bytes.clone(),
             },
             &copy.pack_ids,
             &tree,
         )?;
+        db::insert_outbox_in(
+            &tx,
+            &snapshot_id,
+            &ctx.protection_id,
+            &ctx.scope,
+            kind,
+            &name,
+            &signed_bytes,
+            now,
+        )?;
         tx.commit()?;
     }
+
+    store
+        .put_record(kind, &name, &signed_bytes)
+        .map_err(|e| anyhow!("{e}"))?;
+    db::clear_outbox(&lock(db), &snapshot_id)?;
 
     Ok(CloudOutcome {
         uploaded_bytes: copy.uploaded_bytes,
         files: files.len() as u64,
         reused_chunks: copy.reused_chunks,
         snapshot_id: Some(snapshot_id),
-        problem: None,
-        source_missing: false,
+        problem: unstable_problem(&unstable),
         busy: false,
     })
+}
+
+/// The message for files skipped because they kept changing during the read. Those files are
+/// not in this snapshot; the next scheduled run tries them again.
+fn unstable_problem(names: &[String]) -> Option<String> {
+    match names {
+        [] => None,
+        [one] => Some(format!("Luna skipped \"{one}\" because it was changing while it was copied. It will be copied on the next run.")),
+        many => Some(format!("Luna skipped {} files because they were changing while they were copied. They will be copied on the next run.", many.len())),
+    }
+}
+
+/// Sends every snapshot record that was committed locally but not yet acknowledged by the cloud.
+/// Records are re-sent as stored, so sending one twice (after a lost acknowledgement) is harmless.
+/// Callers run this before any pack clean-up.
+pub(crate) fn publish_outbox(db: &crate::Db, store: &dyn CloudStore) -> Result<usize> {
+    let rows = {
+        let conn = lock(db);
+        db::pending_outbox(&conn)?
+    };
+    let mut sent = 0;
+    let mut first_error = None;
+    for row in &rows {
+        match store.put_record(&row.kind, &row.name, &row.bytes) {
+            Ok(()) => {
+                db::clear_outbox(&lock(db), &row.snapshot_id)?;
+                sent += 1;
+            }
+            Err(error) => {
+                first_error.get_or_insert_with(|| anyhow!("{error}"));
+            }
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(sent),
+    }
 }
 
 /// Whether the files are the same as the previous snapshot's: the same paths, each with the same
@@ -986,7 +1060,7 @@ mod tests {
         assert!(failed.snapshot_id.is_none());
         let key = db::latest_backup_key(&lock(&db), "p1").unwrap().unwrap();
         let identity = identity::load(&lock(&db)).unwrap().unwrap();
-        assert!(!keys::is_published(&lock(&db), &key, identity.luna_id()).unwrap());
+        assert!(!keys::is_published(&lock(&db), &key, identity.luna_id(), "memory").unwrap());
         let copy_name = keys::key_record_name("p1", key.version, "owner");
         let list_name = keys::recipients_record_name("p1", key.version);
         let copy = constrained.get_record("keys", &copy_name).unwrap().unwrap();
@@ -1009,7 +1083,7 @@ mod tests {
             Some(key.clone())
         );
         let identity = identity::load(&conn).unwrap().unwrap();
-        assert!(keys::is_published(&conn, &key, identity.luna_id()).unwrap());
+        assert!(keys::is_published(&conn, &key, identity.luna_id(), "memory").unwrap());
         assert!(
             recovered
                 .get_record("recipients", &list_name)
@@ -1134,7 +1208,6 @@ mod tests {
         }
         let out = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
         assert_eq!(out.problem, None);
-        assert!(!out.source_missing);
         assert!(out.snapshot_id.is_some());
         assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
         let open_runs: i64 = lock(&db)
@@ -1264,6 +1337,62 @@ mod tests {
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
+    }
+
+    /// Puts a committed snapshot's record back in the outbox, as a crash before publishing leaves it.
+    fn queue_again(db: &crate::Db, snapshot_id: &str, record: &[u8]) {
+        let mut conn = lock(db);
+        let tx = conn.transaction().unwrap();
+        db::insert_outbox_in(&tx, snapshot_id, "p9", "", "snapshots", snapshot_id, record, 100)
+            .unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn a_crash_before_publishing_is_repaired_by_the_next_publish() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let done = run_with_root(&db, "p9", &src, &store, true, 100).unwrap();
+        let snapshot_id = done.snapshot_id.clone().unwrap();
+        assert!(db::pending_outbox(&lock(&db)).unwrap().is_empty());
+
+        // The crash happened after the local commit: the cloud never got the record.
+        let record = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        store.delete_record("snapshots", &snapshot_id).unwrap();
+        queue_again(&db, &snapshot_id, &record);
+        assert_eq!(db::pending_outbox(&lock(&db)).unwrap().len(), 1);
+        assert_eq!(store.get_record("snapshots", &snapshot_id).unwrap(), None);
+
+        assert_eq!(publish_outbox(&db, &store).unwrap(), 1);
+        assert_eq!(
+            store.get_record("snapshots", &snapshot_id).unwrap(),
+            Some(record)
+        );
+        assert!(db::pending_outbox(&lock(&db)).unwrap().is_empty());
+        assert_eq!(publish_outbox(&db, &store).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_lost_acknowledgement_resends_the_same_record_harmlessly() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let done = run_with_root(&db, "p9", &src, &store, true, 100).unwrap();
+        let snapshot_id = done.snapshot_id.clone().unwrap();
+        let record = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+
+        // The record reached the cloud, but the clear after the acknowledgement never ran.
+        queue_again(&db, &snapshot_id, &record);
+        assert_eq!(publish_outbox(&db, &store).unwrap(), 1);
+        assert!(db::pending_outbox(&lock(&db)).unwrap().is_empty());
+        assert_eq!(
+            store.get_record("snapshots", &snapshot_id).unwrap(),
+            Some(record)
+        );
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
     }
 
     /// The tree a run committed, read back from the store.

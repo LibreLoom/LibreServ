@@ -88,16 +88,29 @@ fn publication_meta_key(key: &BackupKey) -> String {
     )
 }
 
-pub(super) fn is_published(conn: &Connection, key: &BackupKey, luna_id: &str) -> Result<bool> {
-    Ok(db::get_meta(conn, &publication_meta_key(key))?.as_deref() == Some(luna_id))
+/// An ack counts only for the Luna and the Connect device it was made through. A Luna that
+/// is rebound to another device, or a store with no device, must publish again.
+fn publication_value(luna_id: &str, device: &str) -> String {
+    format!("{luna_id}\n{device}")
+}
+
+pub(super) fn is_published(
+    conn: &Connection,
+    key: &BackupKey,
+    luna_id: &str,
+    device: &str,
+) -> Result<bool> {
+    Ok(db::get_meta(conn, &publication_meta_key(key))?.as_deref()
+        == Some(publication_value(luna_id, device).as_str()))
 }
 
 pub(super) fn acknowledge_publication(
     conn: &Connection,
     key: &BackupKey,
     luna_id: &str,
+    device: &str,
 ) -> Result<()> {
-    db::set_meta(conn, &publication_meta_key(key), luna_id)
+    db::set_meta(conn, &publication_meta_key(key), &publication_value(luna_id, device))
 }
 
 fn rotate_meta_key(protection_id: &str) -> String {
@@ -521,6 +534,41 @@ pub fn verify_recipients(
     crypto::verify(public, RECIPIENTS_DOMAIN, &message, &sig).then_some(users)
 }
 
+/// True when `record` is a key copy Luna signed for this backup, version and user. Only the
+/// signature is checked, so no user secret is needed; `open_key` still decrypts it.
+pub(super) fn key_copy_signed(
+    record: &[u8],
+    luna_public: &SigPublic,
+    luna_id: &str,
+    protection_id: &str,
+    version: i64,
+    user_id: &str,
+) -> bool {
+    if record.len() <= KEY_COPY_SIG_LEN {
+        return false;
+    }
+    let aad = key_aad(luna_id, protection_id, version, user_id);
+    let (sealed, sig_bytes) = record.split_at(record.len() - KEY_COPY_SIG_LEN);
+    let mut signature = [0u8; KEY_COPY_SIG_LEN];
+    signature.copy_from_slice(sig_bytes);
+    crypto::verify(
+        luna_public,
+        KEY_COPY_DOMAIN,
+        &key_copy_message(&aad, sealed),
+        &signature,
+    )
+}
+
+/// The reader list this Luna saved for one backup version, if it saved one.
+pub(super) fn expected_readers(
+    conn: &Connection,
+    protection_id: &str,
+    version: i64,
+) -> Result<Option<Recipients>> {
+    Ok(saved_readers(conn, protection_id, version)?
+        .map(|saved| Recipients::new(reader_ids(&saved))))
+}
+
 fn decode_hex_sig(hex: &str) -> Option<SigBytes> {
     if hex.len() != crypto::SIG_LEN * 2 {
         return None;
@@ -773,6 +821,22 @@ mod tests {
         (dir, conn)
     }
 
+    #[test]
+    fn an_ack_counts_only_for_the_device_and_luna_that_made_it() {
+        let (_dir, conn) = conn();
+        let key = BackupKey {
+            protection_id: PROTECTION.into(),
+            version: 1,
+            key: vec![1; 32],
+            dedup_key: vec![2; 32],
+            created_at: 1,
+        };
+        acknowledge_publication(&conn, &key, LUNA, "device-a").unwrap();
+        assert!(is_published(&conn, &key, LUNA, "device-a").unwrap());
+        assert!(!is_published(&conn, &key, LUNA, "device-b").unwrap());
+        assert!(!is_published(&conn, &key, "other-luna", "device-a").unwrap());
+    }
+
     /// A database with this Luna's identity, for the re-seal tests, which read it.
     fn shared_db() -> (tempfile::TempDir, crate::Db) {
         let dir = tempfile::tempdir().unwrap();
@@ -850,6 +914,12 @@ mod tests {
     }
 
     impl CloudStore for FlakyStore {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             id: &[u8; 32],
@@ -1048,6 +1118,39 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn key_copy_signed_accepts_only_this_luna_this_copy_and_unchanged_bytes() {
+        let (_dir, conn) = conn();
+        let store = MemoryStore::new();
+        let signer = crypto::Signer::generate();
+        let alice = user_keys("alice");
+        let pubs = HashMap::from([("alice".to_string(), alice.seal_public)]);
+        let recipients = set(&["alice"]);
+        let key = ensure_key(&conn, PROTECTION, &recipients, 10).unwrap();
+        publish(&store, &signer, &key, &recipients, &pubs).unwrap();
+        let record = store
+            .get_record(KEYS_KIND, &key_record_name(PROTECTION, 1, "alice"))
+            .unwrap()
+            .unwrap();
+        let public = signer.public();
+        assert!(key_copy_signed(&record, &public, LUNA, PROTECTION, 1, "alice"));
+        assert!(!key_copy_signed(&record, &public, LUNA, PROTECTION, 2, "alice"));
+        assert!(!key_copy_signed(&record, &public, LUNA, PROTECTION, 1, "bob"));
+        assert!(!key_copy_signed(&record, &public, "other-luna", PROTECTION, 1, "alice"));
+        assert!(!key_copy_signed(
+            &record,
+            &crypto::Signer::generate().public(),
+            LUNA,
+            PROTECTION,
+            1,
+            "alice"
+        ));
+        let mut altered = record.clone();
+        altered[0] ^= 1;
+        assert!(!key_copy_signed(&altered, &public, LUNA, PROTECTION, 1, "alice"));
+        assert!(!key_copy_signed(&[0u8; 4], &public, LUNA, PROTECTION, 1, "alice"));
     }
 
     #[test]
@@ -1551,6 +1654,12 @@ mod tests {
     }
 
     impl CloudStore for SaveDuringRun<'_> {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             id: &[u8; 32],
@@ -1714,27 +1823,6 @@ mod tests {
             .is_ok()
         );
         assert_eq!(v1.version, 1);
-    }
-
-    #[test]
-    fn a_reseal_takes_the_drive_backup_hold_and_frees_it_after() {
-        let (_dir, db) = shared_db();
-        let store = super::super::rewrap::HoldProbe::new(&db, PROTECTION);
-        let bob = user_keys("bob");
-        let bob_new = user_keys("bob-new");
-        {
-            let conn = locked(&db);
-            set_phrase(&conn, "bob", &bob);
-            ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
-            set_phrase(&conn, "bob", &bob_new);
-            replace_reader(&conn, "bob", &bob_new.seal_public).unwrap();
-            queue_reseal(&conn, "bob").unwrap();
-        }
-        let report = reseal_pending(&db, &store).pop().unwrap().unwrap();
-        assert!(report.done);
-        assert!(store.saw_held.load(std::sync::atomic::Ordering::SeqCst));
-        assert!(!crate::backup::drive_backup::is_running(&db, PROTECTION));
-        assert!(super::super::run::RunSlot::take(&db, PROTECTION).is_some());
     }
 
     #[test]

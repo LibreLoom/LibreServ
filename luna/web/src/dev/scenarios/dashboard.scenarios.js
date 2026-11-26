@@ -49,13 +49,6 @@ export default [
     check: [NEEDS, "The error text is shown as the detail"],
   },
   {
-    id: "dashboard/backup-source-missing",
-    area: "Dashboard",
-    title: "Needs you: cloud backup's folder is gone",
-    seed: (w) => { w.cloudBackups = [cloudBackup({ source_missing: true })]; },
-    check: [NEEDS, "Row explains the folder is missing", "Button opens the backup"],
-  },
-  {
     id: "dashboard/cloud-check-problem",
     area: "Dashboard",
     title: "Needs you: cloud backup check found a problem",
@@ -209,7 +202,7 @@ export default [
       w.connectActive = false;
       w.systemChecks = { overall_pass: false, checks: { drive_d1_smart: { status: "failed", message: "Drive 1 is failing. Copy your files to another drive now.", category: "drives" }, disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.", category: "system" } } };
       w.backups = [backup({ state: "failing", last_error: "Backup drive is full. Free up some space on it and try again." }), backup({ state: "stale", source_name: "Documents" })];
-      w.cloudBackups = [cloudBackup({ source_missing: true })];
+      w.cloudBackups = [cloudBackup({ state: "failing", last_error: "Cloud storage is full." })];
       w.phrase = { ...w.phrase, check_due: true };
       w.detected = [{ name: "sdb", model: "USB stick", size_bytes: 16 * GB, fs_type: "fat32" }];
       w.updates = { update_available: true, current_version: "1.4.2", latest_version: "1.5.0" };

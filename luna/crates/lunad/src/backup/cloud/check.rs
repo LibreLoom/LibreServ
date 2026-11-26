@@ -10,7 +10,8 @@ use anyhow::{Result, anyhow};
 use rand_core::{OsRng, RngCore};
 use rusqlite::{Connection, params};
 
-use super::crypto::SigPublic;
+use super::crypto::{SealPublic, SigPublic};
+use super::keys::{self, Recipients};
 use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
 use super::run;
@@ -49,6 +50,14 @@ struct Plan {
     listed: HashMap<String, HashSet<String>>,
     /// The Luna id this identity signs records for.
     luna_id: String,
+    /// The identity itself, for republishing key copies and recipient lists.
+    identity: identity::Identity,
+    /// Each backup version with the reader list saved for it.
+    readers: Vec<(BackupKey, Recipients)>,
+    /// Sealing public keys of every user with a phrase, by user id.
+    seal_publics: HashMap<String, SealPublic>,
+    /// Each user's self-sealed signing key copy, by user id.
+    self_records: Vec<(String, Vec<u8>)>,
 }
 
 pub fn check(
@@ -66,6 +75,9 @@ pub fn check(
     let mut report = CheckReport::default();
     let mut examined: HashSet<String> = HashSet::new();
     let unwrap = unwrap_with(&plan.keys);
+
+    // Key copies, recipient lists and self records must be in Connect, or the browser cannot unlock.
+    reconcile_envelopes(&plan, store, protection_id)?;
 
     // Every snapshot: verify its record, then open its tree pack.
     for snap in &plan.snapshots {
@@ -169,13 +181,95 @@ fn read_plan(conn: &Connection, protection_id: &str) -> Result<Plan> {
         listed.entry(snap).or_default().insert(pack);
     }
 
+    let mut readers = Vec::new();
+    for key in &keys {
+        if let Some(saved) = keys::expected_readers(conn, protection_id, key.version)? {
+            readers.push((key.clone(), saved));
+        }
+    }
+    let mut seal_publics = HashMap::new();
+    let mut self_records = Vec::new();
+    for user in db::list_user_keys(conn)? {
+        if let Ok(public) = SealPublic::try_from(user.seal_public.as_slice()) {
+            seal_publics.insert(user.user_id.clone(), public);
+        }
+        self_records.push((user.user_id, user.self_sealed));
+    }
+
     Ok(Plan {
         public: identity.public(),
         keys,
         snapshots,
         listed,
         luna_id: identity.luna_id().to_string(),
+        identity,
+        readers,
+        seal_publics,
+        self_records,
     })
+}
+
+/// Make sure Connect holds what a browser needs to unlock this backup: a signed recipient list
+/// and a Luna-signed key copy for every reader of each version, and each user's self record.
+/// Anything missing or not matching is republished from this Luna's database.
+/// A record Connect does not have comes back as `None`, not as an error.
+fn fetch(store: &dyn CloudStore, kind: &str, name: &str) -> Result<Option<Vec<u8>>> {
+    match store.get_record(kind, name) {
+        Ok(found) => Ok(found),
+        Err(StoreError::NotFound) => Ok(None),
+        Err(e) => Err(anyhow!("{e}")),
+    }
+}
+
+fn reconcile_envelopes(plan: &Plan, store: &dyn CloudStore, protection_id: &str) -> Result<()> {
+    let signer = plan.identity.signer();
+    for (key, readers) in &plan.readers {
+        let version = key.version;
+        let listed_ok = match fetch(store, "recipients", &keys::recipients_record_name(protection_id, version))? {
+            Some(bytes) => keys::verify_recipients(
+                &bytes,
+                &plan.public,
+                &plan.luna_id,
+                protection_id,
+                version,
+            )
+            .is_some_and(|users| Recipients::new(users) == *readers),
+            None => false,
+        };
+        let mut copies_ok = true;
+        for user in &readers.users {
+            let name = keys::key_record_name(protection_id, version, user);
+            let signed = fetch(store, "keys", &name)?.is_some_and(|bytes| {
+                keys::key_copy_signed(
+                    &bytes,
+                    &plan.public,
+                    &plan.luna_id,
+                    protection_id,
+                    version,
+                    user,
+                )
+            });
+            copies_ok &= signed;
+        }
+        if !listed_ok || !copies_ok {
+            keys::publish_key(
+                store,
+                signer,
+                &plan.luna_id,
+                protection_id,
+                key,
+                readers,
+                |user| plan.seal_publics.get(user).copied(),
+            )?;
+        }
+    }
+    for (user, self_sealed) in &plan.self_records {
+        let name = keys::user_record_part(user);
+        if fetch(store, "self", &name)?.as_deref() != Some(self_sealed.as_slice()) {
+            store.put_record("self", &name, self_sealed)?;
+        }
+    }
+    Ok(())
 }
 
 /// Fetch a snapshot record and verify it. `None` means the record is missing, fails the
@@ -330,6 +424,12 @@ mod tests {
     }
 
     impl CloudStore for CorruptStore {
+
+        fn device_binding(&self) -> Option<String> {
+
+            Some("memory".into())
+
+        }
         fn put_pack(
             &self,
             id: &[u8; 32],

@@ -61,11 +61,15 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 	d.TunnelID = tunnelID.String
 	d.State = state.String
 	d.AuthTokenHash = authHash.String
+	var req struct {
+		Password      string `json:"password"`
+		CancelBilling bool   `json:"cancel_billing"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
 	if d.State == "revoked" {
-		var req struct {
-			Password string `json:"password"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+		if req.Password == "" {
 			JSONError(w, http.StatusBadRequest, "Enter your password to disconnect this Luna.")
 			return
 		}
@@ -73,6 +77,16 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, status, message)
 			return
 		}
+	}
+	// Turning payment off first means a failure leaves the Luna linked and
+	// nothing deleted, so the person can simply try again.
+	billingMessage := ""
+	if req.CancelBilling {
+		msg, ok := AccountHandler{Deps: h.Deps}.cancelBillingFor(w, acct)
+		if !ok {
+			return
+		}
+		billingMessage = msg
 	}
 	if err := unbindDevice(h.Deps, d, acct.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -87,7 +101,7 @@ func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
 		obPath = "official"
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_step = ? WHERE id = ?`, defaultCodeStep(obPath), acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true, "status": "unbound"})
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "status": "unbound", "billing_message": billingMessage})
 }
 
 // verifyDeviceDisconnectPassword shares sign-in's persisted limits. A correct

@@ -762,6 +762,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 	return map[string]any{
 		"auth_token":            token,
 		"device_id":             deviceID,
+		"account_id":            accountID,
 		"refresh_after_seconds": authRefreshAfterSeconds,
 	}, nil
 }

@@ -10,8 +10,8 @@
 
 ## Still open
 
-- **Unlink, then link again under a different account.** [connect-auth DESIGN](../connect-auth/DESIGN.md) says the cloud identity survives unbind, but [multi-Luna Phase 1](../multi-luna/plan.md) says a different entry needs a fresh cloud identity. Decide which rule applies when the account changes.
-- **Earlier cloud backups after a factory reset or database loss.** Decide how Connect groups them on the website. Factory reset currently clears the cloud identity even with Keep Connect, so the grouping question depends on whether that identity should survive.
+- **Unlink, then link again under a different account.** Decided: a different account gets a fresh cloud identity and the old backups stay with the old account until deleted; the same account keeps its identity.
+- **Earlier cloud backups after a factory reset or database loss.** Decided: Connect lists them under the same Luna in a "Before reset" section, still openable with the phrase and still billed to that Luna.
 - **Drive backup rediscovery after a reset.** Should the original Luna find its drive backups again after a reset or database loss, or only backups its current setup already knows? See [the backup spec](SPEC.md).
-- **Unlink flow and billing.** Decide whether unlinking also offers to cancel billing. See [the Multi-Luna plan](../multi-luna/plan.md).
+- **Unlink flow and billing.** Decided: unlinking on the Connect website asks whether to keep paying and keep cloud backups, or cancel billing (the existing "Turn off payment" path, one request with `cancel_billing: true`). See [the Multi-Luna plan](../multi-luna/plan.md).
 - **History a newly added reader can open.** Decide what history a reader added while Luna is alive may open. [ARCHIVE_MODEL.md](ARCHIVE_MODEL.md) does not settle this.

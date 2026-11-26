@@ -237,8 +237,7 @@ VALUES (?, ?, ?, ?, ?)`, security.HashToken(challenge), s.AccountID, s.LunaID, l
 }
 
 // openPrivateSession checks challenge (single use, not expired, same account/luna/link) and the
-// auth-key signature against the scope record's auth_public, and for a user share link that
-// scopePart(record.UserID) == s.Value. A backup link (s.Kind == "backup") never opens one.
+// auth-key signature against the scope record's auth_public. A backup link (s.Kind == "backup") never opens one.
 // Returns the token (hex 32 bytes) and expiry.
 func openPrivateSession(d Deps, s readScope, linkID, scope, challengeHex, sigHex string, now time.Time) (token string, expiresAt int64, err error) {
 	challengeHex = strings.ToLower(challengeHex)
@@ -270,9 +269,6 @@ WHERE hash = ? AND account_id = ? AND luna_id = ? AND link_id = ? AND expires_at
 		return "", 0, err
 	}
 	if !ok || rec.Scope != scope {
-		return "", 0, errPrivateDenied
-	}
-	if s.Kind == "user" && scopePart(rec.UserID) != s.Value {
 		return "", 0, errPrivateDenied
 	}
 	msg := lunaCanonical(

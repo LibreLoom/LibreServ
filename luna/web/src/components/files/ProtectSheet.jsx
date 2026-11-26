@@ -129,8 +129,6 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   const [targetDrive, setTargetDrive] = useState("");
   const [deleting, setDeleting] = useState(null);
   const [deletingCloud, setDeletingCloud] = useState(null);
-  // Set when a cloud run stopped because the source looks missing; holds the backup id for "Back up anyway".
-  const [missingSourceId, setMissingSourceId] = useState(null);
   const [confirmingOldCopies, setConfirmingOldCopies] = useState(false);
   // Open while "Back up to the cloud" waits for a recovery phrase the person doesn't have yet.
   const [settingUpPhrase, setSettingUpPhrase] = useState(false);
@@ -352,9 +350,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     },
   });
   const runCloud = useMutation({
-    mutationFn: (/** @type {{id: string, acceptMissing?: boolean}} */ { id, acceptMissing = false }) =>
-      postJson(`/api/v1/cloud/backups/${id}/run${acceptMissing ? "?accept_missing=true" : ""}`, {}),
-    onSuccess: (res, { id, acceptMissing = false }) => {
+    mutationFn: (/** @type {{id: string}} */ { id }) =>
+      postJson(`/api/v1/cloud/backups/${id}/run`, {}),
+    onSuccess: (res) => {
       // A problem stays on this sheet, next to the backup, not in a success toast.
       if (res?.problem) {
         if (backupWaitingReason({ kind: "cloud", last_error: res.problem })) {
@@ -363,10 +361,8 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
         }
         haptic("error");
         setError(res.problem);
-        setMissingSourceId(res.source_missing === true && !acceptMissing ? id : null);
         return;
       }
-      setMissingSourceId(null);
       addToast({
         type: "success",
         message: res?.done
@@ -655,12 +651,9 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                   ) : cloudBackup.status === "active" ? (
                     <>
                       <LayeredPill actionLabel="Luna Connect">
-                        {cloudWaiting ? "Waiting" : cloudBackup.source_missing ? "Backup paused" : backupHeadline(cloudBackup, true)}
+                        {cloudWaiting ? "Waiting" : backupHeadline(cloudBackup, true)}
                       </LayeredPill>
                       {cloudWaiting && <p className="text-sm break-words">{cloudWaiting}</p>}
-                      {!cloudWaiting && cloudBackup.source_missing === true && (
-                        <p className="text-primary text-sm">Most files are missing from the original folder.</p>
-                      )}
                       {!cloudWaiting && (
                         <BackupStatusNotice
                           state={cloudBackup.state}
@@ -702,18 +695,6 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
                         onClick={() => runCloud.mutate({ id: cloudBackup.id })}
                       >
                         Back up now
-                      </Button>
-                    )}
-                    {cloudBackup.status === "active" && cloudPrerequisite == null && cloudBackup.can_delete && cloudBackup.state !== "in_progress" && (missingSourceId === cloudBackup.id || cloudBackup.source_missing === true) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        surface="secondary"
-                        loading={runCloud.isPending}
-                        disabled={runCloud.isPending}
-                        onClick={() => runCloud.mutate({ id: cloudBackup.id, acceptMissing: true })}
-                      >
-                        Back up anyway
                       </Button>
                     )}
                     {cloudBackup.old_phrase_copies && (

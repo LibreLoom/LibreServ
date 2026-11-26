@@ -515,7 +515,6 @@ mod tests {
         std::fs::rename(&src, src.with_extension("missing")).unwrap();
         let held = run_with_root(&db, "p1", &src, &store, true, 200).unwrap();
         assert!(held.problem.is_some());
-        assert!(!held.source_missing);
         assert_eq!(held.snapshot_id, None);
         assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
         let open_runs: i64 = lock(&db)

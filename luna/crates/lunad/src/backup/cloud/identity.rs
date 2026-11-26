@@ -68,6 +68,57 @@ pub fn load_or_create(conn: &Connection, now: i64) -> Result<Identity> {
     Ok(Identity { luna_id, signer })
 }
 
+/// Meta key holding the Connect account the stored identity was made under.
+const ACCOUNT_KEY: &str = "cloud_identity_account";
+
+/// Cloud index tables that describe what the old identity stored. A fresh identity starts empty,
+/// so nothing is skipped as "already uploaded" into storage the new account does not have.
+const CLOUD_INDEX_TABLES: &[&str] = &[
+    "cloud_packs",
+    "cloud_chunks",
+    "cloud_snapshots",
+    "cloud_snapshot_packs",
+    "cloud_publish_outbox",
+    "cloud_runs",
+    "cloud_private_scopes",
+    "cloud_private_kept",
+    "cloud_private_trees",
+];
+
+/// Like `load_or_create`, but a Luna linked to a different Connect account than the one its
+/// identity was made under gets a fresh identity. Its old backups stay with the old account.
+/// Linking again under the same account keeps the identity. With no known account (not linked,
+/// or linked before Connect reported it) the stored identity is kept.
+pub fn load_or_create_for_account(
+    conn: &Connection,
+    account: Option<&str>,
+    now: i64,
+) -> Result<Identity> {
+    let recorded = db::get_meta(conn, ACCOUNT_KEY)?.filter(|a| !a.is_empty());
+    let existing = load(conn)?;
+    let changed = matches!((&existing, account, &recorded), (Some(_), Some(a), Some(r)) if a != r);
+    let identity = match existing {
+        Some(identity) if !changed => identity,
+        _ => {
+            if changed {
+                for table in CLOUD_INDEX_TABLES {
+                    conn.execute(&format!("DELETE FROM {table}"), [])?;
+                }
+            }
+            let luna_id = mint_luna_id();
+            let signer = Signer::generate();
+            db::set_cloud_identity(conn, &luna_id, &signer.seed(), now)?;
+            Identity { luna_id, signer }
+        }
+    };
+    if let Some(account) = account {
+        if changed || recorded.is_none() {
+            db::set_meta(conn, ACCOUNT_KEY, account)?;
+        }
+    }
+    Ok(identity)
+}
+
 /// Load or mint the local identity, then register its public key with Connect
 /// on a best-effort basis. The DB lock is released before contacting Connect.
 pub fn load_or_create_connected(
@@ -75,9 +126,10 @@ pub fn load_or_create_connected(
     connect: &ConnectService,
     now: i64,
 ) -> Result<Identity> {
+    let account = connect.bound_account_id();
     let identity = {
         let conn = lock(db);
-        load_or_create(&conn, now)?
+        load_or_create_for_account(&conn, account.as_deref(), now)?
     };
     ensure_registered(db, connect, &identity);
     Ok(identity)
@@ -172,6 +224,34 @@ mod tests {
             stored.created_at, 100,
             "a second call must not mint or re-stamp"
         );
+    }
+
+    #[test]
+    fn identity_is_kept_for_the_same_account_and_new_for_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let first = load_or_create_for_account(&conn, Some("acct-a"), 1).unwrap();
+        let again = load_or_create_for_account(&conn, Some("acct-a"), 2).unwrap();
+        assert_eq!(first.luna_id(), again.luna_id());
+        let unknown = load_or_create_for_account(&conn, None, 3).unwrap();
+        assert_eq!(first.luna_id(), unknown.luna_id(), "no account keeps it");
+        let other = load_or_create_for_account(&conn, Some("acct-b"), 4).unwrap();
+        assert_ne!(first.luna_id(), other.luna_id());
+        let stable = load_or_create_for_account(&conn, Some("acct-b"), 5).unwrap();
+        assert_eq!(other.luna_id(), stable.luna_id());
+        let stored = db::get_cloud_identity(&conn).unwrap().unwrap();
+        assert_eq!(stored.luna_id, other.luna_id());
+    }
+
+    #[test]
+    fn an_identity_from_before_the_account_was_known_adopts_the_first_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let first = load_or_create(&conn, 1).unwrap();
+        let kept = load_or_create_for_account(&conn, Some("acct-a"), 2).unwrap();
+        assert_eq!(first.luna_id(), kept.luna_id());
+        let other = load_or_create_for_account(&conn, Some("acct-b"), 3).unwrap();
+        assert_ne!(first.luna_id(), other.luna_id());
     }
 
     #[test]
