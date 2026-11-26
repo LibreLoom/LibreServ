@@ -62,7 +62,7 @@ export default function useMovedLinkForwarding({ driveId, path, viewerPath, sele
   // (upload-only drop boxes) must never list, and the explorer knows which.
   const listing = useQuery({
     queryKey: fileListKey(driveSource, driveId, path),
-    queryFn: () => driveSource.listDir(driveId, path),
+    queryFn: ({ signal }) => driveSource.listDir(driveId, path, signal),
     enabled: false,
   });
 

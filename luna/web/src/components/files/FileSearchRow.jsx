@@ -208,7 +208,7 @@ function FileSearchRow({
     <li
       data-slot="file-search-item"
       className={ROW_CLASS}
-      style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}
+      style={{ animationDelay: `${Math.min(index, 8) * 8}ms` }}
       onPointerEnter={live ? undefined : (event) => {
         if (event.pointerType === "mouse") setLive(true);
       }}

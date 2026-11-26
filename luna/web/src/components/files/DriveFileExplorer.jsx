@@ -275,7 +275,7 @@ export default function DriveFileExplorer({
   // there's nothing to remove.
   const trashListing = useQuery({
     queryKey: fileListKey(source, driveId, TRASH_PATH),
-    queryFn: () => source.listDir(driveId, TRASH_PATH),
+    queryFn: ({ signal }) => source.listDir(driveId, TRASH_PATH, signal),
     enabled: inTrash && path === TRASH_PATH,
   });
 

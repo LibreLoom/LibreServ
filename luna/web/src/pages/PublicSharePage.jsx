@@ -204,7 +204,7 @@ function PublicShareSession() {
           const src = shareSource({ token: token || "", password: "", kind: data.kind, fileName: data.name || "", caps: data.caps || "" });
           queryClient.prefetchQuery({
             queryKey: fileListKey(src, token || "", startPath),
-            queryFn: async () => (await earlyList) ?? src.listDir(token || "", startPath),
+            queryFn: async ({ signal }) => (await earlyList) ?? src.listDir(token || "", startPath, signal),
           });
         }
         setMeta(data);

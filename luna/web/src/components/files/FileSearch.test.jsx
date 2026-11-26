@@ -187,6 +187,22 @@ describe("FileSearch", () => {
     expect(screen.queryByText("Nothing matched")).not.toBeInTheDocument();
   });
 
+  it("keeps the previous answer's highlight until the next answer arrives", async () => {
+    let releaseSecond = () => {};
+    const holdSecond = new Promise((resolve) => { releaseSecond = () => resolve(undefined); });
+    renderSearch([
+      { drive_id: "d1", path: "budget.txt", parent: "", name: "budget.txt", kind: "file", size: 1, modified: 0, match: "name" },
+    ], { holdSecond });
+    await openSearchOverlay();
+    const input = screen.getByRole("textbox", { name: "Search for a file" });
+    fireEvent.change(input, { target: { value: "budget" } });
+    const highlight = await screen.findByText("budget", { exact: true });
+    fireEvent.change(input, { target: { value: "bud" } });
+    expect(screen.getByText("budget", { exact: true })).toBe(highlight);
+    await act(async () => { releaseSecond(); });
+    expect(await screen.findByText("bud", { exact: true })).toBeInTheDocument();
+  });
+
   it("hides stale incomplete and duplicate truncated notices while a new search loads", async () => {
     /** @type {() => void} */
     let releaseSecond = () => {};

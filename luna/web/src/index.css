@@ -264,8 +264,8 @@ textarea::placeholder {
 
 @keyframes file-search-panel-in {
     from {
-        opacity: 0;
-        transform: translateY(10px) scale(0.96);
+        opacity: 0.7;
+        transform: translateY(4px) scale(0.99);
     }
     to {
         opacity: 1;
@@ -285,19 +285,19 @@ textarea::placeholder {
 }
 
 .file-search-backdrop-enter {
-    animation: file-search-backdrop-in var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate) both;
+    animation: file-search-backdrop-in var(--motion-duration-short4) var(--motion-easing-emphasized-decelerate) both;
 }
 
 .file-search-backdrop-exit {
-    animation: file-search-backdrop-out var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate) both;
+    animation: file-search-backdrop-out var(--motion-duration-short3) var(--motion-easing-emphasized-accelerate) both;
 }
 
 .file-search-panel-enter {
-    animation: file-search-panel-in var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
+    animation: file-search-panel-in var(--motion-duration-short4) var(--motion-easing-emphasized-decelerate) both;
 }
 
 .file-search-panel-exit {
-    animation: file-search-panel-out var(--motion-duration-short4) var(--motion-easing-emphasized-accelerate) both;
+    animation: file-search-panel-out var(--motion-duration-short3) var(--motion-easing-emphasized-accelerate) both;
 }
 
 /* Held at their first frame until the component adds `file-search-live`
@@ -316,8 +316,8 @@ textarea::placeholder {
 /* Results slide up as they arrive; rows are keyed, so only new ones play it. */
 @keyframes file-search-row-in {
     from {
-        opacity: 0;
-        transform: translateY(8px) scale(0.98);
+        opacity: 0.7;
+        transform: translateY(3px);
     }
     to {
         opacity: 1;
@@ -326,7 +326,7 @@ textarea::placeholder {
 }
 
 .file-search-row-enter {
-    animation: file-search-row-in var(--motion-duration-medium2) var(--motion-easing-emphasized-decelerate) both;
+    animation: file-search-row-in var(--motion-duration-short3) var(--motion-easing-emphasized-decelerate) backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {

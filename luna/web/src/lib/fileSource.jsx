@@ -92,7 +92,7 @@ export async function requireOk(res, fallback) {
  *   formFileHref: (driveId: string, formPath: string, name: string) => string,
  *   downloadHref: (driveId: string, path: string, kind?: string) => string,
  *   collabWsUrl: (driveId: string, path: string) => string,
- *   listDir: (driveId: string, path: string) => Promise<object[]>,
+ *   listDir: (driveId: string, path: string, signal?: AbortSignal) => Promise<object[]>,
  *   stat: (driveId: string, path: string) => Promise<object>,
  *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
  *   fetchText: (driveId: string, path: string) => Promise<string>,
@@ -228,8 +228,8 @@ export const driveSource = {
     `${wsBase()}/api/v1/collab/ws` +
     `?drive_id=${encodeURIComponent(driveId || "")}` +
     `&path=${encodeURIComponent(path || "")}`,
-  listDir: (driveId, path) =>
-    getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`),
+  listDir: (driveId, path, signal) =>
+    getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`, { signal }),
   stat: (driveId, path) =>
     getJson(`/api/v1/drives/${driveId}/files/stat?path=${encodeURIComponent(path)}`),
   async fetchBytes(driveId, path) {
@@ -625,13 +625,13 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
     },
     collabWsUrl: (_driveId, path) =>
       `${wsBase()}/s/${token}/collab/ws?path=${encodeURIComponent(rel(path) || "")}`,
-    listDir: async (_driveId, path) => {
+    listDir: async (_driveId, path, signal = undefined) => {
       // Upload-only links (drop boxes) can't see inside — the browser shows
       // its empty state with the upload affordances, no 403 noise.
       if (!canView) return [];
       const params = new URLSearchParams();
       if (path) params.set("path", path);
-      const data = await getJson(`/s/${token}/list?${params}`, { headers: headers() });
+      const data = await getJson(`/s/${token}/list?${params}`, { headers: headers(), signal });
       return Array.isArray(data?.entries) ? data.entries : [];
     },
     stat: (_driveId, path) => {

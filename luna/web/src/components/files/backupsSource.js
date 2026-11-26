@@ -25,12 +25,12 @@ export function backupSource(driveId) {
     ...driveSource,
     guest: false,
     collab: false,
-    async listDir(_drive, path) {
+    async listDir(_drive, path, signal = undefined) {
       const inner = path === BACKUPS_PATH ? "" : path.slice(BACKUPS_PATH.length + 1);
       if (!inner) {
         const [list, records] = await Promise.all([
-          getJson(`/api/v1/drives/${driveId}/backups`),
-          getJson("/api/v1/backups").catch(() => []),
+          getJson(`/api/v1/drives/${driveId}/backups`, { signal }),
+          getJson("/api/v1/backups", { signal }).catch(() => []),
         ]);
         const byId = new Map(
           (Array.isArray(records) ? records : [])
@@ -50,8 +50,8 @@ export function backupSource(driveId) {
       }
       const { id, sub } = splitBackupPath(inner);
       const [backups, list] = await Promise.all([
-        getJson(`/api/v1/drives/${driveId}/backups`).then((r) => (Array.isArray(r) ? r : [])),
-        getJson(`${base(driveId, id)}/list?path=${encodeURIComponent(sub)}`),
+        getJson(`/api/v1/drives/${driveId}/backups`, { signal }).then((r) => (Array.isArray(r) ? r : [])),
+        getJson(`${base(driveId, id)}/list?path=${encodeURIComponent(sub)}`, { signal }),
       ]);
       return (Array.isArray(list) ? list : []).map((e) => ({
         name: e.name,

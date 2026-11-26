@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJson } from "../lib/api";
 import { MIN_SEARCH_LENGTH, parseSearchResponse, searchUrl } from "../lib/fileSearch.js";
@@ -14,6 +14,7 @@ const FULL_DEBOUNCE_MS = 700;
 const SCAN_POLL_MS = 1200;
 /** Reading inside files takes much longer; ask less often meanwhile. */
 const CONTENT_POLL_MS = 5000;
+const EMPTY_HITS = [];
 
 /**
  * Debounced file search that keeps working while Luna is still reading
@@ -40,7 +41,12 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
     queryKey: ["search", q, kind, "quick"],
     // The signal aborts this request once newer text replaces it, so fast
     // typing doesn't leave a queue of stale answers on the connection.
-    queryFn: ({ signal }) => getJson(searchUrl(q, kind, { quick: true }), { signal }),
+    // Carry the answer's text through placeholderData so its existing rows
+    // keep the same highlights while the next answer is on its way.
+    queryFn: async ({ signal }) => ({
+      q,
+      data: await getJson(searchUrl(q, kind, { quick: true }), { signal }),
+    }),
     enabled: active,
     placeholderData: keepPreviousData,
   });
@@ -60,12 +66,14 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
   const useFull = fullActive && fullQuery.data !== undefined;
   const query = useFull ? fullQuery : quickQuery;
 
-  const { hits, closeOnly, truncated, incomplete, scan } = parseSearchResponse(query.data);
+  const data = useFull ? fullQuery.data : quickQuery.data?.data;
+  const { hits, closeOnly, truncated, incomplete, scan } = useMemo(() => parseSearchResponse(data), [data]);
   return {
     /** The text being searched (the box, trimmed). */
     q,
+    resultQ: useFull ? fullQ : quickQuery.data?.q ?? q,
     active,
-    hits: active ? hits : [],
+    hits: active ? hits : EMPTY_HITS,
     closeOnly: active && closeOnly,
     truncated: active && truncated,
     incomplete: active && incomplete,

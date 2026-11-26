@@ -179,6 +179,29 @@ describe("FileBrowser", () => {
     expect(await screen.findByText("album")).toBeInTheDocument();
   });
 
+  it("cancels an in-flight listing when leaving its folder", async () => {
+    const cancelled = vi.fn();
+    const listingStarted = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      const path = new URL(String(url), "http://luna.test").searchParams.get("path");
+      if (path === "album") {
+        listingStarted();
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => {
+            cancelled();
+            reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      return Response.json([{ name: "album", kind: "dir", hidden: false }]);
+    }));
+    renderBrowser({ multiSelect: false });
+    fireEvent.click(await screen.findByRole("button", { name: "album" }));
+    await waitFor(() => expect(listingStarted).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: /Up one folder/i }));
+    await waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
+  });
+
   it("uses router links when linkNavigation is on", async () => {
     stubListing({
       "": [

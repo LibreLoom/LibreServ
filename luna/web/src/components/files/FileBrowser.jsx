@@ -707,7 +707,8 @@ export default function FileBrowser({
   }
 
   const listingKey = fileListKey(source, driveId, path);
-  const fetchListing = () => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path));
+  /** @param {{ signal: AbortSignal }} context */
+  const fetchListing = ({ signal }) => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path, signal));
   // Ask for the folder during the render that opens it. useQuery only starts
   // fetching from an effect, and a navigation renders as a transition whose
   // effects wait for the next frame: ~100 ms later on a slow box (W4). Only a
@@ -780,7 +781,8 @@ export default function FileBrowser({
   // so open/download/select use the granted path, not a doubled
   // `joinPath(path, name)`.
   const maybeFileRoot = Boolean(
-    path
+    !listing.isPlaceholderData
+      && path
       && rawEntries.length === 1
       && rawEntries[0].kind !== "dir"
       && displayNameOf(rawEntries[0]) === pathBasename(path),
@@ -832,20 +834,15 @@ export default function FileBrowser({
     [listing.data, showHidden, fileRoot],
   );
 
-  const entryPaths = useMemo(
-    () => entries.map((e) => (fileRoot ? path : joinPath(path, e.name))),
-    [entries, path, fileRoot],
-  );
-
-  const entryPathSet = useMemo(() => new Set(entryPaths), [entryPaths]);
   // First entry wins for a repeated path, like the linear find this replaces.
   const entryByPath = useMemo(() => {
     const map = new Map();
-    entries.forEach((e, i) => {
-      if (!map.has(entryPaths[i])) map.set(entryPaths[i], e);
-    });
+    for (const entry of entries) {
+      const fullPath = fileRoot ? path : joinPath(path, entry.name);
+      if (!map.has(fullPath)) map.set(fullPath, entry);
+    }
     return map;
-  }, [entries, entryPaths]);
+  }, [entries, path, fileRoot]);
 
   const [sortKey, setSortKey] = useState(readStoredSort);
   const [kindFilter, setKindFilter] = useState("all");
@@ -969,12 +966,12 @@ export default function FileBrowser({
     setInnerSelected((prev) => prev.filter((p) => {
       const parent = parentPath(p);
       if (parent === path || (parent === "" && path === "")) {
-        return entryPathSet.has(p);
+        return entryByPath.has(p);
       }
       // Keep selection that lives outside this folder (bulk ops across nav).
       return parent !== path;
     }));
-  }, [entryPathSet, path, controlledSelected]);
+  }, [entryByPath, path, controlledSelected]);
 
   // Link navigation (and search deep-links) change `path` without calling setPath,
   // so clear the previous folder's selection unless a fresh `select=` is pending.
@@ -1008,7 +1005,7 @@ export default function FileBrowser({
     }
     if (listBusy) return;
     if (appliedSelectRef.current === selectPath) return;
-    if (!entryPathSet.has(selectPath)) {
+    if (!entryByPath.has(selectPath)) {
       appliedSelectRef.current = selectPath;
       onSelectPathApplied?.();
       return;
@@ -1021,7 +1018,7 @@ export default function FileBrowser({
     onSelectPathApplied?.();
     // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
-  }, [selectPath, entryPathSet, listBusy, onSelectPathApplied]);
+  }, [selectPath, entryByPath, listBusy, onSelectPathApplied]);
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
@@ -1483,7 +1480,7 @@ export default function FileBrowser({
       const { source: src, driveId: drive, queryClient: qc } = latest.current;
       const run = () => qc.prefetchQuery({
         queryKey: fileListKey(src, drive, folderPath),
-        queryFn: () => src.listDir(drive, folderPath),
+        queryFn: ({ signal }) => src.listDir(drive, folderPath, signal),
       });
       if (immediate) run();
       else prefetchTimer = window.setTimeout(run, 60);
@@ -1518,6 +1515,7 @@ export default function FileBrowser({
     },
     };
   }, []);
+  useEffect(() => rowApi.cancelPrefetch, [rowApi, driveId, path]);
   // Whether a folder row accepts drops — same gate folderDropProps applies.
   // (The same test without building the handlers: rows mount while scrolling.)
   const rowDropEnabled = (rowPath) => !isPicker && Boolean(onInternalMove || onUploadFiles)

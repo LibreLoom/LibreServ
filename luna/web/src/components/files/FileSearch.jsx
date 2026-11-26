@@ -1,4 +1,4 @@
-import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -68,8 +68,8 @@ function usualTextSize() {
   return usualTextSizeSeen;
 }
 
-/** Panel exit + backdrop fade (`--motion-duration-short4`), with a frame to spare. */
-const OVERLAY_EXIT_MS = 220;
+/** Panel exit + backdrop fade (`--motion-duration-short3`), with a frame to spare. */
+const OVERLAY_EXIT_MS = 170;
 
 const KIND_OPTIONS = [
   { value: "all", label: "All" },
@@ -184,13 +184,18 @@ export default function FileSearch() {
     if (searchHits.some((hit) => hit.match === "meaning" || hit.match === "photo")) perfEndAfterPaint("W11");
   }, [typed, trimmed, searchActive, searchQ, searchLoading, searchUpdating, searchFailed, searchHits]);
 
-  const remaining = search.hits.slice(1);
-  const groups = [
-    { label: "Best match", hits: search.hits.slice(0, 1) },
-    { label: "Folders", hits: remaining.filter((hit) => hit.kind === "dir") },
-    { label: "Files", hits: remaining.filter((hit) => hit.kind !== "dir" && !isImageFile(hit.name)) },
-    { label: "Image files", hits: remaining.filter((hit) => hit.kind !== "dir" && isImageFile(hit.name)) },
-  ].filter((group) => group.hits.length > 0);
+  const groups = useMemo(() => {
+    const best = { label: "Best match", hits: searchHits.slice(0, 1) };
+    const folders = { label: "Folders", hits: [] };
+    const files = { label: "Files", hits: [] };
+    const images = { label: "Image files", hits: [] };
+    for (let i = 1; i < searchHits.length; i += 1) {
+      const hit = searchHits[i];
+      const group = hit.kind === "dir" ? folders : isImageFile(hit.name) ? images : files;
+      group.hits.push(hit);
+    }
+    return [best, folders, files, images].filter((group) => group.hits.length > 0);
+  }, [searchHits]);
 
   // Pace only a fresh search (new text or kind). The full answer and the
   // polls that follow for the same text update rows already on screen.
@@ -203,15 +208,17 @@ export default function FileSearch() {
     if (paced.limit === Infinity) return;
     startTransition(() => setPaced((prev) => ({ ...prev, limit: Infinity })));
   }, [paced]);
-  let rowsLeft = rowLimit;
-  const shownGroups = groups
-    .map((group) => {
-      const hits = group.hits.slice(0, Math.max(0, rowsLeft));
-      rowsLeft -= hits.length;
-      return { ...group, hits };
-    })
-    .filter((group) => group.hits.length > 0);
   const allRowsShown = rowLimit === Infinity;
+  const shownGroups = useMemo(() => {
+    if (allRowsShown) return groups;
+    let rowsLeft = rowLimit;
+    return groups.flatMap((group) => {
+      if (rowsLeft === 0) return [];
+      const hits = group.hits.slice(0, rowsLeft);
+      rowsLeft -= hits.length;
+      return [{ ...group, hits }];
+    });
+  }, [allRowsShown, groups, rowLimit]);
   // Read once for every row: the phone/wide split and the color their
   // action icons' first-paint picture uses. The picture is laid out in px for
   // the usual 16 px text size; any other size mounts the buttons right away.
@@ -351,14 +358,11 @@ export default function FileSearch() {
     return () => window.cancelAnimationFrame(id);
   }, [present, isClosing]);
 
-  // Focus the search field once the overlay is up.
-  useEffect(() => {
+  // The search can take keystrokes on its first frame.
+  useLayoutEffect(() => {
     if (!present || isClosing) return;
-    const id = window.setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select?.();
-    }, prefersReducedMotion() ? 0 : 40);
-    return () => window.clearTimeout(id);
+    inputRef.current?.focus({ preventScroll: true });
+    inputRef.current?.select();
   }, [present, isClosing]);
 
   // Track the results' natural height so the panel glides between states
@@ -605,7 +609,7 @@ export default function FileSearch() {
             </div>
 
             <div
-              className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]"
+              className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-150 motion-safe:ease-[var(--motion-easing-emphasized)]"
               style={bodyHeight != null ? { height: bodyHeight } : undefined}
             >
              <div ref={bodyInnerRef} className="px-4 py-3">
@@ -689,7 +693,7 @@ export default function FileSearch() {
                             )}
                             <FileSearchRow
                               item={item}
-                              query={search.q}
+                              query={search.resultQ}
                               driveLabel={labels[item.drive_id] || "A drive"}
                               isAdmin={user?.role === "admin"}
                               memberAccess={memberAccess.data}

@@ -160,6 +160,7 @@ export function searchWhen(modified, now = Date.now()) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
   const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
   const sameYear = date.getFullYear() === new Date(now).getFullYear();
   return (sameYear ? SHORT_DATE : DATED_YEAR).format(date);
 }
