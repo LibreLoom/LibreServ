@@ -38,6 +38,7 @@ func applyAdditiveColumnsSQLite(db *DB) error {
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN purge_mail_day INTEGER`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN onboarding_path TEXT`)
 	_, _ = db.Exec(`ALTER TABLE accounts ADD COLUMN onboarding_step TEXT`)
+	_, _ = db.Exec(`ALTER TABLE storage_pending_deletes ADD COLUMN size INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_hash TEXT`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_hint TEXT`)
 	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN code_sealed TEXT`)
@@ -70,6 +71,7 @@ func applyAdditiveColumnsPostgres(db *DB) error {
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS purge_mail_day INTEGER`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS onboarding_path TEXT`,
 		`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS onboarding_step TEXT`,
+		`ALTER TABLE storage_pending_deletes ADD COLUMN IF NOT EXISTS size BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS code_hash TEXT`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS code_hint TEXT`,
 		`ALTER TABLE devices ADD COLUMN IF NOT EXISTS code_sealed TEXT`,

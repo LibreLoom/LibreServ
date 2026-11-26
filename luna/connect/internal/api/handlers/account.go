@@ -291,7 +291,7 @@ func (h AccountHandler) cancelBillingFor(w http.ResponseWriter, acct Account) (s
 	// Bill this month so far first, then delete. Stored data or a billable month
 	// means a final invoice; an account that never stored anything just stops.
 	avgBytes, egressBytes := billing.AccountPeriodUsage(h.DB, acct.ID)
-	stored := storageUsed(h.DB, acct.ID)
+	stored := storageUsed(h.DB, acct.ID) + queuedBytes(h.DB, acct.ID)
 	owesThisMonth := billing.MonthMills(avgBytes, egressBytes) > 0
 	var hasCard int
 	var status string

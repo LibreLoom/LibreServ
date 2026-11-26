@@ -138,6 +138,7 @@ func SampleStorage(db *database.DB) {
 SELECT a.id,
   COALESCE((SELECT SUM(size) FROM storage_packs p WHERE p.account_id = a.id), 0)
 + COALESCE((SELECT SUM(bytes) FROM storage_records r WHERE r.account_id = a.id), 0)
++ COALESCE((SELECT SUM(size) FROM storage_pending_deletes q WHERE q.account_id = a.id), 0)
 FROM accounts a
 WHERE (a.stripe_subscription_id IS NOT NULL AND a.stripe_subscription_id != '')
    OR EXISTS (SELECT 1 FROM storage_packs sp WHERE sp.account_id = a.id)
@@ -227,6 +228,7 @@ SELECT a.id, a.stripe_customer_id,
        COALESCE(e.egress_bytes, 0),
        COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = a.id), 0)
      + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = a.id), 0)
+     + COALESCE((SELECT SUM(size) FROM storage_pending_deletes WHERE account_id = a.id), 0)
 FROM accounts a
 LEFT JOIN (
   SELECT account_id, SUM(stored_bytes) AS sample_sum, COUNT(*) AS sample_count
@@ -271,7 +273,7 @@ WHERE account_id = ? AND period_ym = ?`, accountID, period).Scan(&sum, &count)
 	if count.Valid && count.Int64 > 0 && sum.Valid {
 		avgBytes = AverageStoredBytes(sum.Int64, count.Int64)
 	} else {
-		_ = db.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, accountID, accountID).Scan(&avgBytes)
+		_ = db.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0) + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0) + COALESCE((SELECT SUM(size) FROM storage_pending_deletes WHERE account_id = ?), 0)`, accountID, accountID, accountID).Scan(&avgBytes)
 	}
 	_ = db.QueryRow(`
 SELECT COALESCE(egress_bytes,0) FROM billing_period_egress

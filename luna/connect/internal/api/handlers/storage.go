@@ -274,11 +274,11 @@ const deleteGraceSeconds = 7 * 24 * 3600
 // pointed at it is already gone. A background job removes the bytes after deleteGraceSeconds and
 // retries until the backend confirms, so a failed removal never leaves bytes behind for good.
 // A blob that is uploaded again before then is kept (see cancelRemoval).
-func removeStored(exec storageQueryExec, backend, accountID, lunaID, relPath string) error {
-	_, err := exec.Exec(`INSERT INTO storage_pending_deletes (account_id, luna_id, path, storage_backend, delete_after)
-VALUES (?, ?, ?, ?, ?)
+func removeStored(exec storageQueryExec, backend, accountID, lunaID, relPath string, size int64) error {
+	_, err := exec.Exec(`INSERT INTO storage_pending_deletes (account_id, luna_id, path, storage_backend, size, delete_after)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(account_id, luna_id, path) DO NOTHING`,
-		accountID, lunaID, relPath, backend, time.Now().Unix()+deleteGraceSeconds)
+		accountID, lunaID, relPath, backend, size, time.Now().Unix()+deleteGraceSeconds)
 	return err
 }
 
@@ -293,6 +293,14 @@ func storageUsed(exec storageQueryExec, accountID string) int64 {
 	_ = exec.QueryRow(`SELECT COALESCE((SELECT SUM(size) FROM storage_packs WHERE account_id = ?), 0)
 + COALESCE((SELECT SUM(bytes) FROM storage_records WHERE account_id = ?), 0)`, accountID, accountID).Scan(&used)
 	return used
+}
+
+// queuedBytes is what the 7-day deletion queue still holds for the account.
+// It is still stored, so it is still billed until it is physically deleted.
+func queuedBytes(exec storageQueryExec, accountID string) int64 {
+	var n int64
+	_ = exec.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM storage_pending_deletes WHERE account_id = ?`, accountID).Scan(&n)
+	return n
 }
 
 func storageFull(w http.ResponseWriter) {
@@ -538,8 +546,9 @@ func (h StorageHandler) DeletePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var backend string
-	err := tx.QueryRow(`SELECT COALESCE(storage_backend, '') FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
-		accountID, lunaID, id).Scan(&backend)
+	var size int64
+	err := tx.QueryRow(`SELECT COALESCE(storage_backend, ''), size FROM storage_packs WHERE account_id = ? AND luna_id = ? AND id = ?`,
+		accountID, lunaID, id).Scan(&backend, &size)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that pack. Try again.")
 		return
@@ -556,7 +565,7 @@ func (h StorageHandler) DeletePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n > 0 {
-		if err := removeStored(tx, backend, accountID, lunaID, store.StoragePackPath(id)); err != nil {
+		if err := removeStored(tx, backend, accountID, lunaID, store.StoragePackPath(id), size); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that pack. Try again.")
 			return
 		}
@@ -753,8 +762,9 @@ func (h StorageHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var backend string
-	err := tx.QueryRow(`SELECT COALESCE(storage_backend, '') FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
-		accountID, lunaID, kind, name).Scan(&backend)
+	var size int64
+	err := tx.QueryRow(`SELECT COALESCE(storage_backend, ''), bytes FROM storage_records WHERE account_id = ? AND luna_id = ? AND kind = ? AND name = ?`,
+		accountID, lunaID, kind, name).Scan(&backend, &size)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that record. Try again.")
 		return
@@ -775,7 +785,7 @@ func (h StorageHandler) DeleteRecord(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that record. Try again.")
 			return
 		}
-		if err := removeStored(tx, backend, accountID, lunaID, store.StorageRecordPath(kind, name)); err != nil {
+		if err := removeStored(tx, backend, accountID, lunaID, store.StorageRecordPath(kind, name), size); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Cloud storage could not delete that record. Try again.")
 			return
 		}

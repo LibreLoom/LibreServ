@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS storage_pending_deletes (
   luna_id TEXT NOT NULL,
   path TEXT NOT NULL,
   storage_backend TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
   delete_after INTEGER NOT NULL,
   PRIMARY KEY(account_id, luna_id, path)
 );
@@ -401,6 +402,7 @@ CREATE TABLE IF NOT EXISTS storage_pending_deletes (
   luna_id TEXT NOT NULL,
   path TEXT NOT NULL,
   storage_backend TEXT NOT NULL DEFAULT '',
+  size BIGINT NOT NULL DEFAULT 0,
   delete_after BIGINT NOT NULL,
   PRIMARY KEY(account_id, luna_id, path)
 );
