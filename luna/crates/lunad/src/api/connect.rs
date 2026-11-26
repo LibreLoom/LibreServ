@@ -10,19 +10,19 @@ use crate::api::response::json_error;
 use crate::net::connect::ConnectError;
 
 #[derive(Deserialize)]
-struct PairingBody {
-    device_uid: String,
-    verification_code: String,
+struct DeviceTokenBody {
+    device_token: String,
 }
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connect/status", get(status))
-        // The settings section is still called Device token. Its two fields
-        // are pairing material, not a permanent bearer token.
+        // The device token identifies and pairs this Luna; it is never a
+        // bearer credential. GET shows it to an Admin, PUT sets or replaces
+        // it locally without asking Connect.
         .route(
             "/api/v1/connect/device-token",
-            post(save_pairing_material).delete(remove_pairing_code),
+            get(show_device_token).put(save_device_token),
         )
         .route("/api/v1/connect/unbind", post(unbind))
 }
@@ -113,17 +113,34 @@ fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::Curr
         || current.map(|u| u.role == "admin").unwrap_or(false)
 }
 
-async fn save_pairing_material(
+async fn show_device_token(
+    State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !current.as_ref().is_some_and(|u| u.role == "admin") {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can see the device token.",
+        ));
+    }
+    let token = state.connect.device_token_grouped().ok();
+    Ok(Json(json!({
+        "device_token_set": token.is_some(),
+        "device_token": token,
+    })))
+}
+
+async fn save_device_token(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     headers: HeaderMap,
     current: Option<Extension<crate::auth::CurrentUser>>,
-    Json(body): Json<PairingBody>,
+    Json(body): Json<DeviceTokenBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if !setup_or_admin(&state, current.as_ref()) {
         return Err(json_error(
             StatusCode::FORBIDDEN,
-            "Only an Admin can enter a Device ID and Verification code.",
+            "Only an Admin can enter a device token.",
         ));
     }
     let admin = current.as_ref().is_some_and(|u| u.role == "admin");
@@ -131,17 +148,17 @@ async fn save_pairing_material(
         if !crate::auth::setup_origin_allowed(&state, &headers) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Open Luna at its own address to enter the Device ID and Verification code.",
+                "Open Luna at its own address to enter the device token.",
             ));
         }
         if !crate::api::auth::is_lan_request(&addr, &headers) {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "Enter the Device ID and Verification code from the same network as Luna, or sign in as an Admin first.",
+                "Enter the device token from the same network as Luna, or sign in as an Admin first.",
             ));
         }
         if !state.login_limiter.allow(&format!(
-            "pairing-material:{}",
+            "device-token:{}",
             crate::api::auth::client_ip(&addr, &headers)
         )) {
             return Err(json_error(
@@ -149,60 +166,32 @@ async fn save_pairing_material(
                 "Too many tries. Wait a few minutes and try again.",
             ));
         }
-        if let Ok(existing) = state.connect.device_uid()
-            && existing != crate::net::connect::normalize_device_uid(&body.device_uid)
+        // Before an Admin exists, an anonymous caller may only set the first
+        // token; replacing a saved one is an Admin's job.
+        if state.connect.has_device_token()
+            && !state.connect.device_token_matches(&body.device_token)
         {
             return Err(json_error(
                 StatusCode::FORBIDDEN,
-                "This Luna already has a Device ID. An Admin can restore its Verification code after setup.",
+                "This Luna already has a device token. An Admin can change it after setup.",
             ));
         }
     }
     let service = state.connect.clone();
-    let (uid, code) = (body.device_uid, body.verification_code);
-    tokio::task::spawn_blocking(move || service.set_pairing_material(&uid, &code))
+    let token = body.device_token;
+    tokio::task::spawn_blocking(move || service.set_device_token(&token))
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't save that Device ID and Verification code.",
+                "Luna couldn't save that device token.",
             )
         })?
         .map_err(map_connect_err)?;
     Ok(Json(json!({
         "ok": true,
-        "message": "Luna will use this Device ID and Verification code to pair with Luna Connect. Keep this page open."
+        "message": "Luna will use this device token to pair with Luna Connect. Keep this page open."
     })))
-}
-
-/// Deletes only the local Verification code. It deliberately makes no Connect
-/// request and leaves the rolling credential, binding, and tunnel untouched.
-async fn remove_pairing_code(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    require_admin(user)?;
-    let service = state.connect.clone();
-    tokio::task::spawn_blocking(move || service.remove_pairing_code())
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't remove the Verification code.",
-            )
-        })?
-        .map_err(map_connect_err)?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
-    if user.role != "admin" {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can remove the Verification code.",
-        ));
-    }
-    Ok(())
 }
 
 fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
@@ -243,11 +232,11 @@ mod tests {
 
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
-    use crate::net::connect::{ConnectService, DEVICE_UID_FILE, PAIRING_CODE_FILE};
+    use crate::net::connect::{ConnectService, DEVICE_TOKEN_FILE};
     use crate::{AppState, db};
 
-    const UID: &str = "7K4M2Q9XR8N36T5W1PZH";
-    const CODE: &str = "A3F91C";
+    const TOKEN: &str = "7K4M2Q9XR8N36T5W1PZH";
+    const GROUPED: &str = "7K4M-2Q9X-R8N3-6T5W-1PZH";
     const CREDENTIAL: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const PASSWORD: &str = "hunter22hunter1";
 
@@ -337,8 +326,7 @@ mod tests {
     }
 
     fn seed_bound(h: &Harness) {
-        std::fs::write(h.data_dir.join(DEVICE_UID_FILE), format!("{UID}\n")).unwrap();
-        std::fs::write(h.data_dir.join(PAIRING_CODE_FILE), format!("{CODE}\n")).unwrap();
+        std::fs::write(h.data_dir.join(DEVICE_TOKEN_FILE), format!("{TOKEN}\n")).unwrap();
         std::fs::write(
             h.data_dir
                 .join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
@@ -381,62 +369,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_an_admin_can_enter_or_remove_pairing_material() {
+    async fn only_an_admin_can_see_or_set_the_device_token() {
         let h = harness(true);
         let (status, _) = send(
             &h,
-            Method::POST,
+            Method::PUT,
             "/api/v1/connect/device-token",
             h.member.as_deref(),
-            Some(json!({ "device_uid": UID, "verification_code": CODE })),
+            Some(json!({ "device_token": TOKEN })),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         let (status, _) = send(
             &h,
-            Method::DELETE,
+            Method::GET,
             "/api/v1/connect/device-token",
             h.member.as_deref(),
             None,
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!h.data_dir.join(DEVICE_TOKEN_FILE).exists());
     }
 
     #[tokio::test]
-    async fn an_admin_saves_two_separate_pairing_files() {
+    async fn an_admin_saves_and_reads_the_device_token() {
         let h = harness(true);
         let (status, body) = send(
             &h,
-            Method::POST,
+            Method::PUT,
             "/api/v1/connect/device-token",
             h.admin.as_deref(),
-            Some(json!({
-                "device_uid": "7k4m-2q9x-r8n3-6t5w-1pzh",
-                "verification_code": "a3f91c"
-            })),
+            Some(json!({ "device_token": "7k4m-2q9x-r8n3-6t5w-1pzh" })),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(
-            std::fs::read_to_string(h.data_dir.join(DEVICE_UID_FILE))
+            std::fs::read_to_string(h.data_dir.join(DEVICE_TOKEN_FILE))
                 .unwrap()
                 .trim(),
-            UID
-        );
-        assert_eq!(
-            std::fs::read_to_string(h.data_dir.join(PAIRING_CODE_FILE))
-                .unwrap()
-                .trim(),
-            CODE
+            TOKEN
         );
         assert!(h.state.connect.poll_wake().is_set());
         assert!(!h.state.connect.is_connect_active());
+        let (status, body) = send(
+            &h,
+            Method::GET,
+            "/api/v1/connect/device-token",
+            h.admin.as_deref(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["device_token"], GROUPED);
+        assert_eq!(body["device_token_set"], true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(
-                std::fs::metadata(h.data_dir.join(PAIRING_CODE_FILE))
+                std::fs::metadata(h.data_dir.join(DEVICE_TOKEN_FILE))
                     .unwrap()
                     .permissions()
                     .mode()
@@ -447,16 +438,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_or_legacy_one_field_credentials_are_refused() {
+    async fn malformed_device_tokens_are_refused() {
         let h = harness(true);
         for body in [
-            json!({ "device_uid": "short", "verification_code": CODE }),
-            json!({ "device_uid": UID, "verification_code": "A3F91G" }),
-            json!({ "token": "ABCD-EFGH-JKMN-PQRS-TVWX" }),
+            json!({ "device_token": "short" }),
+            json!({ "device_token": "7K4M2Q9XR8N36T5W1PZU" }),
+            json!({ "device_uid": TOKEN, "verification_code": "A3F91C" }),
         ] {
             let (status, _) = send(
                 &h,
-                Method::POST,
+                Method::PUT,
                 "/api/v1/connect/device-token",
                 h.admin.as_deref(),
                 Some(body),
@@ -464,23 +455,22 @@ mod tests {
             .await;
             assert_ne!(status, StatusCode::OK);
         }
-        assert!(!h.data_dir.join(DEVICE_UID_FILE).exists());
-        assert!(!h.data_dir.join(PAIRING_CODE_FILE).exists());
+        assert!(!h.data_dir.join(DEVICE_TOKEN_FILE).exists());
     }
 
     #[tokio::test]
-    async fn first_run_setup_may_enter_pairing_material_on_the_lan() {
+    async fn first_run_setup_may_enter_the_device_token_on_the_lan() {
         let h = harness(false);
         let (status, _) = send(
             &h,
-            Method::POST,
+            Method::PUT,
             "/api/v1/connect/device-token",
             None,
-            Some(json!({ "device_uid": UID, "verification_code": CODE })),
+            Some(json!({ "device_token": TOKEN })),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(h.state.connect.has_pairing_material());
+        assert!(h.state.connect.has_device_token());
     }
 
     async fn send_from(
@@ -490,7 +480,7 @@ mod tests {
         body: Value,
     ) -> (StatusCode, Value) {
         let mut req = Request::builder()
-            .method(Method::POST)
+            .method(Method::PUT)
             .uri("/api/v1/connect/device-token")
             .header("content-type", "application/json");
         for (name, value) in headers {
@@ -511,9 +501,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn anonymous_pairing_save_is_origin_and_lan_guarded() {
+    async fn anonymous_token_save_is_origin_and_lan_guarded() {
         let h = harness(false);
-        let body = json!({ "device_uid": UID, "verification_code": CODE });
+        let body = json!({ "device_token": TOKEN });
         let (status, _) = send_from(
             &h,
             "192.168.1.20:40000",
@@ -538,45 +528,44 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        assert!(!h.data_dir.join(DEVICE_UID_FILE).exists());
+        assert!(!h.data_dir.join(DEVICE_TOKEN_FILE).exists());
     }
 
     #[tokio::test]
-    async fn anonymous_setup_cannot_replace_the_device_uid() {
+    async fn anonymous_setup_cannot_replace_the_device_token() {
         let h = harness(false);
-        h.state.connect.set_pairing_material(UID, CODE).unwrap();
+        h.state.connect.set_device_token(TOKEN).unwrap();
         let (status, _) = send(
             &h,
-            Method::POST,
+            Method::PUT,
             "/api/v1/connect/device-token",
             None,
-            Some(json!({
-                "device_uid": "ZZZZYYYYXXXXWWWWVVVV",
-                "verification_code": CODE
-            })),
+            Some(json!({ "device_token": "ZZZZYYYYXXXXWWWWVVVV" })),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(h.state.connect.device_uid().unwrap(), UID);
+        assert_eq!(h.state.connect.device_token().unwrap(), TOKEN);
     }
 
     #[tokio::test]
-    async fn removing_the_code_is_local_only_and_keeps_the_binding() {
+    async fn replacing_the_token_is_local_only_and_keeps_the_binding() {
         let (url, calls) = serve_connect(200, r#"{"ok":true}"#);
         let h = harness_at(true, &url);
         seed_bound(&h);
         let (status, body) = send(
             &h,
-            Method::DELETE,
+            Method::PUT,
             "/api/v1/connect/device-token",
             h.admin.as_deref(),
-            None,
+            Some(json!({ "device_token": "ZZZZYYYYXXXXWWWWVVVV" })),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert!(!h.data_dir.join(PAIRING_CODE_FILE).exists());
-        assert!(h.data_dir.join(DEVICE_UID_FILE).exists());
+        assert_eq!(
+            h.state.connect.device_token().unwrap(),
+            "ZZZZYYYYXXXXWWWWVVVV"
+        );
         assert!(
             h.data_dir
                 .join(crate::net::connect::CONNECT_CREDENTIAL_FILE)
@@ -640,9 +629,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_setup_status_does_not_reveal_the_verification_code() {
+    async fn remote_setup_status_does_not_reveal_the_device_token() {
         let h = harness(false);
-        h.state.connect.set_pairing_material(UID, CODE).unwrap();
+        h.state.connect.set_device_token(TOKEN).unwrap();
         let mut request = Request::builder()
             .method(Method::GET)
             .uri("/api/v1/connect/status")
@@ -658,8 +647,9 @@ mod tests {
             .await
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(body["device_uid"], "7K4M-2Q9X-R8N3-6T5W-1PZH");
-        assert!(body["verification_code"].is_null());
+        assert_eq!(body["device_token_set"], true);
+        assert!(!body.to_string().contains(TOKEN));
+        assert!(!body.to_string().contains(GROUPED));
     }
 
     #[tokio::test]
@@ -677,8 +667,8 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(!admin.to_string().contains(CREDENTIAL));
         assert_eq!(admin["state"], "bound");
-        assert_eq!(admin["device_uid"], "7K4M-2Q9X-R8N3-6T5W-1PZH");
-        assert_eq!(admin["verification_code"], CODE);
+        assert_eq!(admin["device_token_set"], true);
+        assert!(!admin.to_string().contains(TOKEN));
         let (status, member) = send(
             &h,
             Method::GET,
@@ -688,7 +678,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(member["verification_code"].is_null());
         assert!(!member.to_string().contains(CREDENTIAL));
     }
 }

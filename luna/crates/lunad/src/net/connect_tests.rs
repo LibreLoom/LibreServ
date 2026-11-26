@@ -10,8 +10,7 @@ use serde_json::{Value, json};
 use super::auth::is_auth_token_format;
 use super::*;
 
-const UID: &str = "7K4M2Q9XR8N36T5W1PZH";
-const CODE: &str = "A3F91C";
+const DEVICE_TOKEN: &str = "7K4M2Q9XR8N36T5W1PZH";
 const TOKEN_ZERO: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 fn token(fill: u8) -> String {
@@ -117,8 +116,7 @@ fn service(dir: &Path, url: String) -> ConnectService {
 }
 
 fn write_pairing(dir: &Path) {
-    std::fs::write(dir.join(DEVICE_UID_FILE), format!("{UID}\n")).unwrap();
-    std::fs::write(dir.join(PAIRING_CODE_FILE), format!("{CODE}\n")).unwrap();
+    std::fs::write(dir.join(DEVICE_TOKEN_FILE), format!("{DEVICE_TOKEN}\n")).unwrap();
 }
 
 fn write_bound(dir: &Path, connect: &ConnectService, credential: &str) {
@@ -137,15 +135,32 @@ fn write_bound(dir: &Path, connect: &ConnectService, credential: &str) {
 }
 
 #[test]
-fn device_uid_and_code_are_exact_separate_formats() {
-    assert_eq!(normalize_device_uid("7k4m-2q9x-r8n3-6t5w-1pzh"), UID);
-    assert!(is_device_uid_format(UID));
-    assert!(!is_device_uid_format(&UID[..19]));
-    assert!(!is_device_uid_format("7K4M2Q9XR8N36T5W1PZI"));
-    assert_eq!(normalize_verification_code(" a3f91c "), CODE);
-    assert!(is_verification_code_format(CODE));
-    assert!(!is_verification_code_format("A3F91"));
-    assert!(!is_verification_code_format("A3F91G"));
+fn device_token_is_one_normalized_20_character_value() {
+    assert_eq!(
+        normalize_device_token("7k4m-2q9x-r8n3-6t5w-1pzh"),
+        DEVICE_TOKEN
+    );
+    assert_eq!(
+        normalize_device_token(" 7K4M 2Q9X R8N3 6T5W lPZH "),
+        DEVICE_TOKEN
+    );
+    assert_eq!(normalize_device_token("OIL"), "011");
+    assert!(is_device_token_format(DEVICE_TOKEN));
+    assert!(!is_device_token_format(&DEVICE_TOKEN[..19]));
+    assert!(!is_device_token_format("7K4M2Q9XR8N36T5W1PZU"));
+}
+
+#[test]
+fn device_token_matching_ignores_case_and_grouping_and_needs_a_saved_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let connect = service(dir.path(), "http://127.0.0.1:1".into());
+    assert!(!connect.device_token_matches(DEVICE_TOKEN));
+    connect.set_device_token(DEVICE_TOKEN).unwrap();
+    assert!(connect.device_token_matches("7k4m-2q9x-r8n3-6t5w-1pzh"));
+    assert!(connect.device_token_matches(DEVICE_TOKEN));
+    assert!(!connect.device_token_matches("7K4M-2Q9X-R8N3-6T5W-1PZJ"));
+    assert!(!connect.device_token_matches(""));
+    assert!(!connect.device_token_matches("7K4M"));
 }
 
 #[test]
@@ -160,24 +175,25 @@ fn rolling_credential_is_32_random_bytes_in_unpadded_base64url() {
 }
 
 #[test]
-fn pairing_files_are_separate_and_private() {
+fn the_device_token_file_is_one_private_file() {
     let dir = tempfile::tempdir().unwrap();
     let connect = service(dir.path(), "http://127.0.0.1:1".into());
-    connect.set_pairing_material(UID, CODE).unwrap();
+    connect
+        .set_device_token("7k4m-2q9x-r8n3-6t5w-1pzh")
+        .unwrap();
     assert_eq!(
-        std::fs::read_to_string(dir.path().join(DEVICE_UID_FILE)).unwrap(),
-        format!("{UID}\n")
-    );
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join(PAIRING_CODE_FILE)).unwrap(),
-        format!("{CODE}\n")
+        std::fs::read_to_string(dir.path().join(DEVICE_TOKEN_FILE)).unwrap(),
+        format!("{DEVICE_TOKEN}\n")
     );
     assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
+    assert!(connect.status().device_token_set);
+    assert!(connect.set_device_token("short").is_err());
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(
-            std::fs::metadata(dir.path().join(PAIRING_CODE_FILE))
+            std::fs::metadata(dir.path().join(DEVICE_TOKEN_FILE))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -188,11 +204,15 @@ fn pairing_files_are_separate_and_private() {
 }
 
 #[test]
-fn concurrent_magazine_reads_serialize_to_one_factory_identity() {
+fn concurrent_magazine_reads_serialize_to_one_factory_token() {
     let dir = tempfile::tempdir().unwrap();
     let assets = dir.path().join("assets");
     std::fs::create_dir_all(&assets).unwrap();
-    std::fs::write(assets.join("TOKENS"), format!("not-a-code\n{UID} {CODE}\n")).unwrap();
+    std::fs::write(
+        assets.join("TOKENS"),
+        format!("not-a-code\n{DEVICE_TOKEN}\n"),
+    )
+    .unwrap();
     let connect = Arc::new(service(dir.path(), "http://127.0.0.1:1".into()));
     let options = crate::system::factory_mag::MagFetchOptions {
         assets_root: Some(assets),
@@ -204,7 +224,7 @@ fn concurrent_magazine_reads_serialize_to_one_factory_identity() {
         let connect = connect.clone();
         let options = options.clone();
         workers.push(std::thread::spawn(move || {
-            connect.ensure_pairing_material_from_mag_with_options(options)
+            connect.ensure_device_token_from_mag_with_options(options)
         }));
     }
     let outcomes: Vec<_> = workers
@@ -228,55 +248,14 @@ fn concurrent_magazine_reads_serialize_to_one_factory_identity() {
             .count(),
         1
     );
-    assert_eq!(connect.device_uid().unwrap(), UID);
-    assert_eq!(connect.verification_code().unwrap(), CODE);
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
 }
 
 #[test]
-fn a_pairing_write_cannot_mix_with_an_in_flight_magazine_identity() {
+fn legacy_pairing_files_and_state_keys_are_ignored() {
     let dir = tempfile::tempdir().unwrap();
-    let assets = dir.path().join("assets");
-    std::fs::create_dir_all(&assets).unwrap();
-    std::fs::write(assets.join("TOKENS"), format!("not-a-code\n{UID} {CODE}\n")).unwrap();
-    let connect = Arc::new(service(dir.path(), "http://127.0.0.1:1".into()));
-    let options = crate::system::factory_mag::MagFetchOptions {
-        assets_root: Some(assets.clone()),
-        max_attempts: 2,
-        retry_delay: Duration::from_millis(500),
-    };
-    let fetching = {
-        let connect = connect.clone();
-        std::thread::spawn(move || connect.ensure_pairing_material_from_mag_with_options(options))
-    };
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while std::fs::read_to_string(assets.join("TOKENS"))
-        .unwrap()
-        .contains("not-a-code")
-        && std::time::Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let writing = {
-        let connect = connect.clone();
-        std::thread::spawn(move || connect.set_pairing_material("ZZZZYYYYXXXXWWWWVVVV", "ABCDEF"))
-    };
-    assert!(matches!(
-        fetching.join().unwrap(),
-        crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
-    ));
-    assert!(writing.join().unwrap().is_err());
-    assert_eq!(connect.device_uid().unwrap(), UID);
-    assert_eq!(connect.verification_code().unwrap(), CODE);
-}
-
-#[test]
-fn legacy_files_and_first_user_secret_are_ignored() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("device-token"),
-        "ABCD-EFGH-JKMN-PQRS-TVWX\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("device-uid"), "7K4M-2Q9X-R8N3-6T5W-1PZH\n").unwrap();
+    std::fs::write(dir.path().join("pairing-code"), "A3F91C\n").unwrap();
     std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-JKMN-PQRS-TVWX\n").unwrap();
     std::fs::write(
         dir.path().join("connect.json"),
@@ -289,7 +268,7 @@ fn legacy_files_and_first_user_secret_are_ignored() {
     )
     .unwrap();
     let connect = service(dir.path(), "http://127.0.0.1:1".into());
-    assert!(!connect.has_pairing_material());
+    assert!(!connect.has_device_token());
     assert!(!connect.is_connect_active());
     assert!(
         connect.poll_needed(),
@@ -354,8 +333,7 @@ fn unbound_device_polls_claim_until_it_receives_a_credential() {
     assert!(connect.is_connect_active());
     assert_eq!(connect.status().state, ConnectState::Bound);
     assert_eq!(connect.token().unwrap(), first);
-    assert_eq!(connect.device_uid().unwrap(), UID);
-    assert_eq!(connect.verification_code().unwrap(), CODE);
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
     assert_eq!(connect.bound_account_id().as_deref(), Some("acct-1"));
     #[cfg(unix)]
     {
@@ -378,8 +356,19 @@ fn unbound_device_polls_claim_until_it_receives_a_credential() {
     );
     assert!(calls.iter().all(|call| call.authorization.is_none()));
     let body: Value = serde_json::from_str(&calls[1].body).unwrap();
-    assert_eq!(body["device_uid"], "7K4M-2Q9X-R8N3-6T5W-1PZH");
-    assert_eq!(body["verification_code"], CODE);
+    assert_eq!(body["device_token"], "7K4M-2Q9X-R8N3-6T5W-1PZH");
+    assert_eq!(body.as_object().unwrap().len(), 1);
+}
+
+#[test]
+fn an_unbound_luna_without_a_device_token_never_polls_connect() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockConnect::new(vec![MockReply::json(404, json!({}))]);
+    let connect = service(dir.path(), mock.url.clone());
+    assert!(!connect.poll_needed());
+    assert!(!connect.poll_status());
+    assert!(mock.calls().is_empty());
+    assert!(!connect.status().device_token_set);
 }
 
 #[test]
@@ -682,8 +671,10 @@ fn a_rejected_refresh_stops_remote_access_and_requires_recovery() {
         Some(CREDENTIAL_REJECTED_MSG)
     );
     assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
-    assert!(dir.path().join(DEVICE_UID_FILE).exists());
-    assert!(dir.path().join(PAIRING_CODE_FILE).exists());
+    assert!(
+        dir.path().join(DEVICE_TOKEN_FILE).exists(),
+        "the device token survives"
+    );
 }
 
 #[test]
@@ -825,8 +816,10 @@ fn pairing_state_can_cancel_its_claim_without_a_credential() {
     assert!(connect.can_unbind());
     connect.unbind_now().unwrap();
     assert_eq!(connect.status().state, ConnectState::Unbound);
-    assert!(dir.path().join(DEVICE_UID_FILE).exists());
-    assert!(dir.path().join(PAIRING_CODE_FILE).exists());
+    assert!(
+        dir.path().join(DEVICE_TOKEN_FILE).exists(),
+        "the device token survives"
+    );
     assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     assert_eq!(mock.calls().len(), 1);
     assert_eq!(mock.calls()[0].path, "/api/v1/devices/pair/cancel");
@@ -912,8 +905,7 @@ fn failed_unbind_keeps_only_revocation_material_and_retries_before_pairing() {
     assert!(!connect.unbind_pending());
     assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     assert_eq!(connect.status().state, ConnectState::Unbound);
-    assert_eq!(connect.device_uid().unwrap(), UID);
-    assert_eq!(connect.verification_code().unwrap(), CODE);
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
     assert_eq!(
         mock.calls()
             .iter()
@@ -928,16 +920,17 @@ fn failed_unbind_keeps_only_revocation_material_and_retries_before_pairing() {
 }
 
 #[test]
-fn removing_the_verification_code_is_local_only() {
+fn replacing_the_device_token_is_local_only_and_keeps_the_binding() {
     let dir = tempfile::tempdir().unwrap();
     let mock = MockConnect::new(vec![MockReply::json(200, json!({ "ok": true }))]);
     let connect = service(dir.path(), mock.url.clone());
     write_bound(dir.path(), &connect, TOKEN_ZERO);
 
-    connect.remove_pairing_code().unwrap();
+    connect
+        .set_device_token("ZZZZ-YYYY-XXXX-WWWW-VVVV")
+        .unwrap();
     assert!(mock.calls().is_empty());
-    assert!(!dir.path().join(PAIRING_CODE_FILE).exists());
-    assert!(dir.path().join(DEVICE_UID_FILE).exists());
+    assert_eq!(connect.device_token().unwrap(), "ZZZZYYYYXXXXWWWWVVVV");
     assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     assert!(connect.is_connect_active());
     assert_eq!(
@@ -965,44 +958,34 @@ fn factory_reset_keep_and_disconnect_have_distinct_pending_behavior() {
     assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     assert!(connect.prepare_factory_reset(false).is_err());
     assert_eq!(mock.calls().len(), 1);
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
 }
 
 #[test]
-fn setup_grant_is_consumed_once_and_failures_are_not_retried_as_success() {
+fn factory_reset_disconnect_keeps_the_device_token() {
     let dir = tempfile::tempdir().unwrap();
-    let mock = MockConnect::new(vec![
-        MockReply::json(200, json!({ "ok": true })),
-        MockReply::json(400, json!({ "error": "grant already used" })),
-    ]);
+    let mock = MockConnect::new(vec![MockReply::json(200, json!({ "ok": true }))]);
     let connect = service(dir.path(), mock.url.clone());
     write_bound(dir.path(), &connect, TOKEN_ZERO);
 
-    connect.consume_setup_grant("grant-one").unwrap();
-    assert!(matches!(
-        connect.consume_setup_grant("grant-one"),
-        Err(ConnectError::Other(_))
-    ));
-    let calls = mock.calls();
-    assert_eq!(calls.len(), 2);
-    assert!(
-        calls
-            .iter()
-            .all(|call| call.path == "/api/v1/devices/setup-grant/consume")
-    );
-    assert!(calls.iter().all(|call| {
-        serde_json::from_str::<Value>(&call.body).unwrap()["setup_grant"] == "grant-one"
-    }));
+    connect.prepare_factory_reset(true).unwrap();
+    assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
+    assert_eq!(connect.status().state, ConnectState::Unbound);
+    assert_eq!(connect.device_token().unwrap(), DEVICE_TOKEN);
 }
 
 #[test]
-fn pending_disconnect_blocks_pairing_and_new_pairing_material() {
+fn pending_disconnect_blocks_pairing_and_the_magazine() {
     let dir = tempfile::tempdir().unwrap();
     let connect = service(dir.path(), "http://127.0.0.1:1".into());
     write_bound(dir.path(), &connect, TOKEN_ZERO);
     connect.mark_unbind_pending().unwrap();
     assert!(connect.unbind_pending());
-    assert!(connect.set_pairing_material(UID, CODE).is_err());
     assert!(connect.poll_needed());
+    assert_eq!(
+        connect.ensure_device_token_from_mag(),
+        crate::system::factory_mag::MagFetchOutcome::Incomplete
+    );
 }
 
 #[test]

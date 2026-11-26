@@ -207,7 +207,7 @@ mod tests {
     use super::*;
     use crate::backup::cloud::crypto;
     use crate::drives::drive_db;
-    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, DEVICE_UID_FILE, PAIRING_CODE_FILE};
+    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, DEVICE_TOKEN_FILE};
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
@@ -414,8 +414,7 @@ mod tests {
     /// A bound Connect client under `dir`, pointed at `base_url`.
     fn connect_to(dir: &Path, base_url: &str) -> ConnectService {
         std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join(DEVICE_UID_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
-        std::fs::write(dir.join(PAIRING_CODE_FILE), "A3F91C\n").unwrap();
+        std::fs::write(dir.join(DEVICE_TOKEN_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
         std::fs::write(
             dir.join(CONNECT_CREDENTIAL_FILE),
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",

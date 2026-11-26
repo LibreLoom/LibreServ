@@ -1640,7 +1640,7 @@ mod tests {
             s._dir
                 .path()
                 .join("connect")
-                .join(crate::net::connect::DEVICE_UID_FILE),
+                .join(crate::net::connect::DEVICE_TOKEN_FILE),
             "7K4M2Q9XR8N36T5W1PZH",
         )
         .unwrap();

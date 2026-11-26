@@ -885,7 +885,7 @@ pub fn luna_unprovisioned(state: &AppState) -> bool {
 }
 
 /// Before the first account exists, only what the setup wizard and the Luna
-/// Connect landing (`/setup#setup_grant=…`) call answers anonymously:
+/// Connect landing (`/setup#token=…`) call answers anonymously:
 ///
 /// - the web app and its assets (any path outside `/api/`, `/s/`, `/dav/`
 ///   and the office and diagram editors), plus `GET /health` and
@@ -896,7 +896,7 @@ pub fn luna_unprovisioned(state: &AppState) -> bool {
 ///   `POST /api/v1/auth/logout`, `GET /api/v1/auth/status`,
 ///   `GET /api/v1/auth/me`;
 /// - `GET /api/v1/network/status`, `GET /api/v1/connect/status` and
-///   `POST /api/v1/connect/device-token` (which itself also needs Luna's own
+///   `PUT /api/v1/connect/device-token` (which itself also needs Luna's own
 ///   address and a client on Luna's network).
 ///
 /// Everything else that would answer without a session (share links and
@@ -907,6 +907,7 @@ pub fn pre_setup_route_allowed(method: &axum::http::Method, path: &str) -> bool 
     use axum::http::Method;
     let get = method == Method::GET || method == Method::HEAD;
     let post = method == Method::POST;
+    let put = method == Method::PUT;
     match path {
         "/health" | "/api/v1/health" => get,
         "/api/v1/setup" => get || post,
@@ -915,7 +916,7 @@ pub fn pre_setup_route_allowed(method: &axum::http::Method, path: &str) -> bool 
         "/api/v1/auth/register" | "/api/v1/auth/login" | "/api/v1/auth/logout" => post,
         "/api/v1/auth/status" | "/api/v1/auth/me" => get,
         "/api/v1/network/status" | "/api/v1/connect/status" => get,
-        "/api/v1/connect/device-token" => post,
+        "/api/v1/connect/device-token" => put,
         _ => ![
             "/api/",
             "/s/",

@@ -10,14 +10,10 @@ use cloudflared_install::{MIN_CLOUDFLARED_BYTES, install_cloudflared_to};
 mod auth;
 pub use auth::{
     CONNECT_CREDENTIAL_FILE, CREDENTIAL_MALFORMED_MSG, CREDENTIAL_REJECTED_MSG, ConnectError,
-    ConnectService, ConnectState, ConnectStatus, DEVICE_UID_FILE, DEVICE_UID_MALFORMED_MSG,
-    LAN_OVERRIDE_FILE, PAIRING_CODE_FILE, PAIRING_CODE_MALFORMED_MSG, SETUP_GRANT_REJECTED_MSG,
-    UNBIND_PENDING_FILE, UNBIND_PENDING_MSG,
+    ConnectService, ConnectState, ConnectStatus, DEVICE_TOKEN_FILE, DEVICE_TOKEN_MALFORMED_MSG,
+    LAN_OVERRIDE_FILE, UNBIND_PENDING_FILE, UNBIND_PENDING_MSG,
 };
-pub(crate) use auth::{
-    is_device_uid_format, is_verification_code_format, normalize_device_uid,
-    normalize_verification_code,
-};
+pub(crate) use auth::{is_device_token_format, normalize_device_token};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};

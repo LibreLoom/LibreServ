@@ -759,7 +759,12 @@ fn connect_sentence(body: &[u8]) -> String {
 impl CloudStore for HttpStore {
     fn device_binding(&self) -> Option<String> {
         match &self.credential {
-            Credential::Rolling(connect) => connect.device_uid().ok(),
+            // A local label for per-device acks: a hash, so the token itself
+            // is never copied into the database.
+            Credential::Rolling(connect) => connect
+                .device_token()
+                .ok()
+                .map(|token| blake3::hash(token.as_bytes()).to_hex().to_string()),
             Credential::Static(_) => None,
         }
     }
@@ -1033,7 +1038,7 @@ mod tests {
     use std::path::Path;
     use std::thread::JoinHandle;
 
-    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, ConnectState, DEVICE_UID_FILE};
+    use crate::net::connect::{CONNECT_CREDENTIAL_FILE, ConnectState, DEVICE_TOKEN_FILE};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
     const LUNA: &str = "luna-test-1";
@@ -1090,7 +1095,7 @@ mod tests {
 
     fn rolling(dir: &Path, base: &str) -> Arc<ConnectService> {
         let connect = Arc::new(ConnectService::new(dir, Some(base.to_string())));
-        std::fs::write(dir.join(DEVICE_UID_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
+        std::fs::write(dir.join(DEVICE_TOKEN_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
         std::fs::write(
             dir.join(CONNECT_CREDENTIAL_FILE),
             format!("{ROLLING_TOKEN}\n"),

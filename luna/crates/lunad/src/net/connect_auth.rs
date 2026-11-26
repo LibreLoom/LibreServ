@@ -1,8 +1,8 @@
 //! Device identity, pairing, and the rolling Luna Connect credential.
 //!
-//! The public Device ID and reusable Verification code are pairing material,
-//! never bearer credentials. Only `connect-credential` authenticates requests
-//! after a device is bound.
+//! The device token identifies this Luna, pairs it to an account, and proves
+//! an off-LAN first-Admin setup. It is never a bearer credential: only
+//! `connect-credential` authenticates requests after a device is bound.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -20,14 +20,13 @@ use super::{
     sanitize_base_url,
 };
 
-pub const DEVICE_UID_FILE: &str = "device-uid";
-pub const PAIRING_CODE_FILE: &str = "pairing-code";
+pub const DEVICE_TOKEN_FILE: &str = "device-token";
 pub const CONNECT_CREDENTIAL_FILE: &str = "connect-credential";
 pub const UNBIND_PENDING_FILE: &str = "connect-unbind-pending";
 pub const LAN_OVERRIDE_FILE: &str = "lan-override";
 
-pub const DEVICE_UID_MALFORMED_MSG: &str = "This Luna's Device ID is not valid. Enter the Device ID and Verification code from the quick-start guide.";
-pub const PAIRING_CODE_MALFORMED_MSG: &str = "This Luna's Verification code is not valid. Enter the Device ID and Verification code from the quick-start guide.";
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str =
+    "This Luna's device token is not valid. Enter the device token from the quick-start guide.";
 pub const CREDENTIAL_MALFORMED_MSG: &str =
     "This Luna's Luna Connect connection is damaged. Reconnect this Luna from Luna Connect.";
 pub const CREDENTIAL_REJECTED_MSG: &str = "Luna Connect no longer accepts this Luna's connection. Open Luna Connect to reconnect this Luna.";
@@ -35,8 +34,6 @@ pub const UNBIND_PENDING_MSG: &str = "Luna is still disconnecting from Luna Conn
 pub const CONNECT_UNREACHABLE_MSG: &str = "Luna can't reach Luna Connect, or Luna Connect has a problem. Check this Luna's internet connection. Luna will keep trying.";
 pub const CONNECT_CHALLENGED_MSG: &str =
     "Luna Connect blocked a request from this Luna. Luna will keep trying.";
-pub const SETUP_GRANT_REJECTED_MSG: &str =
-    "That setup link is no longer valid. Create a new one in Luna Connect and try again.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -59,7 +56,7 @@ pub enum ConnectError {
     Unbound,
     #[error("No pairing is waiting for this Luna right now.")]
     NoPairing,
-    #[error("Luna Connect did not accept that Device ID and Verification code.")]
+    #[error("Luna Connect did not accept this Luna's device token.")]
     PairingRejected,
     #[error("{0}")]
     Other(String),
@@ -102,10 +99,9 @@ pub struct ConnectStatus {
     pub unclaimed: bool,
     pub state: ConnectState,
     pub unbind_pending: bool,
-    /// Grouped public identifier. It is not a credential.
-    pub device_uid: Option<String>,
-    /// Revealed only to setup or an Admin; never the rolling credential.
-    pub verification_code: Option<String>,
+    /// Whether a valid device token is saved. The token itself has its own
+    /// Admin-only route; the rolling credential is never exposed.
+    pub device_token_set: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,8 +112,7 @@ pub struct ConnectStatus {
 }
 
 struct ConnectAuth {
-    device_uid_path: PathBuf,
-    pairing_code_path: PathBuf,
+    device_token_path: PathBuf,
     credential_path: PathBuf,
     unbind_pending_path: PathBuf,
     /// Serializes pairing, polling, refresh, and unbind. In particular, a
@@ -149,7 +144,7 @@ pub struct ConnectService {
 
 impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
-        // Connect has no opt-out marker: absence of pairing material is the
+        // Connect has no opt-out marker: absence of a device token is the
         // empty, successful opt-out state.
         let _ = std::fs::remove_file(data_dir.join("disable-connect"));
         let state_path = data_dir.join("connect.json");
@@ -178,8 +173,7 @@ impl ConnectService {
             tunnel_exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             local_port: 8090,
             auth: ConnectAuth {
-                device_uid_path: data_dir.join(DEVICE_UID_FILE),
-                pairing_code_path: data_dir.join(PAIRING_CODE_FILE),
+                device_token_path: data_dir.join(DEVICE_TOKEN_FILE),
                 credential_path: data_dir.join(CONNECT_CREDENTIAL_FILE),
                 unbind_pending_path: data_dir.join(UNBIND_PENDING_FILE),
                 operation_mu: Mutex::new(()),
@@ -210,15 +204,13 @@ impl ConnectService {
         self.status_for(true)
     }
 
-    /// Pairing codes are setup/Admin-only after setup. The rolling credential
-    /// is never part of this struct or returned by any API.
+    /// The rolling credential is never part of this struct or returned by any
+    /// API. `reveal_secrets` only gates the backup-source list.
     pub fn status_for(&self, reveal_secrets: bool) -> ConnectStatus {
         let state = self.load();
         let pending = self.unbind_pending();
-        let uid = self.device_uid().ok();
-        let uid_malformed = self.auth.device_uid_path.is_file() && uid.is_none();
-        let code = self.verification_code().ok();
-        let code_malformed = self.auth.pairing_code_path.is_file() && code.is_none();
+        let token = self.device_token().ok();
+        let token_malformed = self.auth.device_token_path.is_file() && token.is_none();
         let credential = self.auth_token().ok();
         let credential_present = self.auth.credential_path.is_file();
         let rejected = self.rejected();
@@ -230,7 +222,7 @@ impl ConnectService {
             && credential.is_some()
             && !pending
             && !rejected
-            && uid.is_some();
+            && token.is_some();
         let hostname = active
             .then(|| {
                 state
@@ -266,14 +258,12 @@ impl ConnectService {
         };
         let connect_error = if pending {
             Some(UNBIND_PENDING_MSG.to_string())
-        } else if uid_malformed || (connect_state == ConnectState::Bound && uid.is_none()) {
-            Some(DEVICE_UID_MALFORMED_MSG.to_string())
+        } else if token_malformed || (connect_state == ConnectState::Bound && token.is_none()) {
+            Some(DEVICE_TOKEN_MALFORMED_MSG.to_string())
         } else if credential_present && credential.is_none() {
             Some(CREDENTIAL_MALFORMED_MSG.to_string())
         } else if connect_state == ConnectState::Revoked {
             Some(CREDENTIAL_REJECTED_MSG.to_string())
-        } else if code_malformed && connect_state != ConnectState::Bound {
-            Some(PAIRING_CODE_MALFORMED_MSG.to_string())
         } else {
             self.pairing_error()
         };
@@ -314,8 +304,7 @@ impl ConnectService {
             unclaimed: matches!(connect_state, ConnectState::Unbound | ConnectState::Pairing),
             state: connect_state,
             unbind_pending: pending,
-            device_uid: uid.map(|uid| group_device_uid(&uid)),
-            verification_code: reveal_secrets.then_some(code).flatten(),
+            device_token_set: token.is_some(),
             connect_error,
             connect_unreachable: unreachable.map(str::to_string),
             tunnel_error: tunnel_err,
@@ -344,16 +333,12 @@ impl ConnectService {
         self.poll_wake.clone()
     }
 
-    pub fn has_device_uid(&self) -> bool {
-        self.device_uid().is_ok()
-    }
-
-    pub fn has_pairing_material(&self) -> bool {
-        self.device_uid().is_ok() && self.verification_code().is_ok()
+    pub fn has_device_token(&self) -> bool {
+        self.device_token().is_ok()
     }
 
     /// LAN lockdown and normal Connect work depend on a bound rolling
-    /// credential, never on the presence of human-facing pairing material.
+    /// credential, never on the presence of the device token.
     /// The Connect account this Luna was claimed by, learned when it was claimed.
     /// `None` while not linked, or for a link made before Connect reported it.
     pub fn bound_account_id(&self) -> Option<String> {
@@ -376,7 +361,7 @@ impl ConnectService {
         {
             return false;
         }
-        self.device_uid().is_ok()
+        self.device_token().is_ok()
     }
 
     pub fn poll_needed(&self) -> bool {
@@ -390,7 +375,7 @@ impl ConnectService {
             // A credential beside stale unbound/revoked state is recovered
             // through Connect, never sent to the pairing-claim loop.
             ConnectState::Unbound | ConnectState::Pairing | ConnectState::Revoked => {
-                credential.is_some() || self.has_pairing_material()
+                credential.is_some() || self.has_device_token()
             }
         }
     }
@@ -399,16 +384,16 @@ impl ConnectService {
         // Even a credential left beside stale state may still own a remote
         // binding. Let the unbind route ask Connect instead of trusting the
         // local label blindly. A pairing attempt with no credential can also be
-        // cancelled using the saved UID and Verification code.
+        // cancelled using the saved device token.
         self.unbind_pending()
             || self.auth_token().is_ok()
             || (self.connect_state(&self.load(), false) == ConnectState::Pairing
-                && self.has_pairing_material())
+                && self.has_device_token())
     }
 
     pub fn lan_override(&self) -> bool {
         self.auth
-            .device_uid_path
+            .device_token_path
             .parent()
             .is_some_and(|data_dir| data_dir.join(LAN_OVERRIDE_FILE).exists())
     }
@@ -421,13 +406,13 @@ impl ConnectService {
         *self.cached_wan_ip.lock().unwrap_or_else(|e| e.into_inner()) = Some(ip);
     }
 
-    pub fn ensure_pairing_material_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
-        self.ensure_pairing_material_from_mag_with_options(
+    pub fn ensure_device_token_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
+        self.ensure_device_token_from_mag_with_options(
             crate::system::factory_mag::MagFetchOptions::default(),
         )
     }
 
-    pub(super) fn ensure_pairing_material_from_mag_with_options(
+    pub(super) fn ensure_device_token_from_mag_with_options(
         &self,
         options: crate::system::factory_mag::MagFetchOptions,
     ) -> crate::system::factory_mag::MagFetchOutcome {
@@ -441,9 +426,8 @@ impl ConnectService {
         if self.unbind_pending() {
             return crate::system::factory_mag::MagFetchOutcome::Incomplete;
         }
-        let outcome = crate::system::factory_mag::fetch_pairing_material_from_mag(
-            &self.auth.device_uid_path,
-            &self.auth.pairing_code_path,
+        let outcome = crate::system::factory_mag::fetch_device_token_from_mag(
+            &self.auth.device_token_path,
             &options,
         );
         if matches!(
@@ -455,39 +439,39 @@ impl ConnectService {
         outcome
     }
 
-    pub fn device_uid(&self) -> Result<String, ConnectError> {
-        read_trimmed(&self.auth.device_uid_path)
-            .map(|raw| normalize_device_uid(&raw))
-            .filter(|uid| is_device_uid_format(uid))
-            .ok_or_else(|| ConnectError::Other(DEVICE_UID_MALFORMED_MSG.into()))
+    pub fn device_token(&self) -> Result<String, ConnectError> {
+        read_trimmed(&self.auth.device_token_path)
+            .map(|raw| normalize_device_token(&raw))
+            .filter(|token| is_device_token_format(token))
+            .ok_or_else(|| ConnectError::Other(DEVICE_TOKEN_MALFORMED_MSG.into()))
     }
 
-    pub fn verification_code(&self) -> Result<String, ConnectError> {
-        read_trimmed(&self.auth.pairing_code_path)
-            .map(|raw| normalize_verification_code(&raw))
-            .filter(|code| is_verification_code_format(code))
-            .ok_or_else(|| ConnectError::Other(PAIRING_CODE_MALFORMED_MSG.into()))
+    /// The saved token in groups of four, for display in Admin settings.
+    pub fn device_token_grouped(&self) -> Result<String, ConnectError> {
+        self.device_token().map(|token| group_device_token(&token))
     }
 
-    /// Store the two pairing values separately. The UID is immutable once it
-    /// exists, and a saved Verification code cannot be replaced under it:
-    /// Connect keeps the matching code for this device.
-    pub fn set_pairing_material(
-        &self,
-        device_uid: &str,
-        verification_code: &str,
-    ) -> Result<(), ConnectError> {
-        let uid = normalize_device_uid(device_uid);
-        if !is_device_uid_format(&uid) {
-            return Err(ConnectError::Other(
-                "That Device ID is not valid. Copy it from the quick-start guide or Luna Connect."
-                    .into(),
-            ));
+    /// Constant-time check of a typed token against the saved one, ignoring
+    /// case, grouping, and lookalike letters. False when none is saved.
+    pub fn device_token_matches(&self, candidate: &str) -> bool {
+        let Ok(saved) = self.device_token() else {
+            return false;
+        };
+        let candidate = normalize_device_token(candidate);
+        if !is_device_token_format(&candidate) {
+            return false;
         }
-        let code = normalize_verification_code(verification_code);
-        if !is_verification_code_format(&code) {
+        constant_time_eq(saved.as_bytes(), candidate.as_bytes())
+    }
+
+    /// Local-only: no Connect request and no change to the credential,
+    /// binding, address, or tunnel. The new token matters the next time Luna
+    /// pairs or an off-LAN setup is attempted.
+    pub fn set_device_token(&self, device_token: &str) -> Result<(), ConnectError> {
+        let token = normalize_device_token(device_token);
+        if !is_device_token_format(&token) {
             return Err(ConnectError::Other(
-                "That Verification code is not valid. Enter the six characters from the quick-start guide or Luna Connect."
+                "That device token is not valid. Copy all 20 characters from the quick-start guide or Luna Connect."
                     .into(),
             ));
         }
@@ -496,36 +480,10 @@ impl ConnectService {
             .operation_mu
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if self.unbind_pending() {
-            return Err(ConnectError::Other(UNBIND_PENDING_MSG.into()));
-        }
-        if let Ok(existing) = self.device_uid()
-            && existing != uid
-        {
-            return Err(ConnectError::Other(
-                "This Luna already has a different Device ID. Restore the original Device ID."
-                    .into(),
-            ));
-        }
-        if self.device_uid().is_err()
-            && self.connect_state(&self.load(), self.auth_token().is_ok()) != ConnectState::Unbound
-        {
-            return Err(ConnectError::Other(
-                "This Luna's Device ID is missing. Restore the original Device ID before reconnecting."
-                    .into(),
-            ));
-        }
-        if let Ok(existing) = self.verification_code()
-            && existing != code
-        {
-            return Err(ConnectError::Other(
-                "That Verification code does not match the one already saved on this Luna. Restore the saved code instead."
-                    .into(),
-            ));
-        }
-        write_private_file(&self.auth.pairing_code_path, format!("{code}\n").as_bytes())?;
-        write_private_file(&self.auth.device_uid_path, format!("{uid}\n").as_bytes())?;
-        *self.auth.rejected.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        write_private_file(
+            &self.auth.device_token_path,
+            format!("{token}\n").as_bytes(),
+        )?;
         *self
             .auth
             .pairing_error
@@ -533,31 +491,6 @@ impl ConnectService {
             .unwrap_or_else(|e| e.into_inner()) = None;
         self.clear_unreachable();
         self.poll_wake.wake();
-        Ok(())
-    }
-
-    /// Local-only: no Connect request and no change to the credential,
-    /// binding, address, or tunnel.
-    pub fn remove_pairing_code(&self) -> Result<(), ConnectError> {
-        let _operation = self
-            .auth
-            .operation_mu
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        match std::fs::remove_file(&self.auth.pairing_code_path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => {
-                return Err(ConnectError::Other(
-                    "Luna couldn't remove the Verification code. Try again.".into(),
-                ));
-            }
-        }
-        *self
-            .auth
-            .pairing_error
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
         crate::system::console::request_refresh();
         Ok(())
     }
@@ -598,7 +531,7 @@ impl ConnectService {
         let state = self.load();
         match self.connect_state(&state, self.auth_token().is_ok()) {
             ConnectState::Unbound | ConnectState::Pairing => {
-                if self.has_pairing_material() {
+                if self.has_device_token() {
                     AGGRESSIVE_POLL_SECS
                 } else {
                     STEADY_POLL_SECS
@@ -851,16 +784,12 @@ impl ConnectService {
     }
 
     fn cancel_pairing_claim(&self) -> Result<(), ConnectError> {
-        let uid = self.device_uid()?;
-        let code = self.verification_code()?;
+        let token = self.device_token()?;
         self.call_json_status_within(
             "POST",
             "/api/v1/devices/pair/cancel",
             None,
-            Some(json!({
-                "device_uid": group_device_uid(&uid),
-                "verification_code": code,
-            })),
+            Some(json!({ "device_token": group_device_token(&token) })),
             CONNECT_HTTP_TIMEOUT,
         )?;
         Ok(())
@@ -870,17 +799,15 @@ impl ConnectService {
         if self.unbind_pending() {
             return false;
         }
-        let (Ok(uid), Ok(code)) = (self.device_uid(), self.verification_code()) else {
+        // No token on disk: no poll, and Connect stays off.
+        let Ok(device_token) = self.device_token() else {
             return false;
         };
         match self.call_json_status_within(
             "POST",
             "/api/v1/devices/pair/claim",
             None,
-            Some(json!({
-                "device_uid": group_device_uid(&uid),
-                "verification_code": code,
-            })),
+            Some(json!({ "device_token": group_device_token(&device_token) })),
             CONNECT_HTTP_TIMEOUT,
         ) {
             Ok(claimed) => {
@@ -972,7 +899,7 @@ impl ConnectService {
             Err(ConnectError::PairingRejected) => {
                 self.clear_unreachable();
                 *self.auth.pairing_error.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some("Luna Connect did not accept that Device ID and Verification code. Check both and try again.".into());
+                    Some("Luna Connect did not accept this Luna's device token. Check it in Settings → Luna Connect → Device token.".into());
                 false
             }
             Err(err) => {
@@ -1143,65 +1070,6 @@ impl ConnectService {
         last.is_none_or(|at| at.elapsed() >= *after)
     }
 
-    /// Verify and consume a one-time remote first-Admin grant before Luna
-    /// creates the account. UID, code, and rolling credential are not proof.
-    pub fn consume_setup_grant(&self, setup_grant: &str) -> Result<(), ConnectError> {
-        let grant = setup_grant.trim();
-        if grant.is_empty() {
-            return Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()));
-        }
-        let _operation = self
-            .auth
-            .operation_mu
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if self.unbind_pending() || !self.is_connect_active() {
-            return Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()));
-        }
-        let mut token = self.auth_token()?;
-        let body = Some(json!({ "setup_grant": grant }));
-        let mut reply = self.call_json_status_within(
-            "POST",
-            "/api/v1/devices/setup-grant/consume",
-            Some(&token),
-            body.clone(),
-            CONNECT_HTTP_TIMEOUT,
-        );
-        if matches!(&reply, Err(ConnectError::InvalidToken)) {
-            match self.refresh_credential_inner(true) {
-                Ok(()) => {
-                    token = self.auth_token()?;
-                    reply = self.call_json_status_within(
-                        "POST",
-                        "/api/v1/devices/setup-grant/consume",
-                        Some(&token),
-                        body,
-                        CONNECT_HTTP_TIMEOUT,
-                    );
-                }
-                Err(_) => return Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into())),
-            }
-        }
-        match reply {
-            Ok(_) => Ok(()),
-            Err(ConnectError::InvalidToken) => {
-                Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()))
-            }
-            Err(ConnectError::Revoked) => {
-                let _ = self.mark_revoked_inner();
-                Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()))
-            }
-            Err(ConnectError::Unbound) => {
-                let _ = self.clear_to_unbound_inner();
-                Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()))
-            }
-            Err(ConnectError::Unreachable | ConnectError::GatewayChallenge) => {
-                Err(ConnectError::Unreachable)
-            }
-            Err(other) => Err(other),
-        }
-    }
-
     /// Revoke first, then forget the credential. Every failure path retains
     /// enough to retry and blocks both remote access and pairing.
     pub fn unbind_now(&self) -> Result<(), ConnectError> {
@@ -1230,7 +1098,7 @@ impl ConnectService {
             Ok(token) => token,
             Err(_)
                 if self.connect_state(&self.load(), false) == ConnectState::Pairing
-                    && self.has_pairing_material() =>
+                    && self.has_device_token() =>
             {
                 self.stop_tunnel();
                 self.cancel_pairing_claim()?;
@@ -1329,7 +1197,6 @@ impl ConnectService {
             return Ok(());
         }
         let mut marker = json!({
-            "device_uid": self.device_uid().ok(),
             "credential_fingerprint": token.map(credential_fingerprint),
         });
         if let Some(resolution) = resolution {
@@ -1688,9 +1555,6 @@ impl ConnectService {
             .limit(MAX_REPLY_BYTES)
             .read_to_string()
             .unwrap_or_default();
-        if path == "/api/v1/devices/setup-grant/consume" && matches!(status, 400 | 404) {
-            return Err(ConnectError::Other(SETUP_GRANT_REJECTED_MSG.into()));
-        }
         if path == "/api/v1/devices/pair/claim" {
             if matches!(status, 404 | 409) {
                 return Err(ConnectError::NoPairing);
@@ -1893,7 +1757,7 @@ fn credential_fingerprint(token: &str) -> String {
 /// Crockford base32 without I, L, O, U.
 const CROCKFORD: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-pub(crate) fn normalize_device_uid(raw: &str) -> String {
+pub(crate) fn normalize_device_token(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for c in raw.chars() {
         if matches!(c, '-' | ' ' | '_') {
@@ -1909,24 +1773,24 @@ pub(crate) fn normalize_device_uid(raw: &str) -> String {
     out
 }
 
-pub(crate) fn is_device_uid_format(uid: &str) -> bool {
-    uid.len() == 20 && uid.bytes().all(|b| CROCKFORD.contains(&b))
+pub(crate) fn is_device_token_format(token: &str) -> bool {
+    token.len() == 20 && token.bytes().all(|b| CROCKFORD.contains(&b))
 }
 
-pub(crate) fn group_device_uid(uid: &str) -> String {
-    uid.as_bytes()
+pub(crate) fn group_device_token(token: &str) -> String {
+    token
+        .as_bytes()
         .chunks(4)
         .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
         .collect::<Vec<_>>()
         .join("-")
 }
 
-pub(crate) fn normalize_verification_code(raw: &str) -> String {
-    raw.trim().to_ascii_uppercase()
-}
-
-pub(crate) fn is_verification_code_format(code: &str) -> bool {
-    code.len() == 6 && code.bytes().all(|b| b.is_ascii_hexdigit())
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 pub(crate) fn is_auth_token_format(token: &str) -> bool {

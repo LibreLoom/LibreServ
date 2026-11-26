@@ -396,8 +396,8 @@ mod tests {
         assert!(is_recovery_filename("luna-recover.luna"));
         assert!(is_recovery_filename("LUNA-RECOVER.LUNA"));
         for name in [
-            "luna-recover-a3f91c.luna",
-            "luna-recover-abcd-efgh-jklm-npqr.luna",
+            "luna-recover-abcdefghjkmnpqrstvwx.luna",
+            "luna-recover-abcd-efgh-jkmn-pqrs-tvwx.luna",
             "luna-recover-.luna",
             "luna-recover.luna.done",
             "luna-recover-1234.txt",
@@ -434,17 +434,15 @@ mod tests {
         db::insert_user(&conn, "1", "admin", "Admin", &old_hash, "admin").unwrap();
         // Even matching local material must not turn a suffixed filename into
         // a recovery credential.
-        fs::write(data_dir.path().join("pairing-code"), "A3F91C\n").unwrap();
         fs::write(
             data_dir.path().join("device-token"),
-            "ABCD-EFGH-JKLM-NPQR\n",
+            "ABCDEFGHJKMNPQRSTVWX\n",
         )
         .unwrap();
-        fs::write(data_dir.path().join("setup-token"), "ABCD-EFGH-JKLM-NPQR\n").unwrap();
 
         for name in [
-            "luna-recover-a3f91c.luna",
-            "luna-recover-abcd-efgh-jklm-npqr.luna",
+            "luna-recover-abcdefghjkmnpqrstvwx.luna",
+            "luna-recover-abcd-efgh-jkmn-pqrs-tvwx.luna",
         ] {
             let usb_dir = TempDir::new().unwrap();
             let recovery_file = usb_dir.path().join(name);
@@ -590,7 +588,11 @@ mod tests {
             )
             .unwrap();
             // None of these files authorizes or blocks physical recovery.
-            fs::write(data_dir.path().join("pairing-code"), "A3F91C\n").unwrap();
+            fs::write(
+                data_dir.path().join("device-token"),
+                "ABCDEFGHJKMNPQRSTVWX\n",
+            )
+            .unwrap();
             fs::write(data_dir.path().join("connect-credential"), "credential").unwrap();
             fs::write(data_dir.path().join("connect-unbind-pending"), "{}").unwrap();
 

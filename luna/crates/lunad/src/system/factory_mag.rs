@@ -1,17 +1,13 @@
-//! Read one Device ID and Verification code from the LUNAASSETS `TOKENS` magazine.
+//! Read one device token from the LUNAASSETS `TOKENS` magazine.
 //!
-//! Each data line has exactly two whitespace-separated fields: a 20-character
-//! Crockford Device ID and a six-hex-character Verification code.
+//! Each data line has exactly one field: a 20-character Crockford device token.
 
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
 use crate::drives::mount::{MOUNT_TIMEOUT, UNMOUNT_TIMEOUT, run_bounded};
-use crate::net::connect::{
-    is_device_uid_format, is_verification_code_format, normalize_device_uid,
-    normalize_verification_code,
-};
+use crate::net::connect::{is_device_token_format, normalize_device_token};
 use crate::system::updates::lookup_device;
 
 pub const MAG_RETRY_ATTEMPTS: u32 = 3;
@@ -20,8 +16,7 @@ pub const MAG_RETRY_DELAY: Duration = Duration::from_millis(500);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MagFetchOutcome {
     AlreadyValid,
-    /// A UID is already saved but its code is not. Losing the code requires
-    /// recovery; a different magazine line must not replace this Luna's UID.
+    /// An owed unbind blocks pairing, so the magazine is not read.
     Incomplete,
     NoMagazine,
     Fetched {
@@ -50,39 +45,24 @@ impl Default for MagFetchOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FactoryTokens {
-    pub device_uid: String,
-    pub verification_code: String,
-}
-
-/// Parse the factory contract exactly: two fields, a 20-character UID, and a
-/// six-hex-character code. Grouping, comments, and extra fields are rejected.
-pub fn parse_factory_tokens_line(line: &str) -> Option<FactoryTokens> {
+/// Parse the factory contract exactly: one field, a 20-character Crockford
+/// token. Grouping, comments, and extra fields are rejected.
+pub fn parse_factory_token_line(line: &str) -> Option<String> {
     let mut fields = line.split_whitespace();
-    let uid_field = fields.next()?;
-    let code_field = fields.next()?;
-    if fields.next().is_some() || uid_field.len() != 20 {
+    let field = fields.next()?;
+    if fields.next().is_some() || field.len() != 20 {
         return None;
     }
-    let device_uid = normalize_device_uid(uid_field);
-    let verification_code = normalize_verification_code(code_field);
-    if !is_device_uid_format(&device_uid) || !is_verification_code_format(&verification_code) {
-        return None;
-    }
-    Some(FactoryTokens {
-        device_uid,
-        verification_code,
-    })
+    let token = normalize_device_token(field);
+    is_device_token_format(&token).then_some(token)
 }
 
-/// Populate the two separate local files from the factory magazine.
-pub fn fetch_pairing_material_from_mag(
-    device_uid_path: &Path,
-    pairing_code_path: &Path,
+/// Populate the `device-token` file from the factory magazine.
+pub fn fetch_device_token_from_mag(
+    device_token_path: &Path,
     opts: &MagFetchOptions,
 ) -> MagFetchOutcome {
-    if let Some(outcome) = preserve_existing_pairing(device_uid_path, pairing_code_path) {
+    if let Some(outcome) = preserve_existing_token(device_token_path) {
         return outcome;
     }
 
@@ -96,24 +76,18 @@ pub fn fetch_pairing_material_from_mag(
                 MagFetchOutcome::ExhaustedRetries { attempts }
             };
         };
-        let Some(tokens) = parse_factory_tokens_line(&line) else {
+        let Some(token) = parse_factory_token_line(&line) else {
             if attempts < opts.max_attempts {
                 thread::sleep(opts.retry_delay);
             }
             continue;
         };
         // The magazine read/peel can take a while. Recheck immediately before
-        // committing so a pairing write that won the race is never overwritten
-        // or combined with this line's code.
-        if let Some(outcome) = preserve_existing_pairing(device_uid_path, pairing_code_path) {
+        // committing so a token saved meanwhile is never overwritten.
+        if let Some(outcome) = preserve_existing_token(device_token_path) {
             return outcome;
         }
-        // Write the code first: a crash between the two writes leaves no UID.
-        // The recheck above also makes that partial state fail closed rather
-        // than mixing it with a later magazine identity.
-        if write_private(pairing_code_path, &tokens.verification_code).is_err()
-            || write_private(device_uid_path, &tokens.device_uid).is_err()
-        {
+        if write_private(device_token_path, &token).is_err() {
             if attempts < opts.max_attempts {
                 thread::sleep(opts.retry_delay);
             }
@@ -124,34 +98,18 @@ pub fn fetch_pairing_material_from_mag(
     MagFetchOutcome::ExhaustedRetries { attempts }
 }
 
-/// `None` means neither file holds a usable identity and the magazine may
-/// provision one. A valid half is never replaced or completed from another
-/// line: that would mix two factory identities.
-fn preserve_existing_pairing(
-    device_uid_path: &Path,
-    pairing_code_path: &Path,
-) -> Option<MagFetchOutcome> {
-    let existing_uid = read_trimmed(device_uid_path)
-        .map(|raw| normalize_device_uid(&raw))
-        .filter(|uid| is_device_uid_format(uid));
-    let existing_code = read_trimmed(pairing_code_path)
-        .map(|raw| normalize_verification_code(&raw))
-        .filter(|code| is_verification_code_format(code));
-    if existing_uid.is_some() && existing_code.is_some() {
+/// `None` means the file holds no usable token and the magazine may provision
+/// one. A valid saved token is never replaced: Connect knows this Luna by it.
+fn preserve_existing_token(device_token_path: &Path) -> Option<MagFetchOutcome> {
+    let existing = read_trimmed(device_token_path)
+        .map(|raw| normalize_device_token(&raw))
+        .filter(|token| is_device_token_format(token));
+    if existing.is_some() {
         return Some(MagFetchOutcome::AlreadyValid);
     }
-    if existing_uid.is_some() || existing_code.is_some() {
-        if existing_uid.is_some() && pairing_code_path.is_file() {
-            let _ = std::fs::remove_file(pairing_code_path);
-        }
-        return Some(MagFetchOutcome::Incomplete);
-    }
-    // Only malformed files reach here; they are not an immutable identity.
-    if device_uid_path.is_file() {
-        let _ = std::fs::remove_file(device_uid_path);
-    }
-    if pairing_code_path.is_file() {
-        let _ = std::fs::remove_file(pairing_code_path);
+    // Only a malformed file reaches here; it is not an identity.
+    if device_token_path.is_file() {
+        let _ = std::fs::remove_file(device_token_path);
     }
     None
 }
@@ -361,52 +319,50 @@ fn mount_lunaassets() -> Result<AssetsMount, ()> {
 mod tests {
     use super::*;
 
-    const UID: &str = "7K4M2Q9XR8N36T5W1PZH";
-    const CODE: &str = "A3F91C";
+    const TOKEN: &str = "7K4M2Q9XR8N36T5W1PZH";
 
     fn write_tokens(dir: &Path, body: &str) {
         std::fs::write(dir.join("TOKENS"), body).unwrap();
     }
 
-    #[test]
-    fn factory_line_requires_exactly_two_valid_fields() {
-        let parsed = parse_factory_tokens_line(&format!("  {UID}\t{CODE}  ")).unwrap();
-        assert_eq!(parsed.device_uid, UID);
-        assert_eq!(parsed.verification_code, CODE);
-        assert_eq!(
-            parse_factory_tokens_line(&format!("{UID} {CODE} extra")),
-            None
-        );
-        assert_eq!(parse_factory_tokens_line(&format!("{UID}-{CODE}")), None);
-        assert_eq!(
-            parse_factory_tokens_line(&format!("7K4M-2Q9X-R8N3-6T5W-1PZH {CODE}")),
-            None
-        );
-        assert_eq!(parse_factory_tokens_line(&format!("{UID} A3F91")), None);
-        assert_eq!(parse_factory_tokens_line(&format!("{UID} A3F91G")), None);
+    fn opts(assets: &Path, max_attempts: u32) -> MagFetchOptions {
+        MagFetchOptions {
+            assets_root: Some(assets.to_path_buf()),
+            max_attempts,
+            retry_delay: Duration::from_millis(1),
+        }
     }
 
     #[test]
-    fn invalid_mag_line_is_retried_and_both_files_are_written() {
+    fn factory_line_requires_exactly_one_valid_field() {
+        assert_eq!(
+            parse_factory_token_line(&format!("  {TOKEN}  ")).as_deref(),
+            Some(TOKEN)
+        );
+        assert_eq!(
+            parse_factory_token_line("7k4m2q9xr8n36t5w1pzh").as_deref(),
+            Some(TOKEN)
+        );
+        assert_eq!(parse_factory_token_line(&format!("{TOKEN} A3F91C")), None);
+        assert_eq!(parse_factory_token_line("7K4M-2Q9X-R8N3-6T5W-1PZH"), None);
+        assert_eq!(parse_factory_token_line(&TOKEN[..19]), None);
+        assert_eq!(parse_factory_token_line("7K4M2Q9XR8N36T5W1PZU"), None);
+    }
+
+    #[test]
+    fn invalid_mag_line_is_retried_and_the_token_is_written() {
         let dir = tempfile::tempdir().unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, &format!("not-a-code\n{UID} {CODE}\n"));
-        let uid = dir.path().join("device-uid");
-        let code = dir.path().join("pairing-code");
-        let opts = MagFetchOptions {
-            assets_root: Some(assets),
-            max_attempts: 3,
-            retry_delay: Duration::from_millis(1),
-        };
+        write_tokens(&assets, &format!("not-a-token\n{TOKEN}\n"));
+        let path = dir.path().join("device-token");
         assert_eq!(
-            fetch_pairing_material_from_mag(&uid, &code, &opts),
+            fetch_device_token_from_mag(&path, &opts(&assets, 3)),
             MagFetchOutcome::Fetched { attempts: 2 }
         );
-        assert_eq!(std::fs::read_to_string(&uid).unwrap().trim(), UID);
-        assert_eq!(std::fs::read_to_string(&code).unwrap().trim(), CODE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), TOKEN);
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("assets/TOKENS"))
+            std::fs::read_to_string(assets.join("TOKENS"))
                 .unwrap()
                 .trim(),
             ""
@@ -415,142 +371,62 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(
-                std::fs::metadata(&code).unwrap().permissions().mode() & 0o777,
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
                 0o600
             );
         }
     }
 
     #[test]
-    fn skips_when_both_files_are_already_valid() {
+    fn skips_when_a_valid_token_is_already_saved() {
         let dir = tempfile::tempdir().unwrap();
-        let uid = dir.path().join("device-uid");
-        let code = dir.path().join("pairing-code");
-        std::fs::write(&uid, format!("{UID}\n")).unwrap();
-        std::fs::write(&code, format!("{CODE}\n")).unwrap();
+        let path = dir.path().join("device-token");
+        std::fs::write(&path, format!("{TOKEN}\n")).unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, &format!("ZZZZYYYYXXXXWWWWVVVV {CODE}\n"));
+        write_tokens(&assets, "ZZZZYYYYXXXXWWWWVVVV\n");
         assert_eq!(
-            fetch_pairing_material_from_mag(
-                &uid,
-                &code,
-                &MagFetchOptions {
-                    assets_root: Some(assets.clone()),
-                    ..Default::default()
-                },
-            ),
+            fetch_device_token_from_mag(&path, &opts(&assets, 3)),
             MagFetchOutcome::AlreadyValid
         );
         assert_eq!(
             std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
-            format!("ZZZZYYYYXXXXWWWWVVVV {CODE}\n")
+            "ZZZZYYYYXXXXWWWWVVVV\n"
         );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), TOKEN);
     }
 
     #[test]
-    fn a_uid_without_its_code_is_not_replaced_from_another_magazine() {
+    fn a_malformed_token_file_is_replaced_from_the_magazine() {
         let dir = tempfile::tempdir().unwrap();
-        let uid = dir.path().join("device-uid");
-        let code = dir.path().join("pairing-code");
-        std::fs::write(&uid, format!("{UID}\n")).unwrap();
+        let path = dir.path().join("device-token");
+        std::fs::write(&path, "short\n").unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, &format!("ZZZZYYYYXXXXWWWWVVVV {CODE}\n"));
+        write_tokens(&assets, &format!("{TOKEN}\n"));
         assert_eq!(
-            fetch_pairing_material_from_mag(
-                &uid,
-                &code,
-                &MagFetchOptions {
-                    assets_root: Some(assets.clone()),
-                    ..Default::default()
-                },
-            ),
-            MagFetchOutcome::Incomplete
+            fetch_device_token_from_mag(&path, &opts(&assets, 3)),
+            MagFetchOutcome::Fetched { attempts: 1 }
         );
-        assert_eq!(std::fs::read_to_string(&uid).unwrap().trim(), UID);
-        assert!(!code.exists());
-        assert!(assets.join("TOKENS").exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), TOKEN);
     }
 
     #[test]
-    fn a_code_without_a_uid_is_not_mixed_with_another_magazine_line() {
+    fn no_magazine_and_exhausted_retries_are_reported() {
         let dir = tempfile::tempdir().unwrap();
-        let uid = dir.path().join("device-uid");
-        let code = dir.path().join("pairing-code");
-        std::fs::write(&code, format!("{CODE}\n")).unwrap();
-        let assets = dir.path().join("assets");
-        std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, "ZZZZYYYYXXXXWWWWVVVV ABCDEF\n");
-
+        let path = dir.path().join("device-token");
+        let missing = dir.path().join("none");
         assert_eq!(
-            fetch_pairing_material_from_mag(
-                &uid,
-                &code,
-                &MagFetchOptions {
-                    assets_root: Some(assets.clone()),
-                    max_attempts: 1,
-                    retry_delay: Duration::from_millis(1),
-                },
-            ),
-            MagFetchOutcome::Incomplete
-        );
-        assert!(!uid.exists());
-        assert_eq!(std::fs::read_to_string(&code).unwrap().trim(), CODE);
-        assert_eq!(
-            std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
-            "ZZZZYYYYXXXXWWWWVVVV ABCDEF\n"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_linked_tokens_file_is_not_read_or_written_through() {
-        let dir = tempfile::tempdir().unwrap();
-        let assets = dir.path().join("assets");
-        std::fs::create_dir_all(&assets).unwrap();
-        let canary = dir.path().join("canary.txt");
-        std::fs::write(&canary, format!("keep me\n{UID} {CODE}\n")).unwrap();
-        std::os::unix::fs::symlink(&canary, assets.join("TOKENS")).unwrap();
-        let uid = dir.path().join("device-uid");
-        let code = dir.path().join("pairing-code");
-        assert_eq!(
-            fetch_pairing_material_from_mag(
-                &uid,
-                &code,
-                &MagFetchOptions {
-                    assets_root: Some(assets),
-                    max_attempts: 1,
-                    retry_delay: Duration::from_millis(1),
-                },
-            ),
+            fetch_device_token_from_mag(&path, &opts(&missing, 3)),
             MagFetchOutcome::NoMagazine
         );
-        assert_eq!(
-            std::fs::read_to_string(&canary).unwrap(),
-            format!("keep me\n{UID} {CODE}\n")
-        );
-        assert!(!uid.exists());
-        assert!(!code.exists());
-    }
-
-    #[test]
-    fn empty_magazine_returns_none() {
-        let dir = tempfile::tempdir().unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, "# comments only\n\n");
-        assert_eq!(
-            fetch_pairing_material_from_mag(
-                &dir.path().join("device-uid"),
-                &dir.path().join("pairing-code"),
-                &MagFetchOptions {
-                    assets_root: Some(assets),
-                    max_attempts: 2,
-                    retry_delay: Duration::from_millis(1),
-                },
-            ),
-            MagFetchOutcome::NoMagazine
-        );
+        write_tokens(&assets, "garbage\nmore garbage\n");
+        assert!(matches!(
+            fetch_device_token_from_mag(&path, &opts(&assets, 2)),
+            MagFetchOutcome::ExhaustedRetries { .. }
+        ));
+        assert!(!path.exists());
     }
 }

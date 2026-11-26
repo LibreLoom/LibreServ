@@ -629,16 +629,11 @@ async fn finishing_setup_needs_no_recovery_phrase() {
 }
 
 #[tokio::test]
-async fn lan_guard_uses_the_bound_credential_not_pairing_material() {
+async fn lan_guard_uses_the_bound_credential_not_the_device_token() {
     let (dir, _, state) = test_app_with_state();
     std::fs::write(
-        dir.path().join(crate::net::connect::DEVICE_UID_FILE),
+        dir.path().join(crate::net::connect::DEVICE_TOKEN_FILE),
         "7K4M2Q9XR8N36T5W1PZH\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.path().join(crate::net::connect::PAIRING_CODE_FILE),
-        "A3F91C\n",
     )
     .unwrap();
     let app = api::router()
@@ -859,7 +854,7 @@ fn pre_setup_surface_lists_only_what_setup_calls() {
         (Method::GET, "/api/v1/auth/me"),
         (Method::GET, "/api/v1/network/status"),
         (Method::GET, "/api/v1/connect/status"),
-        (Method::POST, "/api/v1/connect/device-token"),
+        (Method::PUT, "/api/v1/connect/device-token"),
     ];
     for (method, path) in allowed {
         assert!(pre_setup_route_allowed(&method, path), "{method} {path}");
@@ -879,6 +874,7 @@ fn pre_setup_surface_lists_only_what_setup_calls() {
         (Method::POST, "/api/v1/auth/revoke-devices"),
         (Method::PATCH, "/api/v1/auth/me"),
         (Method::DELETE, "/api/v1/connect/device-token"),
+        (Method::GET, "/api/v1/connect/device-token"),
         (Method::GET, "/api/v1/public/anything"),
         (Method::GET, "/api/v1/users"),
         (Method::POST, "/api/v1/system/factory-reset"),

@@ -848,7 +848,7 @@ mod tests {
             "Keep Connect retains the rolling credential"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join(crate::net::connect::DEVICE_UID_FILE))
+            std::fs::read_to_string(dir.path().join(crate::net::connect::DEVICE_TOKEN_FILE))
                 .unwrap()
                 .trim(),
             "7K4M2Q9XR8N36T5W1PZH"
@@ -934,11 +934,10 @@ mod tests {
 
     fn linked(dir: &std::path::Path) {
         std::fs::write(
-            dir.join(crate::net::connect::DEVICE_UID_FILE),
+            dir.join(crate::net::connect::DEVICE_TOKEN_FILE),
             "7K4M2Q9XR8N36T5W1PZH\n",
         )
         .unwrap();
-        std::fs::write(dir.join(crate::net::connect::PAIRING_CODE_FILE), "A3F91C\n").unwrap();
         std::fs::write(
             dir.join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
@@ -1027,14 +1026,17 @@ mod tests {
                 .exists(),
             "the only revocation credential is retained while Connect may still be bound"
         );
-        assert_eq!(state.connect.device_uid().unwrap(), "7K4M2Q9XR8N36T5W1PZH");
+        assert_eq!(
+            state.connect.device_token().unwrap(),
+            "7K4M2Q9XR8N36T5W1PZH"
+        );
 
         // The first account still exists, and a pending disconnect does not
         // open anonymous registration off Luna's network.
         let mut remote = req(
             Method::POST,
             "/api/v1/auth/register",
-            r#"{"username":"eve","password":"hunter22hunter1","setup_grant":"grant-one"}"#,
+            r#"{"username":"eve","password":"hunter22hunter1","device_token":"7K4M2Q9XR8N36T5W1PZH"}"#,
             None,
             None,
         );

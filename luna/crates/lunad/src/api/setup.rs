@@ -122,12 +122,12 @@ async fn fetch_mag(
         ));
     }
     let connect = state.connect.clone();
-    let outcome = tokio::task::spawn_blocking(move || connect.ensure_pairing_material_from_mag())
+    let outcome = tokio::task::spawn_blocking(move || connect.ensure_device_token_from_mag())
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't read the Device ID and Verification code from the installer USB.",
+                "Luna couldn't read the device token from the installer USB.",
             )
         })?;
     Ok(Json(mag_outcome_json(&outcome)))
@@ -157,13 +157,13 @@ fn mag_outcome_json(outcome: &crate::system::factory_mag::MagFetchOutcome) -> Va
 /// setup page is public, so a configured Luna must never mount a stick that
 /// carries the magazine's label just because someone opened the page.
 fn maybe_fetch_mag(state: &AppState) {
-    if state.connect.has_pairing_material() {
+    if state.connect.has_device_token() {
         return;
     }
     if state.auth.count_users().unwrap_or(1) > 0 || !crate::auth::setup_wizard_open(state) {
         return;
     }
-    let _ = state.connect.ensure_pairing_material_from_mag();
+    let _ = state.connect.ensure_device_token_from_mag();
 }
 
 fn setup_origin(addr: &std::net::SocketAddr, headers: &HeaderMap) -> &'static str {
@@ -582,9 +582,9 @@ mod tests {
             .merge(super::router())
             .with_state(state.clone());
 
-        // A malformed Device ID: reading the magazine would remove it before
+        // A malformed device token: reading the magazine would remove it before
         // looking for a stick, so its survival shows none was read.
-        let uid = dir.path().join("device-uid");
+        let uid = dir.path().join("device-token");
         std::fs::write(&uid, "not-a-code\n").unwrap();
         state
             .auth
