@@ -128,7 +128,15 @@ function AdoptedDriveDetails({ drive }) {
   return (
     <CollapsibleSection title="Drive details" size="sm" mono pill surface="primary">
       <div className="flex flex-col gap-2" role="list" aria-label="Drive detail values">
-        <ValueDisplay surface="primary" label="Protection" value={drive.encrypted ? "Password protected" : "Not protected"} />
+        <ValueDisplay
+          surface="primary"
+          label={(
+            <TermHint content="Scrambles everything on the drive so it can only be read with the password." surface="primary">
+              Encryption
+            </TermHint>
+          )}
+          value={drive.encrypted ? "Password protected" : "Off"}
+        />
         <ValueDisplay
           surface="primary"
           label={(
