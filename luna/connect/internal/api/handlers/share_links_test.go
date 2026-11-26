@@ -619,3 +619,56 @@ func TestSharedPacksUnchanged(t *testing.T) {
 		t.Fatalf("backup link pack without session: status %d body %q", rec.Code, rec.Body.String())
 	}
 }
+
+// TestRevokeUserShareLinksTurnsOffOnlyThatPersonOnThisLuna checks that the storage route turns off the
+// named person's user links on the device's Luna, leaves every other link alone, and answers the same
+// way when called again.
+func TestRevokeUserShareLinksTurnsOffOnlyThatPersonOnThisLuna(t *testing.T) {
+	h, d, tok := storageFixture(t, "revoke", 0)
+	acct := fixtureAccountID(t, d, "revoke")
+	if _, err := d.DB.Exec(`INSERT INTO luna_ids (account_id, luna_id, device_id, signing_public, purge_after, created_at)
+VALUES (?, 'luna1', 'dev_revoke', '', 0, ?)`, acct, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	other := "0123456789abcdef0123456789abcdef"
+	insert := func(id, accountID, lunaID, kind, value string) {
+		t.Helper()
+		if _, err := d.DB.Exec(`INSERT INTO share_links (id, account_id, luna_id, token_hash, scope_kind, scope_value, created_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, accountID, lunaID, "hash-"+id, kind, value, time.Now().Unix(), time.Now().Add(time.Hour).Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("target", acct, "luna1", "user", cloudUserA)
+	insert("other-user", acct, "luna1", "user", other)
+	insert("other-luna", acct, "luna2", "user", cloudUserA)
+	insert("backup-kind", acct, "luna1", "backup", "docs-backup")
+	insert("other-account", "someone-else", "luna1", "user", cloudUserA)
+
+	revoked := func(id string) bool {
+		t.Helper()
+		var at int64
+		if err := d.DB.QueryRow(`SELECT revoked_at FROM share_links WHERE id = ?`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at > 0
+	}
+	body := []byte(`{"user_id":"` + cloudUserA + `"}`)
+	for i := 0; i < 2; i++ {
+		rec := storageDo(t, h, http.MethodPost, "/share-links/revoke-user", tok, "luna1", body, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("revoke call %d status %d: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if !revoked("target") {
+		t.Fatal("the named person's link on this Luna was not turned off")
+	}
+	for _, id := range []string{"other-user", "other-luna", "backup-kind", "other-account"} {
+		if revoked(id) {
+			t.Fatalf("link %s was turned off but should have stayed on", id)
+		}
+	}
+	bad := storageDo(t, h, http.MethodPost, "/share-links/revoke-user", tok, "luna1", []byte(`{"user_id":"Not-A-Part"}`), nil)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("malformed user id status %d, want 400", bad.Code)
+	}
+}

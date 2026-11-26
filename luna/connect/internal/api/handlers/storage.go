@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -1066,6 +1068,38 @@ func (h StorageHandler) SetSigningPublic(w http.ResponseWriter, r *http.Request)
 	}
 	if err := commitDeviceTx(tx, dev); err != nil {
 		writeStorageCommitError(w, err)
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// RevokeUserShareLinks turns off this Luna's share links for one person's backups. Lunad calls it
+// when that person is removed or their recovery phrase is replaced. The body's user_id is the
+// person's record part (the 32 hex characters a user link stores as its scope_value), not their
+// raw Luna user id, so Connect never learns clear user ids. Links already off are left alone, so a
+// repeat call answers the same way.
+func (h StorageHandler) RevokeUserShareLinks(w http.ResponseWriter, r *http.Request) {
+	accountID, lunaID, _, ok := storageScope(h.Deps, w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		UserID string `json:"user_id"`
+		// Before is when Luna recorded the revocation; links made later are left on. 0 means all.
+		Before int64 `json:"before"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, shareCreateBodyLimit)).Decode(&req); err != nil || !shareUserValuePattern.MatchString(req.UserID) || req.Before < 0 {
+		JSONError(w, http.StatusBadRequest, "That person's ID is not valid. Update Luna and try again.")
+		return
+	}
+	// storageScope has already checked that this device's Luna is this Luna, so one update is enough.
+	before := req.Before
+	if before == 0 {
+		before = math.MaxInt64
+	}
+	if _, err := h.DB.Exec(`UPDATE share_links SET revoked_at = ? WHERE account_id = ? AND luna_id = ? AND scope_kind = 'user' AND scope_value = ? AND revoked_at = 0 AND created_at <= ?`,
+		time.Now().Unix(), accountID, lunaID, req.UserID, before); err != nil {
+		JSONError(w, http.StatusInternalServerError, "Cloud storage could not turn off these links. Try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]any{"ok": true})

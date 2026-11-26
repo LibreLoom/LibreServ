@@ -487,6 +487,30 @@ pub fn run_all(
     active_states(db, now) != before
 }
 
+/// Turns off the share links of each person whose revocation Luna Connect has not confirmed yet.
+/// A call that fails stays pending, so the next sweep tries it again.
+pub fn revoke_pending_share_links(db: &crate::Db, store: &dyn CloudStore) {
+    let pending = match db::pending_share_revokes(&lock(db)) {
+        Ok(pending) => pending,
+        Err(err) => {
+            tracing::warn!(error = %err, "could not list share links to turn off");
+            return;
+        }
+    };
+    for user_id in pending {
+        let part = keys::user_record_part(&user_id);
+        let before = db::share_revoke_cutoff(&lock(db), &user_id).unwrap_or(0);
+        match store.revoke_user_share_links(&part, before) {
+            Ok(()) => {
+                if let Err(err) = db::clear_share_revoke(&lock(db), &user_id) {
+                    tracing::warn!(error = %err, "could not clear a share-link revocation");
+                }
+            }
+            Err(err) => tracing::warn!(error = %err, "could not turn off share links; will retry"),
+        }
+    }
+}
+
 /// Drop the copies this backup's retention rules no longer keep, then delete
 /// packs in each of its scopes that nothing uses.
 fn tidy(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> anyhow::Result<()> {
@@ -512,6 +536,7 @@ pub(super) fn sweep(db: &crate::Db, store: &dyn CloudStore, now: i64) {
         let conn = lock(db);
         scopes_of(&conn, None)
     };
+    revoke_pending_share_links(db, store);
     if let Err(err) = retention::retire_old_phrases(db, store, now) {
         tracing::warn!(error = %err, "could not remove old-phrase private backups");
     }
@@ -1184,6 +1209,29 @@ mod tests {
         create(&s.db, &s.connect, &s.admin, &s.src, "Docs")
             .unwrap()
             .id
+    }
+
+    #[test]
+    fn a_pending_share_revocation_waits_out_an_outage_then_clears() {
+        let s = setup();
+        let store = MemoryStore::default();
+        store.set_share_revoke_down(true);
+        db::queue_share_revoke(&lock(&s.db), "gone-user").unwrap();
+
+        sweep(&s.db, &store, db::now_unix());
+        assert!(store.share_revokes().is_empty());
+        assert_eq!(
+            db::pending_share_revokes(&lock(&s.db)).unwrap(),
+            vec!["gone-user".to_string()]
+        );
+
+        store.set_share_revoke_down(false);
+        sweep(&s.db, &store, db::now_unix());
+        assert_eq!(
+            store.share_revokes(),
+            vec![keys::user_record_part("gone-user")]
+        );
+        assert!(db::pending_share_revokes(&lock(&s.db)).unwrap().is_empty());
     }
 
     #[test]

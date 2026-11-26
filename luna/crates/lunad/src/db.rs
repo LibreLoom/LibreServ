@@ -858,7 +858,51 @@ pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
         params![id, now_unix()],
     )?;
     tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+    // Their share links on Luna Connect are turned off by the next cloud sweep, or sooner by the
+    // delete route. Recorded in this transaction, so a delete never happens without the record.
+    queue_share_revoke(&tx, id)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// Meta key prefix for a person's share-link revocation that Luna Connect has not confirmed yet.
+const SHARE_REVOKE_PREFIX: &str = "cloud_share_revoke:";
+
+/// Records that Luna Connect must turn off `user_id`'s share links. Lunad retries it until
+/// Connect confirms, so a Connect outage only delays the revocation.
+pub fn queue_share_revoke(conn: &Connection, user_id: &str) -> anyhow::Result<()> {
+    // The value is when the revocation was recorded, so a retry never turns off a link made after it.
+    set_meta(
+        conn,
+        &format!("{SHARE_REVOKE_PREFIX}{user_id}"),
+        &now_unix().to_string(),
+    )
+}
+
+/// When `user_id`'s pending revocation was recorded (0 when unknown, which revokes every link).
+pub fn share_revoke_cutoff(conn: &Connection, user_id: &str) -> anyhow::Result<i64> {
+    Ok(get_meta(conn, &format!("{SHARE_REVOKE_PREFIX}{user_id}"))?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
+}
+
+/// The user ids whose share-link revocation is still waiting for Luna Connect.
+pub fn pending_share_revokes(conn: &Connection) -> anyhow::Result<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT substr(key, ?2) FROM meta WHERE key GLOB ?1 ORDER BY key")?;
+    let start = SHARE_REVOKE_PREFIX.len() as i64 + 1;
+    let rows = stmt.query_map(params![format!("{SHARE_REVOKE_PREFIX}*"), start], |row| {
+        row.get::<_, String>(0)
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Forgets a confirmed share-link revocation.
+pub fn clear_share_revoke(conn: &Connection, user_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM meta WHERE key = ?1",
+        params![format!("{SHARE_REVOKE_PREFIX}{user_id}")],
+    )?;
     Ok(())
 }
 
@@ -3116,6 +3160,11 @@ mod tests {
         insert_access_link(&conn, &link("l-theirs", "u2")).unwrap();
 
         delete_user(&conn, "u1").unwrap();
+        // Connect still has to turn off this person's share links.
+        assert_eq!(
+            pending_share_revokes(&conn).unwrap(),
+            vec!["u1".to_string()]
+        );
 
         assert!(get_user(&conn, "u1").unwrap().is_none());
         assert!(

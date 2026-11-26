@@ -162,6 +162,7 @@ func (s *Server) routes() {
 				r.Get("/storage/records/{kind}", stor.ListRecords)
 				r.Get("/storage/usage", stor.Usage)
 				r.Post("/storage/luna-ids/{id}/signing-public", stor.SetSigningPublic)
+				r.Post("/storage/share-links/revoke-user", stor.RevokeUserShareLinks)
 			})
 		})
 

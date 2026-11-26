@@ -355,6 +355,20 @@ async fn remove(
             "Luna could not remove this user. Try again.",
         )
     })?;
+    // A Luna with no cloud identity has no share links, so there is nothing to turn off yet.
+    let has_identity = matches!(crate::backup::cloud::identity::load(&conn), Ok(Some(_)));
+    drop(conn);
+    if has_identity {
+        // Turn off the person's share links on Luna Connect now. If Connect is unreachable, the
+        // revocation stays recorded and the next cloud sweep tries again.
+        let connect = state.connect.clone();
+        let db = state.db.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(store) = crate::api::cloud_backups::connect_store(&connect, &db) {
+                crate::backup::cloud::ops::revoke_pending_share_links(&db, &store);
+            }
+        });
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

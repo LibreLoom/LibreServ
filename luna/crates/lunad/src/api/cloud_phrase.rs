@@ -473,6 +473,8 @@ async fn set_phrase(
         if old_keys.is_some() {
             if exposed {
                 marked = keys::current_backups_of(&tx, &user.id)?;
+                // Links to this person's backups were made to the old phrase; Connect turns them off.
+                db::queue_share_revoke(&tx, &user.id)?;
             }
             keys::replace_reader(&tx, &user.id, &seal_public)?;
             for backup in &marked {
@@ -514,6 +516,7 @@ async fn set_phrase(
             let Some(store) = connect_store(&connect, &db) else {
                 return;
             };
+            ops::revoke_pending_share_links(&db, &store);
             ops::run_marked(&db, &store, &connect, &marked, db::now_unix());
         });
     }

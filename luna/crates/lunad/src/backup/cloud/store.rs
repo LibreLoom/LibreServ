@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -203,6 +203,12 @@ pub trait CloudStore: Send + Sync {
     fn device_binding(&self) -> Option<String> {
         None
     }
+    /// Turns off this Luna's share links for one person's backups. `user_part` is that person's
+    /// record part, the value a user link stores as its scope. Connect answers the same way for
+    /// links that are already off, so a repeat call is harmless. Stores without share links do nothing.
+    fn revoke_user_share_links(&self, _user_part: &str, _before: i64) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 /// Checks shared by both stores, so a bad request fails the same way everywhere.
@@ -250,6 +256,9 @@ pub struct MemoryStore {
     inner: Mutex<MemoryInner>,
     #[cfg(test)]
     pack_reads: AtomicUsize,
+    /// When set, share-link revocations fail as if Luna Connect were unreachable.
+    #[cfg(test)]
+    share_revoke_down: AtomicBool,
 }
 
 #[derive(Default)]
@@ -257,6 +266,8 @@ struct MemoryInner {
     packs: HashMap<[u8; 32], (Option<String>, Vec<u8>)>,
     records: BTreeMap<(String, String), Vec<u8>>,
     inventory_version: u64,
+    /// Record parts of the users whose share links were turned off, in call order.
+    share_revokes: Vec<String>,
 }
 
 impl MemoryInner {
@@ -279,6 +290,8 @@ impl MemoryStore {
             inner: Mutex::default(),
             #[cfg(test)]
             pack_reads: AtomicUsize::default(),
+            #[cfg(test)]
+            share_revoke_down: AtomicBool::default(),
         }
     }
 
@@ -291,6 +304,16 @@ impl MemoryStore {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    #[cfg(test)]
+    pub fn share_revokes(&self) -> Vec<String> {
+        self.lock().share_revokes.clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_share_revoke_down(&self, down: bool) {
+        self.share_revoke_down.store(down, Ordering::Relaxed);
+    }
+
     fn fits(&self, used: u64, adding: u64) -> bool {
         self.quota_bytes == 0 || used + adding <= self.quota_bytes
     }
@@ -299,6 +322,15 @@ impl MemoryStore {
 impl CloudStore for MemoryStore {
     fn device_binding(&self) -> Option<String> {
         Some("memory".into())
+    }
+
+    fn revoke_user_share_links(&self, user_part: &str, _before: i64) -> Result<(), StoreError> {
+        #[cfg(test)]
+        if self.share_revoke_down.load(Ordering::Relaxed) {
+            return Err(StoreError::Unavailable(UNREACHABLE_MSG.into()));
+        }
+        self.lock().share_revokes.push(user_part.to_string());
+        Ok(())
     }
 
     fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, bytes: &[u8]) -> Result<(), StoreError> {
@@ -729,6 +761,31 @@ impl CloudStore for HttpStore {
         match &self.credential {
             Credential::Rolling(connect) => connect.device_uid().ok(),
             Credential::Static(_) => None,
+        }
+    }
+
+    fn revoke_user_share_links(&self, user_part: &str, before: i64) -> Result<(), StoreError> {
+        let url = self.url("/share-links/revoke-user");
+        let auth = self.auth()?;
+        let body = serde_json::json!({ "user_id": user_part, "before": before }).to_string();
+        let reply = self.finish_request(
+            ureq::post(&url)
+                .config()
+                .http_status_as_error(false)
+                .timeout_global(Some(JSON_TIMEOUT))
+                .timeout_connect(Some(CONNECT_TIMEOUT))
+                .build()
+                .header("Authorization", auth.authorization.as_str())
+                .header("X-Luna-Id", self.luna_id.as_str())
+                .header("Content-Type", "application/json")
+                .send(body.as_bytes()),
+            MAX_JSON_REPLY_BYTES,
+            &auth,
+        )?;
+        if reply.is_success() {
+            Ok(())
+        } else {
+            Err(reply.error())
         }
     }
 
