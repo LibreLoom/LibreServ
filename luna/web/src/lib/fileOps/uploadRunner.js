@@ -7,6 +7,7 @@ import { walkDropped } from "../collectUploadFiles.js";
 import { joinPath, parentPath } from "../paths.js";
 import { classifyError, existsDecision, isAbort } from "./errors.js";
 import { folderBlocked, text } from "./copy.js";
+import { createWorkQueue } from "./workQueue.js";
 
 export const UPLOAD_PARALLEL = 3;
 
@@ -19,8 +20,7 @@ function splitRel(relPath) {
 
 /** @param {any} env */
 export function createUploadRunner(env) {
-  /** @type {{ op: any, item: any }[]} */
-  const ready = [];
+  const ready = createWorkQueue();
   let active = 0;
 
   // -- name check ------------------------------------------------------------
@@ -151,7 +151,7 @@ export function createUploadRunner(env) {
       conflict: null,
     });
     env.addItem(op, item);
-    env.settle(op);
+    if (op.state !== "running") env.settle(op);
     void prepare(op, item);
   }
 
@@ -166,7 +166,7 @@ export function createUploadRunner(env) {
       state: "running",
     });
     env.addItem(op, item);
-    env.settle(op);
+    if (op.state !== "running") env.settle(op);
     void makeFolders(op, item, relPath);
   }
 
@@ -359,6 +359,7 @@ export function createUploadRunner(env) {
           onProgress: (/** @type {number} */ loaded) => {
             const received = Math.min(loaded, size);
             const finishing = size > 0 && received >= size;
+            if (received === item.received && !item.retrying && !(finishing && item.state === "uploading")) return;
             env.patchItem(op, item, {
               received,
               retrying: false,

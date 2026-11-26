@@ -391,22 +391,20 @@ function enterAdjacentTable(view, dir, byLine) {
   const sel = state.selection.main;
   if (!sel.empty) return false;
   const head = sel.head;
+  const curLine = byLine ? state.doc.lineAt(head).number : 0;
   for (const ctrl of tableControllers(view)) {
     if (ctrl.disposed) continue;
-    const firstLine = state.doc.lineAt(ctrl.from).number;
-    const lastLine = state.doc.lineAt(ctrl.to).number;
-    const curLine = state.doc.lineAt(head).number;
     if (byLine) {
       if (
         dir > 0 &&
-        (curLine === firstLine - 1 || (head >= ctrl.from && head < ctrl.to))
+        (curLine === state.doc.lineAt(ctrl.from).number - 1 || (head >= ctrl.from && head < ctrl.to))
       ) {
         ctrl.focusDocPosition(ctrl.from);
         return true;
       }
       if (
         dir < 0 &&
-        (curLine === lastLine + 1 || (head > ctrl.from && head <= ctrl.to))
+        (curLine === state.doc.lineAt(ctrl.to).number + 1 || (head > ctrl.from && head <= ctrl.to))
       ) {
         ctrl.focusDocPosition(ctrl.to);
         return true;
@@ -447,14 +445,27 @@ const tableEntryKeymap = keymap.of([
  */
 const tableEntryPlugin = ViewPlugin.fromClass(
   class {
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    pending = null;
+
     /** @param {import("@codemirror/view").ViewUpdate} update */
     update(update) {
       if (!update.selectionSet) return;
+      if (this.pending != null) {
+        clearTimeout(this.pending);
+        this.pending = null;
+      }
       const sel = update.state.selection.main;
       if (!sel.empty) return;
       const view = update.view;
       const head = sel.head;
-      setTimeout(() => {
+      let withinTable = false;
+      update.state.field(tableGridField).between(head, head, (from, to) => {
+        if (head > from && head < to) withinTable = true;
+      });
+      if (!withinTable) return;
+      this.pending = setTimeout(() => {
+        this.pending = null;
         if (!view.dom.isConnected) return;
         const latest = view.state.selection.main;
         if (!latest.empty || latest.head !== head) return;
@@ -476,6 +487,10 @@ const tableEntryPlugin = ViewPlugin.fromClass(
         }
       }, 0);
     }
+
+    destroy() {
+      if (this.pending != null) clearTimeout(this.pending);
+    }
   },
 );
 
@@ -494,7 +509,7 @@ export function markdownLivePreview(opts = {}) {
       update(update) {
         if (
           update.docChanged ||
-          update.selectionSet ||
+          (update.selectionSet && !update.startState.selection.eq(update.state.selection)) ||
           update.viewportChanged ||
           syntaxTree(update.startState) !== syntaxTree(update.state)
         ) {

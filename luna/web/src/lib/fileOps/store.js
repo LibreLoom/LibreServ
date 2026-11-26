@@ -113,10 +113,13 @@ export function createFileOpsStore({
   const itemSnaps = new WeakMap();
   const dirtyOps = new Set();
   const runtime = new WeakMap();
+  const tallies = new WeakMap();
   let seq = 0;
   let lastEmit = -Infinity;
   let trailing = null;
   let destroyed = false;
+  let batching = 0;
+  let batchEmit = 0;
 
   // -- ids, runtime ----------------------------------------------------------
 
@@ -173,34 +176,40 @@ export function createFileOpsStore({
     return snap;
   }
 
-  function recompute(/** @type {Op} */ op) {
-    let bytesTotal = 0;
-    let bytesDone = 0;
-    let total = 0;
-    let done = 0;
-    let foldersDone = 0;
-    for (const item of op.items) {
-      if (item.isDir) {
-        // A folder-only drop uploads no bytes, so the card counts folders
-        // instead of saying "0 of 0 files".
-        foldersDone += item.foldersMade || 0;
-        continue;
-      }
-      if (item.state === "skipped" || item.state === "cancelled") continue;
-      total += 1;
-      bytesTotal += item.size || 0;
-      if (item.state === "done") {
-        done += 1;
-        bytesDone += item.size || 0;
-      } else {
-        bytesDone += Math.min(item.received || 0, item.size || 0);
-      }
+  function adjustTally(tally, /** @type {Item} */ item, direction) {
+    if (ACTIVE.has(item.state)) tally.active += direction;
+    if (item.state === "needs-decision") tally.deciding += direction;
+    if (item.state === "failed") tally.failed += direction;
+    if (item.isDir) {
+      tally.folders += direction * (item.foldersMade || 0);
+      return;
     }
-    op.bytesTotal = bytesTotal;
-    op.bytesDone = bytesDone;
-    op.itemsDone = done;
-    op.itemsTotal = op.indeterminate ? null : total;
-    op.foldersDone = foldersDone;
+    if (item.state === "skipped" || item.state === "cancelled") return;
+    const size = item.size || 0;
+    tally.files += direction;
+    tally.bytesTotal += direction * size;
+    if (item.state === "done") tally.done += direction;
+    tally.bytesDone += direction * (item.state === "done" ? size : Math.min(item.received || 0, size));
+  }
+
+  function tallyFor(/** @type {Op} */ op) {
+    let tally = tallies.get(op);
+    if (!tally) {
+      tally = { items: new Set(op.items), active: 0, deciding: 0, failed: 0,
+        folders: 0, files: 0, done: 0, bytesTotal: 0, bytesDone: 0 };
+      for (const item of op.items) adjustTally(tally, item, 1);
+      tallies.set(op, tally);
+    }
+    return tally;
+  }
+
+  function publishTotals(/** @type {Op} */ op) {
+    const tally = tallyFor(op);
+    op.bytesTotal = tally.bytesTotal;
+    op.bytesDone = tally.bytesDone;
+    op.itemsDone = tally.done;
+    op.itemsTotal = op.indeterminate ? null : tally.files;
+    op.foldersDone = tally.folders;
   }
 
   function flush() {
@@ -209,8 +218,7 @@ export function createFileOpsStore({
       trailing = null;
     }
     lastEmit = now();
-    for (const op of dirtyOps) recompute(op);
-    for (const op of dirtyOps) opSnaps.delete(op);
+    for (const op of dirtyOps) publishTotals(op);
     dirtyOps.clear();
     state = { ops: ops.map(snapOp) };
     for (const fn of [...listeners]) fn();
@@ -219,6 +227,10 @@ export function createFileOpsStore({
   /** Progress changes are throttled to one emit per 100 ms; state changes pass `urgent`. */
   function emit(urgent = false) {
     if (destroyed) return;
+    if (batching) {
+      batchEmit = Math.max(batchEmit, urgent ? 2 : 1);
+      return;
+    }
     if (urgent) {
       flush();
       return;
@@ -231,6 +243,21 @@ export function createFileOpsStore({
         trailing = null;
         flush();
       }, EMIT_MS - elapsed);
+    }
+  }
+
+  /** Publish once when a synchronous group of item changes finishes. */
+  function batch(/** @type {() => void} */ update) {
+    batching += 1;
+    try {
+      update();
+    } finally {
+      batching -= 1;
+      if (!batching && batchEmit) {
+        const urgent = batchEmit === 2;
+        batchEmit = 0;
+        emit(urgent);
+      }
     }
   }
 
@@ -304,7 +331,10 @@ export function createFileOpsStore({
   }
 
   function addItem(/** @type {Op} */ op, /** @type {Item} */ item) {
+    const tally = tallyFor(op);
     op.items.push(item);
+    tally.items.add(item);
+    adjustTally(tally, item, 1);
     touch(op, item);
     emit(false);
     return item;
@@ -316,8 +346,12 @@ export function createFileOpsStore({
     /** @type {Partial<Item>} */ patch,
     { urgent = false } = {},
   ) {
+    const tally = tallyFor(op);
+    const counted = tally.items.has(item);
     const stateChanged = patch.state !== undefined && patch.state !== item.state;
+    if (counted) adjustTally(tally, item, -1);
     Object.assign(item, patch);
+    if (counted) adjustTally(tally, item, 1);
     touch(op, item);
     emit(urgent || stateChanged);
   }
@@ -331,6 +365,9 @@ export function createFileOpsStore({
   function removeItem(/** @type {Op} */ op, /** @type {Item} */ item) {
     const i = op.items.indexOf(item);
     if (i < 0) return;
+    const tally = tallyFor(op);
+    tally.items.delete(item);
+    adjustTally(tally, item, -1);
     op.items.splice(i, 1);
     touch(op);
     emit(true);
@@ -396,9 +433,8 @@ export function createFileOpsStore({
     if (!ops.includes(op)) return;
     const r = rt(op);
     const items = op.items;
-    const active = items.some((i) => ACTIVE.has(i.state));
-    const deciding = items.some((i) => i.state === "needs-decision");
-    const problems = items.some((i) => i.state === "needs-decision" || i.state === "failed");
+    const { active, deciding, failed, done } = tallyFor(op);
+    const problems = deciding > 0 || failed > 0;
     const wasEnded = op.endedAt != null;
 
     if (problems) op.shown = true;
@@ -416,13 +452,14 @@ export function createFileOpsStore({
     } else if (deciding) {
       op.state = "waiting";
     } else {
-      const done = items.filter((i) => i.state === "done" && !i.isDir).length;
-      const failed = items.some((i) => i.state === "failed");
       if (op.cancelled) op.state = "cancelled";
       else if (!failed) op.state = "done";
       else op.state = done > 0 ? "partial" : "failed";
       if (op.error) op.state = "failed";
-      if (!wasEnded) finish(op, done);
+      if (!wasEnded) {
+        publishTotals(op);
+        finish(op, done);
+      }
     }
     touch(op);
     emit(true);
@@ -458,12 +495,14 @@ export function createFileOpsStore({
         // A follow-up like a rescan must never break the card.
       }
     }
-    const problems = op.items.some((i) => i.state === "failed" || i.state === "needs-decision");
+    const { deciding, failed } = tallyFor(op);
+    const problems = deciding > 0 || failed > 0;
     if (!problems && !op.error && op.state !== "failed") {
       if (r.clearTimer != null) clearTimer(r.clearTimer);
       r.clearTimer = setTimer(() => {
         r.clearTimer = null;
-        if (op.endedAt && !op.items.some((i) => i.state === "failed" || i.state === "needs-decision")) {
+        const current = tallyFor(op);
+        if (op.endedAt && !current.failed && !current.deciding) {
           runners.jobs.forget(op);
           removeOp(op);
         }
@@ -524,19 +563,20 @@ export function createFileOpsStore({
    * }} input
    */
   function startUpload({ source, driveId, destFolder = "", destLabel, dropped, files, kind = "upload", invalidateKeys, afterFinish }) {
-    const op = addOp(
-      makeOp({
-        kind,
-        source,
-        driveId,
-        destFolder,
-        destLabel: destLabel ?? (destFolder ? pathBasename(destFolder) : ""),
-      }),
-    );
+    const op = makeOp({
+      kind,
+      source,
+      driveId,
+      destFolder,
+      destLabel: destLabel ?? (destFolder ? pathBasename(destFolder) : ""),
+    });
     const r = rt(op);
     r.invalidateKeys = invalidateKeys || [];
     r.afterFinish = afterFinish || null;
-    runners.uploads.start(op, { dropped, files });
+    batch(() => {
+      addOp(op);
+      runners.uploads.start(op, { dropped, files });
+    });
     return op.id;
   }
 
@@ -618,13 +658,15 @@ export function createFileOpsStore({
   function decideAll(/** @type {string} */ opId, /** @type {"replace"|"keep_both"|"skip"} */ choice) {
     const op = env.getOp(opId);
     if (!op) return;
-    patchOp(op, { policy: choice });
-    const runner = runnerFor(op);
-    for (const item of [...op.items]) {
-      if (item.state !== "needs-decision" || !item.decision) continue;
-      const allowed = item.decision.type === "broadens" ? choice === "skip" : item.decision.options.includes(choice);
-      if (allowed) runner.decide(op, item, choice);
-    }
+    batch(() => {
+      patchOp(op, { policy: choice });
+      const runner = runnerFor(op);
+      for (const item of [...op.items]) {
+        if (item.state !== "needs-decision" || !item.decision) continue;
+        const allowed = item.decision.type === "broadens" ? choice === "skip" : item.decision.options.includes(choice);
+        if (allowed) runner.decide(op, item, choice);
+      }
+    });
   }
 
   /** Try again: one failed item, or every retryable failed item of the op. */
@@ -633,7 +675,7 @@ export function createFileOpsStore({
     if (!op) return;
     const targets = op.items.filter((i) => i.state === "failed" && i.retryable && (!itemId || i.id === itemId));
     if (!targets.length) return;
-    runnerFor(op).retry(op, targets);
+    batch(() => runnerFor(op).retry(op, targets));
   }
 
   /** Retry every failed item that failed because the connection was down (the `online` event). */
@@ -652,9 +694,11 @@ export function createFileOpsStore({
     if (!op) return;
     const runner = runnerFor(op);
     if (!itemId) {
-      op.cancelled = true;
-      runner.cancel(op);
-      settle(op);
+      batch(() => {
+        op.cancelled = true;
+        runner.cancel(op);
+        settle(op);
+      });
       return;
     }
     const item = op.items.find((i) => i.id === itemId);
@@ -674,6 +718,7 @@ export function createFileOpsStore({
     const op = env.getOp(opId);
     if (!op) return;
     op.items = op.items.filter((i) => i.state !== "failed");
+    tallies.delete(op);
     op.error = null;
     touch(op);
     settle(op);
@@ -683,12 +728,14 @@ export function createFileOpsStore({
   function dismiss(/** @type {string} */ opId) {
     const op = env.getOp(opId);
     if (!op) return;
-    if (!op.endedAt) {
-      op.cancelled = true;
-      runnerFor(op).cancel(op);
-    }
-    runners.jobs.forget(op);
-    removeOp(op);
+    batch(() => {
+      if (!op.endedAt) {
+        op.cancelled = true;
+        runnerFor(op).cancel(op);
+      }
+      runners.jobs.forget(op);
+      removeOp(op);
+    });
   }
 
   /**

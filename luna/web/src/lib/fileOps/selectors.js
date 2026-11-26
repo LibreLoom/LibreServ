@@ -68,8 +68,8 @@ export function opProgress(op) {
  * @param {FileOpsState} state
  */
 export function dockInfo(state) {
-  return memo(dockCache, state.ops, (ops) => {
-    const shown = ops.filter((o) => o.shown);
+  return memo(dockCache, state.ops, () => {
+    const shown = visibleOps(state);
     const running = shown.filter(isRunning);
     // An op that failed as a whole has no item to count, but it is still a
     // problem: the dock must open and show its reason.

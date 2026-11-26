@@ -1,3 +1,4 @@
+import { memo } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, motion as Motion } from "motion/react";
 import { AlertTriangle, CircleAlert, X } from "lucide-react";
@@ -186,7 +187,7 @@ ActiveLine.propTypes = {
  *
  * @param {{ op: import("../../../lib/fileOps/store.js").Op, item: import("../../../lib/fileOps/store.js").Item }} props
  */
-export default function FileOpItemLine({ op, item }) {
+function FileOpItemLine({ op, item }) {
   // Which of the three shapes this item is in right now. `needs-decision`
   // without a decision is still a problem, so it falls through to "failed".
   const shape =
@@ -218,3 +219,11 @@ FileOpItemLine.propTypes = {
   op: PropTypes.object.isRequired,
   item: PropTypes.object.isRequired,
 };
+
+// Changes to another item's progress do not alter this line.
+export default memo(FileOpItemLine, (previous, next) =>
+  previous.item === next.item
+  && previous.op.id === next.op.id
+  && previous.op.kind === next.op.kind
+  && previous.op.destLabel === next.op.destLabel,
+);

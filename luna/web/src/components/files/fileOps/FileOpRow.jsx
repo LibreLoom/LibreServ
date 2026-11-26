@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import PropTypes from "prop-types";
 import { AnimatePresence, motion as Motion } from "motion/react";
 import { AlertTriangle, ChevronRight } from "lucide-react";
@@ -37,17 +37,22 @@ const MAX_ACTIVE_LINES = 3;
  *
  * @param {{ op: import("../../../lib/fileOps/store.js").Op }} props
  */
-export default function FileOpRow({ op }) {
+function FileOpRow({ op }) {
   const ops = useFileOps();
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalUsed, setModalUsed] = useState(false);
   const running = isRunning(op) || op.state === "waiting";
   const status = opStatus(op);
   const { item: problem, moreCount } = inlineProblem(op);
   const meta = running ? opMeta(op) : "";
-  const activeItems =
-    running && (op.kind === "upload" || op.kind === "gallery")
-      ? op.items.filter((item) => item.state === "uploading" || item.state === "finishing").slice(0, MAX_ACTIVE_LINES)
-      : [];
+  const activeItems = [];
+  if (running && (op.kind === "upload" || op.kind === "gallery")) {
+    for (const item of op.items) {
+      if (item.state !== "uploading" && item.state !== "finishing") continue;
+      activeItems.push(item);
+      if (activeItems.length === MAX_ACTIVE_LINES) break;
+    }
+  }
   // A folder of small files finishes one line and starts the next many times a
   // second. Animating each line in and out made the card breathe constantly,
   // so a long queue gets a fixed set of slots: a file filling one slot swaps
@@ -213,7 +218,10 @@ export default function FileOpRow({ op }) {
             transition={SPRING}
             className="overflow-hidden"
           >
-            <Button variant="outline" size="sm" surface="primary" onClick={() => setModalOpen(true)}>
+            <Button variant="outline" size="sm" surface="primary" onClick={() => {
+              setModalUsed(true);
+              setModalOpen(true);
+            }}>
               {moreProblems(moreCount)}
               <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />
             </Button>
@@ -221,10 +229,12 @@ export default function FileOpRow({ op }) {
         )}
       </AnimatePresence>
 
-      <FileOpProblemsModal opId={op.id} open={modalOpen} onClose={() => setModalOpen(false)} />
+      {modalUsed && <FileOpProblemsModal opId={op.id} open={modalOpen} onClose={() => setModalOpen(false)} />}
     </div>
   );
 }
+
+export default memo(FileOpRow);
 
 FileOpRow.propTypes = {
   op: PropTypes.object.isRequired,

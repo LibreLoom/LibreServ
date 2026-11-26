@@ -39,6 +39,7 @@ import {
 import { markdownLivePreview } from "./markdownLivePreview.js";
 import { registerTableUndoManager, runActiveTableAction } from "./markdownTables.js";
 import { applyMarkdownAction } from "../../lib/markdown.js";
+import { countDocumentWords, updateDocumentWords } from "./editorWordCount.js";
 
 /**
  * Run a toolbar action against a CodeMirror view. `applyMarkdownAction`
@@ -169,6 +170,8 @@ export function useFileEditor({
   // that remounts mid-session gets the current mode rather than the first.
   const optsRef = useRef({ livePreview, resolveImage, canWrite, ariaLabel, onStats });
   optsRef.current = { livePreview, resolveImage, canWrite, ariaLabel, onStats };
+  const previewApplied = useRef(/** @type {{ livePreview: boolean, resolveImage: typeof resolveImage } | null} */ (null));
+  const editableApplied = useRef(/** @type {{ canWrite: boolean, ariaLabel: string } | null} */ (null));
 
   const attachHost = useCallback(
     (/** @type {HTMLDivElement | null} */ host) => {
@@ -188,6 +191,8 @@ export function useFileEditor({
       if (!host) return;
 
       const opts = optsRef.current;
+      previewApplied.current = { livePreview: opts.livePreview, resolveImage: opts.resolveImage };
+      editableApplied.current = { canWrite: opts.canWrite, ariaLabel: opts.ariaLabel };
       // One UndoManager per mounted view, shared between yCollab and the
       // table controllers so cell typing and document edits undo together.
       const undoManager = new UndoManager(ytext);
@@ -195,6 +200,7 @@ export function useFileEditor({
       const previewExtensions = isMarkdown
         ? [previewTheme, markdownLivePreview({ resolveImage: opts.resolveImage })]
         : [];
+      let words = null;
 
       const view = new EditorView({
         parent: host,
@@ -233,12 +239,14 @@ export function useFileEditor({
             ]),
             EditorView.updateListener.of((update) => {
               if (!update.selectionSet && !update.docChanged) return;
+              if (words != null && update.docChanged) {
+                words = updateDocumentWords(words, update.startState.doc, update.state.doc, update.changes);
+              }
               const cb = optsRef.current.onStats;
               if (!cb) return;
               const head = update.state.selection.main.head;
               const line = update.state.doc.lineAt(head);
-              const text = update.state.doc.toString();
-              const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+              words ??= countDocumentWords(update.state.doc);
               cb({
                 line: line.number,
                 col: head - line.from + 1,
@@ -260,6 +268,9 @@ export function useFileEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !isMarkdown) return;
+    const applied = previewApplied.current;
+    if (applied?.livePreview === livePreview && applied?.resolveImage === resolveImage) return;
+    previewApplied.current = { livePreview, resolveImage };
     view.dispatch({
       effects: modeCompartment.current.reconfigure(
         livePreview
@@ -272,6 +283,9 @@ export function useFileEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    const applied = editableApplied.current;
+    if (applied?.canWrite === canWrite && applied?.ariaLabel === ariaLabel) return;
+    editableApplied.current = { canWrite, ariaLabel };
     view.dispatch({
       effects: editableCompartment.current.reconfigure([
         EditorView.editable.of(canWrite),

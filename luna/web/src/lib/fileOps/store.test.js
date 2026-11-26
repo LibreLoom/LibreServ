@@ -70,6 +70,28 @@ function fakeSource(extra = {}) {
 const file = (name) => new File(["abc"], name);
 
 describe("file ops store: operations and toasts", () => {
+  it("publishes a multi-file selection and a bulk cancellation in one snapshot each", async () => {
+    const { store } = harness();
+    const listing = deferred();
+    const source = fakeSource({ listDir: () => listing.promise });
+    const updated = vi.fn();
+    store.subscribe(updated);
+    const id = store.startUpload({ source, driveId: "d", files: [file("a"), file("b"), file("c")] });
+    expect(updated).toHaveBeenCalledTimes(1);
+    const before = store.getState().ops[0];
+    expect(before).toMatchObject({ itemsTotal: 3, itemsDone: 0, bytesTotal: 9, bytesDone: 0 });
+
+    store.cancel(id);
+    expect(updated).toHaveBeenCalledTimes(2);
+    expect(store.getState().ops[0]).toMatchObject({
+      state: "cancelled", itemsTotal: 0, itemsDone: 0, bytesTotal: 0, bytesDone: 0,
+    });
+    expect(before.items.every((item) => item.state === "queued")).toBe(true);
+    listing.resolve([]);
+    await tick();
+    expect(source.uploadFile).not.toHaveBeenCalled();
+  });
+
   it("shows one success toast per finished operation, counting only what succeeded", async () => {
     const { store, addToast } = harness();
     store.startUpload({ source: fakeSource(), driveId: "d", destLabel: "Inbox", files: [file("a.txt"), file("b.txt")] });

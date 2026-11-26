@@ -11,6 +11,7 @@
 import { joinPath, parentPath } from "../paths.js";
 import { jobGone, failedText } from "./copy.js";
 import { classifyError } from "./errors.js";
+import { createWorkQueue } from "./workQueue.js";
 
 export const JOB_PARALLEL = 4;
 export const JOB_POLL_MS = 1000;
@@ -63,8 +64,7 @@ function writeStoredJobs(storage, jobs) {
 
 /** @param {any} env */
 export function createJobRunner(env) {
-  /** @type {{ op: any, item: any }[]} */
-  const queue = [];
+  const queue = createWorkQueue();
   /** @type {Map<string, { op: any, item: any }>} */
   const accepted = new Map();
   let inflight = 0;
@@ -224,8 +224,7 @@ export function createJobRunner(env) {
         () => {
           const { on_conflict: _drop, ...rest } = item.extra || {};
           void _drop;
-          item.extra = rest;
-          item.state = "queued";
+          env.patchItem(op, item, { extra: rest, state: "queued" });
           queue.push({ op, item });
           pump();
         },
@@ -311,7 +310,9 @@ export function createJobRunner(env) {
     const jobState = String(job.state || "running");
     // Anything that isn't a known end state (running, or a state we don't know) keeps running.
     if (!["done", "error", "interrupted", "cancelled"].includes(jobState)) {
-      env.patchItem(op, item, { size: total, received: progress });
+      if (total !== item.size || progress !== item.received) {
+        env.patchItem(op, item, { size: total, received: progress });
+      }
       return;
     }
     accepted.delete(id);

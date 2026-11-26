@@ -179,6 +179,15 @@ export class CollabDocSync {
       this._readyResolve = resolve;
     });
 
+    this._transactionDepth = 0;
+    /** @type {string|null} */
+    this._serialized = null;
+    this.ydoc.on("beforeTransaction", () => { this._transactionDepth += 1; });
+    this.ydoc.on("afterTransaction", () => {
+      this._transactionDepth -= 1;
+      this._serialized = null;
+    });
+
     this.ydoc.on("update", (update, origin) => {
       if (origin === "remote" || this._destroyed) return;
       this.socket?.sendOp({ k: "u", d: toB64(update) });
@@ -260,7 +269,8 @@ export class CollabDocSync {
 
   /** Serialize the shared document — what save writes back to the drive. */
   serialize() {
-    return this._adapter.serialize(this.ydoc);
+    if (this._transactionDepth) return this._adapter.serialize(this.ydoc);
+    return this._serialized ??= this._adapter.serialize(this.ydoc);
   }
 
   /**

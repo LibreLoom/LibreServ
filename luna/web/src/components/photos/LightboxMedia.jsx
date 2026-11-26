@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -39,7 +39,7 @@ const THUMB_STAGE_CAP = "max-h-[45%] max-w-[45%]";
  *
  * @param {{ photo: PhotosPhoto, src: string, downloadSrc?: string, autoPlay?: boolean, lite?: boolean, timed?: boolean }} props
  */
-export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false, timed = false }) {
+function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = false, timed = false }) {
   // "loading" (thumbnail only) → "primed" (media at thumbnail scale) → "grown".
   const [phase, setPhase] = useState("loading");
   const [failed, setFailed] = useState(false);
@@ -83,20 +83,21 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
 
   /**
    * End a W9 timing once `el` has decoded (luna/perf).
-   * @param {string} id
+   * @param {string[]} ids
    * @param {Element | null} el
    */
-  function endOnDecode(id, el) {
-    if (!timed || !perfPending(id)) return;
-    const done = () => perfEnd(id);
+  function endOnDecode(ids, el) {
+    if (!timed) return;
+    const pending = ids.filter(perfPending);
+    if (pending.length === 0) return;
+    const done = () => pending.forEach((id) => perfEnd(id));
     if (el instanceof HTMLImageElement && typeof el.decode === "function") el.decode().then(done, done);
     else done();
   }
 
   function handleReady() {
     if (!thumbFallback) {
-      endOnDecode("W9", mediaRef.current);
-      endOnDecode("W9:full", mediaRef.current);
+      endOnDecode(["W9", "W9:full"], mediaRef.current);
     }
     if (phase !== "loading") return;
     if (reduced) {
@@ -128,14 +129,12 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
           transform: `scale(${scaleFrom.current})`,
           transition:
             "opacity var(--motion-duration-short4) var(--motion-easing-standard)",
-          willChange: "transform, opacity",
         }
       : {
           opacity: phase === "loading" ? 0 : 1,
           transition: reduced
             ? "none"
             : "transform var(--motion-duration-long1) var(--motion-easing-emphasized-decelerate), opacity var(--motion-duration-short4) var(--motion-easing-standard)",
-          willChange: "transform, opacity",
         };
 
   return (
@@ -150,7 +149,7 @@ export default function LightboxMedia({ photo, src, downloadSrc = "", autoPlay =
           aria-hidden="true"
           draggable={false}
           className={`${THUMB_STAGE_CAP} rounded-large-element object-contain`}
-          onLoad={(e) => endOnDecode("W9", e.currentTarget)}
+          onLoad={(e) => endOnDecode(["W9"], e.currentTarget)}
           style={{
             opacity: phase === "grown" || failed ? 0 : 1,
             transition: reduced
@@ -251,3 +250,5 @@ LightboxMedia.defaultProps = {
   lite: false,
   timed: false,
 };
+
+export default memo(LightboxMedia);

@@ -37,10 +37,20 @@ export function nearestDayKey(photos, ymd) {
   if (!Number.isFinite(target)) return null;
   let best = null;
   let bestDiff = Infinity;
+  let dayStart = Infinity;
+  let dayEnd = -Infinity;
   for (const photo of photos || []) {
-    if (!photo?.taken_at) continue;
-    const key = dayKey(photo.taken_at);
+    const timestamp = photo?.taken_at;
+    if (!timestamp || (timestamp >= dayStart && timestamp < dayEnd)) continue;
+    const local = new Date(timestamp * 1000);
+    local.setHours(0, 0, 0, 0);
+    dayStart = local.getTime() / 1000;
+    local.setDate(local.getDate() + 1);
+    local.setHours(0, 0, 0, 0);
+    dayEnd = local.getTime() / 1000;
+    const key = dayKey(timestamp);
     const diff = Math.abs(Date.parse(`${key}T00:00:00Z`) - target);
+    if (diff === 0) return key;
     if (diff < bestDiff) {
       bestDiff = diff;
       best = key;
