@@ -50,6 +50,10 @@ function renderBreakdown(fetchImpl) {
   );
 }
 
+async function openDetails() {
+  await userEvent.click(await screen.findByRole("button", { name: /Storage details/ }));
+}
+
 describe("StorageBreakdown", () => {
   it("says how much is free and what is using the disk", async () => {
     renderBreakdown(stubFetch());
@@ -61,6 +65,7 @@ describe("StorageBreakdown", () => {
 
   it("keeps the biggest row first, as lunad sends it", async () => {
     renderBreakdown(stubFetch());
+    await openDetails();
     await screen.findByText("Office editor");
     const labels = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(labels[0]).toContain("Office editor");
@@ -71,6 +76,7 @@ describe("StorageBreakdown", () => {
     const fetchMock = stubFetch({ cleanup: { freed_bytes: 1_200_000_000, cleared: ["temporary"] } });
     renderBreakdown(fetchMock);
 
+    await openDetails();
     const button = await screen.findByRole("button", { name: "Free up space" });
     await userEvent.click(button);
 
@@ -90,6 +96,7 @@ describe("StorageBreakdown", () => {
         cleanup: { freed_bytes: 1_200_000_000, cleared: ["temporary"], skipped: [reason] },
       }),
     );
+    await openDetails();
     await userEvent.click(await screen.findByRole("button", { name: "Free up space" }));
     expect(await screen.findByText("Freed 1.2 GB.")).toBeInTheDocument();
     expect(await screen.findByText(reason)).toBeInTheDocument();
@@ -97,6 +104,7 @@ describe("StorageBreakdown", () => {
 
   it("says so when there was nothing to clear", async () => {
     renderBreakdown(stubFetch({ cleanup: { freed_bytes: 0, cleared: [] } }));
+    await openDetails();
     await userEvent.click(await screen.findByRole("button", { name: "Free up space" }));
     expect(await screen.findByText("Nothing to clear right now.")).toBeInTheDocument();
   });
@@ -107,6 +115,7 @@ describe("StorageBreakdown", () => {
         storage: { ...STORAGE, items: STORAGE.items.filter((item) => !item.removable) },
       }),
     );
+    await openDetails();
     await screen.findByText("Office editor");
     expect(screen.queryByRole("button", { name: "Free up space" })).toBeNull();
   });

@@ -114,7 +114,7 @@ export default function RemoteCategory() {
               {state === "pairing"
                 ? "Luna Connect is waiting for Luna to finish pairing."
                 : isAdmin
-                  ? "Use the Device ID and Verification code in Device token to pair this Luna."
+                  ? "Pair this Luna in Luna Connect with its device token."
                   : "An Admin can pair this Luna from Luna Connect."}
             </p>
           ) : null}

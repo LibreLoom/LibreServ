@@ -37,7 +37,7 @@ export default function AccessAddressesCard({ index = 2 }) {
   const publicUrl = bound ? asHttpsUrl(connect.data?.hostname || connect.data?.domain || "") : "";
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);
   // Local addresses depend on the reported Connect binding, not on a saved
-  // verification code. Hide them when Luna reports that LAN access is blocked.
+  // device token. Hide them when Luna reports that LAN access is blocked.
   const lanBlocked = Boolean(bound && !connect.data?.lan_override);
 
   return (

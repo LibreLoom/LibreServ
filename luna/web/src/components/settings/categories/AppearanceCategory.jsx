@@ -432,7 +432,7 @@ export default function AppearanceCategory() {
               stack
               className="px-0"
             >
-              <Button variant="ghost" surface="secondary" size="sm" onClick={restoreDismissedTips}>
+              <Button variant="primary" surface="secondary" size="sm" onClick={restoreDismissedTips}>
                 <RotateCcw size={ICON_SIZE.sm} />
                 <span>Show hidden tips again</span>
               </Button>

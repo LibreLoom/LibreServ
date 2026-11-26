@@ -113,7 +113,7 @@ export default function CloudBackupCategory() {
   const auth = useOptionalAuth();
   const isAdmin = auth?.user?.role === "admin";
   // The public status carries the state needed to explain pending and revoked
-  // Cloud backup hints; only an Admin receives the Verification code in it.
+  // Cloud backup hints; it never carries the device token.
   const connected = useConnectActive();
   const connect = useQuery({
     queryKey: ["connect-status"],
@@ -234,7 +234,7 @@ export default function CloudBackupCategory() {
                     : state === "revoked"
                       ? "Reconnect this Luna in Luna Connect before turning on cloud backup."
                       : isAdmin
-                        ? "Cloud backup needs Luna Connect. Pair this Luna with its Device ID and Verification code."
+                        ? "Cloud backup needs Luna Connect. Pair this Luna with its device token."
                         : "Cloud backup needs Luna Connect. An Admin can pair this Luna."}
               </p>
               {isAdmin && (

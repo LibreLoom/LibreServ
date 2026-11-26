@@ -72,7 +72,7 @@ describe("AccessAddressesCard", () => {
 
   it("keeps local addresses when only pairing material is saved", async () => {
     renderCard(stubFetch({
-      connect: { paired: false, connect_active: true, verification_code: "A3F91C" },
+      connect: { paired: false, connect_active: true, device_token_set: true },
     }));
     expect(await screen.findByDisplayValue("http://luna.local")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Everywhere" })).toBeNull();

@@ -5,22 +5,16 @@ import PropTypes from "prop-types";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
-import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
-import { apiErrorMessage, deleteJson, getJson, postJson } from "../../../lib/api";
+import { apiErrorMessage, getJson, postJson, putJson } from "../../../lib/api";
 import { connectState } from "../../../lib/connectState.js";
-import {
-  formatDeviceUid,
-  isValidDeviceUid,
-  isValidVerificationCode,
-  normalizeDeviceUid,
-  normalizeVerificationCode,
-} from "../../../lib/deviceIdentity.js";
+import { isValidDeviceToken, normalizeDeviceToken } from "../../../lib/deviceIdentity.js";
 import { useOptionalAuth } from "../../../context/AuthContext";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
@@ -44,18 +38,14 @@ const STATE_VARIANTS = {
   revoked: "error",
 };
 
-/** Public Device ID plus Admin-only pairing controls for Luna Connect. */
+/** The one device token Luna Connect uses to pair this Luna, plus Admin-only set, replace and disconnect. */
 export default function DeviceTokenCard({ index = 0 }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const isAdmin = useOptionalAuth()?.user?.role === "admin";
-  const [showCode, setShowCode] = useState(false);
-  const [restoreOpen, setRestoreOpen] = useState(false);
-  const [restoreUid, setRestoreUid] = useState("");
-  const [restoreCode, setRestoreCode] = useState("");
-  const [restoreError, setRestoreError] = useState(null);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  const [removeError, setRemoveError] = useState(null);
+  const [setOpen, setSetOpen] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [setError, setSetError] = useState(null);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnectError, setDisconnectError] = useState(null);
   const [password, setPassword] = useState("");
@@ -72,31 +62,18 @@ export default function DeviceTokenCard({ index = 0 }) {
     queryClient.invalidateQueries({ queryKey: ["auth-status"] });
   };
 
-  const restoreDetails = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/device-token", {
-      device_uid: normalizeDeviceUid(restoreUid),
-      verification_code: normalizeVerificationCode(restoreCode),
+  const saveToken = useMutation({
+    mutationFn: () => putJson("/api/v1/connect/device-token", {
+      device_token: normalizeDeviceToken(tokenInput),
     }),
     onSuccess: () => {
-      addToast({ type: "success", message: "Pairing details restored." });
-      setRestoreOpen(false);
-      setRestoreError(null);
-      setRestoreCode("");
+      addToast({ type: "success", message: "Device token saved." });
+      setSetOpen(false);
+      setSetError(null);
+      setTokenInput("");
       invalidate();
     },
-    onError: (err) => setRestoreError(apiErrorMessage(err, "Couldn't restore the pairing details. Try again.")),
-  });
-
-  const removeCode = useMutation({
-    mutationFn: () => deleteJson("/api/v1/connect/device-token"),
-    onSuccess: () => {
-      addToast({ type: "success", message: "Verification code removed." });
-      setShowCode(false);
-      setRemoveOpen(false);
-      setRemoveError(null);
-      invalidate();
-    },
-    onError: (err) => setRemoveError(apiErrorMessage(err, "Couldn't remove the Verification code. Try again.")),
+    onError: (err) => setSetError(apiErrorMessage(err, "Couldn't save the device token. Try again.")),
   });
 
   const disconnect = useMutation({
@@ -114,9 +91,7 @@ export default function DeviceTokenCard({ index = 0 }) {
 
   const s = status.data || {};
   const state = connectState(status.data);
-  const deviceUid = formatDeviceUid(s.device_uid || "");
-  const verificationCode = isAdmin ? String(s.verification_code || "").trim().toUpperCase() : "";
-  const hasVerificationCode = Boolean(verificationCode);
+  const tokenSet = Boolean(s.device_token_set);
   const canDisconnect = state === "bound" || state === "pending";
   const detailError = s.connect_error && state !== "pending" && state !== "revoked"
     ? s.connect_error
@@ -153,60 +128,24 @@ export default function DeviceTokenCard({ index = 0 }) {
           ) : null}
 
           <SettingsRow
-            label="Device ID"
-            description="Find this on Luna when pairing it in Luna Connect."
-            stack
+            label="Device token"
+            description="Identifies this Luna to Luna Connect. It stays on Luna after a reset."
+            hideDivider={state !== "unbound"}
           >
-            <div className="w-full lg:w-[24rem]">
-              {deviceUid ? (
-                <CopyableValue
-                  value={deviceUid}
-                  copyLabel="Copy ID"
-                  ariaLabel="Device ID"
-                  className="w-full"
-                />
-              ) : (
-                <InlinePill>Not available</InlinePill>
-              )}
-            </div>
-          </SettingsRow>
-
-          <SettingsRow
-            label="Verification code"
-            description={isAdmin ? "Luna asks for this with the Device ID when pairing." : "An Admin can manage the Verification code."}
-            stack
-          >
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-[24rem]">
-              {showCode && verificationCode ? (
-                <CopyableValue
-                  value={verificationCode}
-                  copyLabel="Copy code"
-                  ariaLabel="Verification code"
-                  className="min-w-0 flex-1"
-                />
-              ) : (
-                <InlinePill className="w-fit">{!isAdmin ? "Admin only" : verificationCode ? "••••••" : "Not available"}</InlinePill>
-              )}
-              {hasVerificationCode ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowCode((shown) => !shown)}
-                  disabled={!verificationCode}
-                >
-                  {showCode ? "Hide code" : "Show code"}
-                </Button>
-              ) : null}
-            </div>
+            <InlinePill>{tokenSet ? "Set" : "Not set"}</InlinePill>
           </SettingsRow>
 
           {state === "unbound" ? (
             <SettingsRow
               label="Pair this Luna"
-              description={isAdmin ? "Use both values above in your Luna Connect account." : "An Admin can pair this Luna from Luna Connect."}
+              description={!isAdmin
+                ? "An Admin can pair this Luna from Luna Connect."
+                : tokenSet
+                  ? "Enter the device token in your Luna Connect account."
+                  : "Set the device token in Advanced first."}
               hideDivider
             >
-              {isAdmin ? (
+              {isAdmin && tokenSet ? (
                 <Button variant="outline" asChild>
                   <a href={LUNA_CONNECT_URL} target="_blank" rel="noopener noreferrer">
                     Open Luna Connect
@@ -218,44 +157,25 @@ export default function DeviceTokenCard({ index = 0 }) {
           ) : null}
 
           {isAdmin ? (
-            <SettingsRow
-              label="Restore pairing details"
-              description="Use the Device ID and Verification code from your Connect account if either is missing."
-              hideDivider
-            >
-              <Button
-                variant="outline"
-                disabled={state === "pending"}
-                onClick={() => {
-                  setRestoreError(null);
-                  restoreDetails.reset();
-                  setRestoreUid(deviceUid);
-                  setRestoreCode(verificationCode);
-                  setRestoreOpen(true);
-                }}
+            <CollapsibleSection title="Advanced" mono pill className="my-2">
+              <SettingsRow
+                label={tokenSet ? "Replace device token" : "Set device token"}
+                description="Saved on Luna only. Connect and remote access do not change."
+                hideDivider
               >
-                Restore details
-              </Button>
-            </SettingsRow>
-          ) : null}
-
-          {hasVerificationCode ? (
-            <SettingsRow
-              label="Remove Verification code"
-              description="Removes it only from Luna. Connect and remote access do not change."
-              hideDivider
-            >
-              <Button
-                variant="danger"
-                onClick={() => {
-                  setRemoveError(null);
-                  removeCode.reset();
-                  setRemoveOpen(true);
-                }}
-              >
-                Remove code
-              </Button>
-            </SettingsRow>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSetError(null);
+                    saveToken.reset();
+                    setTokenInput("");
+                    setSetOpen(true);
+                  }}
+                >
+                  {tokenSet ? "Replace token" : "Set token"}
+                </Button>
+              </SettingsRow>
+            </CollapsibleSection>
           ) : null}
 
           {isAdmin && canDisconnect ? (
@@ -281,85 +201,51 @@ export default function DeviceTokenCard({ index = 0 }) {
       </SettingsCard>
 
       <ModalCard
-        open={restoreOpen}
-        title="Restore pairing details"
-        onClose={() => setRestoreOpen(false)}
+        open={setOpen}
+        title={tokenSet ? "Replace device token" : "Set device token"}
+        onClose={() => setSetOpen(false)}
       >
         <div className="space-y-4">
           <p className="text-sm text-primary">
-            Enter the original Device ID and Verification code from your Connect account. This does not change your Connect account.
+            Enter the 20-character device token for this Luna. It is saved on Luna only.
           </p>
           <div className="space-y-1">
-            <label className="block text-sm text-primary translate-x-5" htmlFor="restore-device-uid">
-              Device ID
+            <label className="block text-sm text-primary translate-x-5" htmlFor="device-token-input">
+              Device token
             </label>
             <input
-              id="restore-device-uid"
+              id="device-token-input"
               type="text"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
               className="w-full rounded-pill surface-primary px-4 py-2 font-mono"
-              value={restoreUid}
+              value={tokenInput}
               onChange={(e) => {
-                setRestoreUid(e.target.value.toUpperCase());
-                setRestoreError(null);
+                setTokenInput(e.target.value.toUpperCase());
+                setSetError(null);
               }}
-              placeholder="****-****-****-****-****"
-              aria-invalid={Boolean(restoreError && !isValidDeviceUid(restoreUid))}
+              placeholder="7K4M-2Q9X-R8N3-6T5W-1PZH"
+              aria-invalid={Boolean(tokenInput.trim() && !isValidDeviceToken(tokenInput))}
             />
           </div>
-          <div className="space-y-1">
-            <label className="block text-sm text-primary translate-x-5" htmlFor="restore-verification-code">
-              Verification code
-            </label>
-            <input
-              id="restore-verification-code"
-              type="text"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              maxLength={6}
-              className="w-full rounded-pill surface-primary px-4 py-2 font-mono"
-              value={restoreCode}
-              onChange={(e) => {
-                setRestoreCode(e.target.value.toUpperCase());
-                setRestoreError(null);
-              }}
-              placeholder="A3F91C"
-              aria-invalid={Boolean(restoreError && !isValidVerificationCode(restoreCode))}
-            />
-          </div>
-          {restoreError ? <PageNotice variant="error">{restoreError}</PageNotice> : null}
+          {setError ? <PageNotice variant="error">{setError}</PageNotice> : null}
           <div className="flex gap-2">
             <Button
               variant="primary"
               className="flex-1"
-              loading={restoreDetails.isPending}
-              disabled={!isValidDeviceUid(restoreUid) || !isValidVerificationCode(restoreCode)}
-              onClick={() => restoreDetails.mutate()}
+              loading={saveToken.isPending}
+              disabled={!isValidDeviceToken(tokenInput)}
+              onClick={() => saveToken.mutate()}
             >
-              Restore details
+              Save token
             </Button>
-            <Button variant="outline" onClick={() => setRestoreOpen(false)} disabled={restoreDetails.isPending}>
+            <Button variant="outline" onClick={() => setSetOpen(false)} disabled={saveToken.isPending}>
               Cancel
             </Button>
           </div>
         </div>
       </ModalCard>
-
-      <ConfirmModal
-        open={removeOpen}
-        variant="warning"
-        icon={TriangleAlert}
-        title="Remove Verification code?"
-        message="This removes only the Verification code from Luna. Connect and remote access do not change; you can restore it from Devices in your Connect account if Luna needs to pair again."
-        confirmLabel="Remove code"
-        loading={removeCode.isPending}
-        error={removeError}
-        onClose={() => setRemoveOpen(false)}
-        onConfirm={() => removeCode.mutate()}
-      />
 
       <ConfirmModal
         open={disconnectOpen}

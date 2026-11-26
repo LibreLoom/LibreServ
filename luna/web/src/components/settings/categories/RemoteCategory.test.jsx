@@ -33,12 +33,12 @@ describe("RemoteCategory", () => {
     vi.unstubAllGlobals();
   });
 
-  it("does not treat a saved Verification code as an active Connect binding", async () => {
-    answer({ paired: false, connect_active: true, verification_code: "A3F91C" });
+  it("does not treat a saved device token as an active Connect binding", async () => {
+    answer({ paired: false, connect_active: true, device_token_set: true });
     renderPage();
 
     expect(await screen.findByText("Not paired")).toBeInTheDocument();
-    expect(screen.getByText(/Use the Device ID and Verification code/)).toBeInTheDocument();
+    expect(screen.getByText(/Pair this Luna in Luna Connect with its device token/)).toBeInTheDocument();
     expect(screen.getByText("No public address yet")).toBeInTheDocument();
     expect(screen.queryByDisplayValue(/^https:/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toHaveAttribute(

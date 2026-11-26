@@ -172,7 +172,7 @@ describe("CloudBackupCategory", () => {
   it("with Connect off, an Admin sees the phrase card and pairing details, with no list", async () => {
     const fetchMock = stubApi({ connected: false, state: "unbound" });
     renderCard();
-    expect(await screen.findByText(/Pair this Luna with its Device ID and Verification code/)).toBeInTheDocument();
+    expect(await screen.findByText(/Pair this Luna with its device token/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#luna_connect");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
@@ -190,7 +190,7 @@ describe("CloudBackupCategory", () => {
     renderCard();
 
     expect(await screen.findByText("Cloud backup stays off until Luna finishes disconnecting.")).toBeInTheDocument();
-    expect(screen.queryByText(/Pair this Luna with its Device ID/)).toBeNull();
+    expect(screen.queryByText(/Pair this Luna with its device token/)).toBeNull();
   });
 
   it("explains revoked recovery instead of asking to pair again", async () => {
@@ -198,7 +198,7 @@ describe("CloudBackupCategory", () => {
     renderCard();
 
     expect(await screen.findByText("Reconnect this Luna in Luna Connect before turning on cloud backup.")).toBeInTheDocument();
-    expect(screen.queryByText(/Pair this Luna with its Device ID/)).toBeNull();
+    expect(screen.queryByText(/Pair this Luna with its device token/)).toBeNull();
   });
 
   it("with Connect off, a Member is told an Admin can turn it on", async () => {

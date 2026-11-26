@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
+import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { InfoHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -30,10 +31,15 @@ export default function StorageBreakdown({ enabled = true }) {
     mutationFn: () => postJson("/api/v1/system/storage/cleanup", {}),
     onSuccess: (data) => {
       const freed = Number(data?.freed_bytes) || 0;
-      const skipped = Array.isArray(data?.skipped) ? data.skipped.filter(Boolean) : [];
+      const skipped = Array.isArray(data?.skipped)
+        ? data.skipped.filter(Boolean)
+        : [];
       addToast({
         type: "success",
-        message: freed > 0 ? `Freed ${formatBytes(freed)}.` : "Nothing to clear right now.",
+        message:
+          freed > 0
+            ? `Freed ${formatBytes(freed)}.`
+            : "Nothing to clear right now.",
         description: skipped[0],
       });
       queryClient.invalidateQueries({ queryKey: STORAGE_QUERY_KEY });
@@ -62,54 +68,72 @@ export default function StorageBreakdown({ enabled = true }) {
     if (!storage.error) return null;
     return (
       <p className="mt-3 flex items-start gap-2 text-xs" role="alert">
-        <TriangleAlert size={ICON_SIZE.sm} className="mt-0.5 shrink-0 text-error" aria-hidden="true" />
-        <span>Luna couldn&apos;t look at its own storage. Try again in a moment.</span>
+        <TriangleAlert
+          size={ICON_SIZE.sm}
+          className="mt-0.5 shrink-0 text-error"
+          aria-hidden="true"
+        />
+        <span>
+          Luna couldn&apos;t look at its own storage. Try again in a moment.
+        </span>
       </p>
     );
   }
 
-  const { items = [], free_bytes: free = 0, total_bytes: total = 0 } = storage.data;
+  const {
+    items = [],
+    free_bytes: free = 0,
+    total_bytes: total = 0,
+  } = storage.data;
   const removable = items.filter((item) => item.removable && item.bytes > 0);
   const canClear = removable.length > 0;
 
   return (
-    <div className="mt-3 surface-primary rounded-large-element p-4 space-y-3" data-slot="storage-breakdown">
-      <p className="text-sm text-secondary">
-        {formatBytes(free)} free of {formatBytes(total)} on Luna&apos;s own disk.{" "}
-        <InfoHint content="Luna keeps its software, its settings, and the editors for documents and diagrams on this disk. Your files are on your drives." />
-      </p>
+    <CollapsibleSection title="Storage details" size="xs" className="mt-1">
+      <div
+        className="surface-primary rounded-large-element p-4 space-y-3"
+        data-slot="storage-breakdown"
+      >
+        <p className="text-sm text-secondary">
+          {formatBytes(free)} free of {formatBytes(total)} on Luna&apos;s own
+          disk.{" "}
+          <InfoHint content="Luna keeps its software, its settings, and the editors for documents and diagrams on this disk. Your files are on your drives." />
+        </p>
 
-      {items.length > 0 && (
-        <ul className="space-y-1.5">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="surface-secondary rounded-pill px-4 py-2 flex items-baseline justify-between gap-3 text-xs"
+        {items.length > 0 && (
+          <ul className="space-y-1.5">
+            {items.map((item) => (
+              <li
+                key={item.id}
+                className="surface-secondary rounded-pill px-4 py-2 flex items-baseline justify-between gap-3 text-xs"
+              >
+                <span className="min-w-0 break-words">{item.label}</span>
+                <span className="shrink-0 tabular-nums">
+                  {formatBytes(item.bytes)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {canClear && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              surface="primary"
+              size="sm"
+              onClick={() => cleanup.mutate()}
+              disabled={cleanup.isPending}
             >
-              <span className="min-w-0 break-words">{item.label}</span>
-              <span className="shrink-0 tabular-nums">{formatBytes(item.bytes)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {canClear && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            surface="primary"
-            size="sm"
-            onClick={() => cleanup.mutate()}
-            disabled={cleanup.isPending}
-          >
-            {cleanup.isPending ? "Clearing…" : "Free up space"}
-          </Button>
-          <p className="min-w-0 flex-1 text-xs text-secondary">
-            Clears temporary copies of closed documents and old update downloads. Files on your
-            drives do not change.
-          </p>
-        </div>
-      )}
-    </div>
+              {cleanup.isPending ? "Clearing…" : "Free up space"}
+            </Button>
+            <p className="min-w-0 flex-1 text-xs text-secondary">
+              Clears temporary copies of closed documents and old update
+              downloads. Files on your drives do not change.
+            </p>
+          </div>
+        )}
+      </div>
+    </CollapsibleSection>
   );
 }
