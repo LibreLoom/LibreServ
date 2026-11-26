@@ -70,8 +70,6 @@ function usualTextSize() {
 
 /** Panel exit + backdrop fade (`--motion-duration-short4`), with a frame to spare. */
 const OVERLAY_EXIT_MS = 220;
-/** Panel enter duration (`--motion-duration-medium4`). The hint types after it lands. */
-const OVERLAY_OPEN_MS = 400;
 
 const KIND_OPTIONS = [
   { value: "all", label: "All" },
@@ -154,10 +152,6 @@ export default function FileSearch() {
 
   const [present, setPresent] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  // The decorative hint types only once the panel has landed; typing during
-  // the entrance re-lays out the scaled panel every 24 ms and starves the
-  // compositor on Luna's slowest hardware.
-  const [openSettled, setOpenSettled] = useState(false);
   const returnFocusRef = useRef(/** @type {HTMLElement | null} */ (null));
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const overlayRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -332,7 +326,6 @@ export default function FileSearch() {
     isClosingRef.current = false;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setIsClosing(false);
-    setOpenSettled(false);
     // Start from the natural height, not the last answer's: a stale fixed
     // height would animate down as soon as the new body was measured.
     setBodyHeight(null);
@@ -365,17 +358,6 @@ export default function FileSearch() {
       inputRef.current?.focus();
       inputRef.current?.select?.();
     }, prefersReducedMotion() ? 0 : 40);
-    return () => window.clearTimeout(id);
-  }, [present, isClosing]);
-
-  // Start the empty-state typing only after the entrance has landed (+ the
-  // frame the animation waits for its first paint). `openOverlay` clears it.
-  useEffect(() => {
-    if (!present || isClosing) return undefined;
-    const id = window.setTimeout(
-      () => setOpenSettled(true),
-      prefersReducedMotion() ? 0 : OVERLAY_OPEN_MS + 50,
-    );
     return () => window.clearTimeout(id);
   }, [present, isClosing]);
 
@@ -738,9 +720,7 @@ export default function FileSearch() {
 
               {trimmed.length === 0 && (
                 <div className="py-6 text-center font-mono text-primary">
-                  {openSettled && (
-                    <p className="block text-sm">Search every file and folder you can open.</p>
-                  )}
+                  <p className="block text-sm">Search every file and folder you can open.</p>
                   <p className="mt-2 text-xs">Press / on any page to open search.</p>
                 </div>
               )}
