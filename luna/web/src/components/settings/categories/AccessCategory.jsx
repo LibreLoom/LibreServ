@@ -213,6 +213,36 @@ CreateTokenModal.propTypes = {
   onSubmit: PropTypes.func.isRequired,
 };
 
+/** Who is signed in: avatar, name, and role. Sits above the profile editing card. */
+function IdentityCard() {
+  const { user } = useOptionalAuth() || {};
+  if (!user) return null;
+  const isAdmin = user.role === "admin";
+  return (
+    <div className="flex items-center gap-4 rounded-large-element surface-secondary p-4">
+      <div className="h-14 w-14 rounded-full surface-primary flex items-center justify-center flex-shrink-0">
+        <User size={ICON_SIZE.xl} aria-hidden="true" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xl font-bold truncate">{user.display_name || user.username}</p>
+        <p className="mt-0.5 inline-flex items-center gap-1.5 text-base">
+          <Shield size={ICON_SIZE.md} aria-hidden="true" />
+          {isAdmin ? "Admin" : "Member"}
+          <InfoHint
+            surface="secondary"
+            label={isAdmin ? "What Admin means" : "What Member means"}
+            content={
+              isAdmin
+                ? "An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
+                : "A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
+            }
+          />
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The signed-in person's own profile: the name everyone sees, and the
  * password that signs them in. A password change signs out every session —
@@ -264,41 +294,9 @@ function ProfileCard() {
     onError: (err) => setPasswordError(apiErrorMessage(err, "Couldn't change your password. Try again.")),
   });
 
-  const isAdmin = user?.role === "admin";
-
   return (
     <SettingsCard icon={UserRound} title="You" index={-1}>
-      {user && (
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-full surface-primary flex items-center justify-center flex-shrink-0">
-            <User size={ICON_SIZE.xl} aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-primary truncate">
-              {user.display_name || user.username}
-            </p>
-            {user.display_name && user.username !== user.display_name && (
-              <p className="text-sm truncate">
-                Signed in as {user.username}
-              </p>
-            )}
-          </div>
-          <span className="inline-flex items-center gap-1 rounded-chip bg-primary/10 px-2.5 py-1 text-xs text-primary shrink-0">
-            <Shield size={ICON_SIZE.xs} aria-hidden="true" />
-            {isAdmin ? "Admin" : "Member"}
-            <InfoHint
-              label={isAdmin ? "What Admin means" : "What Member means"}
-              content={
-                isAdmin
-                  ? "An Admin can add users, change settings, manage drives, and open everything on this Luna except other people's private items."
-                  : "A Member can use what is shared with them, plus their own albums and private folders. They cannot manage users, drives, or Luna settings."
-              }
-            />
-          </span>
-        </div>
-      )}
-
-      <div className="mt-4 rounded-large-element surface-primary p-4">
+      <div className="rounded-large-element surface-primary p-4">
         <p className="font-mono text-sm">Your name</p>
         <p className="text-sm mt-1">
           The name other people see when you share or get shared with.
@@ -474,6 +472,8 @@ export default function AccessCategory() {
 
   return (
     <div className="space-y-4">
+
+      <IdentityCard />
 
       <ProfileCard />
 
