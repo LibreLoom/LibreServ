@@ -242,17 +242,51 @@ export function isQuestionSkipped(question, questions, answers) {
   if (triggerIdx < 0 || idx < 0 || triggerIdx >= idx) return false;
   const trigger = list[triggerIdx];
   if (isQuestionSkipped(trigger, list, answers)) return false;
-  const value = answers ? answers[logic.questionId] : undefined;
   const expect = logic.equals == null ? "" : String(logic.equals);
-  if (Array.isArray(value)) return value.map(String).includes(expect);
+  return answerMatches(answers?.[logic.questionId], expect);
+}
+
+/** @param {unknown} value @param {string} expect */
+function answerMatches(value, expect) {
+  if (Array.isArray(value)) return value.some((item) => String(item) === expect);
   if (value == null) return expect === "";
   return String(value) === expect;
 }
 
+/**
+ * Index skip rules once. Each rule points to an earlier question, so one
+ * forward pass per answer also knows whether the trigger itself was hidden.
+ * @param {FormQuestion[]} questions
+ */
+export function buildQuestionVisibility(questions) {
+  const list = Array.isArray(questions) ? questions : [];
+  const indexed = list.filter(Boolean);
+  const first = new Map();
+  indexed.forEach(({ id }, index) => {
+    if (!first.has(id)) first.set(id, index);
+  });
+  const rules = indexed.map((question) => {
+    const logic = question.logic;
+    if (!logic || typeof logic.questionId !== "string" || !logic.questionId) return null;
+    const trigger = first.get(logic.questionId);
+    if (trigger === undefined || trigger >= first.get(question.id)) return null;
+    return { trigger, id: logic.questionId, expected: logic.equals == null ? "" : String(logic.equals) };
+  });
+  if (rules.every((rule) => rule === null)) return () => indexed;
+  return (/** @type {Record<string, unknown>} */ answers) => {
+    const skipped = new Uint8Array(indexed.length);
+    return indexed.filter((_question, index) => {
+      const rule = rules[index];
+      if (!rule || skipped[rule.trigger] || !answerMatches(answers?.[rule.id], rule.expected)) return true;
+      skipped[index] = 1;
+      return false;
+    });
+  };
+}
+
 /** Questions the respondent should see, given the answers so far. */
 export function visibleQuestions(questions, answers) {
-  const list = Array.isArray(questions) ? questions : [];
-  return list.filter((q) => q && !isQuestionSkipped(q, list, answers));
+  return buildQuestionVisibility(questions)(answers);
 }
 
 /** Does an answer value count as filled in? Used for required gating. */

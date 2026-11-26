@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@libreloom/ui/context/ThemeContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { buildSettingsIndex, searchSettings } from "@libreloom/ui/lib/settingsSearch.js";
 import { AuthProvider } from "../../context/AuthContext";
-import { CATEGORY_COMPONENTS } from "./categoryComponents.js";
+import { settingsIndexCategories } from "./categoryComponents.js";
 
 /** The providers the categories need to draw once, outside the live page. */
 export function settingsIndexWrapper(queryClient) {
@@ -42,23 +42,22 @@ export default function useSettingsSearch(categories, query) {
   useEffect(() => {
     if (!shouldBuild) return undefined;
     if (built?.key === key) return undefined;
-    let cancelled = false;
-    const list = categories
-      .filter((c) => CATEGORY_COMPONENTS[c.id])
-      .map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] }));
-    buildSettingsIndex(list, wrap, {
+    const controller = new AbortController();
+    const { signal } = controller;
+    buildSettingsIndex(settingsIndexCategories(categories), wrap, {
+      signal,
       onError: (id, error) => console.warn(`Settings search could not read "${id}"`, error),
     }).then((index) => {
-      if (!cancelled) setBuilt({ key, index });
+      if (!signal.aborted) setBuilt({ key, index });
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // `categories` is covered by `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldBuild, key, wrap, built?.key]);
 
   const index = built?.key === key ? built.index : null;
-  const results = useMemo(() => (index ? searchSettings(index, query) : null), [index, query]);
-  return { results, prepare: () => setWanted(true) };
+  const resultQuery = useDeferredValue(query);
+  const results = useMemo(() => (index ? searchSettings(index, resultQuery) : null), [index, resultQuery]);
+  const firstResult = () => resultQuery === query ? results?.[0] : index && searchSettings(index, query, 1)[0];
+  return { results, resultQuery, firstResult, prepare: () => setWanted(true) };
 }

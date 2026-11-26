@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -14,6 +14,8 @@ import { useAuth } from "../context/AuthContext";
 import useConnectActive from "../hooks/useConnectActive";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+
+const SearchResults = memo(SettingsSearchResults);
 
 /** Hash without `#`. In-app Links use history.push, so we read the router location. */
 function categoryFromHash(hash, allowedCategoryIds) {
@@ -75,7 +77,7 @@ export default function SettingsPage() {
     setShowMobileContent(true);
   }, [hashCategory]);
 
-  const selectCategory = (category) => {
+  const selectCategory = useCallback((category) => {
     setSelectedCategory(category);
     setShowMobileContent(true);
     if (location.hash.replace(/^#/, "") === category) return;
@@ -83,18 +85,20 @@ export default function SettingsPage() {
       { pathname: location.pathname, search: location.search, hash: category },
       { replace: true },
     );
-  };
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   // Search: typing replaces the page with matches; picking one opens its
   // category and flashes the setting.
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
-  const { results, prepare } = useSettingsSearch(categories, query);
+  const { results, resultQuery, firstResult, prepare } = useSettingsSearch(categories, query);
   const searchInputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const focusSearchNextRef = useRef(false);
   const [pendingHit, setPendingHit] = useState(
     /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (null),
   );
+  const clearHighlight = useRef(() => {});
+  useEffect(() => () => clearHighlight.current(), []);
 
   // On a phone the box only exists on the category list, so `/` goes back to it first.
   useEffect(() => {
@@ -113,11 +117,11 @@ export default function SettingsPage() {
     }
   }, { label: "Search settings", group: "Search", priority: 1 });
 
-  const pickHit = (hit) => {
+  const pickHit = useCallback((hit) => {
     setQuery("");
     selectCategory(hit.categoryId);
     setPendingHit(hit.kind === "category" ? null : hit);
-  };
+  }, [selectCategory]);
 
   // The category draws in (and its cards fade in) after the pick, so look for
   // the setting for a moment, then scroll to it and ring it briefly.
@@ -128,11 +132,17 @@ export default function SettingsPage() {
     const look = () => {
       const target = findSettingsTarget(document, pendingHit);
       if (target) {
+        clearHighlight.current();
         const reduce = typeof window.matchMedia === "function"
           && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         target.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
         target.classList.add("ring-2", "ring-accent");
-        timers.push(window.setTimeout(() => target.classList.remove("ring-2", "ring-accent"), 1800));
+        const removeRing = () => target.classList.remove("ring-2", "ring-accent");
+        const highlightTimer = window.setTimeout(removeRing, 1800);
+        clearHighlight.current = () => {
+          window.clearTimeout(highlightTimer);
+          removeRing();
+        };
         setPendingHit(null);
       } else if (++tries < 30) {
         timers.push(window.setTimeout(look, 100));
@@ -148,15 +158,18 @@ export default function SettingsPage() {
     <SettingsSearchField
       value={query}
       onChange={setQuery}
-      onSubmit={() => results?.[0] && pickHit(results[0])}
+      onSubmit={() => {
+        const hit = firstResult();
+        if (hit) pickHit(hit);
+      }}
       inputRef={searchInputRef}
     />
   );
   // The first focus starts building the index so results are ready by the first key.
   const searchBox = <div onFocusCapture={prepare}>{searchField}</div>;
-  const body = searching
-    ? <SettingsSearchResults query={query} results={results} onPick={pickHit} />
-    : <SettingsContent category={activeCategory} />;
+  const searchResults = searching
+    ? <SearchResults query={resultQuery} results={resultQuery.trim() ? results : null} onPick={pickHit} />
+    : null;
 
   return (
     <Page
@@ -178,7 +191,10 @@ export default function SettingsPage() {
             />
           </div>
           <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
-            {body}
+            <div hidden={searching}>
+              <SettingsContent category={activeCategory} />
+            </div>
+            {searchResults}
           </div>
         </div>
       ) : (
@@ -188,7 +204,7 @@ export default function SettingsPage() {
               <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">Settings</h1>
               <div className="mb-3">{searchBox}</div>
               {searching ? (
-                <SettingsSearchResults query={query} results={results} onPick={pickHit} />
+                searchResults
               ) : (
               <SettingsSidebar
                 user={user}

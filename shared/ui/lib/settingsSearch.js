@@ -68,12 +68,12 @@ function yieldToMain() {
  * Render every category and collect what it says. A category that cannot render
  * on its own (needs live data first) still gets its own entry.
  *
- * @param {{ id: string, label: string, Component: import("react").ComponentType }[]} categories
+ * @param {{ id: string, label: string, Component: import("react").ComponentType, loadComponent?: () => Promise<import("react").ComponentType> }[]} categories
  * @param {(node: import("react").ReactNode) => import("react").ReactNode} wrap Adds the providers the categories need.
- * @param {{ onError?: (id: string, error: unknown) => void }} [options]
+ * @param {{ onError?: (id: string, error: unknown) => void, signal?: AbortSignal }} [options]
  * @returns {Promise<SettingsHit[]>}
  */
-export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
+export async function buildSettingsIndex(categories, wrap, { onError, signal } = {}) {
   const [{ createElement }, { renderToStaticMarkup }] = await Promise.all([
     import("react"),
     import("react-dom/server"),
@@ -81,21 +81,24 @@ export async function buildSettingsIndex(categories, wrap, { onError } = {}) {
   /** @type {SettingsHit[]} */
   const hits = [];
   let first = true;
-  for (const { id, label, Component } of categories) {
+  for (const { id, label, Component, loadComponent } of categories) {
     // Rendering every category is one long run of work, usually started by the
     // first key press. Hand the main thread back between categories so typing
     // keeps up; the order of hits stays the same.
     if (!first) await yieldToMain();
+    if (signal?.aborted) return hits;
     first = false;
     hits.push({ kind: "category", categoryId: id, categoryLabel: label, title: label, cardTitle: "", text: "" });
     try {
-      const html = renderToStaticMarkup(/** @type {any} */ (wrap(createElement(Component))));
+      const Category = loadComponent ? await loadComponent() : Component;
+      if (signal?.aborted) return hits;
+      const html = renderToStaticMarkup(/** @type {any} */ (wrap(createElement(Category))));
       const doc = new DOMParser().parseFromString(html, "text/html");
       for (const item of extractSettingsItems(doc.body)) {
         hits.push({ ...item, categoryId: id, categoryLabel: label });
       }
     } catch (error) {
-      onError?.(id, error);
+      if (!signal?.aborted) onError?.(id, error);
     }
   }
   return hits;

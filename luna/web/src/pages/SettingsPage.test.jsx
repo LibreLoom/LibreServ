@@ -9,7 +9,7 @@ import SettingsPage from "./SettingsPage";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { visibleCategories } from "../components/settings/settingsCategories";
-import { CATEGORY_COMPONENTS } from "../components/settings/categoryComponents.js";
+import { settingsIndexCategories } from "../components/settings/categoryComponents.js";
 import { settingsIndexWrapper } from "../components/settings/useSettingsSearch.jsx";
 import * as settingsSearch from "@libreloom/ui/lib/settingsSearch.js";
 
@@ -150,7 +150,7 @@ describe("SettingsPage", () => {
 
     await user.click(screen.getByRole("button", { name: /^Devices$/i }));
     expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "Mobile app" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "Mobile app" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Luna Desktop" })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Desktop App" })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Devices" })).toBeNull();
@@ -176,7 +176,7 @@ describe("SettingsPage", () => {
     renderPage("/settings#security");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
@@ -187,11 +187,11 @@ describe("SettingsPage", () => {
     renderPage("/settings#devices");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Devices" })).toBeTruthy();
-    const tokenLinks = screen.getAllByRole("link", { name: /Create an access token in Security/i });
+    const tokenLinks = await screen.findAllByRole("link", { name: /Create an access token in Security/i });
     await user.click(tokenLinks[0]);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /New access token/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
   });
 
@@ -311,7 +311,7 @@ describe("SettingsPage", () => {
     expect(categories.length).toBeGreaterThan(0);
     const errors = [];
     const index = await settingsSearch.buildSettingsIndex(
-      categories.map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] })),
+      settingsIndexCategories(categories),
       settingsIndexWrapper(new QueryClient()),
       { onError: (id, error) => errors.push(`${id}: ${error}`) },
     );

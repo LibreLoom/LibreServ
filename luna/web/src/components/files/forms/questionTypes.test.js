@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildQuestionVisibility,
   isEmailAddress,
   isQuestionSkipped,
   summarizeAnswers,
@@ -19,8 +20,15 @@ describe("question skip and summaries", () => {
     expect(visibleQuestions(questions, { q1: "yes" }).map((q) => q.id)).toEqual(["q1", "q2", "q3"]);
     // q2 is skipped, so q3's condition on q2 never fires.
     expect(isQuestionSkipped(questions[2], questions, { q1: "no", q2: "skip-me" })).toBe(false);
+    expect(visibleQuestions(questions, { q1: "no", q2: "skip-me" }).map((q) => q.id)).toEqual(["q1", "q3"]);
     expect(isEmailAddress("ada@example.com")).toBe(true);
     expect(isEmailAddress("not an email")).toBe(false);
+  });
+
+  it("reuses the branching plan as multiple answers change", () => {
+    const show = buildQuestionVisibility(questions);
+    expect(show({ q1: "yes", q2: ["skip-me"] }).map((q) => q.id)).toEqual(["q1", "q2"]);
+    expect(show({ q1: "no", q2: ["skip-me"] }).map((q) => q.id)).toEqual(["q1", "q3"]);
   });
 
   it("totals number answers", () => {

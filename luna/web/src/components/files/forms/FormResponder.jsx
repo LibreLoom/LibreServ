@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useSearchParams } from "react-router-dom";
 import { AnimatePresence, MotionConfig, motion as Motion } from "motion/react";
@@ -19,7 +19,7 @@ import {
   isAllowedUploadName,
   isAnswered,
   isEmailAddress,
-  visibleQuestions,
+  buildQuestionVisibility,
   DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -215,10 +215,10 @@ function Responder({
   /** True only for the screen right after a send — a return visit uses the older headings. */
   const [justSent, setJustSent] = useState(false);
 
-  const shown = useMemo(
-    () => visibleQuestions(questions, answers),
-    [questions, answers],
-  );
+  const getVisibleQuestions = useMemo(() => buildQuestionVisibility(questions), [questions]);
+  const shown = useMemo(() => getVisibleQuestions(answers), [getVisibleQuestions, answers]);
+  const order = useMemo(() => JSON.stringify(shown.map((question) => question.id)), [shown]);
+  const layoutRevision = `${order}:${JSON.stringify(Object.keys(errors))}`;
 
   // Scrub ?edit=/?edit_token= once read — replace, so Back doesn't land on it.
   useEffect(() => {
@@ -277,7 +277,7 @@ function Responder({
     ? `${window.location.origin}/s/${token}?edit=${encodeURIComponent(linkToken)}`
     : "";
 
-  function setAnswer(questionId, value) {
+  const setAnswer = useCallback((questionId, value) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
     setErrors((prev) => {
       if (!prev[questionId]) return prev;
@@ -285,7 +285,10 @@ function Responder({
       delete next[questionId];
       return next;
     });
-  }
+  }, []);
+  const onUploadBusy = useCallback((busy) => {
+    setUploadsInFlight((n) => Math.max(0, n + (busy ? 1 : -1)));
+  }, []);
 
   function openEdit(entry) {
     setEditToken(typeof entry.edit_token === "string" ? entry.edit_token : "");
@@ -510,53 +513,20 @@ function Responder({
               ) : (
                 <AnimatePresence initial={false}>
                   {shown.map((question, index) => (
-                    <Motion.section
+                    <ResponseQuestion
                       key={question.id}
-                      layout="position"
-                      id={`q-${question.id}`}
-                      initial={{ opacity: 0, height: 0, y: -8 }}
-                      animate={{ opacity: 1, height: "auto", y: 0 }}
-                      exit={{ opacity: 0, height: 0, transition: { duration: 0.18 } }}
-                      transition={SPRING}
-                      className="overflow-hidden"
-                    >
-                      <div className="rounded-large-element surface-secondary p-5 space-y-3">
-                        <p className="font-mono text-xs font-normal">
-                          {index + 1} of {shown.length}
-                          {question.required ? " · required" : ""}
-                        </p>
-                        <h2 className="text-base text-primary" id={`q-${question.id}-label`}>
-                          {question.label || "Untitled question"}
-                        </h2>
-                        {question.help ? (
-                          <p className="text-sm text-primary">{question.help}</p>
-                        ) : null}
-                        {question.image ? (
-                          <img
-                            src={`/s/${encodeURIComponent(token)}/form-image?name=${encodeURIComponent(question.image)}`}
-                            alt={
-                              question.imageAlt ||
-                              (question.label
-                                ? `Picture for “${question.label}”`
-                                : "Picture for this question")
-                            }
-                            className="max-h-64 w-full rounded-large-element object-contain surface-primary"
-                          />
-                        ) : null}
-                        <QuestionField
-                          key={`${session}:${question.id}`}
-                          question={question}
-                          value={answers[question.id]}
-                          error={errors[question.id] || ""}
-                          token={token}
-                          sharePassword={sharePassword}
-                          onAnswer={(value) => setAnswer(question.id, value)}
-                          onUploadBusy={(busy) =>
-                            setUploadsInFlight((n) => Math.max(0, n + (busy ? 1 : -1)))
-                          }
-                        />
-                      </div>
-                    </Motion.section>
+                      question={question}
+                      index={index}
+                      count={shown.length}
+                      layoutRevision={layoutRevision}
+                      session={session}
+                      value={answers[question.id]}
+                      error={errors[question.id] || ""}
+                      token={token}
+                      sharePassword={sharePassword}
+                      onAnswer={setAnswer}
+                      onUploadBusy={onUploadBusy}
+                    />
                   ))}
                 </AnimatePresence>
               )}
@@ -564,7 +534,7 @@ function Responder({
               {submitError && <InlineError>{submitError}</InlineError>}
 
               {shown.length > 0 && (
-                <Motion.div layout="position" transition={SPRING} className="flex justify-end">
+                <Motion.div layout="position" layoutDependency={layoutRevision} transition={SPRING} className="flex justify-end">
                   <Button
                     variant="secondary"
                     surface="primary"
@@ -591,6 +561,75 @@ function Responder({
 }
 
 Responder.propTypes = FormResponder.propTypes;
+
+const ResponseQuestion = memo(/**
+ * @param {{
+ *   question: FormQuestion,
+ *   index: number,
+ *   count: number,
+ *   layoutRevision: string,
+ *   session: number,
+ *   value: unknown,
+ *   error: string,
+ *   token: string,
+ *   sharePassword: string,
+ *   onAnswer: (id: string, value: unknown) => void,
+ *   onUploadBusy: (busy: boolean) => void,
+ * }} props
+ */ function ResponseQuestion({
+  question, index, count, layoutRevision, session, value, error, token, sharePassword, onAnswer, onUploadBusy,
+}) {
+  return (
+    <Motion.section
+      layout="position"
+      layoutDependency={layoutRevision}
+      id={`q-${question.id}`}
+      initial={{ opacity: 0, height: 0, y: -8 }}
+      animate={{ opacity: 1, height: "auto", y: 0 }}
+      exit={{ opacity: 0, height: 0, transition: { duration: 0.18 } }}
+      transition={SPRING}
+      className="overflow-hidden"
+    >
+      <div className="rounded-large-element surface-secondary p-5 space-y-3">
+        <p className="font-mono text-xs font-normal">
+          {index + 1} of {count}
+          {question.required ? " · required" : ""}
+        </p>
+        <h2 className="text-base text-primary" id={`q-${question.id}-label`}>
+          {question.label || "Untitled question"}
+        </h2>
+        {question.help ? (
+          <p className="text-sm text-primary">{question.help}</p>
+        ) : null}
+        {question.image ? (
+          <img
+            loading={index === 0 ? "eager" : "lazy"}
+            decoding="async"
+            src={`/s/${encodeURIComponent(token)}/form-image?name=${encodeURIComponent(question.image)}`}
+            alt={
+              question.imageAlt ||
+              (question.label
+                ? `Picture for “${question.label}”`
+                : "Picture for this question")
+            }
+            className="max-h-64 w-full rounded-large-element object-contain surface-primary"
+          />
+        ) : null}
+        <QuestionField
+          key={`${session}:${question.id}`}
+          question={question}
+          value={value}
+          error={error}
+          token={token}
+          sharePassword={sharePassword}
+          onAnswer={(next) => onAnswer(question.id, next)}
+          onUploadBusy={onUploadBusy}
+        />
+      </div>
+    </Motion.section>
+  );
+});
+
 
 /** @type {import("motion/react").Transition} */
 const SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.9 };
