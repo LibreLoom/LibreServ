@@ -305,6 +305,7 @@ function sortEntries(entries, sortKey) {
  *   dense: boolean,
  *   cardFill: string,
  *   stripeFill: string,
+ *   inkFill: string,
  *   fullOverscan: boolean,
  *   scrollMargin: number,
  *   dragIndexRef: import("react").MutableRefObject<number>,
@@ -319,6 +320,7 @@ function VirtualRowWindow({
   dense,
   cardFill,
   stripeFill,
+  inkFill,
   fullOverscan,
   scrollMargin,
   dragIndexRef,
@@ -359,9 +361,11 @@ function VirtualRowWindow({
       const behind = Math.min(range.overscan, ROW_OVERSCAN_BEHIND);
       // Ahead of a scroll in motion, mount several times the resting headroom: a fast
       // flick (or a slow frame) must not outrun the mounted rows and show a hole.
-      const ahead = direction ? range.overscan * ROW_AHEAD_FACTOR : range.overscan;
-      const before = direction === "forward" ? behind : direction === "backward" ? ahead : range.overscan;
-      const after = direction === "backward" ? behind : direction === "forward" ? ahead : range.overscan;
+      // Until the direction is known (a flick's first frame) both sides get it.
+      const moving = Boolean(instance?.isScrolling);
+      const ahead = moving ? range.overscan * ROW_AHEAD_FACTOR : range.overscan;
+      const before = direction === "forward" ? behind : ahead;
+      const after = direction === "backward" ? behind : ahead;
       const base = defaultRangeExtractor({
         ...range,
         startIndex: Math.max(0, range.startIndex - before),
@@ -409,8 +413,20 @@ function VirtualRowWindow({
   const rowH = dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS;
   const stripes = (firstIndex) => {
     const [first, second] = firstIndex % 2 === 0 ? [cardFill, stripeFill] : [stripeFill, cardFill];
+    // Faint name and detail bars on every row, so a stretch that is not
+    // mounted yet reads as rows loading in, not as a blank hole.
+    const ink = `color-mix(in oklab, ${inkFill} 12%, transparent)`;
+    const bar = (/** @type {number} */ h) =>
+      `linear-gradient(to bottom, transparent ${(rowH - h) / 2}px, ${ink} ${(rowH - h) / 2}px ${(rowH + h) / 2}px, transparent ${(rowH + h) / 2}px)`;
     return {
-      backgroundImage: `repeating-linear-gradient(to bottom, ${first} 0 ${rowH}px, ${second} ${rowH}px ${rowH * 2}px)`,
+      backgroundImage: [
+        bar(10),
+        bar(10),
+        `repeating-linear-gradient(to bottom, ${first} 0 ${rowH}px, ${second} ${rowH}px ${rowH * 2}px)`,
+      ].join(", "),
+      backgroundSize: `min(32%, 260px) ${rowH}px, 72px ${rowH}px, auto`,
+      backgroundPosition: "52px 0, calc(100% - 20px) 0, 0 0",
+      backgroundRepeat: "repeat-y, repeat-y, no-repeat",
     };
   };
   const topPad = items.length ? Math.max(0, items[0].start - scrollMargin) : 0;
@@ -2494,6 +2510,7 @@ export default function FileBrowser({
                     stripeFill={surface === "primary"
                       ? "color-mix(in oklab, var(--primary) 92%, var(--secondary))"
                       : "color-mix(in oklab, var(--secondary) 92%, var(--primary))"}
+                    inkFill={surface === "primary" ? "var(--secondary)" : "var(--primary)"}
                     fullOverscan={fullOverscan}
                     scrollMargin={scrollMargin}
                     dragIndexRef={dragIndexRef}
