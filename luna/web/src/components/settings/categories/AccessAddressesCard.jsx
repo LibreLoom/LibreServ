@@ -29,7 +29,7 @@ export default function AccessAddressesCard({ index = 2 }) {
   });
   const connect = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     retry: false,
   });
 

@@ -866,6 +866,7 @@ describe("OnboardingPage finish flow", () => {
     expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1/setup-grant", {
       method: "POST",
       body: "{}",
+      cache: "no-store",
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Copy setup link/i }));

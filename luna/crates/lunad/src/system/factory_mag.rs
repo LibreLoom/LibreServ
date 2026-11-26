@@ -473,6 +473,36 @@ mod tests {
         assert!(assets.join("TOKENS").exists());
     }
 
+    #[test]
+    fn a_code_without_a_uid_is_not_mixed_with_another_magazine_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let uid = dir.path().join("device-uid");
+        let code = dir.path().join("pairing-code");
+        std::fs::write(&code, format!("{CODE}\n")).unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        write_tokens(&assets, &format!("ZZZZYYYYXXXXWWWWVVVV ABCDEF\n"));
+
+        assert_eq!(
+            fetch_pairing_material_from_mag(
+                &uid,
+                &code,
+                &MagFetchOptions {
+                    assets_root: Some(assets.clone()),
+                    max_attempts: 1,
+                    retry_delay: Duration::from_millis(1),
+                },
+            ),
+            MagFetchOutcome::Incomplete
+        );
+        assert!(!uid.exists());
+        assert_eq!(std::fs::read_to_string(&code).unwrap().trim(), CODE);
+        assert_eq!(
+            std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
+            format!("ZZZZYYYYXXXXWWWWVVVV ABCDEF\n")
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_linked_tokens_file_is_not_read_or_written_through() {

@@ -448,7 +448,7 @@ export default [
     title: "Remote access off",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { state: "unbound", paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; },
-    check: ["Shows the Device ID and a hidden Verification code", "Removing the code leaves Connect unchanged"],
+    check: ["Shows the Device ID and a hidden Verification code", "Show code reveals only the Verification code", "Removing the code leaves Connect unchanged", "Restore details can bring it back from the Connect account"],
   },
   {
     id: "settings/remote-on",
@@ -459,15 +459,23 @@ export default [
       w.connect = { state: "bound", paired: true, connect_active: true, enabled: true, backup_unlocked: true, hostname: "kitchen.luna.servers.libreloom.org", device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
       w.connectActive = true;
     },
-    check: ["Shows it is connected", "Disconnect asks for the Luna password and stops remote access"],
+    check: ["Shows it is connected", "Disconnect asks for the Luna password", "Disconnect says the Luna can be connected again later"],
   },
   {
-    id: "settings/remote-token-rejected",
+    id: "settings/remote-pending",
+    area: "Settings: Luna Connect",
+    title: "Disconnect still pending",
+    url: "/settings#luna_connect",
+    seed: (w) => { w.connect = { state: "bound", paired: false, connect_active: false, unbind_pending: true, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; w.connectActive = false; },
+    check: ["Remote access and pairing are off until disconnecting finishes", "Cloud backup says it stays off until then", "Retry disconnect asks for the Luna password"],
+  },
+  {
+    id: "settings/remote-revoked",
     area: "Settings: Luna Connect",
     title: "Connect revoked this Luna",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, connect_error: "Luna Connect revoked this Luna. Reconnect it from your Connect account." }; w.connectActive = false; },
-    check: ["Reconnect-required state is shown in plain words", "Opening Luna Connect is offered"],
+    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: null }; w.connectActive = false; },
+    check: ["Reconnect-required state is shown in plain words", "Cloud backup says to reconnect before turning it on", "Restore details remains available", "Opening Luna Connect is offered"],
   },
   {
     id: "settings/about-versions",
@@ -563,7 +571,7 @@ export default [
     area: "Settings: About",
     title: "Erase and start over",
     url: "/settings#about",
-    check: ["Asks for clear confirmation naming what is erased", "Confirming sends you to setup"],
+    check: ["Asks for the Luna password and clear confirmation naming what is erased", "Always offers Keep Connect or Disconnect", "Disconnect says the Luna can be connected again later", "Confirming sends you to setup"],
   },
   {
     id: "settings/factory-reset-fails",
@@ -580,7 +588,7 @@ export default [
     title: "Luna Connect for an Admin",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { state: "bound", paired: true, enabled: true, connect_active: true, backup_unlocked: true }; w.connectActive = true; },
-    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is also in the sidebar, above Luna Connect"],
+    check: ["Luna Connect category shows for an Admin, with the remote access card", "Cloud backup is inside Luna Connect, not a separate sidebar entry"],
   },
   // ── Whole-page ────────────────────────────────────────────────────────────
   {
@@ -589,7 +597,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users or About, and no Cloud backup or Luna Connect while Connect is off", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About", "Luna Connect remains available with the public Device ID", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

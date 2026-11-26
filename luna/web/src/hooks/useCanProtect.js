@@ -10,7 +10,7 @@ export default function useCanProtect(enabled = true) {
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled });
   const connect = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     enabled,
   });
   return canProtect({

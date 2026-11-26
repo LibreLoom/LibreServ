@@ -25,7 +25,7 @@ const STATUS = {
 export default function RemoteCategory() {
   const status = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     retry: false,
   });
 

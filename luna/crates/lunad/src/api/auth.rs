@@ -772,6 +772,10 @@ mod tests {
         // Tunnel peer forwarding a client on Luna's own network → LAN.
         let h = headers(&[("x-forwarded-for", "192.168.4.9")]);
         assert!(is_lan_request(&addr("127.0.0.1"), &h));
+        // IPv6 link-local ethernet clients are LAN clients too.
+        assert!(is_lan_request(&addr("[fe80::1234]"), &HeaderMap::new()));
+        let h = headers(&[("x-forwarded-for", "fe80::1234")]);
+        assert!(is_lan_request(&addr("127.0.0.1"), &h));
     }
 
     async fn register_status(
@@ -815,6 +819,24 @@ mod tests {
             register_status(&state, addr("192.168.1.30"), &[], FIRST_USER).await,
             StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn concurrent_anonymous_registrations_create_only_the_first_admin() {
+        let (_dir, state) = state();
+        let (first, second) = tokio::join!(
+            register_status(&state, addr("192.168.1.30"), &[], FIRST_USER),
+            register_status(
+                &state,
+                addr("192.168.1.31"),
+                &[],
+                r#"{"username":"sam","password":"hunter22hunter1"}"#,
+            ),
+        );
+        assert_ne!(first, second);
+        assert!([first, second].contains(&StatusCode::OK));
+        assert!([first, second].contains(&StatusCode::FORBIDDEN));
+        assert_eq!(state.auth.count_users().unwrap(), 1);
     }
 
     #[tokio::test]

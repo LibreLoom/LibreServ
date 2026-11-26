@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -176,15 +177,28 @@ func restoreDomainDNS(deps Deps, cf config.CloudflareConfig, host, oldTunnelID s
 	}
 }
 
-func cleanupProvisionedDomain(deps Deps, cf config.CloudflareConfig, host, tunnelID, oldTunnelID string) {
+func cleanupProvisionedDomain(deps Deps, cf config.CloudflareConfig, tx *database.Tx, deviceID, host, tunnelID, oldTunnelID string, dnsAttempted, dnsPublished bool) {
 	if deps.Tunnel != nil && tunnelID != "" {
 		if err := deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, tunnelID); err != nil {
 			slog.Error("domain: could not clean up unpublished tunnel", "tunnel_id", tunnelID, "err", err)
 		}
 	}
-	if deps.DNS != nil {
-		restoreDomainDNS(deps, cf, host, oldTunnelID)
+	if deps.DNS == nil || !dnsAttempted || (oldTunnelID == "" && !dnsPublished) {
+		return
 	}
+	if !ownsDomainReservation(tx, host, deviceID) {
+		return
+	}
+	restoreDomainDNS(deps, cf, host, oldTunnelID)
+}
+
+func ownsDomainReservation(tx *database.Tx, host, deviceID string) bool {
+	owned, err := database.OwnsDomainReservation(tx, host, deviceID)
+	if err != nil {
+		slog.Error("domain: could not verify hostname ownership during cleanup", "host", host, "err", err)
+		return false
+	}
+	return owned
 }
 
 func reserveDomain(tx *database.Tx, sub, deviceID, accountID string) (string, error) {
@@ -193,11 +207,28 @@ func reserveDomain(tx *database.Tx, sub, deviceID, accountID string) (string, er
 	return host, err
 }
 
-func lockDomainReservationForSub(tx *database.Tx, sub string) error {
-	if sub == "" {
-		return nil
+// reserveDeviceDomains takes the device lock first, then every hostname lock in
+// lexical order. Moves therefore cannot deadlock with a move in the opposite
+// direction, and teardown waits for the same reservation as provisioning.
+func reserveDeviceDomains(tx *database.Tx, deviceID, accountID string, subs ...string) error {
+	byHost := make(map[string]string, len(subs))
+	for _, sub := range subs {
+		if sub == "" {
+			continue
+		}
+		byHost[domainname.Hostname(sub, config.C.Server.PublicZone)] = sub
 	}
-	return database.LockDomainReservation(tx, domainname.Hostname(sub, config.C.Server.PublicZone))
+	hosts := make([]string, 0, len(byHost))
+	for host := range byHost {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	for _, host := range hosts {
+		if _, err := database.ReserveDomain(tx, host, byHost[host], deviceID, accountID, time.Now().Unix()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func releaseDomainReservationForSub(tx *database.Tx, sub, deviceID string) error {
@@ -265,7 +296,7 @@ func syncDeviceLocalPortFenced(deps Deps, expected Device, port int) error {
 
 	cf := config.Cloudflare()
 	host := domainname.Hostname(d.Subdomain, config.C.Server.PublicZone)
-	if err := lockDomainReservationForSub(tx, d.Subdomain); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, d.AccountID, d.Subdomain); err != nil {
 		return err
 	}
 	if d.TunnelID != "" && d.Subdomain != "" && (cf.Ready() || config.DevMode()) {
@@ -350,7 +381,7 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int, expected ...De
 	}
 
 	host := domainname.Hostname(sub, config.C.Server.PublicZone)
-	if _, err := reserveDomain(tx, sub, deviceID, d.AccountID); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, d.AccountID, d.Subdomain, sub); err != nil {
 		status, msg := domainReservationError(err)
 		return nil, status, msg
 	}
@@ -365,19 +396,22 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int, expected ...De
 	if d.Subdomain == sub {
 		restoreTunnelID = d.TunnelID
 	}
+	dnsAttempted, dnsPublished := false, false
 	cleanup := func() {
-		cleanupProvisionedDomain(deps, cf, host, tid, restoreTunnelID)
+		cleanupProvisionedDomain(deps, cf, tx, deviceID, host, tid, restoreTunnelID, dnsAttempted, dnsPublished)
 	}
 	if err := deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tid, host, "http://127.0.0.1:"+itoa(port)); err != nil {
 		slog.Error("domain: configure tunnel ingress failed", "device", deviceID, "subdomain", sub, "err", err)
 		cleanup()
 		return nil, providerFailureStatus, "Could not set up the address. Try again."
 	}
+	dnsAttempted = true
 	if err := deps.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
 		slog.Error("domain: publish DNS record failed", "device", deviceID, "subdomain", sub, "err", err)
 		cleanup()
 		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
+	dnsPublished = true
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		cleanup()
@@ -456,7 +490,7 @@ func regenerateDeviceTunnel(deps Deps, deviceID string, expected ...Device) (map
 	}
 
 	host := domainname.Hostname(d.Subdomain, config.C.Server.PublicZone)
-	if _, err := reserveDomain(tx, d.Subdomain, deviceID, d.AccountID); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, d.AccountID, d.Subdomain); err != nil {
 		status, msg := domainReservationError(err)
 		return nil, status, msg
 	}
@@ -467,19 +501,22 @@ func regenerateDeviceTunnel(deps Deps, deviceID string, expected ...Device) (map
 		return nil, providerFailureStatus, "Could not create the secure connection. Try again."
 	}
 	tid, ttoken := creds.TunnelID, creds.Token
+	dnsAttempted, dnsPublished := false, false
 	cleanup := func() {
-		cleanupProvisionedDomain(deps, cf, host, tid, d.TunnelID)
+		cleanupProvisionedDomain(deps, cf, tx, deviceID, host, tid, d.TunnelID, dnsAttempted, dnsPublished)
 	}
 	if err := deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, tid, host, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
 		slog.Error("domain: regenerate ingress failed", "device", deviceID, "err", err)
 		cleanup()
 		return nil, providerFailureStatus, "Could not set up the address. Try again."
 	}
+	dnsAttempted = true
 	if err := deps.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, host, tid+".cfargotunnel.com"); err != nil {
 		slog.Error("domain: regenerate DNS record failed", "device", deviceID, "err", err)
 		cleanup()
 		return nil, providerFailureStatus, "Could not publish the address. Try again."
 	}
+	dnsPublished = true
 	sealedTok, err := security.SealString(ttoken)
 	if err != nil {
 		cleanup()
@@ -561,17 +598,24 @@ func moveDeviceDomain(deps Deps, expected Device, sub string) (map[string]any, i
 
 	oldHost := domainname.Hostname(d.Subdomain, config.C.Server.PublicZone)
 	newHost := domainname.Hostname(sub, config.C.Server.PublicZone)
-	if _, err := reserveDomain(tx, sub, d.ID, d.AccountID); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, d.AccountID, d.Subdomain, sub); err != nil {
 		status, msg := domainReservationError(err)
 		return nil, status, msg
 	}
 	cf := config.Cloudflare()
+	dnsPublished := false
 	restore := func() {
 		_ = deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, d.TunnelID, oldHost, "http://127.0.0.1:"+itoa(d.Port))
-		restoreDomainDNS(deps, cf, oldHost, d.TunnelID)
+		if dnsPublished && ownsDomainReservation(tx, newHost, d.ID) {
+			_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, newHost)
+		}
+		if ownsDomainReservation(tx, oldHost, d.ID) {
+			restoreDomainDNS(deps, cf, oldHost, d.TunnelID)
+		}
 	}
 	if err := deps.Tunnel.ConfigureIngress(cf.AccountID, cf.APIToken, d.TunnelID, newHost, "http://127.0.0.1:"+itoa(d.Port)); err != nil {
 		slog.Error("domain: move ingress failed", "device", d.ID, "subdomain", sub, "err", err)
+		restore()
 		return nil, providerFailureStatus, "Could not move the address. Try again."
 	}
 	if err := deps.DNS.UpsertCNAME(cf.APIToken, cf.ZoneID, newHost, d.TunnelID+".cfargotunnel.com"); err != nil {
@@ -579,6 +623,7 @@ func moveDeviceDomain(deps Deps, expected Device, sub string) (map[string]any, i
 		restore()
 		return nil, providerFailureStatus, "Could not publish the new address. Try again."
 	}
+	dnsPublished = true
 	fence, args := domainMutationFence(d)
 	args = append([]any{sub, sub}, args...)
 	res, err := tx.Exec(`UPDATE devices SET subdomain = ?, name = ?`+fence, args...)

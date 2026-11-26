@@ -248,11 +248,11 @@ export default function CloudBackupCategory() {
                   ? "Checking Luna Connect…"
                   : state === "pending"
                     ? "Cloud backup stays off until Luna finishes disconnecting."
-                  : state === "revoked"
-                    ? "Reconnect this Luna in Luna Connect before turning on cloud backup."
-                    : isAdmin
-                      ? "Cloud backup needs Luna Connect. Pair this Luna with its Device ID and Verification code."
-                      : "Cloud backup needs Luna Connect. An Admin can pair this Luna."}
+                    : state === "revoked"
+                      ? "Reconnect this Luna in Luna Connect before turning on cloud backup."
+                      : isAdmin
+                        ? "Cloud backup needs Luna Connect. Pair this Luna with its Device ID and Verification code."
+                        : "Cloud backup needs Luna Connect. An Admin can pair this Luna."}
               </p>
               {isAdmin && (
                 <Button variant="outline" surface="secondary" size="sm" asChild>

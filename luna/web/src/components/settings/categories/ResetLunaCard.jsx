@@ -34,7 +34,7 @@ export default function ResetLunaCard({ index = 0 }) {
 
   const connect = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     retry: false,
   });
   const state = connectState(connect.data);

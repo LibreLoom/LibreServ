@@ -15,7 +15,7 @@ export default function PairingQrModal({ open, token, onClose }) {
   const canvasRef = useRef(null);
   const connectStatus = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     retry: false,
   });
   // A phone cannot use the browser's LAN origin when LAN access is blocked.

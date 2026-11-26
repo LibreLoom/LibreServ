@@ -23,7 +23,10 @@ pub const DATA_DIR_MODE: u32 = 0o700;
 /// contents were synced before an atomic replacement.
 #[cfg(unix)]
 pub(crate) fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
-    let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+    let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    else {
         return Ok(());
     };
     let directory = std::fs::File::open(parent)?;

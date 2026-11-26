@@ -44,6 +44,45 @@ fn first_user_is_admin_and_login_round_trips() {
 }
 
 #[test]
+fn concurrent_first_admin_requests_have_one_authorized_insertion() {
+    let (_dir, auth) = service();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let mut workers = Vec::new();
+    for (username, display) in [("max", "Max"), ("sam", "Sam")] {
+        let auth = auth.clone();
+        let barrier = barrier.clone();
+        workers.push(std::thread::spawn(move || {
+            barrier.wait();
+            auth.register_first_admin_with_breach_check(username, display, "hunter22hunter1")
+        }));
+    }
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+    assert!(
+        results
+            .iter()
+            .any(|result| matches!(result, Err(AuthError::Forbidden)))
+    );
+    assert_eq!(auth.count_users().unwrap(), 1);
+}
+
+#[test]
+fn first_admin_registration_is_closed_once_any_user_exists() {
+    let (_dir, auth) = service();
+    auth.register("max", "Max", "hunter22hunter1", "user")
+        .unwrap();
+    assert!(matches!(
+        auth.register_first_admin_with_breach_check("sam", "Sam", "hunter22hunter1"),
+        Err(AuthError::Forbidden)
+    ));
+    assert_eq!(auth.count_users().unwrap(), 1);
+}
+
+#[test]
 fn reset_admin_password_lets_them_sign_in_again() {
     let (_dir, auth) = service();
     auth.register("Max", "Max", "old-password-1", "user")

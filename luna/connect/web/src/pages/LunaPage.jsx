@@ -310,7 +310,7 @@ export default function LunaPage() {
           ? "This Luna is connected to your account."
           : "Luna Connect could not read this Luna's status.";
 
-  const toolbarAction = recoverOpen
+  const toolbarAction = recoverOpen || confirmDisconnect
     ? null
     : disconnectState
       ? {

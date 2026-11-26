@@ -153,7 +153,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
   });
   const connect = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     enabled: open,
   });
   const cloudQuery = useQuery({

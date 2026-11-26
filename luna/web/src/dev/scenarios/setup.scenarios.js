@@ -148,13 +148,24 @@ export default [
   {
     id: "setup/setup-grant-step",
     area: "Setup",
-    title: "Account step asks for a one-time setup grant",
-    url: "/setup",
+    title: "Account step offers an optional one-time setup grant",
+    url: "/setup?setup_grant=query-only",
     seed: fresh({
       setup: { current_step: "account", step_data: { preflight_passed: true } },
       world: (w) => { w.connectActive = false; w.setupGrant = "good-grant"; },
     }),
-    check: ["Only appears on a public address, even when Connect is inactive", "A wrong or expired setup link gives a clear error"],
+    check: ["The query-string grant is stripped and never fills the field", "The optional field appears on every address", "A wrong or expired setup link gives a clear error", "A valid configured grant is consumed once and its replay is refused"],
+  },
+  {
+    id: "setup/setup-grant-fragment",
+    area: "Setup",
+    title: "Setup link fills the one-time grant",
+    url: "/setup#setup_grant=good-grant",
+    seed: fresh({
+      setup: { current_step: "account", step_data: { preflight_passed: true } },
+      world: (w) => { w.connectActive = true; w.setupGrant = "good-grant"; },
+    }),
+    check: ["The fragment is removed from the visible URL", "The grant field is skipped because the link already filled it", "Registration submits the grant"],
   },
   {
     id: "setup/finish-fails",

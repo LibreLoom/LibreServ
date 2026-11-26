@@ -7,6 +7,7 @@ use std::time::Duration;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 
+use super::auth::is_auth_token_format;
 use super::*;
 
 const UID: &str = "7K4M2Q9XR8N36T5W1PZH";
@@ -19,7 +20,6 @@ fn token(fill: u8) -> String {
 
 #[derive(Debug, Clone)]
 struct RecordedRequest {
-    method: String,
     path: String,
     authorization: Option<String>,
     body: String,
@@ -62,7 +62,7 @@ impl MockConnect {
                     return;
                 }
                 let mut parts = request_line.split_whitespace();
-                let method = parts.next().unwrap_or("").to_string();
+                parts.next();
                 let path = parts.next().unwrap_or("").to_string();
                 let mut authorization = None;
                 let mut content_length = 0usize;
@@ -88,7 +88,6 @@ impl MockConnect {
                 let mut body = vec![0u8; content_length];
                 let _ = reader.read_exact(&mut body);
                 seen.lock().unwrap().push(RecordedRequest {
-                    method,
                     path,
                     authorization,
                     body: String::from_utf8_lossy(&body).to_string(),
@@ -186,6 +185,88 @@ fn pairing_files_are_separate_and_private() {
             0o600
         );
     }
+}
+
+#[test]
+fn concurrent_magazine_reads_serialize_to_one_factory_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("TOKENS"), format!("not-a-code\n{UID} {CODE}\n")).unwrap();
+    let connect = Arc::new(service(dir.path(), "http://127.0.0.1:1".into()));
+    let options = crate::system::factory_mag::MagFetchOptions {
+        assets_root: Some(assets),
+        max_attempts: 2,
+        retry_delay: Duration::from_millis(500),
+    };
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let connect = connect.clone();
+        let options = options.clone();
+        workers.push(std::thread::spawn(move || {
+            connect.ensure_pairing_material_from_mag_with_options(options)
+        }));
+    }
+    let outcomes: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| **outcome == crate::system::factory_mag::MagFetchOutcome::AlreadyValid)
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(
+                outcome,
+                crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(connect.device_uid().unwrap(), UID);
+    assert_eq!(connect.verification_code().unwrap(), CODE);
+}
+
+#[test]
+fn a_pairing_write_cannot_mix_with_an_in_flight_magazine_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("TOKENS"), format!("not-a-code\n{UID} {CODE}\n")).unwrap();
+    let connect = Arc::new(service(dir.path(), "http://127.0.0.1:1".into()));
+    let options = crate::system::factory_mag::MagFetchOptions {
+        assets_root: Some(assets.clone()),
+        max_attempts: 2,
+        retry_delay: Duration::from_millis(500),
+    };
+    let fetching = {
+        let connect = connect.clone();
+        std::thread::spawn(move || connect.ensure_pairing_material_from_mag_with_options(options))
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::fs::read_to_string(assets.join("TOKENS"))
+        .unwrap()
+        .contains("not-a-code")
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let writing = {
+        let connect = connect.clone();
+        std::thread::spawn(move || connect.set_pairing_material("ZZZZYYYYXXXXWWWWVVVV", "ABCDEF"))
+    };
+    assert!(matches!(
+        fetching.join().unwrap(),
+        crate::system::factory_mag::MagFetchOutcome::Fetched { .. }
+    ));
+    assert!(writing.join().unwrap().is_err());
+    assert_eq!(connect.device_uid().unwrap(), UID);
+    assert_eq!(connect.verification_code().unwrap(), CODE);
 }
 
 #[test]
@@ -706,7 +787,10 @@ fn a_generic_401_does_not_complete_an_unbind() {
     assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     let calls = mock.calls();
     assert_eq!(
-        calls.iter().map(|call| call.path.as_str()).collect::<Vec<_>>(),
+        calls
+            .iter()
+            .map(|call| call.path.as_str())
+            .collect::<Vec<_>>(),
         vec!["/api/v1/unregister", "/api/v1/token/refresh"]
     );
     assert!(connect.prepare_factory_reset(true).is_err());
@@ -730,16 +814,25 @@ fn an_unbind_401_recovers_a_rotated_credential_and_retries() {
     assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     let calls = mock.calls();
     assert_eq!(
-        calls.iter().map(|call| call.path.as_str()).collect::<Vec<_>>(),
+        calls
+            .iter()
+            .map(|call| call.path.as_str())
+            .collect::<Vec<_>>(),
         vec![
             "/api/v1/unregister",
             "/api/v1/token/refresh",
             "/api/v1/unregister"
         ]
     );
-    assert_eq!(calls[0].authorization.as_deref(), Some(format!("Bearer {TOKEN_ZERO}").as_str()));
+    assert_eq!(
+        calls[0].authorization.as_deref(),
+        Some(format!("Bearer {TOKEN_ZERO}").as_str())
+    );
     assert_eq!(calls[1].authorization, calls[0].authorization);
-    assert_eq!(calls[2].authorization.as_deref(), Some(format!("Bearer {next}").as_str()));
+    assert_eq!(
+        calls[2].authorization.as_deref(),
+        Some(format!("Bearer {next}").as_str())
+    );
 }
 
 #[test]

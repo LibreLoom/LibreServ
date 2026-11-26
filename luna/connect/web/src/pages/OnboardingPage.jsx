@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
   ArrowRight,
   Check,
   ChevronLeft,
@@ -779,6 +780,7 @@ export default function OnboardingPage() {
       const res = await api(`/api/v1/devices/${encodeURIComponent(deviceId)}/setup-grant`, {
         method: "POST",
         body: "{}",
+        cache: "no-store",
       });
       if (request !== setupGrantRequestRef.current) return "";
       if (!res.setup_grant) throw new Error("Luna Connect could not make a setup link. Try again.");
@@ -1600,7 +1602,10 @@ export default function OnboardingPage() {
             )}
             {setupGrantError && (
               <div className="mt-3 space-y-3">
-                <p className="text-sm text-error" role="alert">{setupGrantError}</p>
+                <div className="rounded-large-element border border-error/30 bg-error/10 px-3 py-3 flex items-start gap-2" role="alert">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
+                  <p className="text-sm text-foreground">{setupGrantError}</p>
+                </div>
                 <Button variant="outline" onClick={requestSetupGrant}>Try again</Button>
               </div>
             )}

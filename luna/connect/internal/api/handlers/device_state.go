@@ -72,7 +72,7 @@ func unbindDevice(deps Deps, d Device, accountID string) error {
 	if err != nil {
 		return err
 	}
-	if err := lockDomainReservationForSub(tx, current.subdomain); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, accountID, current.subdomain); err != nil {
 		return err
 	}
 	// Keep the latest token hashes as non-authenticating tombstones so a retry
@@ -131,7 +131,7 @@ func revokeDevice(deps Deps, d Device, accountID string) error {
 	if err != nil {
 		return err
 	}
-	if err := lockDomainReservationForSub(tx, current.subdomain); err != nil {
+	if err := reserveDeviceDomains(tx, d.ID, accountID, current.subdomain); err != nil {
 		return err
 	}
 	// Retain the latest hashes as tombstones so DeviceAuth can report the

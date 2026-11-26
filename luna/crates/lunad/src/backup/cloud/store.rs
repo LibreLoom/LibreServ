@@ -581,7 +581,11 @@ impl HttpStore {
         };
         let Some(code) = serde_json::from_slice::<Value>(&reply.body)
             .ok()
-            .and_then(|body| body.get("code").and_then(|code| code.as_str()).map(str::to_string))
+            .and_then(|body| {
+                body.get("code")
+                    .and_then(|code| code.as_str())
+                    .map(str::to_string)
+            })
         else {
             return;
         };
@@ -953,10 +957,11 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+    use std::path::Path;
     use std::thread::JoinHandle;
 
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use crate::net::connect::{CONNECT_CREDENTIAL_FILE, ConnectState, DEVICE_UID_FILE};
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
     const LUNA: &str = "luna-test-1";
     const TOKEN: &str = "ABCD-EFGH-JKMN-PQRS-TVWX";
@@ -1013,7 +1018,11 @@ mod tests {
     fn rolling(dir: &Path, base: &str) -> Arc<ConnectService> {
         let connect = Arc::new(ConnectService::new(dir, Some(base.to_string())));
         std::fs::write(dir.join(DEVICE_UID_FILE), "7K4M2Q9XR8N36T5W1PZH\n").unwrap();
-        std::fs::write(dir.join(CONNECT_CREDENTIAL_FILE), format!("{ROLLING_TOKEN}\n")).unwrap();
+        std::fs::write(
+            dir.join(CONNECT_CREDENTIAL_FILE),
+            format!("{ROLLING_TOKEN}\n"),
+        )
+        .unwrap();
         connect
             .save(&serde_json::json!({
                 "state": "bound",
@@ -1370,5 +1379,99 @@ mod tests {
             .get_pack(&id_of(b"x"))
             .unwrap_err();
         assert!(matches!(err, StoreError::Unavailable(_)));
+    }
+
+    #[test]
+    fn rolling_storage_settles_explicit_unbound_and_revoked_replies() {
+        for (code, expected) in [
+            ("device_unbound", ConnectState::Unbound),
+            ("device_revoked", ConnectState::Revoked),
+        ] {
+            let body = if code == "device_unbound" {
+                r#"{"code":"device_unbound"}"#
+            } else {
+                r#"{"code":"device_revoked"}"#
+            };
+            let (base, server) = serve(vec![(403, body)]);
+            let dir = tempfile::tempdir().unwrap();
+            let connect = rolling(dir.path(), &base);
+            let store = HttpStore::with_connect(&base, connect.clone(), LUNA);
+
+            assert!(matches!(
+                store.get_pack(&id_of(b"pack")),
+                Err(StoreError::Rejected(_))
+            ));
+            server.join().unwrap();
+            assert_eq!(connect.status().state, expected);
+            assert!(!connect.is_connect_active());
+            assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
+        }
+    }
+
+    #[test]
+    fn a_generic_storage_401_does_not_settle_the_binding() {
+        let (base, server) = serve(vec![(401, r#"{"error":"invalid"}"#)]);
+        let dir = tempfile::tempdir().unwrap();
+        let connect = rolling(dir.path(), &base);
+        let store = HttpStore::with_connect(&base, connect.clone(), LUNA);
+
+        assert!(matches!(
+            store.get_pack(&id_of(b"pack")),
+            Err(StoreError::Rejected(_))
+        ));
+        server.join().unwrap();
+        assert_eq!(connect.status().state, ConnectState::Bound);
+        assert_eq!(connect.token().unwrap(), ROLLING_TOKEN);
+    }
+
+    #[test]
+    fn a_stale_storage_auth_reply_cannot_undo_a_new_credential() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            let body = r#"{"code":"device_revoked"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 403 Reply\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let connect = rolling(dir.path(), &base);
+        let store = std::sync::Arc::new(HttpStore::with_connect(&base, connect.clone(), LUNA));
+        let worker = {
+            let store = store.clone();
+            std::thread::spawn(move || store.get_pack(&id_of(b"pack")))
+        };
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let next = URL_SAFE_NO_PAD.encode([42u8; 32]);
+        std::fs::write(
+            dir.path().join(CONNECT_CREDENTIAL_FILE),
+            format!("{next}\n"),
+        )
+        .unwrap();
+        release_tx.send(()).unwrap();
+
+        assert!(matches!(
+            worker.join().unwrap(),
+            Err(StoreError::Rejected(_))
+        ));
+        server.join().unwrap();
+        assert_eq!(connect.status().state, ConnectState::Bound);
+        assert_eq!(connect.token().unwrap(), next);
     }
 }

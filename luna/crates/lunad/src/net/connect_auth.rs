@@ -406,6 +406,15 @@ impl ConnectService {
     }
 
     pub fn ensure_pairing_material_from_mag(&self) -> crate::system::factory_mag::MagFetchOutcome {
+        self.ensure_pairing_material_from_mag_with_options(
+            crate::system::factory_mag::MagFetchOptions::default(),
+        )
+    }
+
+    pub(super) fn ensure_pairing_material_from_mag_with_options(
+        &self,
+        options: crate::system::factory_mag::MagFetchOptions,
+    ) -> crate::system::factory_mag::MagFetchOutcome {
         let _operation = self
             .auth
             .operation_mu
@@ -419,7 +428,7 @@ impl ConnectService {
         let outcome = crate::system::factory_mag::fetch_pairing_material_from_mag(
             &self.auth.device_uid_path,
             &self.auth.pairing_code_path,
-            &crate::system::factory_mag::MagFetchOptions::default(),
+            &options,
         );
         if matches!(
             outcome,
@@ -991,7 +1000,9 @@ impl ConnectService {
         );
         let reply = match reply {
             Ok(reply) => reply,
-            Err(err @ (ConnectError::InvalidToken | ConnectError::Revoked | ConnectError::Unbound)) => {
+            Err(
+                err @ (ConnectError::InvalidToken | ConnectError::Revoked | ConnectError::Unbound),
+            ) => {
                 if matches!(mode, RefreshMode::Normal) {
                     match &err {
                         ConnectError::InvalidToken | ConnectError::Revoked => {
@@ -1813,7 +1824,9 @@ fn remove_file_durable(path: &Path) -> Result<(), ConnectError> {
         crate::datadir::sync_parent_directory(path)
     };
     remove().map_err(|_| {
-        ConnectError::Other("Luna couldn't finish saving its Luna Connect settings. Try again.".into())
+        ConnectError::Other(
+            "Luna couldn't finish saving its Luna Connect settings. Try again.".into(),
+        )
     })
 }
 

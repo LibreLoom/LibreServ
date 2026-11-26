@@ -41,7 +41,7 @@ export default function DiscoveryPaths({ name = "" }) {
   });
   const connectStatus = useQuery({
     queryKey: ["connect-status"],
-    queryFn: () => getJson("/api/v1/connect/status"),
+    queryFn: () => getJson("/api/v1/connect/status", { cache: "no-store" }),
     retry: false,
   });
   const ipv4 = (netStatus.data?.ipv4 || []).filter(Boolean);

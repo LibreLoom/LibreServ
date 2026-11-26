@@ -395,8 +395,24 @@ async fn save_setup(
 
 #[cfg(test)]
 mod tests {
-    use super::{SetupState, VALID_STEPS, default_step};
+    use super::{SetupState, VALID_STEPS, client_is_lan, default_step, setup_origin};
     use serde_json::json;
+
+    #[test]
+    fn ipv6_link_local_clients_are_lan_for_setup() {
+        let link_local = "[fe80::1234]:40000"
+            .parse::<std::net::SocketAddr>()
+            .unwrap();
+        let headers = axum::http::HeaderMap::new();
+        assert!(client_is_lan(&link_local, &headers));
+        assert_eq!(setup_origin(&link_local, &headers), "lan");
+
+        let remote = "[2001:4860:4860::8888]:40000"
+            .parse::<std::net::SocketAddr>()
+            .unwrap();
+        assert!(!client_is_lan(&remote, &headers));
+        assert_eq!(setup_origin(&remote, &headers), "remote");
+    }
 
     #[test]
     fn default_setup_is_plain() {

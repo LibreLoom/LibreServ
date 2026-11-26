@@ -518,6 +518,7 @@ mod tests {
             cable_in: true,
             has_default_route: true,
             device_uid: Some("ABCD-EFGH".into()),
+            verification_code: None,
             connect_hostname: None,
             problems: vec![],
         });
@@ -592,6 +593,7 @@ mod tests {
             cable_in: true,
             has_default_route: true,
             device_uid: Some("7K4M-2Q9X-R8N3-6T5W-1PZH".into()),
+            verification_code: Some("A3F91C".into()),
             connect_hostname: Some("photos.luna.servers.libreloom.org".into()),
             problems: vec![crate::net::connect::CREDENTIAL_REJECTED_MSG.into()],
         });

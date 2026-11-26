@@ -991,13 +991,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factory_reset_disconnect_keeps_a_pending_revocation_across_the_reset() {
+    async fn factory_reset_disconnect_refuses_to_finish_while_unbind_is_unknown() {
         let dir = tempfile::tempdir().unwrap();
         linked(dir.path());
         let state = test_state(dir.path());
         let app = app_for(state.clone());
         let (cookie, csrf) = sign_in(&app).await;
-        let ok = call(
+        let failed = call(
             &app,
             req(
                 Method::POST,
@@ -1008,7 +1008,12 @@ mod tests {
             ),
         )
         .await;
-        assert_eq!(ok.status(), 200, "reset failed");
+        assert_eq!(failed.status(), 500);
+        assert_eq!(
+            state.auth.count_users().unwrap(),
+            1,
+            "the reset did not finish"
+        );
         assert!(state.connect.unbind_pending(), "the unbind is owed");
         assert!(
             dir.path()
@@ -1024,7 +1029,8 @@ mod tests {
         );
         assert_eq!(state.connect.device_uid().unwrap(), "7K4M2Q9XR8N36T5W1PZH");
 
-        // Off Luna's network, no setup grant is accepted while disconnecting.
+        // The first account still exists, and a pending disconnect does not
+        // open anonymous registration off Luna's network.
         let mut remote = req(
             Method::POST,
             "/api/v1/auth/register",
@@ -1039,7 +1045,7 @@ mod tests {
                 40000,
             )));
         let res = call(&app, remote).await;
-        assert_eq!(res.status(), 403);
+        assert_eq!(res.status(), 401);
     }
 
     #[tokio::test]
