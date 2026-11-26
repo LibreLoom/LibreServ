@@ -46,8 +46,8 @@ describe("fake device token writes", () => {
 
     expect(response.status).toBe(200);
     expect(world.connect).toMatchObject({ state: "unbound", device_token: TOKEN });
-    const status = await (await window.fetch("/api/v1/connect/device-token")).json();
-    expect(status).toEqual({ device_token_set: true });
+    const status = await (await window.fetch("/api/v1/connect/status")).json();
+    expect(status.device_token_set).toBe(true);
   });
 
   it("refuses a token that is not 20 characters", async () => {

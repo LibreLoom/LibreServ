@@ -1,6 +1,6 @@
 use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,12 +18,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connect/status", get(status))
         // The device token identifies and pairs this Luna; it is never a
-        // bearer credential. GET shows it to an Admin, PUT sets or replaces
-        // it locally without asking Connect.
-        .route(
-            "/api/v1/connect/device-token",
-            get(show_device_token).put(save_device_token),
-        )
+        // bearer credential. PUT sets or replaces it locally without asking
+        // Connect; nothing reads it back (status only says whether it is set).
+        .route("/api/v1/connect/device-token", put(save_device_token))
         .route("/api/v1/connect/unbind", post(unbind))
 }
 
@@ -111,23 +108,6 @@ async fn status(
 fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
     state.auth.count_users().unwrap_or(1) == 0
         || current.map(|u| u.role == "admin").unwrap_or(false)
-}
-
-async fn show_device_token(
-    State(state): State<AppState>,
-    current: Option<Extension<crate::auth::CurrentUser>>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    if !current.as_ref().is_some_and(|u| u.role == "admin") {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "Only an Admin can see the device token.",
-        ));
-    }
-    let token = state.connect.device_token_grouped().ok();
-    Ok(Json(json!({
-        "device_token_set": token.is_some(),
-        "device_token": token,
-    })))
 }
 
 async fn save_device_token(
@@ -369,7 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_an_admin_can_see_or_set_the_device_token() {
+    async fn only_an_admin_can_set_the_device_token() {
         let h = harness(true);
         let (status, _) = send(
             &h,
@@ -380,20 +360,11 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
-        let (status, _) = send(
-            &h,
-            Method::GET,
-            "/api/v1/connect/device-token",
-            h.member.as_deref(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(!h.data_dir.join(DEVICE_TOKEN_FILE).exists());
     }
 
     #[tokio::test]
-    async fn an_admin_saves_and_reads_the_device_token() {
+    async fn an_admin_saves_the_device_token() {
         let h = harness(true);
         let (status, body) = send(
             &h,
@@ -412,17 +383,6 @@ mod tests {
         );
         assert!(h.state.connect.poll_wake().is_set());
         assert!(!h.state.connect.is_connect_active());
-        let (status, body) = send(
-            &h,
-            Method::GET,
-            "/api/v1/connect/device-token",
-            h.admin.as_deref(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["device_token"], GROUPED);
-        assert_eq!(body["device_token_set"], true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

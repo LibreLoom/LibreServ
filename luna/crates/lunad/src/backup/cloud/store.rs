@@ -759,12 +759,9 @@ fn connect_sentence(body: &[u8]) -> String {
 impl CloudStore for HttpStore {
     fn device_binding(&self) -> Option<String> {
         match &self.credential {
-            // A local label for per-device acks: a hash, so the token itself
-            // is never copied into the database.
-            Credential::Rolling(connect) => connect
-                .device_token()
-                .ok()
-                .map(|token| blake3::hash(token.as_bytes()).to_hex().to_string()),
+            // The stable Connect device id from claim time: replacing the
+            // local device token must not change it. None while unpaired.
+            Credential::Rolling(connect) => connect.bound_device_id(),
             Credential::Static(_) => None,
         }
     }
@@ -1106,6 +1103,7 @@ mod tests {
                 "state": "bound",
                 "bound": true,
                 "paired": true,
+                "device_id": "connect-device-1",
                 "hostname": "photos.luna.servers.libreloom.org",
                 "tunnel_token": "mock-token",
             }))
@@ -1484,6 +1482,20 @@ mod tests {
             assert!(!connect.is_connect_active());
             assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
         }
+    }
+
+    #[test]
+    fn device_binding_is_the_connect_device_id_and_survives_token_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let connect = rolling(dir.path(), "http://127.0.0.1:9");
+        let store = HttpStore::with_connect("http://127.0.0.1:9", connect.clone(), LUNA);
+        assert_eq!(store.device_binding().as_deref(), Some("connect-device-1"));
+        connect.set_device_token("8K4M2Q9XR8N36T5W1PZH").unwrap();
+        assert_eq!(store.device_binding().as_deref(), Some("connect-device-1"));
+        connect
+            .save(&serde_json::json!({ "state": "unbound", "paired": false }))
+            .unwrap();
+        assert_eq!(store.device_binding(), None);
     }
 
     #[test]

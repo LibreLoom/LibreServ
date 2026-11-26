@@ -208,7 +208,7 @@ mint_identity() {
     raw_token="$(json_field device_token)" || fail_http "device token mint response has no device_token"
   fi
 
-  DEVICE_TOKEN="$(printf '%s' "$raw_token" | tr -d '-[:space:]' | tr '[:lower:]' '[:upper:]')"
+  DEVICE_TOKEN="$(printf '%s' "$raw_token" | tr -d '[:space:]-' | tr '[:lower:]' '[:upper:]')"
   [[ "$DEVICE_TOKEN" =~ ^[0-9A-HJKMNP-TV-Z]{20}$ ]] || fail "device token is not a 20-character Crockford value"
   DEVICE_TOKEN_GROUPED="$(python3 -c 'import sys; value=sys.argv[1]; print("-".join(value[i:i+4] for i in range(0, len(value), 4)))' "$DEVICE_TOKEN")"
   log "Device token ready (not printed)"

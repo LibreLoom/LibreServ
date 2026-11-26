@@ -17,4 +17,19 @@ export const KNOWN_GAPS = [
     path: "$.connect_error",
     reason: "The generated fixture predates device auth; lunad now reports connection and pairing errors as connect_error. Remove this once a full ./ci run -p luna records the new response shape.",
   },
+  {
+    key: "GET /api/v1/connect/status",
+    path: "$.device_uid",
+    reason: "The generated fixture predates device-token pairing; lunad no longer reports a device_uid, and the fake never does. Remove this once a full ./ci run -p luna records the new response shape.",
+  },
+  {
+    key: "GET /api/v1/connect/status",
+    path: "$.verification_code",
+    reason: "The generated fixture predates device-token pairing; lunad no longer reports a verification_code, and the fake never does. Remove this once a full ./ci run -p luna records the new response shape.",
+  },
+  {
+    key: "GET /api/v1/connect/status",
+    path: "$.device_token_set",
+    reason: "New in device-token pairing: lunad says whether a device token is saved. The generated fixture predates it. Remove this once a full ./ci run -p luna records the new response shape.",
+  },
 ];

@@ -896,11 +896,17 @@ async fn before_the_first_account_setup_routes_still_answer() {
         (Method::GET, "/api/v1/network/status"),
         (Method::GET, "/api/v1/connect/status"),
     ] {
-        let res = call(&app, req(method.clone(), path, None, None)).await;
+        // /auth/status reads the caller's address, so give it a LAN client.
+        let mut request = req(method.clone(), path, None, None);
+        request.extensions_mut().insert(ConnectInfo(CLIENT));
+        let res = call(&app, request).await;
         let status = res.status();
         let body = text(res).await;
         assert_ne!(status, 401, "{method} {path}: {body}");
         assert!(!body.contains(NOT_SET_UP), "{method} {path}: {body}");
+        if path == "/api/v1/auth/status" {
+            assert_eq!(status, 200, "{method} {path}: {body}");
+        }
     }
 }
 

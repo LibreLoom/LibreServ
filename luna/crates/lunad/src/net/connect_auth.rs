@@ -351,6 +351,18 @@ impl ConnectService {
             .map(str::to_string)
     }
 
+    /// The stable Connect device id returned when this Luna was claimed.
+    /// `None` while unpaired (unbinding clears it). Replacing the local
+    /// device token never changes it.
+    pub fn bound_device_id(&self) -> Option<String> {
+        self.load()
+            .get("device_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    }
+
     pub fn is_connect_active(&self) -> bool {
         if self.unbind_pending() || self.rejected() {
             return false;

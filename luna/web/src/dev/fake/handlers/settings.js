@@ -50,10 +50,6 @@ del("/api/v1/device-tokens/:id", ({ world, user, params }) => {
 });
 
 // ── Luna Connect device token (local file only; never sent to Connect) ─────
-get("/api/v1/connect/device-token", ({ world, user }) => {
-  requireAdmin(user, "Only an Admin can see the device token.");
-  return { device_token_set: Boolean(world.connect.device_token) };
-});
 put("/api/v1/connect/device-token", ({ world, user, body }) => {
   if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can change the device token.");
   const token = normalizeDeviceToken(body.device_token);
