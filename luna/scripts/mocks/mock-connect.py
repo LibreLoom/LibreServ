@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Luna Connect mock with device pairing, rolling credentials, and setup grants.
+"""Luna Connect mock with device tokens, pairing, and rolling credentials.
 
 The mock keeps the development backup/domain controls and implements the same
 device-auth contract as luna/connect. Account routes accept X-Mock-Account (or
@@ -38,8 +38,7 @@ DEFAULT_PORT = int(os.environ.get("MOCK_CONNECT_PORT", "18765"))
 DEFAULT_STORAGE_DIR = Path(os.environ.get("LUNA_MOCK_STORAGE_DIR", DATA_DIR / "mock-cloud-storage"))
 DEFAULT_STATE_FILE = DATA_DIR / "mock-connect-state.json"
 PID_FILE = DATA_DIR / "mock-connect.pid"
-DEVICE_UID_FILE = DATA_DIR / "device-uid"
-PAIRING_CODE_FILE = DATA_DIR / "pairing-code"
+DEVICE_TOKEN_FILE = DATA_DIR / "device-token"
 CONNECT_CREDENTIAL_FILE = DATA_DIR / "connect-credential"
 
 CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -47,7 +46,6 @@ PRICE_PER_TB_MONTHLY = 8.00
 PAIRING_SECONDS = 600
 REFRESH_SECONDS = 300
 OVERLAP_SECONDS = 60
-GRANT_SECONDS = 600
 DEVICE_FAILURES = 5
 DEVICE_IP_FAILURES = 20
 ACCOUNT_FAILURES = 20
@@ -72,7 +70,7 @@ CF_HTML = """<!DOCTYPE html>
 </body></html>"""
 
 
-def normalize_uid(raw: str) -> str:
+def normalize_token(raw: str) -> str:
     out: list[str] = []
     for char in raw.strip():
         if char in "- _":
@@ -86,24 +84,16 @@ def normalize_uid(raw: str) -> str:
     return "".join(out)
 
 
-def valid_uid(uid: str) -> bool:
-    return len(uid) == 20 and all(char in CROCKFORD_ALPHABET for char in uid)
+def valid_token(token: str) -> bool:
+    return len(token) == 20 and all(char in CROCKFORD_ALPHABET for char in token)
 
 
-def group_uid(uid: str) -> str:
-    return "-".join(uid[index : index + 4] for index in range(0, len(uid), 4))
+def group_token(token: str) -> str:
+    return "-".join(token[index : index + 4] for index in range(0, len(token), 4))
 
 
-def mint_uid() -> str:
+def mint_token() -> str:
     return "".join(secrets.choice(CROCKFORD_ALPHABET) for _ in range(20))
-
-
-def mint_code() -> str:
-    return secrets.token_hex(3).upper()
-
-
-def valid_code(code: str) -> bool:
-    return len(code) == 6 and all(char in "0123456789ABCDEF" for char in code)
 
 
 def mint_secret() -> str:
@@ -224,10 +214,15 @@ class MockState:
         self._new_identity()
         self.load()
 
-    def _new_identity(self) -> None:
+    def _new_identity(self) -> str:
+        """Start a fresh identity and return its device token (ungrouped).
+
+        Like Connect, the mock keeps only a hash of the token and a short hint.
+        """
+        token = mint_token()
         self.device_id = "dev_" + secrets.token_hex(8)
-        self.device_uid = mint_uid()
-        self.verification_code = mint_code()
+        self.device_token_hash = hash_token(token)
+        self.device_token_hint = token[-4:]
         self.state = "unbound"
         self.account_id = ""
         self.auth_token = ""
@@ -237,12 +232,9 @@ class MockState:
         self.pairing_id = ""
         self.pairing_account_id = ""
         self.pairing_expires_at = 0
-        self.setup_grant = ""
-        self.setup_grant_account = ""
-        self.setup_grant_expires_at = 0
-        self.setup_grant_used_at = 0
         self.last_public_ip = ""
         self.last_public_ip_at = 0
+        return token
 
     def load(self) -> None:
         with self._lock:
@@ -253,11 +245,10 @@ class MockState:
                 data = json.loads(self.state_file.read_text(encoding="utf-8"))
                 for key in (
                     "mode", "subdomain", "domain", "hostname", "tunnel_token", "tunnel_id",
-                    "backup_unlocked", "backup_sources", "egress_bytes", "device_id", "device_uid",
-                    "verification_code", "state", "account_id", "auth_token", "auth_token_hash",
+                    "backup_unlocked", "backup_sources", "egress_bytes", "device_id", "device_token_hash",
+                    "device_token_hint", "state", "account_id", "auth_token", "auth_token_hash",
                     "previous_auth_token_hash", "previous_valid_until", "pairing_id", "pairing_account_id",
-                    "pairing_expires_at", "setup_grant", "setup_grant_account", "setup_grant_expires_at",
-                    "setup_grant_used_at", "last_public_ip", "last_public_ip_at",
+                    "pairing_expires_at", "last_public_ip", "last_public_ip_at",
                 ):
                     if key in data:
                         setattr(self, key, data[key])
@@ -282,17 +273,14 @@ class MockState:
                 "backup_sources": self.backup_sources, "egress_bytes": self.egress_bytes,
                 "storage_lunas": self.storage_lunas, "record_versions": self.record_versions,
                 "rate_counters": self.rate_counters,
-                "device_id": self.device_id, "device_uid": self.device_uid,
-                "verification_code": self.verification_code, "state": self.state,
+                "device_id": self.device_id, "device_token_hash": self.device_token_hash,
+                "device_token_hint": self.device_token_hint, "state": self.state,
                 "account_id": self.account_id, "auth_token": self.auth_token,
                 "auth_token_hash": self.auth_token_hash,
                 "previous_auth_token_hash": self.previous_auth_token_hash,
                 "previous_valid_until": self.previous_valid_until,
                 "pairing_id": self.pairing_id, "pairing_account_id": self.pairing_account_id,
-                "pairing_expires_at": self.pairing_expires_at, "setup_grant": self.setup_grant,
-                "setup_grant_account": self.setup_grant_account,
-                "setup_grant_expires_at": self.setup_grant_expires_at,
-                "setup_grant_used_at": self.setup_grant_used_at,
+                "pairing_expires_at": self.pairing_expires_at,
                 "last_public_ip": self.last_public_ip, "last_public_ip_at": self.last_public_ip_at,
             }
             write_private_atomic(self.state_file, json.dumps(data, indent=2) + "\n")
@@ -344,16 +332,16 @@ class MockState:
             self.save()
             return unlocked
 
-    def mint_device(self) -> tuple[str, str]:
+    def mint_device(self) -> str:
         with self._lock:
-            self._new_identity()
+            token = self._new_identity()
             self.subdomain = ""
             self.hostname = ""
             self.tunnel_id = ""
             self.tunnel_token = ""
             self.mode = "unbound"
             self.save()
-            return self.device_uid, self.verification_code
+            return token
 
     def reset(self) -> None:
         with self._lock:
@@ -392,21 +380,21 @@ class MockState:
         if not keep_tombstones:
             self.auth_token_hash = ""
             self.previous_auth_token_hash = ""
-        self.setup_grant = ""
-        self.setup_grant_account = ""
-        self.setup_grant_expires_at = 0
-        self.setup_grant_used_at = 0
         self.pairing_id = ""
         self.pairing_account_id = ""
         self.pairing_expires_at = 0
 
-    def start_pair(self, uid: str, code: str, account_id: str, now: int) -> tuple[str, str]:
+    def _token_matches(self, token: str) -> bool:
+        return bool(self.device_token_hash) and hmac.compare_digest(hash_token(token), self.device_token_hash)
+
+    def start_pair(self, token: str, account_id: str, now: int) -> tuple[str, str]:
         with self._lock:
             self._expire_pairing_locked(now)
-            if normalize_uid(uid) != self.device_uid or not hmac.compare_digest(code, self.verification_code):
+            if not self._token_matches(token):
                 return "", "invalid"
             if self.state not in ("unbound", "pairing"):
-                return "", "invalid"
+                # A valid token that cannot start pairing is ignored: no failure budget.
+                return "", "ignored"
             if self.state == "pairing" and self.pairing_expires_at > now:
                 if self.pairing_account_id == account_id:
                     return self.pairing_id, "ok"
@@ -422,21 +410,19 @@ class MockState:
             self.save()
             return self.pairing_id, "ok"
 
-    def claim_pair(self, uid: str, code: str, now: int) -> tuple[str, str]:
+    def claim_pair(self, token: str, now: int) -> tuple[str, str]:
         with self._lock:
             expired = self._expire_pairing_locked(now)
-            if normalize_uid(uid) != self.device_uid or not hmac.compare_digest(code, self.verification_code):
+            if not self._token_matches(token):
                 return "", "invalid"
             if self.state != "pairing" or not self.pairing_id or self.pairing_expires_at <= now:
                 if expired:
                     self.save()
-                if self.state in ("unbound", "pairing"):
-                    return "", "no_attempt"
-                return "", "invalid"
+                # A valid token with no live attempt (unbound, bound, or revoked) is
+                # ignored: the same generic 404, and no failure budget is spent.
+                return "", "ignored"
             self.state = "bound"
             self._issue_credential_locked()
-            self.setup_grant = ""
-            self.setup_grant_used_at = 0
             # Connect keeps the pairing row after a successful claim so the
             # account's poll can observe the bound device ID.
             self.save()
@@ -581,42 +567,21 @@ class MockState:
             self.save()
             return self.pairing_id
 
-    def issue_grant(self, account_id: str, device_id: str, now: int) -> str:
-        with self._lock:
-            if self.device_id != device_id or self.account_id != account_id or self.state != "bound":
-                return ""
-            self.setup_grant = mint_secret()
-            self.setup_grant_account = account_id
-            self.setup_grant_expires_at = now + GRANT_SECONDS
-            self.setup_grant_used_at = 0
-            self.save()
-            return self.setup_grant
-
-    def consume_grant(self, token: str, grant: str, now: int) -> bool:
-        with self._lock:
-            if not self.authenticate(token) or not self.setup_grant or self.setup_grant_used_at:
-                return False
-            if self.setup_grant_expires_at <= now or not hmac.compare_digest(grant, self.setup_grant):
-                return False
-            self.setup_grant_used_at = now
-            self.save()
-            return True
-
     @staticmethod
     def _rate_key(kind: str, value: str) -> str:
         return f"{kind}:{value}"
 
-    def _rate_context_locked(self, uid: str, account_id: str, client_ip: str, now: int) -> tuple[str, int]:
-        if not account_id and self.pairing_id and normalize_uid(uid) == self.device_uid:
+    def _rate_context_locked(self, token: str, account_id: str, client_ip: str, now: int) -> tuple[str, int]:
+        if not account_id and self.pairing_id and self._token_matches(token):
             account_id = self.pairing_account_id
         limit = DEVICE_FAILURES
         if client_ip and client_ip == self.last_public_ip and now - self.last_public_ip_at <= RECENT_IP_SECONDS:
             limit = DEVICE_IP_FAILURES
         return account_id, limit
 
-    def _rate_blocked_locked(self, uid: str, account_id: str, client_ip: str, now: int, device_limit: int) -> bool:
+    def _rate_blocked_locked(self, device_key: str, account_id: str, client_ip: str, now: int, device_limit: int) -> bool:
         for key, limit, window in (
-            (self._rate_key("pair-device", uid), device_limit, FAILURE_WINDOW),
+            (self._rate_key("pair-device", device_key), device_limit, FAILURE_WINDOW),
             (self._rate_key("pair-account", account_id), ACCOUNT_FAILURES, ACCOUNT_WINDOW),
             (self._rate_key("pair-ip", client_ip), IP_FAILURES, FAILURE_WINDOW),
         ):
@@ -627,9 +592,9 @@ class MockState:
                 return True
         return False
 
-    def _rate_failure_locked(self, uid: str, account_id: str, client_ip: str, now: int, device_limit: int) -> None:
+    def _rate_failure_locked(self, device_key: str, account_id: str, client_ip: str, now: int, device_limit: int) -> None:
         for key, limit, window in (
-            (self._rate_key("pair-device", uid), device_limit, FAILURE_WINDOW),
+            (self._rate_key("pair-device", device_key), device_limit, FAILURE_WINDOW),
             (self._rate_key("pair-account", account_id), ACCOUNT_FAILURES, ACCOUNT_WINDOW),
             (self._rate_key("pair-ip", client_ip), IP_FAILURES, FAILURE_WINDOW),
         ):
@@ -642,45 +607,48 @@ class MockState:
                 row["count"] += 1
         self.save()
 
-    def start_pair_attempt(self, uid: str, code: str, account_id: str, client_ip: str, now: int) -> tuple[str, str]:
+    def start_pair_attempt(self, token: str, account_id: str, client_ip: str, now: int) -> tuple[str, str]:
         """Check the budget and start pairing under one lock, including failures."""
         with self._lock:
-            account_id, device_limit = self._rate_context_locked(uid, account_id, client_ip, now)
-            if not valid_uid(uid) or not valid_code(code):
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+            device_key = hash_token(token)
+            account_id, device_limit = self._rate_context_locked(token, account_id, client_ip, now)
+            if not valid_token(token):
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
                 return "", "invalid"
-            if self._rate_blocked_locked(uid, account_id, client_ip, now, device_limit):
+            if self._rate_blocked_locked(device_key, account_id, client_ip, now, device_limit):
                 return "", "blocked"
-            pairing_id, status = self.start_pair(uid, code, account_id, now)
+            pairing_id, status = self.start_pair(token, account_id, now)
             if status == "invalid":
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
             return pairing_id, status
 
-    def claim_pair_attempt(self, uid: str, code: str, client_ip: str, now: int) -> tuple[str, str]:
+    def claim_pair_attempt(self, token: str, client_ip: str, now: int) -> tuple[str, str]:
         """Claim atomically; valid no-attempt polls never spend failure budget."""
         with self._lock:
-            account_id, device_limit = self._rate_context_locked(uid, "", client_ip, now)
-            if not valid_uid(uid) or not valid_code(code):
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+            device_key = hash_token(token)
+            account_id, device_limit = self._rate_context_locked(token, "", client_ip, now)
+            if not valid_token(token):
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
                 return "", "invalid"
-            if self._rate_blocked_locked(uid, account_id, client_ip, now, device_limit):
+            if self._rate_blocked_locked(device_key, account_id, client_ip, now, device_limit):
                 return "", "blocked"
-            token, status = self.claim_pair(uid, code, now)
+            credential, status = self.claim_pair(token, now)
             if status == "invalid":
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
-            return token, status
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
+            return credential, status
 
-    def cancel_pair_attempt(self, uid: str, code: str, client_ip: str, now: int) -> str:
+    def cancel_pair_attempt(self, token: str, client_ip: str, now: int) -> str:
         """Cancel a pending claim from the device itself; valid no-attempt is a no-op."""
         with self._lock:
-            account_id, device_limit = self._rate_context_locked(uid, "", client_ip, now)
-            if not valid_uid(uid) or not valid_code(code):
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+            device_key = hash_token(token)
+            account_id, device_limit = self._rate_context_locked(token, "", client_ip, now)
+            if not valid_token(token):
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
                 return "invalid"
-            if self._rate_blocked_locked(uid, account_id, client_ip, now, device_limit):
+            if self._rate_blocked_locked(device_key, account_id, client_ip, now, device_limit):
                 return "blocked"
-            if normalize_uid(uid) != self.device_uid or code.strip().upper() != self.verification_code:
-                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+            if not self._token_matches(token):
+                self._rate_failure_locked(device_key, account_id, client_ip, now, device_limit)
                 return "invalid"
             if self.state not in ("unbound", "pairing"):
                 return "invalid"
@@ -690,9 +658,6 @@ class MockState:
                 self.pairing_id = ""
                 self.pairing_account_id = ""
                 self.pairing_expires_at = 0
-            self.setup_grant = ""
-            self.setup_grant_expires_at = 0
-            self.setup_grant_used_at = 0
             self.save()
             return "ok"
 
@@ -928,8 +893,8 @@ class MockState:
         with self._lock:
             stats = self.get_backup_stats()
             return {
-                "device_id": self.device_id, "device_uid": group_uid(self.device_uid),
-                "verification_code": self.verification_code, "state": self.state,
+                "device_id": self.device_id, "device_token_hint": self.device_token_hint,
+                "state": self.state,
                 "mode": self.mode, "bound": self.state == "bound", "paired": self.state == "bound",
                 "backup_unlocked": self.backup_unlocked, "hostname": self.hostname,
                 "subdomain": self.subdomain, "domain": self.domain,
@@ -1057,10 +1022,8 @@ class MockConnectHandler(BaseHTTPRequestHandler):
             return None
         return target
 
-    def _pairing_input(self, payload: dict[str, Any]) -> tuple[str, str]:
-        uid = normalize_uid(str(payload.get("device_uid", "")))
-        code = str(payload.get("verification_code", "")).strip().upper()
-        return uid, code
+    def _pairing_input(self, payload: dict[str, Any]) -> str:
+        return normalize_token(str(payload.get("device_token", "")))
 
     def _pairing_id_from_path(self, path: str) -> str:
         prefix = "/api/v1/devices/pair/"
@@ -1189,7 +1152,7 @@ class MockConnectHandler(BaseHTTPRequestHandler):
             devices = []
             if self.state.account_id == self._account_id():
                 devices.append({
-                    "id": self.state.device_id, "device_uid": group_uid(self.state.device_uid),
+                    "id": self.state.device_id,
                     "state": self.state.state, "name": self.state.subdomain,
                     "subdomain": self.state.subdomain, "hostname": self.state.hostname,
                     "bound": self.state.state == "bound",
@@ -1324,11 +1287,11 @@ class MockConnectHandler(BaseHTTPRequestHandler):
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 now, client_ip = int(time.time()), self._client_ip()
                 if path.endswith("/claim"):
-                    self.state.claim_pair_attempt("", "", client_ip, now)
-                    self._send_json(404, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                    self.state.claim_pair_attempt("", client_ip, now)
+                    self._send_json(404, {"error": "That device token is wrong or is no longer pairing. Check it and try again."})
                 else:
-                    self.state.start_pair_attempt("", "", self._account_id(), client_ip, now)
-                    self._send_json(400, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                    self.state.start_pair_attempt("", self._account_id(), client_ip, now)
+                    self._send_json(400, {"error": "That device token is wrong or is no longer pairing. Check it and try again."})
                 return
         else:
             payload = self._read_json()
@@ -1362,8 +1325,8 @@ class MockConnectHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "removed_objects": self.state.clean_storage()})
             return
         if path == "/_mock/device/mint":
-            uid, code = self.state.mint_device()
-            self._send_json(200, {"ok": True, "device_uid": group_uid(uid), "verification_code": code})
+            token = self.state.mint_device()
+            self._send_json(200, {"ok": True, "device_token": token})
             return
         if path == "/_mock/reset":
             self.state.reset()
@@ -1380,60 +1343,37 @@ class MockConnectHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"auth_token": rotated, "refresh_after_seconds": REFRESH_SECONDS})
             return
         if path == "/api/v1/devices/pair/cancel":
-            uid, code = self._pairing_input(payload)
-            status = self.state.cancel_pair_attempt(uid, code, self._client_ip(), int(time.time()))
+            token = self._pairing_input(payload)
+            status = self.state.cancel_pair_attempt(token, self._client_ip(), int(time.time()))
             if status == "blocked":
                 self._send_json(429, {"error": "Too many pairing attempts. Wait a few minutes, then try again."})
                 return
             if status != "ok":
-                self._send_json(404, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                self._send_json(404, {"error": "That device token is wrong or is no longer pairing. Check it and try again."})
                 return
             self._send_json(204, {})
             return
         if path == "/api/v1/devices/pair/claim":
-            uid, code = self._pairing_input(payload)
-            token, status = self.state.claim_pair_attempt(uid, code, self._client_ip(), int(time.time()))
+            token = self._pairing_input(payload)
+            credential, status = self.state.claim_pair_attempt(token, self._client_ip(), int(time.time()))
             if status == "blocked":
                 self._send_json(429, {"error": "Too many pairing attempts. Wait a few minutes, then try again."})
                 return
             if status != "ok":
-                self._send_json(404, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                self._send_json(404, {"error": "That device token is wrong or is no longer pairing. Check it and try again."})
                 return
-            self._send_json(200, {"auth_token": token, "device_id": self.state.device_id, "refresh_after_seconds": REFRESH_SECONDS})
+            self._send_json(200, {"auth_token": credential, "device_id": self.state.device_id, "refresh_after_seconds": REFRESH_SECONDS})
             return
         if path == "/api/v1/devices/pair":
-            uid, code = self._pairing_input(payload)
-            pairing_id, status = self.state.start_pair_attempt(uid, code, self._account_id(), self._client_ip(), int(time.time()))
+            token = self._pairing_input(payload)
+            pairing_id, status = self.state.start_pair_attempt(token, self._account_id(), self._client_ip(), int(time.time()))
             if status == "blocked":
                 self._send_json(429, {"error": "Too many pairing attempts. Wait a few minutes, then try again."})
                 return
             if status != "ok":
-                self._send_json(400, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                self._send_json(400, {"error": "That device token is wrong or is no longer pairing. Check it and try again."})
                 return
             self._send_json(200, {"pairing_id": pairing_id})
-            return
-        if path.startswith("/api/v1/devices/") and path.endswith("/setup-grant"):
-            if not self._device_action_id(path, "setup-grant"):
-                self._send_json(404, {"error": "That Luna is not on this account."})
-                return
-            grant = self.state.issue_grant(self._account_id(), self.state.device_id, int(time.time()))
-            if not grant:
-                self._send_json(404, {"error": "That Luna is not on this account."})
-                return
-            out: dict[str, Any] = {"setup_grant": grant}
-            if self.state.hostname:
-                out["setup_url"] = f"https://{self.state.hostname}/setup#setup_grant={grant}"
-            self._send_json(200, out)
-            return
-        if path == "/api/v1/devices/setup-grant/consume":
-            token = self._require_auth()
-            if not token:
-                return
-            grant = str(payload.get("setup_grant", ""))
-            if not self.state.consume_grant(token, grant, int(time.time())):
-                self._send_json(400, {"error": "That setup link is no longer valid. Create a new one in Luna Connect."})
-                return
-            self._send_json(200, {"ok": True})
             return
         if path.startswith("/api/v1/devices/") and path.endswith("/revoke"):
             if not self._device_action_id(path, "revoke") or not self.state.revoke(self._account_id(), self.state.device_id):
@@ -1769,8 +1709,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Luna Connect Mock: {'ONLINE' if online else 'OFFLINE'} (http://{args.host}:{args.port})")
     print(f"  Mode:            {state.get('mode', 'unknown').upper()}")
     print(f"  State:           {state.get('state', 'unknown')}")
-    print(f"  Device ID:       {state.get('device_uid')}")
-    print(f"  Verification:    {state.get('verification_code')}")
+    print(f"  Device token:    ...{state.get('device_token_hint') or '????'}")
     print(f"  Hostname:        {state.get('hostname') or 'None'}")
     print(f"  Cloud Backup:    {'UNLOCKED' if state.get('backup_unlocked') else 'LOCKED'}")
     print(f"  Stored Objects:  {storage.get('objects_count', 0)} ({storage.get('total_formatted', '0 B')})")
@@ -1864,28 +1803,24 @@ def cmd_mint_device(args: argparse.Namespace) -> int:
         if code != 200:
             print(f"Error minting identity: {minted}", file=sys.stderr)
             return 1
-        uid = normalize_uid(minted["device_uid"])
-        verification = minted["verification_code"]
+        token = normalize_token(minted["device_token"])
     else:
         state = MockState(args.state_file, args.storage_dir)
-        uid, verification = state.mint_device()
-    print("Minted Luna device identity:")
-    print(f"  Device ID:       {group_uid(uid)}")
-    print(f"  Normalized:      {uid}")
-    print(f"  Verification:    {verification}")
+        token = state.mint_device()
+    print("Minted Luna device token:")
+    print(f"  Device token:    {group_token(token)}")
     if not args.write:
         return 0
 
     CONNECT_CREDENTIAL_FILE.unlink(missing_ok=True)
-    write_private(DEVICE_UID_FILE, uid)
-    write_private(PAIRING_CODE_FILE, verification)
+    write_private(DEVICE_TOKEN_FILE, token)
     if online:
         headers = {"X-Mock-Account": "acct_mock"}
-        code, started = http_client_request("POST", "/api/v1/devices/pair", {"device_uid": uid, "verification_code": verification}, host=args.host, port=args.port, headers=headers)
+        code, started = http_client_request("POST", "/api/v1/devices/pair", {"device_token": token}, host=args.host, port=args.port, headers=headers)
         if code != 200:
             print(f"Error starting mock pairing: {started}", file=sys.stderr)
             return 1
-        code, claimed = http_client_request("POST", "/api/v1/devices/pair/claim", {"device_uid": uid, "verification_code": verification}, host=args.host, port=args.port)
+        code, claimed = http_client_request("POST", "/api/v1/devices/pair/claim", {"device_token": token}, host=args.host, port=args.port)
         if code != 200:
             print(f"Error claiming mock pairing: {claimed}", file=sys.stderr)
             return 1
@@ -1893,11 +1828,11 @@ def cmd_mint_device(args: argparse.Namespace) -> int:
     else:
         state = MockState(args.state_file, args.storage_dir)
         now = int(time.time())
-        _, status = state.start_pair(uid, verification, "acct_mock", now)
+        _, status = state.start_pair(token, "acct_mock", now)
         if status != "ok":
             print("Error starting mock pairing.", file=sys.stderr)
             return 1
-        credential, claim_status = state.claim_pair(uid, verification, now)
+        credential, claim_status = state.claim_pair(token, now)
         if claim_status != "ok":
             print("Error claiming mock pairing.", file=sys.stderr)
             return 1
@@ -1905,7 +1840,7 @@ def cmd_mint_device(args: argparse.Namespace) -> int:
         print("Error claiming mock pairing.", file=sys.stderr)
         return 1
     write_private(CONNECT_CREDENTIAL_FILE, credential)
-    print(f"  Written:         {DEVICE_UID_FILE}, {PAIRING_CODE_FILE}, {CONNECT_CREDENTIAL_FILE} (mode 0600)")
+    print(f"  Written:         {DEVICE_TOKEN_FILE}, {CONNECT_CREDENTIAL_FILE} (mode 0600)")
     return 0
 
 
@@ -1945,8 +1880,7 @@ def run_server(host: str, port: int, state_file: Path, storage_dir: Path, mode: 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     print(f"Luna Connect mock listening on http://{host}:{port}")
-    print(f"Device ID: {group_uid(state.device_uid)}")
-    print(f"Verification code: {state.verification_code}")
+    print(f"Device token hint: ...{state.device_token_hint}")
     try:
         server.serve_forever()
     finally:
@@ -2000,8 +1934,8 @@ def main() -> int:
     backup_sub.add_parser("stats", parents=[common]).set_defaults(func=cmd_backup_stats)
     backup_sub.add_parser("clean", parents=[common]).set_defaults(func=cmd_backup_clean)
 
-    mint = sub.add_parser("mint-device", parents=[common], help="Mint a Device ID and verification code")
-    mint.add_argument("--write", action="store_true", help="Write device-uid, pairing-code, and a mock connect-credential")
+    mint = sub.add_parser("mint-device", parents=[common], help="Mint a device token")
+    mint.add_argument("--write", action="store_true", help="Write device-token and a mock connect-credential")
     mint.set_defaults(func=cmd_mint_device)
 
     serve = sub.add_parser("serve", parents=[common], aliases=["server", "run", "start"])

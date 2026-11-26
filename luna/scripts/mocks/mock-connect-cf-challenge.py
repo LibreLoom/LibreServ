@@ -10,9 +10,9 @@ Modes (set MOCK_MODE, or switch with POST /_debug/mode):
   401         — HTTP 401 JSON
 
 The script keeps a rolling credential in memory and mirrors it to
-``{LUNA_DATA_DIR}/connect-credential`` with mode 0600. It creates missing local
-Device ID and Verification code files so a fresh ``luna/dev`` can be used
-without the removed permanent device token.
+``{LUNA_DATA_DIR}/connect-credential`` with mode 0600. It creates a missing
+``{LUNA_DATA_DIR}/device-token`` (mode 0600) so a fresh ``luna/dev`` can be used
+without the removed permanent bearer token.
 
 Usage:
   python3 luna/scripts/mocks/mock-connect-cf-challenge.py
@@ -117,15 +117,11 @@ def ensure_local_material() -> str:
         token = mint_secret()
     write_private(credential_path, token)
 
-    uid_path = DATA_DIR / "device-uid"
-    if not uid_path.exists():
-        uid = "".join(secrets.choice(CROCKFORD_ALPHABET) for _ in range(20))
-        write_private(uid_path, uid)
-    code_path = DATA_DIR / "pairing-code"
-    if not code_path.exists():
-        write_private(code_path, secrets.token_hex(3).upper())
+    token_path = DATA_DIR / "device-token"
+    if not token_path.exists():
+        write_private(token_path, "".join(secrets.choice(CROCKFORD_ALPHABET) for _ in range(20)))
     else:
-        code_path.chmod(0o600)
+        token_path.chmod(0o600)
     return token
 
 

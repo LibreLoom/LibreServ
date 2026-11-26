@@ -12,9 +12,7 @@ from lib import DIST, KVM, WORK, Luna, VM, check, say, sh, summary
 ISO = f"{DIST}/luna-rapidinstall-x86_64.iso"
 SLOT_IMG = f"{DIST}/luna-os-x86_64.img.zst"
 DISK_GB = 7
-DEVICE_UID = "7K4M2Q9XR8N36T5W1PZH"
-VERIFICATION_CODE = "A3F91C"
-PAIRING_LINE = f"{DEVICE_UID} {VERIFICATION_CODE}"
+DEVICE_TOKEN = "7K4M2Q9XR8N36T5W1PZH"
 DEV_OF = {"virtio": "/dev/vda", "nvme": "/dev/nvme0n1", "mmc": "/dev/mmcblk0"}
 
 
@@ -119,12 +117,12 @@ def installer_files():
 
 
 def stick_with_tokens():
-    """A writable copy of the stick with one exact pairing line on LUNAASSETS."""
+    """A writable copy of the stick with one exact device token line on LUNAASSETS."""
     stick = f"{WORK}/stick.iso"
     if not os.path.exists(stick):
         sh(f"cp {ISO} {stick}")
     start = magazine_start(stick)
-    open(f"{WORK}/TOKENS", "w").write(PAIRING_LINE + "\n")
+    open(f"{WORK}/TOKENS", "w").write(DEVICE_TOKEN + "\n")
     sh(f"MTOOLS_SKIP_CHECK=1 mcopy -o -i {stick}@@{start} {WORK}/TOKENS ::TOKENS")
     return stick, start
 
@@ -133,7 +131,7 @@ def magazine_start(stick):
     """First byte of the writable magazine at the end of the stick.
 
     Everything below it is the installer image and must stay byte-identical;
-    the magazine is rewritten with the factory pairing line on every stage, so it is
+    the magazine is rewritten with the factory device token line on every stage, so it is
     the only part allowed to differ. Read from the partition table instead of
     assumed, because the image changes size from release to release.
     """
@@ -172,16 +170,16 @@ def stage_install(bus, fw):
     check(f"[{bus}] installer finished", "Installation complete" in log, log[-400:])
     check(f"[{bus}] installer auto-picked the built-in disk", re.search(r"Installing to /dev/\w+", log) is not None)
     check(f"[{bus}] no pack warnings", "WARNING" not in log, "\n".join(l for l in log.splitlines() if "WARNING" in l))
-    check(f"[{bus}] pairing material taken from LUNAASSETS", "Device ID and Verification code taken from LUNAASSETS" in log)
+    check(f"[{bus}] device token taken from LUNAASSETS", "Device token taken from LUNAASSETS" in log)
     p = parts(disk)
     check(f"[{bus}] GPT has the 5 expected partitions", sorted(p) == [1, 2, 3, 4, 5], str(p))
     names = [p[n][2] for n in sorted(p)] if sorted(p) == [1, 2, 3, 4, 5] else []
     # lunad finds the slots and the boot partition by these exact GPT names when it applies an OS update
     check(f"[{bus}] partition names", names == ["BIOSGRUB", "LUNAESP", "LUNA_A", "LUNA_B", "LUNA_DATA"], str(names))
-    check(f"[{bus}] device-uid on LUNA_DATA", ext_cat(disk, 5, "/device-uid").strip() == DEVICE_UID)
-    check(f"[{bus}] pairing-code on LUNA_DATA", ext_cat(disk, 5, "/pairing-code").strip() == VERIFICATION_CODE)
-    check(f"[{bus}] pairing-code mode is 0600", ext_mode(disk, 5, "/pairing-code") == "600")
-    check(f"[{bus}] no legacy device-token on LUNA_DATA", not ext_cat(disk, 5, "/device-token").strip())
+    check(f"[{bus}] device-token on LUNA_DATA", ext_cat(disk, 5, "/device-token").strip() == DEVICE_TOKEN)
+    check(f"[{bus}] device-token mode is 0600", ext_mode(disk, 5, "/device-token") == "600")
+    check(f"[{bus}] no removed device-uid or pairing-code on LUNA_DATA",
+          not ext_cat(disk, 5, "/device-uid").strip() and not ext_cat(disk, 5, "/pairing-code").strip())
     remaining = sh(f"MTOOLS_SKIP_CHECK=1 mtype -i {stick}@@{assets_offset} ::TOKENS", check_rc=False)
     check(f"[{bus}] TOKENS magazine advanced", remaining.strip() == "", remaining)
     want = open(f"{DIST}/luna-os-x86_64.img.zst.sha256").read().split()[0]
@@ -380,10 +378,7 @@ def stage_boot():
     ids = out.split()
     check("luna-boot-ok confirmed this boot", len(ids) == 2 and ids[0] == ids[1], out)
     rc, out = vm.sh("cat /var/lib/luna/issue")
-    issue_compact = re.sub(r"[\s-]", "", out).upper()
-    check("console issue shows an address, Device ID, and Verification code",
-          DEVICE_UID in issue_compact and VERIFICATION_CODE in issue_compact
-          and re.search(r"\d+\.\d+\.\d+\.\d+", out) is not None, out)
+    check("console issue shows an address", re.search(r"\d+\.\d+\.\d+\.\d+", out) is not None, out)
     rc, out = vm.sh("ps | grep -E 'lunad|luna-console' | grep -v grep")
     check("lunad and the tty1 console are running", "lunad" in out and "luna-console" in out, out)
     rc, out = vm.sh("grep -E 'VmRSS' /proc/$(pidof lunad)/status")
@@ -399,8 +394,6 @@ def stage_boot():
     check("tty1 console shows the web address to open", "10.0.2.15" in scr.replace(" ", "") or "luna.local" in scr, scr[-400:])
     scr_compact = re.sub(r"[\s-]", "", scr).upper()
     check("tty1 console shows the Device token section", "DEVICETOKEN" in scr_compact, scr[-400:])
-    check("tty1 console shows the Device ID", "DEVICEID" in scr_compact and DEVICE_UID in scr_compact, scr[-400:])
-    check("tty1 console shows the Verification code", "VERIFICATIONCODE" in scr_compact and VERIFICATION_CODE in scr_compact, scr[-400:])
     check("tty1 console does not tell anyone to use a terminal for normal use", "Login below is only for recovery" in scr or "recovery" in scr.lower(), scr[-400:])
     vm.type("root\n", 0.15)
     time.sleep(3)
@@ -431,7 +424,7 @@ def part_setup(vm, lu):
         check("system check is healthy", c == 200 and b.get("healthy"), json.dumps(b)[:600])
     c, b = lu.post("/api/v1/setup/fetch-mag")
     show("fetch-mag", (c, b))
-    check("pairing material already present is recognised", c == 200 and b.get("ok") is True and b.get("source") == "existing", str(b))
+    check("device token already present is recognised", c == 200 and b.get("ok") is True and b.get("source") == "existing", str(b))
     c, b = lu.post("/api/v1/setup", {"current_step": "network", "step_data": {"network_connected": True}})
     check("wizard progress saves before an account exists", c == 200 and b.get("current_step") == "network", str(b))
     c, b = lu.post("/api/v1/setup", {"current_step": "bogus"})
@@ -453,7 +446,7 @@ def part_setup(vm, lu):
     c, b = Luna(18080).get("/api/v1/setup/preflight")
     check("system check is closed once setup is done", c == 403, f"{c} {b}")
     c, b = Luna(18080).post("/api/v1/setup/fetch-mag")
-    check("pairing-material fetch is closed once setup is done", c == 403, f"{c} {b}")
+    check("device token fetch is closed once setup is done", c == 403, f"{c} {b}")
     # logout/login
     c, b = lu.post("/api/v1/auth/logout")
     check("sign out works", c == 200, f"{c} {b}")
@@ -1138,8 +1131,8 @@ def stage_installer_prod(fw="bios"):
     check(f"[{fw}] after the countdown it asks for INSTALL", ok)
     vm.type("INSTALL\n")
     check(f"[{fw}] it installs and says so", vm.wait_screen(r"Installation complete|Luna will reboot", 600))
-    # The installer offers the optional Connect pairing fields; empty Device ID skips it.
-    check(f"[{fw}] after unpacking it offers the optional Device ID step", vm.wait_screen(r"Device ID|Verification code|Device token", 600))
+    # The installer offers the optional device token step; an empty answer skips it.
+    check(f"[{fw}] after unpacking it offers the optional device token step", vm.wait_screen(r"Device token", 600))
     vm.key("ret")
     exited = vm.wait_exit(300)
     if not exited:
@@ -1735,7 +1728,7 @@ def stage_app():
         c, b = lu.get(f"/api/v1/backups?drive={A}")
         show("backups", (c, str(b)[:400]))
         check("[app] the backup reports it finished fine", c == 200 and any(x.get("state") == "ok" and not x.get("last_error") for x in b), str(b)[:300])
-    # Local app access tokens (separate from Luna Connect pairing material).
+    # Local app access tokens (separate from the Luna Connect device token).
     c, b = lu.post("/api/v1/device-tokens", {"name": "e2e laptop"})
     tok = b.get("token") if isinstance(b, dict) else None
     check("[app] an access token can be made", c in (200, 201) and tok, f"{c} {b}")
@@ -1927,12 +1920,12 @@ def stage_recovery():
     check("[extra files] Luna restarts", reboot_with(img))
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
     check("[extra files] a stick that also holds other files is refused", c in (400, 401), f"{c} {b}")
-    # the real thing: the fixed filename is sufficient, with no Device ID in the name
+    # the real thing: the fixed filename is sufficient, with no token in the name
     img = recovery_stick("rec-ok", {"luna-recover.luna": payload})
     check("[recovery] Luna restarts with the stick in", reboot_with(img))
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": new_pw})
     if c != 200:
-        rc, o = vm.sh("grep -i -E 'recover|stick' /var/lib/luna/logs/luna.log | tail -n 12 | cut -c1-300; cat /var/lib/luna/device-uid; cat /var/lib/luna/pairing-code; echo; grep -c . /var/lib/luna/logs/luna.log")
+        rc, o = vm.sh("grep -i -E 'recover|stick' /var/lib/luna/logs/luna.log | tail -n 12 | cut -c1-300; ls -l /var/lib/luna/device-token; echo; grep -c . /var/lib/luna/logs/luna.log")
         say("    log:\n" + o)
     check("[recovery] the admin can sign in with the new password", c == 200 and b.get("role") == "admin", f"{c} {b}")
     c, b = Luna(18080).post("/api/v1/auth/login", {"username": "admin", "password": ADMIN["password"]})
@@ -2226,7 +2219,7 @@ def stage_update():
     lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
     # Connect is off for the OS update path: the new slot has no test hook for
     # the mock, so remove all local material that could start a Connect request.
-    vm.sh("rm -f /var/lib/luna/device-uid /var/lib/luna/pairing-code /var/lib/luna/connect-credential /var/lib/luna/connect-unbind-pending /var/lib/luna/connect.json")
+    vm.sh("rm -f /var/lib/luna/device-token /var/lib/luna/connect-credential /var/lib/luna/connect-unbind-pending /var/lib/luna/connect.json")
     c, b = lu.get("/api/v1/system/updates/source")
     check("update source: shows the built-in signer", c == 200 and b.get("default_keys") is True and b.get("effective_keys"), f"{c} {b}")
     c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
@@ -2441,7 +2434,7 @@ def stage_update_powercut():
         login_admin(lu)
         set_test_phrase(lu)
         lu.post("/api/v1/setup", {"setup_completed": True, "current_step": "done"})
-        vm.sh("rm -f /var/lib/luna/device-uid /var/lib/luna/pairing-code /var/lib/luna/connect-credential /var/lib/luna/connect-unbind-pending /var/lib/luna/connect.json")
+        vm.sh("rm -f /var/lib/luna/device-token /var/lib/luna/connect-credential /var/lib/luna/connect-unbind-pending /var/lib/luna/connect.json")
         lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
         publish(f"0.2.{cut}", key="good", os_img=good_v4)
         c, b = api_check(lu)

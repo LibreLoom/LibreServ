@@ -55,38 +55,37 @@ fi
 
 bash "${MOCK_SH}" mode set bound >/dev/null
 
-DEVICE_UID_FILE="${DATA_DIR}/device-uid"
-PAIRING_CODE_FILE="${DATA_DIR}/pairing-code"
+DEVICE_TOKEN_FILE="${DATA_DIR}/device-token"
 CREDENTIAL_FILE="${DATA_DIR}/connect-credential"
-server_uid="$(bash "${MOCK_SH}" status --json | python3 -c '
+# The mock reports only the last four characters of the token (a hint), so the
+# local file is checked against that hint.
+server_hint="$(bash "${MOCK_SH}" status --json | python3 -c '
 import json, sys
 state = json.load(sys.stdin)
-print("".join(char for char in str(state.get("device_uid", "")) if char not in "- _").upper().replace("I", "1").replace("L", "1").replace("O", "0"))
+print(str(state.get("device_token_hint", "")).upper())
 ')"
 need_device=1
-if [ -f "${DEVICE_UID_FILE}" ] && [ -f "${PAIRING_CODE_FILE}" ] && [ -s "${CREDENTIAL_FILE}" ]; then
-  chmod 600 "${PAIRING_CODE_FILE}" "${CREDENTIAL_FILE}"
-  uid="$(tr -d ' \n\r\t-' <"${DEVICE_UID_FILE}" | tr '[:lower:]' '[:upper:]' | tr 'ILO' '110')"
-  code="$(tr -d ' \n\r\t' <"${PAIRING_CODE_FILE}" | tr '[:lower:]' '[:upper:]')"
+if [ -s "${DEVICE_TOKEN_FILE}" ] && [ -s "${CREDENTIAL_FILE}" ]; then
+  chmod 600 "${DEVICE_TOKEN_FILE}" "${CREDENTIAL_FILE}"
+  token="$(tr -d ' \n\r\t-' <"${DEVICE_TOKEN_FILE}" | tr '[:lower:]' '[:upper:]' | tr 'ILO' '110')"
   credential="$(tr -d '\r\n' <"${CREDENTIAL_FILE}")"
   credential_status="$(curl -sS --connect-timeout 1 --max-time 3 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${credential}" \
     "http://${MOCK_CONNECT_HOST}:${MOCK_CONNECT_PORT}/api/v1/status" 2>/dev/null || true)"
-  if [[ "${uid}" =~ ^[0-9A-HJKMNP-TV-Z]{20}$ ]] \
-    && [[ "${code}" =~ ^[0-9A-F]{6}$ ]] \
-    && [[ "${uid}" == "${server_uid}" ]] \
+  if [[ "${token}" =~ ^[0-9A-HJKMNP-TV-Z]{20}$ ]] \
+    && [[ "${token: -4}" == "${server_hint}" ]] \
     && [[ "${credential_status}" == "200" ]]; then
     need_device=0
   fi
 fi
 
 if [ "${need_device}" -eq 1 ]; then
-  echo ">> Minting Device ID, verification code, and mock credential into ${DATA_DIR}"
+  echo ">> Minting device token and mock credential into ${DATA_DIR}"
   bash "${MOCK_SH}" mint-device --write >/dev/null
 else
   echo ">> Reusing paired mock device in ${DATA_DIR}"
 fi
-chmod 600 "${PAIRING_CODE_FILE}" "${CREDENTIAL_FILE}"
+chmod 600 "${DEVICE_TOKEN_FILE}" "${CREDENTIAL_FILE}"
 
 # Minting a fresh identity clears the mock's address, so assign it afterward.
 bash "${MOCK_SH}" domain set "${SUBDOMAIN}" "${DOMAIN_EXTRA[@]}" >/dev/null

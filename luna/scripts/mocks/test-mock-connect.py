@@ -80,10 +80,15 @@ def json_req(
     return http_req(method, path, body=body, headers=headers)
 
 
-def pair_identity(uid: str, verification: str) -> tuple[int, dict[str, str], bytes, str]:
+def device_key(device_token: str) -> str:
+    """The mock keys failure budgets by the hash of the submitted token, never the token."""
+    return hashlib.sha256(device_token.encode("utf-8")).hexdigest()
+
+
+def pair_identity(device_token: str) -> tuple[int, dict[str, str], bytes, str]:
     status, _, body = json_req(
         "POST", "/api/v1/devices/pair",
-        {"device_uid": uid, "verification_code": verification},
+        {"device_token": device_token},
         account="acct_mock",
     )
     if status != 200:
@@ -91,7 +96,7 @@ def pair_identity(uid: str, verification: str) -> tuple[int, dict[str, str], byt
     pairing_id = json.loads(body)["pairing_id"]
     status, _, body = json_req(
         "POST", "/api/v1/devices/pair/claim",
-        {"device_uid": uid, "verification_code": verification},
+        {"device_token": device_token},
     )
     token = json.loads(body).get("auth_token", "") if status == 200 else ""
     return status, {"pairing_id": pairing_id}, body, token
@@ -125,7 +130,7 @@ def test_suite() -> None:
         assert code == 0, f"Status failed: {out}"
         assert "OFFLINE" in out
 
-        # Mint the Device ID, reusable Verification code, and rolling credential.
+        # Mint the device token and rolling credential.
         code, out, _ = run_cli(
             "--host", TEST_HOST,
             "--port", str(TEST_PORT),
@@ -140,7 +145,11 @@ def test_suite() -> None:
         assert len(token) == 43
         assert state_file.stat().st_mode & 0o777 == 0o600
         assert credential_file.stat().st_mode & 0o777 == 0o600
-        assert (temp_dir / "pairing-code").stat().st_mode & 0o777 == 0o600
+        assert (temp_dir / "device-token").stat().st_mode & 0o777 == 0o600
+        device_token = (temp_dir / "device-token").read_text().strip()
+        assert len(device_token) == 20 and device_token == device_token.upper()
+        # Connect-style storage: the state file keeps a hash and a hint, never the token.
+        assert device_token not in state_file.read_text()
 
         # Set domain after minting; a fresh identity starts without an address.
         code, out, _ = run_cli(
@@ -156,8 +165,8 @@ def test_suite() -> None:
 
         mock_state_type = runpy.run_path(str(SCRIPT))["MockState"]
         expiry_state = mock_state_type(temp_dir / "expiry.json", temp_dir / "expiry-storage")
-        expiry_uid, expiry_code = expiry_state.mint_device()
-        expiry_pair, status = expiry_state.start_pair(expiry_uid, expiry_code, "acct_mock", 100)
+        expiry_token = expiry_state.mint_device()
+        expiry_pair, status = expiry_state.start_pair(expiry_token, "acct_mock", 100)
         assert status == "ok"
         expiry_state.pairing_expires_at = 101
         assert expiry_state.pair_status(expiry_pair, "acct_mock", 101) == ("unbound", "")
@@ -336,17 +345,16 @@ def test_suite() -> None:
 
         # 4. Pair again after unbind, then test backup locked (402).
         run_cli("--host", TEST_HOST, "--port", str(TEST_PORT), "mode", "set", "unbound", env=test_env)
-        uid = (temp_dir / "device-uid").read_text().strip()
-        verification = (temp_dir / "pairing-code").read_text().strip()
+        device_token = (temp_dir / "device-token").read_text().strip()
         st, _, body = http_req(
             "POST", "/api/v1/devices/pair",
-            body=json.dumps({"device_uid": uid, "verification_code": verification}).encode("utf-8"),
+            body=json.dumps({"device_token": device_token}).encode("utf-8"),
             headers={"X-Mock-Account": "acct_mock", "Content-Type": "application/json"},
         )
         assert st == 200, body
         st, _, body = http_req(
             "POST", "/api/v1/devices/pair/claim",
-            body=json.dumps({"device_uid": uid, "verification_code": verification}).encode("utf-8"),
+            body=json.dumps({"device_token": device_token}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         assert st == 200, body
@@ -419,42 +427,39 @@ def test_suite() -> None:
         print(">> [8/10] Testing pairing budgets, rolling credentials, and device routes...")
         st, _, body = json_req("POST", "/_mock/device/mint", {})
         assert st == 200, body
-        minted = json.loads(body)
-        uid = minted["device_uid"].replace("-", "")
-        verification = minted["verification_code"]
+        device_token = json.loads(body)["device_token"]
 
         # Ordinary unbound polling is valid but has no active attempt. It must
         # return the generic 404 without spending any of the five failures.
         for _ in range(7):
-            st, _, _ = json_req("POST", "/api/v1/devices/pair/claim", {"device_uid": uid, "verification_code": verification})
+            st, _, _ = json_req("POST", "/api/v1/devices/pair/claim", {"device_token": device_token})
             assert st == 404
         counters = json.loads(state_file.read_text())["rate_counters"]
-        assert f"pair-device:{uid}" not in counters
+        assert f"pair-device:{device_key(device_token)}" not in counters
 
-        wrong_code = "000000" if verification != "000000" else "FFFFFF"
+        # A wrong token spends the budget for its own hash, not the real device's.
+        wrong_token = "0" * 20 if device_token != "0" * 20 else "Z" * 20
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
             statuses = list(pool.map(
                 lambda _: json_req(
                     "POST", "/api/v1/devices/pair/claim",
-                    {"device_uid": uid, "verification_code": wrong_code},
+                    {"device_token": wrong_token},
                 )[0],
                 range(10),
             ))
         assert statuses.count(404) == 5, statuses
         assert statuses.count(429) == 5, statuses
         counters = json.loads(state_file.read_text())["rate_counters"]
-        assert counters[f"pair-device:{uid}"]["count"] == 5
+        assert counters[f"pair-device:{device_key(wrong_token)}"]["count"] == 5
 
-        # A fresh UID avoids the deliberately exhausted bucket while retaining
+        # A fresh token avoids the deliberately exhausted bucket while retaining
         # the same trusted-IP counter, which is still below its separate limit.
         st, _, body = json_req("POST", "/_mock/device/mint", {})
         assert st == 200, body
-        minted = json.loads(body)
-        uid = minted["device_uid"].replace("-", "")
-        verification = minted["verification_code"]
+        device_token = json.loads(body)["device_token"]
         st, _, body = json_req(
             "POST", "/api/v1/devices/pair",
-            {"device_uid": uid, "verification_code": verification},
+            {"device_token": device_token},
             account="acct_mock",
         )
         assert st == 200, body
@@ -463,13 +468,18 @@ def test_suite() -> None:
         assert st == 200 and json.loads(body)["status"] == "waiting", body
         st, _, body = json_req(
             "POST", "/api/v1/devices/pair/claim",
-            {"device_uid": uid, "verification_code": verification},
+            {"device_token": device_token},
         )
         assert st == 200, body
         token = json.loads(body)["auth_token"]
         st, _, body = json_req("GET", f"/api/v1/devices/pair/{pairing_id}", account="acct_mock")
         assert st == 200 and json.loads(body)["status"] == "bound", body
         device_id = json.loads(body)["device_id"]
+
+        # While bound, the device token is ignored: the same generic 404, and the
+        # rolling credential is what keeps working.
+        st, _, _ = json_req("POST", "/api/v1/devices/pair/claim", {"device_token": device_token})
+        assert st == 404
 
         st, _, body = json_req("POST", "/api/v1/token/refresh", token=token)
         assert st == 200, body
@@ -484,7 +494,7 @@ def test_suite() -> None:
         st, _, _ = json_req("GET", "/api/v1/status", token="A" * 43)
         assert st == 401
 
-        for method, suffix in (("POST", "setup-grant"), ("POST", "revoke"), ("POST", "recover"), ("POST", "domain")):
+        for method, suffix in (("POST", "revoke"), ("POST", "recover"), ("POST", "domain")):
             st, _, _ = json_req(method, f"/api/v1/devices/wrong-device/{suffix}", {}, account="acct_mock")
             assert st == 404, (method, suffix)
         st, _, _ = json_req("DELETE", "/api/v1/devices/wrong-device", account="acct_mock")
@@ -508,7 +518,7 @@ def test_suite() -> None:
         st, _, _ = json_req("GET", "/api/v1/status", token="A" * 43)
         assert st == 401
 
-        st, _, _, token = pair_identity(uid, verification)
+        st, _, _, token = pair_identity(device_token)
         assert st == 200
         st, _, body = json_req("POST", f"/api/v1/devices/{device_id}/revoke", {}, account="acct_mock")
         assert st == 200, body
@@ -516,7 +526,7 @@ def test_suite() -> None:
         assert st == 403 and json.loads(body)["code"] == "device_revoked", body
 
         # Account-authorized recovery creates a fresh attempt; Luna still claims
-        # it with the same Device ID and reusable Verification code.
+        # it with the same device token.
         st, _, body = json_req("POST", f"/api/v1/devices/{device_id}/recover", {}, account="acct_mock")
         assert st == 200, body
         recovery_pair = json.loads(body)["pairing_id"]
@@ -524,7 +534,7 @@ def test_suite() -> None:
         assert st == 200 and json.loads(body)["status"] == "waiting", body
         st, _, body = json_req(
             "POST", "/api/v1/devices/pair/claim",
-            {"device_uid": uid, "verification_code": verification},
+            {"device_token": device_token},
         )
         assert st == 200, body
         token = json.loads(body)["auth_token"]
@@ -609,10 +619,8 @@ def test_suite() -> None:
         # first device's X-Luna-Id namespace.
         st, _, body = json_req("POST", "/_mock/device/mint", {})
         assert st == 200, body
-        minted = json.loads(body)
-        uid = minted["device_uid"].replace("-", "")
-        verification = minted["verification_code"]
-        st, _, _, token = pair_identity(uid, verification)
+        device_token = json.loads(body)["device_token"]
+        st, _, _, token = pair_identity(device_token)
         assert st == 200
         st, _, _ = json_req("PUT", "/api/v1/storage/records/notes/takeover", raw=b"x", token=token, luna_id="luna-test")
         assert st == 403

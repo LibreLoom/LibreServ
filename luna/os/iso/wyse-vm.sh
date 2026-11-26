@@ -4,11 +4,11 @@
 # with BIOS (SeaBIOS), not UEFI like the real thing: QEMU's UEFI firmware cannot read
 # an eMMC/SD controller, SeaBIOS can (the e2e tests do the same). The disk has both.
 #
-#   iso/wyse-vm.sh [start] [DEVICE_ID CODE]
+#   iso/wyse-vm.sh [start] [DEVICE_TOKEN]
 #        Default. Boots the virtual eMMC. If there is none yet, it is built from
 #        os/dist/luna-os-x86_64.img.zst with the installer's own flash code
-#        (iso/provision-disk.sh, uses sudo), so no installer screens. DEVICE_ID
-#        and CODE (the Luna Connect pairing values) are optional.
+#        (iso/provision-disk.sh, uses sudo), so no installer screens. DEVICE_TOKEN
+#        (the Luna Connect device token) is optional.
 #   iso/wyse-vm.sh install
 #        Erase the virtual eMMC and run the real rapidinstall ISO from a virtual
 #        USB stick (keyboard layout: KEYMAP, default colemak).
@@ -73,10 +73,10 @@ usb)
 	;;
 reset) rm -f "$EMMC"; echo "virtual Wyse 3040 reset"; exit 0 ;;
 start)
-	[ "$#" -le 3 ] || { echo "usage: $0 [start] [DEVICE_ID CODE]" >&2; exit 2; }
+	[ "$#" -le 2 ] || { echo "usage: $0 [start] [DEVICE_TOKEN]" >&2; exit 2; }
 	if [ ! -f "$EMMC" ]; then
 		echo "==> building the virtual eMMC from the OS image (sudo needed for a loop device)"
-		if ! sudo "$OSDIR/iso/provision-disk.sh" "$EMMC.new" ${2:+"$2"} ${3:+"$3"}; then
+		if ! sudo "$OSDIR/iso/provision-disk.sh" "$EMMC.new" ${2:+"$2"}; then
 			rm -f "$EMMC.new"; exit 1
 		fi
 		sudo chown "$(id -u):$(id -g)" "$EMMC.new"

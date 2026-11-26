@@ -109,4 +109,4 @@ printf 'RESOLV_CONF=/run/resolv.conf\n' >> "$ROOTFS/etc/udhcpc/udhcpc.conf"
 rm -f "$ROOTFS/etc/resolv.conf"
 ln -s /run/resolv.conf "$ROOTFS/etc/resolv.conf"
 
-# tty1 luna-console for status + shell login (root / luna). Device ID, Verification code, and IP help are
+# tty1 luna-console for status + shell login (root / luna). Device token state and IP help are

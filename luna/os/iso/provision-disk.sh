@@ -1,21 +1,20 @@
 #!/bin/sh
 # Dev: build a ready-to-boot Luna disk image from os/dist/luna-os-x86_64.img.zst,
 # using the same flash code the installer runs (partitions, both OS slots,
-# GRUB for BIOS and UEFI, checksum, optional Device ID + Verification code).
+# GRUB for BIOS and UEFI, checksum, optional device token).
 # It skips only the installer's screens. Needs root (loop device); wyse-vm.sh
 # calls it through sudo.
 #
-#   sudo iso/provision-disk.sh DISK.raw [DEVICE_ID VERIFICATION_CODE]
+#   sudo iso/provision-disk.sh DISK.raw [DEVICE_TOKEN]
 #
 # KEEP_DATA_FROM=OLD.raw copies the old disk's data partition (accounts, files
 # index, settings) onto the new one, so only the operating system is replaced.
 set -eu
 
-[ "$#" -ge 1 ] || { echo "usage: $0 DISK.raw [DEVICE_ID VERIFICATION_CODE]" >&2; exit 2; }
+[ "$#" -ge 1 ] || { echo "usage: $0 DISK.raw [DEVICE_TOKEN]" >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { echo "run as root (it sets up a loop device)" >&2; exit 2; }
 DISK="$1"
-UID_="${2:-}"
-CODE="${3:-}"
+TOKEN="${2:-}"
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 IMG="${LUNA_OS_IMAGE:-$ROOT/os/dist/luna-os-x86_64.img.zst}"
@@ -63,9 +62,9 @@ if [ -n "${KEEP_DATA_FROM:-}" ]; then
 		(cd "$MNT" && tar --numeric-owner --xattrs --acls -xpf -)
 fi
 _record_os_image_hash "$MNT" "$_os_hash"
-if [ -n "$UID_" ]; then
-	factory_write_pairing_material "$MNT" "$UID_" "$CODE" || {
-		echo "That Device ID or Verification code is not valid." >&2
+if [ -n "$TOKEN" ]; then
+	factory_write_device_token "$MNT" "$TOKEN" || {
+		echo "That device token is not valid." >&2
 		exit 1
 	}
 fi

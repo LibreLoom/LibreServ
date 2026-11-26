@@ -1,12 +1,12 @@
 import { useState } from "react";
 
 /**
- * @typedef {{ deviceUid: string, verificationCode: string }} Guide
+ * @typedef {{ deviceToken: string }} Guide
  */
 
 const DEFAULT_GUIDES = [
-  { deviceUid: "7K4M-2Q9X-R8N3-6T5W-1PZH", verificationCode: "A3F91C" },
-  { deviceUid: "9C2D-7F4H-3J8K-5M6N-1PQR", verificationCode: "B7E42D" },
+  { deviceToken: "7K4M-2Q9X-R8N3-6T5W-1PZH" },
+  { deviceToken: "9C2D-7F4H-3J8K-5M6N-1PQR" },
 ];
 
 const panelH2 = "mb-[0.12in] font-mono text-[16pt] leading-none";
@@ -16,20 +16,14 @@ const footnote = "border-t-[0.75pt] border-accent pt-[0.07in]";
 const fieldBox = "block border-[0.75pt] border-ink px-[0.06in] py-[0.055in] text-center font-mono text-[9pt] tracking-[0.025em]";
 
 /** @param {string} value */
-function formatDeviceUid(value) {
+function formatDeviceToken(value) {
   const raw = value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 20);
   return raw.match(/.{1,4}/g)?.join("-") ?? "";
 }
 
-/** @param {string} value */
-function formatVerificationCode(value) {
-  return value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(0, 6);
-}
-
 /** @param {Guide} guide */
 function isComplete(guide) {
-  return /^[0-9A-HJKMNP-TV-Z]{20}$/.test(guide.deviceUid.replace(/-/g, ""))
-    && /^[0-9A-F]{6}$/.test(guide.verificationCode);
+  return /^[0-9A-HJKMNP-TV-Z]{20}$/.test(guide.deviceToken.replace(/-/g, ""));
 }
 
 function LogoMark() {
@@ -89,20 +83,17 @@ function IndexPanel() {
 }
 
 /**
- * @param {{ deviceUid: string, verificationCode: string }} props
+ * @param {{ deviceToken: string }} props
  */
-function ConnectPanel({ deviceUid, verificationCode }) {
+function ConnectPanel({ deviceToken }) {
   return (
     <section className="panel panel-c">
       <p className="eyebrow mb-[0.04in]">Recommended</p>
       <h2 className={panelH2}>Set up with Luna Connect</h2>
       <p className="mb-[0.11in]">Go to <strong className="font-semibold">connect.luna.libreloom.org/onboarding</strong> and follow the steps.</p>
-      <p className="mb-[0.035in]">Your Device ID</p>
-      <span className={fieldBox}>{deviceUid}</span>
-      <p className="mb-[0.1in] mt-[0.035in] text-[7pt]">This identifies your Luna.</p>
-      <p className="mb-[0.035in]">Your Verification code</p>
-      <span className={`${fieldBox} mx-auto w-[1.35in]`}>{verificationCode}</span>
-      <p className="mt-[0.035in] text-center text-[7pt]">Do not share this code.</p>
+      <p className="mb-[0.035in]">Your device token</p>
+      <span className={fieldBox}>{deviceToken}</span>
+      <p className="mt-[0.035in] text-center text-[7pt]">Do not share this token.</p>
       <p className={`${footnote} mt-[0.18in]`}>Your Luna Connect and Luna accounts are separate.</p>
     </section>
   );
@@ -144,8 +135,7 @@ function TroubleshootingPanel() {
       <div className="mt-[0.09in] border-t-[0.75pt] border-accent pt-[0.07in]">
         <h3 className={panelH3}>Pairing not working</h3>
         <ul className="grid list-disc gap-[0.03in] pl-[0.17in]">
-          <li>Device ID has 20 characters in five groups of four; dashes do not matter.</li>
-          <li>Verification code has six characters: 0-9 and A-F.</li>
+          <li>The device token has 20 characters in five groups of four; dashes do not matter.</li>
           <li>Make sure Luna is on and waiting to pair, then try again.</li>
           <li>Still refused? Contact support.</li>
         </ul>
@@ -173,10 +163,10 @@ function FrontGuide() {
 }
 
 /** @param {Guide} props */
-function ReverseGuide({ deviceUid, verificationCode }) {
+function ReverseGuide({ deviceToken }) {
   return (
     <div className="guide guide-reverse">
-      <ConnectPanel deviceUid={deviceUid} verificationCode={verificationCode} />
+      <ConnectPanel deviceToken={deviceToken} />
       <ReservedPanel />
       <CoverPanel />
     </div>
@@ -207,16 +197,12 @@ function App() {
 
   /**
    * @param {number} index
-   * @param {"deviceUid" | "verificationCode"} field
    * @param {string} value
    */
-  const updateGuide = (index, field, value) => {
-    setGuides((current) => current.map((guide, guideIndex) => {
-      if (guideIndex !== index) return guide;
-      return field === "deviceUid"
-        ? { ...guide, deviceUid: formatDeviceUid(value) }
-        : { ...guide, verificationCode: formatVerificationCode(value) };
-    }));
+  const updateGuide = (index, value) => {
+    setGuides((current) => current.map((guide, guideIndex) => (
+      guideIndex === index ? { ...guide, deviceToken: formatDeviceToken(value) } : guide
+    )));
   };
 
   return (
@@ -229,13 +215,13 @@ function App() {
         </div>
         <div className="flex gap-3 max-[1300px]:flex-wrap">
           {guides.map((guide, index) => (
-            <div key={`guide-${index}`} className="grid grid-cols-2 gap-2 font-mono text-[0.72rem]">
-              <p className="col-span-2">Guide {index + 1}</p>
+            <div key={`guide-${index}`} className="grid gap-2 font-mono text-[0.72rem]">
+              <p>Guide {index + 1}</p>
               <label className="grid gap-1">
-                Device ID
+                Device token
                 <input
-                  value={guide.deviceUid}
-                  onChange={(event) => updateGuide(index, "deviceUid", event.target.value)}
+                  value={guide.deviceToken}
+                  onChange={(event) => updateGuide(index, event.target.value)}
                   spellCheck="false"
                   autoComplete="off"
                   maxLength={24}
@@ -243,23 +229,11 @@ function App() {
                   className="w-[15rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
                 />
               </label>
-              <label className="grid gap-1">
-                Verification code
-                <input
-                  value={guide.verificationCode}
-                  onChange={(event) => updateGuide(index, "verificationCode", event.target.value)}
-                  spellCheck="false"
-                  autoComplete="off"
-                  maxLength={6}
-                  placeholder="A3F91C"
-                  className="w-[8rem] border border-accent bg-paper px-[0.65rem] py-[0.55rem] font-mono text-ink outline-none focus:border-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
-                />
-              </label>
             </div>
           ))}
         </div>
         <div className="grid justify-items-end gap-2 max-[1300px]:justify-items-start">
-          {!canPrint && <p className="text-[0.72rem]">Enter both fields for each guide.</p>}
+          {!canPrint && <p className="text-[0.72rem]">Enter the device token for each guide.</p>}
           <button
             type="button"
             onClick={() => window.print()}

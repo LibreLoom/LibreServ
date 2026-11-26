@@ -88,7 +88,7 @@ A quota refusal is HTTP 507. Signing-public registration accepts the real
 python3 scripts/mocks/mock-connect-cf-challenge.py
 ```
 
-It uses `dev/connect-credential` and creates missing local pairing files. It
+It uses `dev/connect-credential` and creates a missing `dev/device-token`. It
 never logs the Authorization header. Switch between `challenge`, `bound`,
 `bound_spawn`, `unbound`, `revoked`, and `401` with:
 
@@ -106,8 +106,9 @@ seconds only.
 
 `scripts/e2e-setup-flow.sh` runs against a real Connect instance and a fresh
 lunad. It pairs through an authenticated verified Connect account, waits for
-lunad to claim, assigns the domain, and checks the exact `/setup#token=<token>` fragment
-before first-Admin registration with the device token.
+lunad to claim, assigns the domain, and then checks off-LAN first-Admin setup: it refuses
+no token, a wrong token, and the rolling credential, and accepts the device token from the
+`/setup#token=<token>` fragment.
 See the required environment variables at the top of the script.
 
 The mock contract test script is available as:

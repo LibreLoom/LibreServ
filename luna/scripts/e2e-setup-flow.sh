@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# E2E: provision a fresh Luna identity, pair it with a verified Connect account,
-# poll status, assign a domain, and create the first local Admin with a setup grant.
+# E2E: provision a fresh Luna device token, pair it with a verified Connect account,
+# poll status, assign a domain, and create the first local Admin off-LAN with the
+# device token (the /setup#token=<token> path).
 #
-# This replaces Connect's old website-binding flow. It intentionally requires a
-# verified account with no Luna already attached; it never bypasses email verification.
+# This intentionally requires a verified account with no Luna already attached;
+# it never bypasses email verification.
 #
 # Required environment:
 #   LUNACONNECT_E2E_EMAIL        verified Connect account email
@@ -13,11 +14,11 @@
 #   LUNACONNECT_E2E_URL          Connect base URL (default: http://127.0.0.1:8092)
 #   LUNA_E2E_URL                 lunad base URL (default: http://127.0.0.1:8090)
 #   LUNA_DATA_DIR                fresh lunad data directory (default: luna/dev)
-#   LUNACONNECT_E2E_ADMIN_EMAIL  staff email used to mint an identity
+#   LUNACONNECT_E2E_ADMIN_EMAIL  staff email used to mint a device token
 #   LUNACONNECT_E2E_ADMIN_PASSWORD
 #   LUNACONNECT_E2E_ADMIN_TOTP_CODE
-#   LUNACONNECT_E2E_DEVICE_UID   pre-minted 20-character Crockford Device ID
-#   LUNACONNECT_E2E_VERIFICATION_CODE  matching six-hex Verification code
+#   LUNACONNECT_E2E_DEVICE_TOKEN pre-minted 20-character Crockford device token
+#                                (grouping and case do not matter)
 #   LUNACONNECT_E2E_SUBDOMAIN    name to assign (default: e2e<unix time>)
 #   LUNACONNECT_E2E_POLL_ATTEMPTS / LUNACONNECT_E2E_POLL_INTERVAL
 #   LUNA_E2E_ADMIN_USERNAME / LUNA_E2E_ADMIN_PASSWORD
@@ -106,7 +107,7 @@ safe_response() {
 import json
 import sys
 
-secret_keys = {"auth_token", "setup_grant", "verification_code", "password", "token"}
+secret_keys = {"auth_token", "device_token", "password", "token"}
 
 def redact(value):
     if isinstance(value, dict):
@@ -198,26 +199,19 @@ admin_login() {
 }
 
 mint_identity() {
-  local raw_uid="${LUNACONNECT_E2E_DEVICE_UID:-}"
-  local raw_code="${LUNACONNECT_E2E_VERIFICATION_CODE:-}"
-  if [[ -n "$raw_uid" || -n "$raw_code" ]]; then
-    [[ -n "$raw_uid" && -n "$raw_code" ]] \
-      || fail "set both LUNACONNECT_E2E_DEVICE_UID and LUNACONNECT_E2E_VERIFICATION_CODE"
-  else
-    log "Signing in as staff to mint a fresh identity"
+  local raw_token="${LUNACONNECT_E2E_DEVICE_TOKEN:-}"
+  if [[ -z "$raw_token" ]]; then
+    log "Signing in as staff to mint a fresh device token"
     admin_login
-    cookie_post "$ADMIN_JAR" /admin/device-codes '{}' || fail "identity mint request failed"
-    http_ok || fail_http "identity mint"
-    raw_uid="$(json_field device_uid)" || fail_http "identity mint response has no device_uid"
-    raw_code="$(json_field verification_code)" || fail_http "identity mint response has no verification_code"
+    cookie_post "$ADMIN_JAR" /admin/device-codes '{}' || fail "device token mint request failed"
+    http_ok || fail_http "device token mint"
+    raw_token="$(json_field device_token)" || fail_http "device token mint response has no device_token"
   fi
 
-  DEVICE_UID="$(printf '%s' "$raw_uid" | tr -d '-' | tr '[:lower:]' '[:upper:]')"
-  VERIFICATION_CODE="$(printf '%s' "$raw_code" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
-  [[ "$DEVICE_UID" =~ ^[0-9A-HJKMNP-TV-Z]{20}$ ]] || fail "minted Device ID is not a 20-character Crockford value"
-  [[ "$VERIFICATION_CODE" =~ ^[0-9A-F]{6}$ ]] || fail "minted Verification code is not six hexadecimal characters"
-  DEVICE_UID_GROUPED="$(python3 -c 'import sys; value=sys.argv[1]; print("-".join(value[i:i+4] for i in range(0, len(value), 4)))' "$DEVICE_UID")"
-  log "Device ID: $DEVICE_UID_GROUPED"
+  DEVICE_TOKEN="$(printf '%s' "$raw_token" | tr -d '-[:space:]' | tr '[:lower:]' '[:upper:]')"
+  [[ "$DEVICE_TOKEN" =~ ^[0-9A-HJKMNP-TV-Z]{20}$ ]] || fail "device token is not a 20-character Crockford value"
+  DEVICE_TOKEN_GROUPED="$(python3 -c 'import sys; value=sys.argv[1]; print("-".join(value[i:i+4] for i in range(0, len(value), 4)))' "$DEVICE_TOKEN")"
+  log "Device token ready (not printed)"
 }
 
 account_login() {
@@ -245,19 +239,19 @@ prepare_lunad() {
   has_admin="$(json_field has_admin || true)"
   [[ "$has_admin" == "false" ]] || fail "LUNA_DATA_DIR must belong to a fresh Luna with no local users"
 
-  log "Writing device-uid and pairing-code to $LUNA_DATA"
-  (umask 077; printf '%s\n' "$VERIFICATION_CODE" >"$LUNA_DATA/pairing-code")
-  chmod 600 "$LUNA_DATA/pairing-code"
-  printf '%s\n' "$DEVICE_UID" >"$LUNA_DATA/device-uid"
-  chmod 644 "$LUNA_DATA/device-uid"
+  log "Writing device-token to $LUNA_DATA"
+  # Earlier pairing files are gone: the device token is the only pairing secret.
+  rm -f "$LUNA_DATA/device-uid" "$LUNA_DATA/pairing-code" "$LUNA_DATA/setup-token"
   rm -f "$LUNA_DATA/connect-credential" "$LUNA_DATA/connect-unbind-pending" "$LUNA_DATA/connect.json"
-  status="$(cat "$LUNA_DATA/device-uid")"
-  [[ "$status" == "$DEVICE_UID" ]] || fail "could not write device-uid"
+  (umask 077; printf '%s\n' "$DEVICE_TOKEN" >"$LUNA_DATA/device-token")
+  chmod 600 "$LUNA_DATA/device-token"
+  status="$(cat "$LUNA_DATA/device-token")"
+  [[ "$status" == "$DEVICE_TOKEN" ]] || fail "could not write device-token"
 }
 
 start_pairing() {
   local body
-  body="$(json_body device_uid "$DEVICE_UID_GROUPED" verification_code "$VERIFICATION_CODE")"
+  body="$(json_body device_token "$DEVICE_TOKEN_GROUPED")"
   cookie_post "$ACCOUNT_JAR" /api/v1/devices/pair "$body" || fail "pairing request failed"
   http_ok || fail_http "start pairing"
   PAIRING_ID="$(json_field pairing_id)" || fail_http "pairing response has no pairing_id"
@@ -333,33 +327,28 @@ wait_for_lunad_domain() {
   fail "lunad did not receive the assigned domain"
 }
 
-create_setup_grant() {
+# Once bound, Connect ignores the device token: a claim with it must get the same
+# generic 404 as an unknown token and must not start a new pairing.
+check_token_ignored_when_bound() {
   local body
-  cookie_post "$ACCOUNT_JAR" "/api/v1/devices/$DEVICE_ID/setup-grant" '{}' || fail "setup-grant request failed"
-  http_ok || fail_http "setup grant"
-  SETUP_GRANT="$(json_field setup_grant)" || fail_http "setup-grant response has no setup_grant"
-  [[ "$SETUP_GRANT" =~ ^[A-Za-z0-9_-]{43}$ ]] || fail "setup-grant response has an invalid grant"
-  SETUP_URL="$(json_field setup_url)" || fail_http "setup-grant response has no setup_url"
-  [[ -n "$SETUP_URL" ]] || fail "setup-grant response has an empty setup_url"
-  python3 - "$SETUP_URL" "$SETUP_GRANT" "$DEVICE_HOSTNAME" <<'PY' || fail "setup URL must carry only the setup_grant fragment"
-import sys
-from urllib.parse import urlsplit
-
-url = urlsplit(sys.argv[1])
-grant = sys.argv[2]
-hostname = sys.argv[3]
-if url.scheme != "https" or url.netloc != hostname or url.path != "/setup" or url.query:
-    sys.exit(1)
-if url.fragment != "setup_grant=" + grant:
-    sys.exit(1)
-PY
-  log "One-time setup grant issued for the URL fragment"
+  body="$(json_body device_token "$DEVICE_TOKEN")"
+  request POST "$CONNECT_URL/api/v1/devices/pair/claim" -H 'Content-Type: application/json' -d "$body" || fail "bound claim request failed"
+  [[ "$HTTP_STATUS" == "404" ]] || fail_http "a bound device accepted its device token again"
+  log "Connect ignores the device token while the device is bound"
 }
 
-create_first_admin() {
-  local body role has_admin
-  body="$(json_body username "$LUNA_ADMIN_USERNAME" display_name 'E2E Admin' \
-    password "$LUNA_ADMIN_PASSWORD" setup_grant "$SETUP_GRANT")"
+# Off-LAN first-Admin registration. $1 is the device token to send, or empty for
+# none. Sets HTTP_STATUS and RESPONSE; never fails the script by itself.
+register_off_lan() {
+  local token="${1:-}" body
+  HTTP_STATUS="000"
+  if [[ -n "$token" ]]; then
+    body="$(json_body username "$LUNA_ADMIN_USERNAME" display_name 'E2E Admin' \
+      password "$LUNA_ADMIN_PASSWORD" device_token "$token")"
+  else
+    body="$(json_body username "$LUNA_ADMIN_USERNAME" display_name 'E2E Admin' \
+      password "$LUNA_ADMIN_PASSWORD")"
+  fi
   request POST "$LUNA_URL/api/v1/auth/register" \
     -H 'Content-Type: application/json' \
     -H "Host: $DEVICE_HOSTNAME" \
@@ -367,8 +356,56 @@ create_first_admin() {
     -H 'X-Forwarded-Proto: https' \
     -H "Origin: https://$DEVICE_HOSTNAME" \
     -H 'Sec-Fetch-Site: same-origin' \
-    -d "$body" || fail "remote first-Admin registration failed"
-  http_ok || fail_http "remote first-Admin registration"
+    -d "$body" || true
+}
+
+assert_no_local_admin() {
+  request GET "$LUNA_URL/api/v1/auth/status" || fail "lunad auth status request failed"
+  http_ok || fail_http "lunad auth status"
+  [[ "$(json_field has_admin || true)" == "false" ]] || fail "a refused off-LAN registration created an Admin"
+}
+
+create_first_admin_off_lan() {
+  local setup_url wrong_token current_token role has_admin
+  # The setup page reads the token from the URL fragment (never the query string).
+  setup_url="https://$DEVICE_HOSTNAME/setup#token=$DEVICE_TOKEN"
+  python3 - "$setup_url" "$DEVICE_TOKEN" "$DEVICE_HOSTNAME" <<'PY' || fail "setup URL must carry only the device token fragment"
+import sys
+from urllib.parse import urlsplit
+
+url = urlsplit(sys.argv[1])
+token = sys.argv[2]
+hostname = sys.argv[3]
+if url.scheme != "https" or url.netloc != hostname or url.path != "/setup" or url.query:
+    sys.exit(1)
+if url.fragment != "token=" + token:
+    sys.exit(1)
+PY
+  log "Setup link carries the device token in its fragment only"
+
+  # Refused: no token, a wrong token, and the rolling credential. Luna never falls
+  # back to the auth token and never fails open.
+  register_off_lan ""
+  http_ok && fail "off-LAN registration without a device token was accepted"
+  assert_no_local_admin
+  log "Off-LAN registration without a device token is refused"
+
+  wrong_token="${DEVICE_TOKEN:0:19}$([[ "${DEVICE_TOKEN: -1}" == "A" ]] && echo B || echo A)"
+  register_off_lan "$wrong_token"
+  http_ok && fail "off-LAN registration with a wrong device token was accepted"
+  assert_no_local_admin
+  log "Off-LAN registration with a wrong device token is refused"
+
+  [[ -s "$LUNA_DATA/connect-credential" ]] || fail "lunad removed its rolling credential during setup"
+  current_token="$(tr -d '\r\n' <"$LUNA_DATA/connect-credential")"
+  register_off_lan "$current_token"
+  http_ok && fail "off-LAN registration accepted the rolling credential as a device token"
+  assert_no_local_admin
+  log "Off-LAN registration with the rolling credential is refused"
+
+  # Accepted: the grouped form works, because Luna ignores grouping and case.
+  register_off_lan "$DEVICE_TOKEN_GROUPED"
+  http_ok || fail_http "remote first-Admin registration with the device token"
   role="$(json_field role || true)"
   [[ "$role" == "admin" ]] || fail "the first local account was not created as Admin"
 
@@ -376,25 +413,7 @@ create_first_admin() {
   http_ok || fail_http "lunad auth status"
   has_admin="$(json_field has_admin || true)"
   [[ "$has_admin" == "true" ]] || fail "lunad does not report a local Admin"
-  log "Remote first-Admin setup consumed the grant"
-}
-
-reject_setup_grant_replay() {
-  local body current_token
-  # Registration may have coincided with a credential refresh. Use the credential
-  # Luna currently stores so a 401 cannot masquerade as grant replay rejection.
-  [[ -s "$LUNA_DATA/connect-credential" ]] || fail "lunad removed its rolling credential during setup"
-  current_token="$(tr -d '\r\n' <"$LUNA_DATA/connect-credential")"
-  device_request GET /api/v1/status "$current_token" || fail "status request before grant replay failed"
-  http_ok || fail_http "status before grant replay"
-
-  body="$(json_body setup_grant "$SETUP_GRANT")"
-  device_request POST /api/v1/devices/setup-grant/consume "$current_token" "$body" || fail "setup-grant replay request failed"
-  if http_ok; then
-    fail "Connect accepted a setup grant for a second time"
-  fi
-  [[ "$HTTP_STATUS" == "400" ]] || fail_http "setup-grant replay returned an unexpected status"
-  log "Connect rejected the used setup grant"
+  log "Off-LAN first-Admin setup succeeded with the device token"
 }
 
 log "Checking Connect at $CONNECT_URL and Luna at $LUNA_URL"
@@ -409,10 +428,9 @@ wait_for_pairing
 check_connect_status
 assign_domain
 wait_for_lunad_domain
-create_setup_grant
-create_first_admin
-reject_setup_grant_replay
+check_token_ignored_when_bound
+create_first_admin_off_lan
 
 log "Full E2E setup flow passed"
-log "  pair -> Luna claim -> rolling credential -> status -> domain -> setup grant -> first Admin"
+log "  pair -> Luna claim -> rolling credential -> status -> domain -> off-LAN first Admin"
 log "  device_id=$DEVICE_ID hostname=$DEVICE_HOSTNAME"
