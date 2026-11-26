@@ -41,11 +41,11 @@ describe("RecoveryWizardPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("downloads luna-recover.luna JSON without a Verification code or Connect check", async () => {
+  it("downloads luna-recover.luna JSON without a device token or Connect check", async () => {
     renderPage();
     expect(screen.getByText(/USB recovery works whether Luna Connect is on or off/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Verification code*", { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("This Luna has a Verification code")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("device token*", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("This Luna has a device token")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Device token" })).not.toBeInTheDocument();
 
     chooseAccount("One existing account");

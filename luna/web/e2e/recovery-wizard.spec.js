@@ -66,8 +66,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("downloads luna-recover.luna with exact filename and JSON bytes", async ({ page }) => {
-  await expect(page.getByLabel("Verification code", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("This Luna has a Verification code")).toHaveCount(0);
+  await expect(page.getByLabel("device token", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("This Luna has a device token")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Device token" })).toHaveCount(0);
   await chooseAccount(page, "One existing account");
   await page.getByLabel("Username").fill("Sam");
@@ -90,7 +90,7 @@ for (const [state, status] of CONNECT_STATES) {
 
     await expect(page.getByRole("button", { name: "Download recovery file" })).toBeVisible();
     await expect(page.getByText(/USB recovery works whether Luna Connect is on or off\./)).toBeVisible();
-    await expect(page.getByLabel("Verification code", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("device token", { exact: true })).toHaveCount(0);
     await fillPassword(page);
     await downloadFile(page, "g-admin", PASSWORD, RECOVERY_FILENAME);
     expect(connectStatusRequests).toBe(0);

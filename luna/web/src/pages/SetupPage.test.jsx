@@ -32,6 +32,7 @@ function stubFetch({
   setup = { name: "Luna", setup_completed: false, current_step: "welcome", step_data: {} },
   hasAdmin = false,
   connectActive = false,
+  offLan = false,
   connect = /** @type {Record<string, unknown>} */ ({}),
   me = null,
 } = {}) {
@@ -43,7 +44,7 @@ function stubFetch({
       return jsonResponse({}, 401);
     }
     if (u.includes("/auth/status")) {
-      return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive });
+      return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive, setup_off_lan: offLan });
     }
     if (u.includes("/api/v1/connect/status")) {
       return jsonResponse({
@@ -108,7 +109,8 @@ function renderSetup(initialEntry = "/setup", { probeLocation = false } = {}) {
   );
 }
 
-async function openSetupGrantField({ fragmentGrant = false } = {}) {
+/** Walks the account step; returns the device token field when it is asked for. */
+async function openDeviceTokenField({ prefilled = false, asked = true } = {}) {
   fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
   await screen.findByRole("heading", { name: /System check/i });
   // The check runs in the background; Continue appears when it finishes.
@@ -120,9 +122,9 @@ async function openSetupGrantField({ fragmentGrant = false } = {}) {
   fireEvent.change(screen.getByLabelText(/Choose a password/i), { target: { value: "SecurePass123!" } });
   fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
   fireEvent.change(screen.getByLabelText(/Confirm your password/i), { target: { value: "SecurePass123!" } });
-  if (fragmentGrant) return null;
+  if (prefilled || !asked) return null;
   fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-  return screen.findByLabelText(/One-time setup key/i);
+  return screen.findByLabelText(/^Device token/i);
 }
 
 /** Registration succeeds and records the exact body the page submitted. */
@@ -396,94 +398,86 @@ describe("SetupPage", () => {
     expect(screen.getByText("Not strong enough yet")).toBeTruthy();
   });
 
-  it("offers an optional one-time setup key on a public hostname even when Connect is inactive", async () => {
+  it("asks for the device token when Luna says setup is off the home network", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
-      connectActive: false,
+      offLan: true,
     }));
-    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org", pathname: "/setup" });
     renderSetup();
 
-    const grant = await openSetupGrantField();
-    expect(grant).toHaveValue("");
-    expect(screen.getByText(/leave it blank when setting up on your home network/i)).toBeTruthy();
-    expect(screen.getByText(/expires after 10 minutes/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create account/i })).toBeEnabled();
-    expect(screen.queryByLabelText(/device token/i)).toBeNull();
+    const token = await openDeviceTokenField();
+    expect(token).toHaveValue("");
+    expect(screen.getByText(/quick-start guide/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create account/i })).toBeDisabled();
+    expect(screen.queryByLabelText(/setup key/i)).toBeNull();
   });
 
-  it("lets LAN setup submit without a one-time setup key", async () => {
+  it("never asks for a device token on the home network", async () => {
     const { fetchMock, state } = stubRegistration({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
-      connectActive: true,
+      offLan: false,
     });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("location", { ...window.location, hostname: "luna.local", pathname: "/setup" });
     renderSetup();
 
-    await openSetupGrantField();
+    await openDeviceTokenField({ asked: false });
+    expect(screen.queryByLabelText(/^Device token/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
 
     await waitFor(() => expect(state.body).not.toBeNull());
-    expect(state.body).not.toHaveProperty("setup_grant");
+    expect(state.body).not.toHaveProperty("device_token");
   });
 
-  it("submits an optional setup key on a public IP literal without hostname gating", async () => {
+  it("submits the typed device token ungrouped as device_token", async () => {
     const { fetchMock, state } = stubRegistration({
       network: { ethernet_connected: true, has_default_route: true },
-      connectActive: true,
+      offLan: true,
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("location", { ...window.location, hostname: "203.0.113.8", pathname: "/setup" });
     renderSetup();
 
-    const grant = await openSetupGrantField();
-    fireEvent.change(grant, { target: { value: " OPTIONAL-GRANT " } });
+    const token = await openDeviceTokenField();
+    fireEvent.change(token, { target: { value: "7k4m-2q9x-r8n3-6t5w-1pzh" } });
     fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
 
     await waitFor(() => expect(state.body).not.toBeNull());
-    expect(state.body.setup_grant).toBe("OPTIONAL-GRANT");
+    expect(state.body.device_token).toBe("7K4M2Q9XR8N36T5W1PZH");
   });
 
-  it("consumes the setup-grant fragment, removes it from the URL, and submits it", async () => {
+  it("consumes the token fragment, removes it from the URL, and submits it", async () => {
     const { fetchMock, state } = stubRegistration({
       network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
-      connectActive: true,
+      offLan: true,
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("location", { ...window.location, hostname: "luna.local", pathname: "/setup" });
 
-    renderSetup("/setup?keep=1#setup_grant=ONE-TIME-GRANT", { probeLocation: true });
+    renderSetup("/setup?keep=1#token=7K4M-2Q9X-R8N3-6T5W-1PZH", { probeLocation: true });
     await waitFor(() => expect(screen.getByTestId("setup-location")).toHaveTextContent("/setup?keep=1"));
-    expect(screen.getByTestId("setup-location")).not.toHaveTextContent("ONE-TIME-GRANT");
-    await openSetupGrantField({ fragmentGrant: true });
+    expect(screen.getByTestId("setup-location")).not.toHaveTextContent("7K4M");
+    await openDeviceTokenField({ prefilled: true });
 
-    expect(screen.queryByLabelText(/One-time setup key/i)).toBeNull();
+    expect(screen.queryByLabelText(/^Device token/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Create account/i })).toBeTruthy();
     expect(screen.getByText(/4\s*of\s*4/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
 
     await waitFor(() => expect(state.body).not.toBeNull());
-    expect(state.body.setup_grant).toBe("ONE-TIME-GRANT");
+    expect(state.body.device_token).toBe("7K4M2Q9XR8N36T5W1PZH");
   });
 
-  it("strips ?setup_grant= without accepting it", async () => {
-    const { fetchMock, state } = stubRegistration({
+  it("strips ?token= without accepting it", async () => {
+    const { fetchMock } = stubRegistration({
       network: { ethernet_connected: true, has_default_route: true },
-      connectActive: true,
+      offLan: true,
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("location", { ...window.location, hostname: "photos.luna.servers.libreloom.org", pathname: "/setup" });
-    renderSetup("/setup?setup_grant=QUERY-GRANT&keep=1", { probeLocation: true });
+    renderSetup("/setup?token=QUERY-TOKEN&keep=1", { probeLocation: true });
 
     await waitFor(() => expect(screen.getByTestId("setup-location")).toHaveTextContent("/setup?keep=1"));
-    expect(screen.getByTestId("setup-location")).not.toHaveTextContent("QUERY-GRANT");
-    const grant = await openSetupGrantField();
-    expect(grant).toHaveValue("");
-    fireEvent.click(screen.getByRole("button", { name: /Create account/i }));
-
-    await waitFor(() => expect(state.body).not.toBeNull());
-    expect(state.body).not.toHaveProperty("setup_grant");
+    expect(screen.getByTestId("setup-location")).not.toHaveTextContent("QUERY-TOKEN");
+    const token = await openDeviceTokenField();
+    expect(token).toHaveValue("");
   });
 
   describe("no recovery phrase step", () => {

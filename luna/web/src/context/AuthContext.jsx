@@ -118,7 +118,7 @@ export function AuthProvider({ children }) {
   }, [refresh]);
 
   // Any API call that comes back 401 lands here. Ask /auth/me whether the
-  // session really ended (a 401 can also be a wrong password or setup grant);
+  // session really ended (a 401 can also be a wrong password or device token);
   // if it did, drop the user so RequireAuth shows the sign-in form in place of
   // this page — the URL never moves, so every open tab keeps its place and
   // returns to it after signing in.
@@ -155,13 +155,13 @@ export function AuthProvider({ children }) {
     return me;
   }, []);
 
-  const register = useCallback(async (username, displayName, password, setupGrant) => {
+  const register = useCallback(async (username, displayName, password, deviceToken) => {
     const body = {
       username,
       display_name: displayName,
       password,
     };
-    if (setupGrant) body.setup_grant = setupGrant;
+    if (deviceToken) body.device_token = deviceToken;
     const created = await postJson("/api/v1/auth/register", body);
     return created;
   }, []);

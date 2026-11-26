@@ -9,9 +9,7 @@ const originalWebSocket = window.WebSocket;
 const fakeWindow = /** @type {Window & { __lunaFake?: unknown }} */ (window);
 const originalFake = fakeWindow.__lunaFake;
 
-const UID = "7K4M2Q9XR8N36T5W1PZH";
-const OTHER_UID = "8K4M2Q9XR8N36T5W1PZH";
-const CODE = "A3F91C";
+const TOKEN = "7K4M2Q9XR8N36T5W1PZH";
 const PASSWORD = "hunter22";
 
 /** @param {(world: any) => void} [seed] */
@@ -26,7 +24,11 @@ const postJson = (path, body = {}) => window.fetch(path, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-const pairingBody = { device_uid: UID, verification_code: CODE };
+const putJson = (path, body = {}) => window.fetch(path, {
+  method: "PUT",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
 
 afterEach(() => {
   window.fetch = originalFetch;
@@ -36,81 +38,36 @@ afterEach(() => {
   else fakeWindow.__lunaFake = originalFake;
 });
 
-describe("fake pairing-material writes", () => {
-  it("normalizes and saves the original Device ID and Verification code", async () => {
+describe("fake device token writes", () => {
+  it("normalizes and saves the device token locally", async () => {
     const world = startFake();
-    const response = await postJson("/api/v1/connect/device-token", {
-      device_uid: "7k4m-2q9x-r8n3-6t5w-1pzh",
-      verification_code: " a3f91c ",
-    });
+
+    const response = await putJson("/api/v1/connect/device-token", { device_token: "7k4m-2q9x-r8n3-6t5w-1pzh" });
 
     expect(response.status).toBe(200);
-    expect(world.connect).toMatchObject({ state: "unbound", device_uid: UID, verification_code: CODE });
+    expect(world.connect).toMatchObject({ state: "unbound", device_token: TOKEN });
+    const status = await (await window.fetch("/api/v1/connect/device-token")).json();
+    expect(status).toEqual({ device_token_set: true });
   });
 
-  it("keeps the Device ID immutable", async () => {
+  it("refuses a token that is not 20 characters", async () => {
+    const world = startFake();
+
+    const response = await putJson("/api/v1/connect/device-token", { device_token: "7K4M-2Q9X" });
+
+    expect(response.status).toBe(400);
+    expect(world.connect.device_token).toBeNull();
+  });
+
+  it("replaces a saved token without touching the Connect binding", async () => {
     const world = startFake((w) => {
-      w.connect = { state: "unbound", device_uid: UID, verification_code: CODE };
+      w.connect = { state: "bound", paired: true, connect_active: true, device_token: TOKEN };
     });
 
-    const response = await postJson("/api/v1/connect/device-token", {
-      device_uid: OTHER_UID,
-      verification_code: CODE,
-    });
+    const response = await putJson("/api/v1/connect/device-token", { device_token: "8K4M2Q9XR8N36T5W1PZH" });
 
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/different Device ID/i);
-    expect(world.connect).toMatchObject({ device_uid: UID, verification_code: CODE });
-  });
-
-  it("does not replace a saved Verification code", async () => {
-    const world = startFake((w) => {
-      w.connect = { state: "bound", paired: true, device_uid: UID, verification_code: CODE };
-    });
-
-    const response = await postJson("/api/v1/connect/device-token", {
-      device_uid: UID,
-      verification_code: "B4E82D",
-    });
-
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/does not match/i);
-    expect(world.connect.verification_code).toBe(CODE);
-  });
-
-  it("restores the same pair after only the local Verification code was removed", async () => {
-    const world = startFake((w) => {
-      w.connect = { state: "bound", paired: true, connect_active: true, device_uid: UID, verification_code: CODE };
-    });
-
-    const removed = await window.fetch("/api/v1/connect/device-token", { method: "DELETE" });
-    expect(removed.status).toBe(200);
-    const restored = await postJson("/api/v1/connect/device-token", pairingBody);
-
-    expect(restored.status).toBe(200);
-    expect(world.connect).toMatchObject({ state: "bound", paired: true, device_uid: UID, verification_code: CODE });
-  });
-
-  it("refuses pairing-material writes while a disconnect is pending", async () => {
-    startFake((w) => {
-      w.connect = { state: "bound", unbind_pending: true, device_uid: UID, verification_code: null };
-    });
-
-    const response = await postJson("/api/v1/connect/device-token", pairingBody);
-
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/still disconnecting/i);
-  });
-
-  it.each(["pairing", "bound", "revoked"])("requires the original Device ID in the %s state", async (state) => {
-    startFake((w) => {
-      w.connect = { state, device_uid: null, verification_code: null };
-    });
-
-    const response = await postJson("/api/v1/connect/device-token", pairingBody);
-
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/Device ID is missing/i);
+    expect(response.status).toBe(200);
+    expect(world.connect).toMatchObject({ state: "bound", paired: true, device_token: "8K4M2Q9XR8N36T5W1PZH" });
   });
 });
 
@@ -121,8 +78,7 @@ describe("fake POST /api/v1/connect/unbind", () => {
         state: "pairing",
         account_id: "acct_1",
         pairing_id: "pair_1",
-        device_uid: UID,
-        verification_code: CODE,
+        device_token: TOKEN,
       };
     });
 
@@ -136,15 +92,14 @@ describe("fake POST /api/v1/connect/unbind", () => {
       state: "unbound",
       account_id: null,
       pairing_id: null,
-      device_uid: UID,
-      verification_code: CODE,
+      device_token: TOKEN,
       unbind_pending: false,
     });
   });
 
   it("clears revoked ownership after password step-up", async () => {
     const world = startFake((w) => {
-      w.connect = { state: "revoked", account_id: "acct_1", device_uid: UID, verification_code: CODE };
+      w.connect = { state: "revoked", account_id: "acct_1", device_token: TOKEN };
     });
 
     const refused = await postJson("/api/v1/connect/unbind", { password: "wrong" });
@@ -158,7 +113,7 @@ describe("fake POST /api/v1/connect/unbind", () => {
 
   it("keeps a failed revocation pending", async () => {
     const world = startFake((w) => {
-      w.connect = { state: "bound", paired: true, account_id: "acct_1", device_uid: UID };
+      w.connect = { state: "bound", paired: true, account_id: "acct_1", device_token: TOKEN };
       w.unbindFails = true;
     });
 
@@ -171,7 +126,7 @@ describe("fake POST /api/v1/connect/unbind", () => {
 
   it("does not turn a failed revoked disconnect into an ordinary pending retry", async () => {
     const world = startFake((w) => {
-      w.connect = { state: "revoked", account_id: "acct_1", device_uid: UID };
+      w.connect = { state: "revoked", account_id: "acct_1", device_token: TOKEN };
       w.unbindFails = true;
     });
 

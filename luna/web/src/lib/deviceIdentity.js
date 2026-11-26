@@ -1,7 +1,7 @@
-const DEVICE_UID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{20}$/;
-const VERIFICATION_CODE_PATTERN = /^[0-9A-F]{6}$/;
+const DEVICE_TOKEN_PATTERN = /^[0-9A-HJKMNP-TV-Z]{20}$/;
 
-export function normalizeDeviceUid(value) {
+/** Ungrouped, uppercase, lookalike letters folded the way Luna and Connect compare. */
+export function normalizeDeviceToken(value) {
   return String(value || "")
     .trim()
     .replace(/[-_\s]/g, "")
@@ -10,20 +10,13 @@ export function normalizeDeviceUid(value) {
     .replace(/O/g, "0");
 }
 
-export function normalizeVerificationCode(value) {
-  return String(value || "").trim().toUpperCase();
+export function isValidDeviceToken(value) {
+  return DEVICE_TOKEN_PATTERN.test(normalizeDeviceToken(value));
 }
 
-export function isValidDeviceUid(value) {
-  return DEVICE_UID_PATTERN.test(normalizeDeviceUid(value));
-}
-
-export function isValidVerificationCode(value) {
-  return VERIFICATION_CODE_PATTERN.test(normalizeVerificationCode(value));
-}
-
-export function formatDeviceUid(value) {
-  const normalized = normalizeDeviceUid(value);
-  if (!DEVICE_UID_PATTERN.test(normalized)) return String(value || "").trim();
+/** Groups of four for display: 7K4M-2Q9X-R8N3-6T5W-1PZH. */
+export function formatDeviceToken(value) {
+  const normalized = normalizeDeviceToken(value);
+  if (!DEVICE_TOKEN_PATTERN.test(normalized)) return String(value || "").trim();
   return normalized.match(/.{4}/g).join("-");
 }

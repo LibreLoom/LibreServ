@@ -447,8 +447,8 @@ export default [
     area: "Settings: Luna Connect",
     title: "Remote access off",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { state: "unbound", paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; },
-    check: ["Shows the Device ID and a hidden Verification code", "Show code reveals only the Verification code", "Removing the code leaves Connect unchanged", "Restore details can bring it back from the Connect account"],
+    seed: (w) => { w.connect = { state: "unbound", paired: false, device_token: "7K4M2Q9XR8N36T5W1PZH" }; },
+    check: ["Shows that a device token is set, never the token itself", "Advanced lets an Admin replace the token on Luna only", "Open Luna Connect is offered for pairing"],
   },
   {
     id: "settings/remote-on",
@@ -456,7 +456,7 @@ export default [
     title: "Remote access on",
     url: "/settings#luna_connect",
     seed: (w) => {
-      w.connect = { state: "bound", paired: true, connect_active: true, enabled: true, backup_unlocked: true, hostname: "kitchen.luna.servers.libreloom.org", device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+      w.connect = { state: "bound", paired: true, connect_active: true, enabled: true, backup_unlocked: true, hostname: "kitchen.luna.servers.libreloom.org", device_token: "7K4M2Q9XR8N36T5W1PZH" };
       w.connectActive = true;
     },
     check: ["Shows it is connected", "Disconnect asks for the Luna password", "Disconnect says the Luna can be connected again later"],
@@ -466,7 +466,7 @@ export default [
     area: "Settings: Luna Connect",
     title: "Disconnect still pending",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { state: "bound", paired: false, connect_active: false, unbind_pending: true, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; w.connectActive = false; },
+    seed: (w) => { w.connect = { state: "bound", paired: false, connect_active: false, unbind_pending: true, device_token: "7K4M2Q9XR8N36T5W1PZH" }; w.connectActive = false; },
     check: ["Remote access and pairing are off until disconnecting finishes", "Cloud backup says it stays off until then", "Retry disconnect asks for the Luna password"],
   },
   {
@@ -474,8 +474,8 @@ export default [
     area: "Settings: Luna Connect",
     title: "Connect revoked this Luna",
     url: "/settings#luna_connect",
-    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: null }; w.connectActive = false; },
-    check: ["Reconnect-required state is shown in plain words", "Cloud backup says to reconnect before turning it on", "Restore details remains available", "Opening Luna Connect is offered"],
+    seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, device_token: "7K4M2Q9XR8N36T5W1PZH" }; w.connectActive = false; },
+    check: ["Reconnect-required state is shown in plain words", "Cloud backup says to reconnect before turning it on", "Advanced still lets an Admin replace the token", "Opening Luna Connect is offered"],
   },
   {
     id: "settings/about-versions",
@@ -597,7 +597,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users or About", "Luna Connect remains available with the public Device ID", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About", "Luna Connect remains available with the device token state", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

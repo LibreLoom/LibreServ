@@ -16,7 +16,9 @@ const lastAdmin = (world, id) => world.users.filter((u) => u.role === "admin").e
 const CONNECT_STATES = new Set(["unbound", "pairing", "bound", "revoked"]);
 const CONNECT_PENDING_ERROR = "Luna is still disconnecting from Luna Connect. Remote access and pairing are stopped until it finishes.";
 const CONNECT_REVOKED_ERROR = "Luna Connect no longer accepts this Luna's connection. Open Luna Connect to reconnect this Luna.";
-const SETUP_GRANT_ERROR = "That setup link is no longer valid. Create a new one in Luna Connect and try again.";
+const DEVICE_TOKEN_ERROR = "That device token does not match this Luna. Check it and try again.";
+const DEVICE_TOKEN_MISSING = "Enter this Luna's device token to set it up from outside your home network.";
+const normalizeToken = (value) => String(value || "").trim().replace(/[-_\s]/g, "").toUpperCase().replace(/[IL]/g, "1").replace(/O/g, "0");
 
 function fakeConnectState(world) {
   const connect = world.connect || {};
@@ -45,6 +47,7 @@ get("/api/v1/auth/me", ({ user, world }) => (user ? { ...userJson(user), phrase_
 get("/api/v1/auth/status", ({ world }) => ({
   has_admin: world.users.length > 0 && world.hasAdmin,
   connect_active: fakeConnectActive(world),
+  setup_off_lan: Boolean(world.setupOffLan) && !(world.users.length > 0 && world.hasAdmin),
 }), { public: true });
 
 post("/api/v1/auth/login", ({ world, body }) => {
@@ -62,11 +65,14 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
     if (!user) return fail(401, "Sign in to Luna first.");
     if (!isAdmin(user)) return fail(403, "Only an Admin can add users.");
   } else {
-    const configuredGrant = String(world.setupGrant ?? "").trim();
-    const submittedGrant = String(body.setup_grant ?? "").trim();
-    const usedGrants = Array.isArray(world.usedSetupGrants) ? world.usedSetupGrants : [];
-    if (submittedGrant && usedGrants.includes(submittedGrant)) return fail(403, SETUP_GRANT_ERROR);
-    if (configuredGrant && submittedGrant !== configuredGrant) return fail(403, SETUP_GRANT_ERROR);
+    // Off the home network, Luna compares the token with its own file.
+    if (world.setupOffLan) {
+      const submitted = normalizeToken(body.device_token);
+      if (!submitted) return fail(403, DEVICE_TOKEN_MISSING);
+      if (!world.connect.device_token || submitted !== normalizeToken(world.connect.device_token)) {
+        return fail(403, DEVICE_TOKEN_ERROR);
+      }
+    }
   }
   const bad = badUsername(body.username) || badPassword(body.password);
   if (bad) return bad;
@@ -75,11 +81,6 @@ post("/api/v1/auth/register", ({ world, user, body }) => {
   const created = makeUser({ username, display_name: body.display_name || body.username, role: hasUsers ? "user" : "admin" });
   world.users.push(created);
   if (!hasUsers) {
-    const configuredGrant = String(world.setupGrant ?? "").trim();
-    if (configuredGrant) {
-      world.usedSetupGrants = [...(Array.isArray(world.usedSetupGrants) ? world.usedSetupGrants : []), configuredGrant];
-      world.setupGrant = null;
-    }
     world.hasAdmin = true;
     world.sessionUserId = created.id;
     world.phrase = { ...world.phrase, set: false };
@@ -556,7 +557,6 @@ post("/api/v1/system/factory-reset", ({ world, user, body }) => {
       backup_sources: [],
       connect_error: null,
     };
-    if (!pending && !revokedFailure) world.connect.setup_grant = null;
     world.connectActive = false;
   }
   world.sessionUserId = null;
@@ -592,8 +592,7 @@ get("/api/v1/connect/status", ({ world, user }) => {
     unclaimed: state === "unbound" || state === "pairing",
     state,
     unbind_pending: pending,
-    device_uid: connect.device_uid ?? null,
-    verification_code: admin ? connect.verification_code ?? null : null,
+    device_token_set: Boolean(connect.device_token),
     domain: hostname,
     hostname,
     subdomain: active ? connect.subdomain ?? null : null,

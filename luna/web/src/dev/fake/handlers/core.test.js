@@ -64,7 +64,7 @@ describe("fake GET /api/v1/connect/status", () => {
   it("reports pairing without treating stale local activity as a binding", async () => {
     startFake((w) => {
       w.connectActive = true;
-      w.connect = { state: "pairing", paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+      w.connect = { state: "pairing", paired: false, device_token: "7K4M2Q9XR8N36T5W1PZH" };
     });
 
     const body = await (await window.fetch("/api/v1/connect/status")).json();
@@ -82,8 +82,7 @@ describe("fake GET /api/v1/connect/status", () => {
         paired: true,
         enabled: true,
         hostname: "kitchen.luna.servers.libreloom.org",
-        device_uid: "7K4M2Q9XR8N36T5W1PZH",
-        verification_code: "A3F91C",
+        device_token: "7K4M2Q9XR8N36T5W1PZH",
       };
     });
 
@@ -106,10 +105,10 @@ describe("fake GET /api/v1/connect/status", () => {
     expect(body.connect_error).toMatch(/still disconnecting/);
   });
 
-  it("does not report Connect active just because a Verification code exists", async () => {
+  it("does not report Connect active just because a device token exists", async () => {
     startFake((w) => {
       w.connectActive = true;
-      w.connect = { paired: false, device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" };
+      w.connect = { paired: false, device_token: "7K4M2Q9XR8N36T5W1PZH" };
     });
 
     const status = await (await window.fetch("/api/v1/auth/status")).json();
@@ -117,48 +116,50 @@ describe("fake GET /api/v1/connect/status", () => {
   });
 });
 
-describe("fake POST /api/v1/auth/register setup grants", () => {
+describe("fake POST /api/v1/auth/register off-LAN setup", () => {
   const body = { username: "max", display_name: "Max", password: "hunter22hunter1" };
-  const fresh = (world, grant) => {
+  const TOKEN = "7K4M2Q9XR8N36T5W1PZH";
+  const offLan = (world) => {
     world.users = [];
     world.sessionUserId = null;
     world.hasAdmin = false;
-    world.setupGrant = grant;
+    world.setupOffLan = true;
+    world.connect = { ...world.connect, device_token: TOKEN };
   };
 
-  it("requires the configured grant without consuming it on a failed attempt", async () => {
-    const world = startFake((w) => fresh(w, "grant-one"));
+  it("tells the setup page when the request is off the home network", async () => {
+    startFake(offLan);
+    const status = await (await window.fetch("/api/v1/auth/status")).json();
+    expect(status.setup_off_lan).toBe(true);
+  });
+
+  it("refuses a missing or wrong token and creates no account", async () => {
+    const world = startFake(offLan);
 
     const missing = await postJson("/api/v1/auth/register", body);
     expect(missing.status).toBe(403);
-    expect((await missing.json()).error).toMatch(/setup link is no longer valid/i);
-
-    const wrong = await postJson("/api/v1/auth/register", { ...body, setup_grant: "wrong-grant" });
+    const wrong = await postJson("/api/v1/auth/register", { ...body, device_token: "8K4M2Q9XR8N36T5W1PZH" });
     expect(wrong.status).toBe(403);
+    expect((await wrong.json()).error).toMatch(/device token/i);
     expect(world.users).toHaveLength(0);
-    expect(world.setupGrant).toBe("grant-one");
   });
 
-  it("consumes a valid grant once and rejects its replay", async () => {
-    const world = startFake((w) => fresh(w, "grant-one"));
+  it("accepts the right token, ignoring grouping and case", async () => {
+    const world = startFake(offLan);
 
-    const first = await postJson("/api/v1/auth/register", { ...body, setup_grant: " grant-one " });
-    expect(first.status).toBe(200);
+    const ok = await postJson("/api/v1/auth/register", { ...body, device_token: "7k4m-2q9x-r8n3-6t5w-1pzh" });
+
+    expect(ok.status).toBe(200);
     expect(world.users).toHaveLength(1);
-    expect(world.setupGrant).toBeNull();
-    expect(world.usedSetupGrants).toEqual(["grant-one"]);
+  });
 
-    world.users = [];
-    world.sessionUserId = null;
-    world.hasAdmin = false;
-    const replay = await postJson("/api/v1/auth/register", {
-      username: "jamie",
-      display_name: "Jamie",
-      password: "hunter22hunter1",
-      setup_grant: "grant-one",
-    });
-    expect(replay.status).toBe(403);
-    expect(world.users).toHaveLength(0);
+  it("needs no token on the home network", async () => {
+    const world = startFake((w) => { offLan(w); w.setupOffLan = false; });
+
+    const ok = await postJson("/api/v1/auth/register", body);
+
+    expect(ok.status).toBe(200);
+    expect(world.users).toHaveLength(1);
   });
 });
 

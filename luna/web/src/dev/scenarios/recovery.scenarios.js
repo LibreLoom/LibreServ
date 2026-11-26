@@ -9,7 +9,7 @@ export default [
       "The card sits centred with a clear heading and one-line explanation",
       "Copy says USB recovery works whether Luna Connect is on or off",
       "Who is it for? shows six compact choices; one existing account reveals Username",
-      "No Verification code or Device token field is shown",
+      "No device token or Device token field is shown",
       "Set a new password validates length and matching passwords inline",
       "Download creates luna-recover.luna and says so",
       "How to use the recovery file opens and closes",
@@ -20,8 +20,8 @@ export default [
     area: "Recovery",
     title: "Recovery file while Luna is pairing",
     url: "/recover",
-    seed: (w) => { w.connect = { state: "pairing", device_uid: "7K4M2Q9XR8N36T5W1PZH", verification_code: "A3F91C" }; },
-    check: ["The recovery form is available", "Download creates luna-recover.luna without a Verification code"],
+    seed: (w) => { w.connect = { state: "pairing", device_token: "7K4M2Q9XR8N36T5W1PZH" }; },
+    check: ["The recovery form is available", "Download creates luna-recover.luna without a device token"],
   },
   {
     id: "recovery/bound",
@@ -29,7 +29,7 @@ export default [
     title: "Recovery file with Luna Connect on",
     url: "/recover",
     seed: (w) => { w.connect = { state: "bound", paired: true }; w.connectActive = true; },
-    check: ["The recovery form is available", "Download creates luna-recover.luna without a Verification code"],
+    check: ["The recovery form is available", "Download creates luna-recover.luna without a device token"],
   },
   {
     id: "recovery/revoked",
@@ -37,7 +37,7 @@ export default [
     title: "Recovery file after Luna Connect revocation",
     url: "/recover",
     seed: (w) => { w.connect = { state: "revoked", paired: false }; },
-    check: ["The recovery form is available", "Download creates luna-recover.luna without a Verification code"],
+    check: ["The recovery form is available", "Download creates luna-recover.luna without a device token"],
   },
   {
     id: "recovery/disconnect-pending",
@@ -45,7 +45,7 @@ export default [
     title: "Recovery file while disconnecting from Luna Connect",
     url: "/recover",
     seed: (w) => { w.connect = { state: "bound", paired: false, unbind_pending: true }; },
-    check: ["The recovery form is available", "Download creates luna-recover.luna without a Verification code"],
+    check: ["The recovery form is available", "Download creates luna-recover.luna without a device token"],
   },
   {
     id: "recovery/phone-dark",

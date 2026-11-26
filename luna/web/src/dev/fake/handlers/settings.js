@@ -9,7 +9,8 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 const b64 = (n) => btoa(String.fromCharCode(...new Uint8Array(n).fill(7)));
 const CONNECT_STATES = new Set(["unbound", "pairing", "bound", "revoked"]);
 const CONNECT_PENDING_ERROR = "Luna is still disconnecting from Luna Connect. Remote access and pairing are stopped until it finishes.";
-const normalizeDeviceUid = (value) => String(value || "")
+const normalizeDeviceToken = (value) => String(value || "")
+  .trim()
   .replace(/[-_\s]/g, "")
   .toUpperCase()
   .replace(/[IL]/g, "1")
@@ -48,39 +49,17 @@ del("/api/v1/device-tokens/:id", ({ world, user, params }) => {
   return { ok: true };
 });
 
-// ── Luna Connect pairing material ───────────────────────────────────────────
-post("/api/v1/connect/device-token", ({ world, user, body }) => {
-  if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can change the Device token.");
-  const deviceUid = normalizeDeviceUid(body.device_uid);
-  const verificationCode = String(body.verification_code || "").trim().toUpperCase();
-  if (!/^[0-9A-HJKMNP-TV-Z]{20}$/.test(deviceUid)) return fail(400, "Enter the 20-character Device ID from Luna.");
-  if (!/^[0-9A-F]{6}$/.test(verificationCode)) return fail(400, "Enter the six-character Verification code from Luna.");
-  if (world.connect.unbind_pending) return fail(400, CONNECT_PENDING_ERROR);
-  const state = fakeConnectState(world);
-  const existingUid = normalizeDeviceUid(world.connect.device_uid);
-  const hasExistingUid = /^[0-9A-HJKMNP-TV-Z]{20}$/.test(existingUid);
-  if (hasExistingUid && existingUid !== deviceUid) {
-    return fail(400, "This Luna already has a different Device ID. Restore the original Device ID.");
-  }
-  if (!hasExistingUid && state !== "unbound") {
-    return fail(400, "This Luna's Device ID is missing. Restore the original Device ID before reconnecting.");
-  }
-  const existingCode = String(world.connect.verification_code ?? "").trim().toUpperCase();
-  if (/^[0-9A-F]{6}$/.test(existingCode) && existingCode !== verificationCode) {
-    return fail(400, "That Verification code does not match the one already saved on this Luna. Restore the saved code instead.");
-  }
-  world.connect = {
-    ...world.connect,
-    state,
-    device_uid: deviceUid,
-    verification_code: verificationCode,
-  };
-  return { ok: true };
+// ── Luna Connect device token (local file only; never sent to Connect) ─────
+get("/api/v1/connect/device-token", ({ world, user }) => {
+  requireAdmin(user, "Only an Admin can see the device token.");
+  return { device_token_set: Boolean(world.connect.device_token) };
 });
-del("/api/v1/connect/device-token", ({ world, user }) => {
-  requireAdmin(user, "Only an Admin can remove the Verification code.");
+put("/api/v1/connect/device-token", ({ world, user, body }) => {
+  if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can change the device token.");
+  const token = normalizeDeviceToken(body.device_token);
+  if (!/^[0-9A-HJKMNP-TV-Z]{20}$/.test(token)) return fail(400, "Enter the 20-character device token.");
   // Local-only: the Connect binding, remote access and backups do not change.
-  world.connect = { ...world.connect, verification_code: null };
+  world.connect = { ...world.connect, device_token: token };
   return { ok: true };
 });
 
@@ -121,7 +100,6 @@ post("/api/v1/connect/unbind", ({ world, user, body }) => {
     backup_unlocked: false,
     backup_sources: [],
     connect_error: null,
-    setup_grant: null,
   };
   world.connectActive = false;
   return { ok: true };

@@ -82,10 +82,10 @@ describe("DiscoveryPaths", () => {
     expect(screen.getByRole("link", { name: "luna.local" })).toHaveAttribute("href", "http://luna.local");
   });
 
-  it("keeps LAN access when only a human Verification code is saved", async () => {
+  it("keeps LAN access when only a device token is saved", async () => {
     vi.stubGlobal("fetch", stubFetch({
       network: { ipv4: ["192.168.1.20"] },
-      connect: { paired: false, connect_active: true, verification_code: "A3F91C" },
+      connect: { paired: false, connect_active: true, device_token_set: true },
     }));
     renderPaths();
     expect(await screen.findByRole("link", { name: "192.168.1.20" })).toBeTruthy();

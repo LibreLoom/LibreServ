@@ -222,7 +222,7 @@ export function baseWorld() {
     backups: [],
     cloudBackups: [],
     phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12, old_phrase_copies: { count: 0, removed_at: null }, resealing: false },
-    connect: { state: "unbound", enabled: false, device_uid: null, verification_code: null, unbind_pending: false },
+    connect: { state: "unbound", enabled: false, device_token: null, unbind_pending: false },
     network: { ethernet_connected: true, wifi_connected: false, has_default_route: true },
     access: [],
     albums: [],

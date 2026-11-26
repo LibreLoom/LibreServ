@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { connectState, isConnectBound } from "./connectState.js";
 
 describe("Connect UI state", () => {
-  it("uses the reported binding, never the presence of a verification code", () => {
-    expect(connectState({ paired: false, verification_code: "A3F91C" })).toBe("unbound");
-    expect(isConnectBound({ paired: false, connect_active: true, verification_code: "A3F91C" })).toBe(false);
+  it("uses the reported binding, never the presence of a device token", () => {
+    expect(connectState({ paired: false, device_token_set: true })).toBe("unbound");
+    expect(isConnectBound({ paired: false, connect_active: true, device_token_set: true })).toBe(false);
     expect(isConnectBound({ paired: true, connect_active: true })).toBe(true);
   });
 

@@ -137,6 +137,9 @@ export function locationParts(driveLabel, folder) {
   return [driveLabel, ...shown];
 }
 
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const DATED_YEAR = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+
 /**
  * When the hit last changed, e.g. "3 h ago", "Mar 4", or "Mar 4, 2023" once
  * it is a year old. `modified` is Unix seconds, as the index stores it.
@@ -158,7 +161,5 @@ export function searchWhen(modified, now = Date.now()) {
   if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
   const date = new Date(at);
   const sameYear = date.getFullYear() === new Date(now).getFullYear();
-  return date.toLocaleDateString(undefined, sameYear
-    ? { month: "short", day: "numeric" }
-    : { month: "short", day: "numeric", year: "numeric" });
+  return (sameYear ? SHORT_DATE : DATED_YEAR).format(date);
 }
