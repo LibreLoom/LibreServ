@@ -8,7 +8,6 @@ import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
