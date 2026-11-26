@@ -1,6 +1,8 @@
 #!/bin/sh
 # Dev: run Luna in a window on a virtual Dell Wyse 3040 (quad-core Atom
-# x5-Z8350 without AVX, 1.9 GB RAM, 8 GB slow eMMC, UEFI, gigabit ethernet, USB).
+# x5-Z8350 without AVX, 1.9 GB RAM, 8 GB slow eMMC, gigabit ethernet, USB). It boots
+# with BIOS (SeaBIOS), not UEFI like the real thing: QEMU's UEFI firmware cannot read
+# an eMMC/SD controller, SeaBIOS can (the e2e tests do the same). The disk has both.
 #
 #   iso/wyse-vm.sh [start] [DEVICE_ID CODE]
 #        Default. Boots the virtual eMMC. If there is none yet, it is built from
@@ -11,7 +13,7 @@
 #        Erase the virtual eMMC and run the real rapidinstall ISO from a virtual
 #        USB stick (keyboard layout: KEYMAP, default colemak).
 #   iso/wyse-vm.sh reset
-#        Delete the virtual eMMC and UEFI settings.
+#        Delete the virtual eMMC.
 #
 # The web UI is forwarded to http://localhost:8080. USB_IMG=/path/file.img
 # attaches a virtual USB drive. RES_X / RES_Y set the window size (1024x768).
@@ -23,12 +25,11 @@ OSDIR="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 ISO="${ISO:-$OSDIR/dist/luna-rapidinstall-x86_64.iso}"
 DIR="$OSDIR/dist/wyse-vm"
 EMMC="$DIR/emmc.img"
-VARS="$DIR/ovmf-vars.fd"
 MODE="${1:-start}"
 mkdir -p "$DIR"
 
 case "$MODE" in
-reset) rm -f "$EMMC" "$VARS"; echo "virtual Wyse 3040 reset"; exit 0 ;;
+reset) rm -f "$EMMC"; echo "virtual Wyse 3040 reset"; exit 0 ;;
 start)
 	[ "$#" -le 3 ] || { echo "usage: $0 [start] [DEVICE_ID CODE]" >&2; exit 2; }
 	if [ ! -f "$EMMC" ]; then
@@ -44,8 +45,6 @@ install) rm -f "$EMMC"; truncate -s 8G "$EMMC" ;;
 *) echo "usage: $0 [start|install|reset]" >&2; exit 2 ;;
 esac
 
-[ -f "$VARS" ] || cp /usr/share/OVMF/OVMF_VARS_4M.fd "$VARS"
-
 KVM=""
 [ -w /dev/kvm ] && KVM="-enable-kvm"
 # Cherry Trail Atom: SSE4.2, AES, no AVX. Westmere is the closest stock model.
@@ -55,8 +54,6 @@ THROTTLE=""
 
 set -- -machine q35 $KVM -cpu "$CPU" -m 1900 -smp 4 -name wyse3040 \
 	-monitor unix:"$DIR/monitor.sock",server,nowait \
-	-drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-	-drive if=pflash,format=raw,file="$VARS" \
 	-device qemu-xhci,id=xhci \
 	-drive if=none,id=emmc,file="$EMMC",format=raw"$THROTTLE" \
 	-device sdhci-pci -device sd-card,drive=emmc \
