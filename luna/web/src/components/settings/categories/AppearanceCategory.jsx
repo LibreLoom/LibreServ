@@ -424,10 +424,19 @@ export default function AppearanceCategory() {
             iconOff={Lightbulb}
           />
           {tips.dismissed.length > 0 ? (
-            <Button variant="ghost" surface="secondary" size="sm" onClick={restoreDismissedTips}>
-              <RotateCcw size={ICON_SIZE.sm} />
-              <span>Show hidden tips again</span>
-            </Button>
+            <SettingsRow
+              label="Hidden tips"
+              description={`You hid ${tips.dismissed.length} ${tips.dismissed.length === 1 ? "tip" : "tips"}. Bring ${tips.dismissed.length === 1 ? "it" : "them"} back to Home.`}
+              hideDivider
+              compact
+              stack
+              className="px-0"
+            >
+              <Button variant="ghost" surface="secondary" size="sm" onClick={restoreDismissedTips}>
+                <RotateCcw size={ICON_SIZE.sm} />
+                <span>Show hidden tips again</span>
+              </Button>
+            </SettingsRow>
           ) : null}
         </div>
       </SettingsCard>
