@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
 import DeviceTokenCard from "./DeviceTokenCard.jsx";
 
 let mockRole = "admin";
@@ -45,6 +46,7 @@ function renderCard() {
       <QueryClientProvider client={client}>
         <DeviceTokenCard />
       </QueryClientProvider>
+      <Toaster />
     </ToastProvider>,
   );
 }

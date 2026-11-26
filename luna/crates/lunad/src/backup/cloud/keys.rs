@@ -110,7 +110,11 @@ pub(super) fn acknowledge_publication(
     luna_id: &str,
     device: &str,
 ) -> Result<()> {
-    db::set_meta(conn, &publication_meta_key(key), &publication_value(luna_id, device))
+    db::set_meta(
+        conn,
+        &publication_meta_key(key),
+        &publication_value(luna_id, device),
+    )
 }
 
 fn rotate_meta_key(protection_id: &str) -> String {
@@ -914,11 +918,8 @@ mod tests {
     }
 
     impl CloudStore for FlakyStore {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(
             &self,
@@ -1135,10 +1136,23 @@ mod tests {
             .unwrap()
             .unwrap();
         let public = signer.public();
-        assert!(key_copy_signed(&record, &public, LUNA, PROTECTION, 1, "alice"));
-        assert!(!key_copy_signed(&record, &public, LUNA, PROTECTION, 2, "alice"));
-        assert!(!key_copy_signed(&record, &public, LUNA, PROTECTION, 1, "bob"));
-        assert!(!key_copy_signed(&record, &public, "other-luna", PROTECTION, 1, "alice"));
+        assert!(key_copy_signed(
+            &record, &public, LUNA, PROTECTION, 1, "alice"
+        ));
+        assert!(!key_copy_signed(
+            &record, &public, LUNA, PROTECTION, 2, "alice"
+        ));
+        assert!(!key_copy_signed(
+            &record, &public, LUNA, PROTECTION, 1, "bob"
+        ));
+        assert!(!key_copy_signed(
+            &record,
+            &public,
+            "other-luna",
+            PROTECTION,
+            1,
+            "alice"
+        ));
         assert!(!key_copy_signed(
             &record,
             &crypto::Signer::generate().public(),
@@ -1149,8 +1163,12 @@ mod tests {
         ));
         let mut altered = record.clone();
         altered[0] ^= 1;
-        assert!(!key_copy_signed(&altered, &public, LUNA, PROTECTION, 1, "alice"));
-        assert!(!key_copy_signed(&[0u8; 4], &public, LUNA, PROTECTION, 1, "alice"));
+        assert!(!key_copy_signed(
+            &altered, &public, LUNA, PROTECTION, 1, "alice"
+        ));
+        assert!(!key_copy_signed(
+            &[0u8; 4], &public, LUNA, PROTECTION, 1, "alice"
+        ));
     }
 
     #[test]
@@ -1654,11 +1672,8 @@ mod tests {
     }
 
     impl CloudStore for SaveDuringRun<'_> {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(
             &self,
@@ -1707,10 +1722,15 @@ mod tests {
     #[test]
     fn a_phrase_saved_during_the_run_keeps_the_job_pending() {
         let (_dir, db) = shared_db();
+        let bob = user_keys("bob");
         let bob_new = user_keys("bob-new");
         let bob_newer = user_keys("bob-newer");
         {
             let conn = locked(&db);
+            set_phrase(&conn, "bob", &bob);
+            // A key version Bob is on, so the re-seal writes a copy and the
+            // store hook below has a write to fire on.
+            ensure_key(&conn, PROTECTION, &set(&["bob"]), 10).unwrap();
             set_phrase(&conn, "bob", &bob_new);
             queue_reseal(&conn, "bob").unwrap();
         }
@@ -1720,7 +1740,6 @@ mod tests {
             newer: bob_newer,
             fired: AtomicUsize::new(0),
         };
-        // The user list is the one record written, so the save lands during the run's first write.
         let report = reseal_user(&db, &store, "bob").unwrap();
         assert!(report.done);
         // The newer job is still queued, so the older run must not clear it.

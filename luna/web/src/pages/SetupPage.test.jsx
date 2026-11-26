@@ -111,7 +111,8 @@ function renderSetup(initialEntry = "/setup", { probeLocation = false } = {}) {
 async function openSetupGrantField({ fragmentGrant = false } = {}) {
   fireEvent.click(await screen.findByRole("button", { name: /Begin setup/i }));
   await screen.findByRole("heading", { name: /System check/i });
-  fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+  // The check runs in the background; Continue appears when it finishes.
+  fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
   await screen.findByRole("heading", { name: /Create your account/i });
   fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
   fireEvent.change(screen.getByLabelText(/Pick a username/i), { target: { value: "alex" } });

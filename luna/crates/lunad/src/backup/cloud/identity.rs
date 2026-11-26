@@ -111,10 +111,10 @@ pub fn load_or_create_for_account(
             Identity { luna_id, signer }
         }
     };
-    if let Some(account) = account {
-        if changed || recorded.is_none() {
-            db::set_meta(conn, ACCOUNT_KEY, account)?;
-        }
+    if let Some(account) = account
+        && (changed || recorded.is_none())
+    {
+        db::set_meta(conn, ACCOUNT_KEY, account)?;
     }
     Ok(identity)
 }

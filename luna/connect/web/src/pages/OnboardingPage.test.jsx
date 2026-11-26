@@ -647,7 +647,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/^Device ID$/i)).toBeTruthy();
     });
-    expect(screen.getByText(/card in your Luna's box/i)).toBeTruthy();
+    expect(screen.getByText(/card in Luna's box/i)).toBeTruthy();
     await fillPairingDetails();
     fireEvent.click(screen.getByRole("button", { name: /Pair Luna/i }));
 

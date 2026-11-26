@@ -194,7 +194,7 @@ mod tests {
         std::fs::create_dir_all(pack.join("fonts")).unwrap();
         // This file exists, so the traversal alias can only be refused by the
         // ParentDir guard, not by a missing source file.
-        std::fs::write(root.join("outside.ttf"), &vec![9u8; 64]).unwrap();
+        std::fs::write(root.join("outside.ttf"), vec![9u8; 64]).unwrap();
         // allfontsgen's real layout: same length as the source, first 32 bytes
         // XOR-masked in place.
         let source = vec![7u8; 64];

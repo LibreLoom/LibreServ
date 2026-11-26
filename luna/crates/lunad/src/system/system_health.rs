@@ -210,13 +210,13 @@ impl Probes {
         Self {
             clock: ClockReading::live(),
             network: Some(network),
-            connect: (|| {
+            connect: {
                 let status = connect.status_for(false);
                 (status.connect_active
                     || status.connect_error.is_some()
                     || status.connect_unreachable.is_some())
                 .then_some(status)
-            })(),
+            },
             usable_update_keys: updates.usable_key_count(),
             default_update_keys: updates.using_default_keys(),
             on_luna_os: cmdline

@@ -1,3 +1,5 @@
+import "@testing-library/jest-dom/vitest";
+
 // Node 22+ exposes an experimental global localStorage that is undefined
 // unless --localstorage-file is set, which hides jsdom's own. Put jsdom's back.
 if (typeof globalThis.localStorage === "undefined" || !globalThis.localStorage?.getItem) {

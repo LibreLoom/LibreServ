@@ -291,6 +291,24 @@ func (h DeviceHandler) StartPair(w http.ResponseWriter, r *http.Request) {
 }
 
 func startDevicePairing(ctx context.Context, db *database.DB, accountID string, req pairingInput, rate pairingRateContext, now int64) (string, error) {
+	// Resolve the device before opening the transaction: a read first, then a
+	// write, makes SQLite fail the lock upgrade under concurrent claims
+	// instead of waiting. The transaction below starts with LockDevice.
+	var deviceID string
+	err := db.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		allowed, err := recordInvalidPairingAttempt(db, rate, now)
+		if err != nil {
+			return "", err
+		}
+		if !allowed {
+			return "", errPairingRateLimited
+		}
+		return "", errPairingInvalid
+	}
+	if err != nil {
+		return "", err
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -301,24 +319,12 @@ func startDevicePairing(ctx context.Context, db *database.DB, accountID string, 
 			_ = tx.Rollback()
 		}
 	}()
-	var deviceID string
-	err = tx.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID)
-	if errors.Is(err, sql.ErrNoRows) {
-		if err := reservePairingRate(tx, rate, now); err != nil {
-			return "", err
-		}
-		if err := tx.Commit(); err != nil {
-			return "", err
-		}
-		committed = true
-		return "", errPairingInvalid
-	}
-	if err != nil {
-		return "", err
-	}
 	// Device-before-account is the repository-wide order for credential and
 	// storage work. StartPair and ClaimPair previously took the inverse order.
 	if err := database.LockDevice(tx, deviceID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", errPairingInvalid
+		}
 		return "", err
 	}
 	rate = refreshPairingRateContext(tx, deviceID, rate, now)
@@ -597,6 +603,24 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 }
 
 func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, rate pairingRateContext, clientIP string, now int64) (map[string]any, error) {
+	// Resolve the device before opening the transaction so the transaction's
+	// first statement is the write lock (LockDevice); SQLite cannot upgrade a
+	// read snapshot to a writer while another claim holds it.
+	var deviceID string
+	err := db.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		allowed, err := recordInvalidPairingAttempt(db, rate, now)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, errPairingRateLimited
+		}
+		return nil, errPairingInvalid
+	}
+	if err != nil {
+		return nil, err
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -607,21 +631,10 @@ func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, 
 			_ = tx.Rollback()
 		}
 	}()
-	var deviceID string
-	if err := tx.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID); err != nil {
+	if err := database.LockDevice(tx, deviceID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			if err := reservePairingRate(tx, rate, now); err != nil {
-				return nil, err
-			}
-			if err := tx.Commit(); err != nil {
-				return nil, err
-			}
-			committed = true
 			return nil, errPairingInvalid
 		}
-		return nil, err
-	}
-	if err := database.LockDevice(tx, deviceID); err != nil {
 		return nil, err
 	}
 	rate = refreshPairingRateContext(tx, deviceID, rate, now)

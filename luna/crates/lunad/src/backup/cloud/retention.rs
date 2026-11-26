@@ -51,10 +51,10 @@ pub fn keep_flags(times: &[i64], now: i64) -> Vec<bool> {
             let first_week = seen_week.insert(week_of(day));
             let first_month = seen_month.insert(month_key(day));
             let in_day = first_day && (day_now - KEEP_DAYS + 1..=day_now).contains(&day);
-            let in_week = first_week
-                && (week_now - KEEP_WEEKS + 1..=week_now).contains(&week_of(day));
-            let in_month = first_month
-                && (month_now - KEEP_MONTHS + 1..=month_now).contains(&month_key(day));
+            let in_week =
+                first_week && (week_now - KEEP_WEEKS + 1..=week_now).contains(&week_of(day));
+            let in_month =
+                first_month && (month_now - KEEP_MONTHS + 1..=month_now).contains(&month_key(day));
             index == 0 || in_day || in_week || in_month
         })
         .collect()
@@ -475,14 +475,20 @@ mod tests {
             NOW - 7 * DAY + 1,
         ];
         let keep = keep_flags(&times, NOW);
-        assert_eq!(keep, [true, false, true, true, true, true, true, true, false]);
+        assert_eq!(
+            keep,
+            [true, false, true, true, true, true, true, true, false]
+        );
     }
 
     #[test]
     fn newest_of_each_of_the_last_three_months_is_kept() {
         // Day 100 is April, 70 is March (11th), 65 is March (6th), 40 is February (10th),
         // 39 is February (9th), 9 is January.
-        let times: Vec<i64> = [100, 70, 65, 40, 39, 9].iter().map(|d| d * DAY + 1).collect();
+        let times: Vec<i64> = [100, 70, 65, 40, 39, 9]
+            .iter()
+            .map(|d| d * DAY + 1)
+            .collect();
         let keep = keep_flags(&times, NOW);
         assert_eq!(keep, [true, true, false, true, false, false]);
     }

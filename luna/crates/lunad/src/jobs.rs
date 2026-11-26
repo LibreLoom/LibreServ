@@ -927,6 +927,20 @@ fn run_job(
         };
         error = format!("{error} {suffix}");
     }
+    // Remove a partial destination before the job reports its outcome: once
+    // the state says error or cancelled, nothing of this job may still be
+    // visible on the destination drive.
+    if (state == "cancelled" || state == "error") && st.owned_dest {
+        let _ = std::fs::remove_file(&prepared.dest);
+        let _ = std::fs::remove_dir_all(&prepared.dest);
+    }
+    if (state == "cancelled" || state == "error")
+        && (st.owned_dest || created_private_root)
+        && let Ok(conn) = db.lock()
+        && let Ok(drive) = files::drive_root(&conn, &prepared.row.to_drive)
+    {
+        let _ = crate::private::remove_under(Path::new(&drive.mount_point), &prepared.dest_rel);
+    }
     if let Ok(conn) = db.lock() {
         let _ = db::set_job_state(&conn, &prepared.row.id, &state, &error);
         // Only a finished job reports 100%. A failed one keeps the progress
@@ -938,17 +952,6 @@ fn run_job(
             // Progress writes are throttled, so record the last bytes copied.
             let _ = db::update_job_progress(&conn, &prepared.row.id, st.done, prepared.total);
         }
-    }
-    if (state == "cancelled" || state == "error") && st.owned_dest {
-        let _ = std::fs::remove_file(&prepared.dest);
-        let _ = std::fs::remove_dir_all(&prepared.dest);
-    }
-    if (state == "cancelled" || state == "error")
-        && (st.owned_dest || created_private_root)
-        && let Ok(conn) = db.lock()
-        && let Ok(drive) = files::drive_root(&conn, &prepared.row.to_drive)
-    {
-        let _ = crate::private::remove_under(Path::new(&drive.mount_point), &prepared.dest_rel);
     }
     if state == "done" {
         // The copy landed whole directories the listings never saw land —

@@ -253,7 +253,11 @@ fn open_rel(dir: &File, rel: &str) -> io::Result<File> {
         let flags = libc::O_RDONLY
             | libc::O_NOFOLLOW
             | libc::O_CLOEXEC
-            | if last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+            | if last {
+                libc::O_NONBLOCK
+            } else {
+                libc::O_DIRECTORY
+            };
         let parent = current.as_ref().unwrap_or(dir).as_raw_fd();
         // SAFETY: `parent` is an open descriptor that outlives this call, and `name` is a
         // NUL-free C string that lives until the call returns.

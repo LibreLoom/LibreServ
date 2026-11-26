@@ -31,20 +31,22 @@ factory_tokens_drop_first() {
 	[ -f "$_file" ] || return 1
 	_dropped=0
 	: >"$_tmp" || return 1
-	while IFS= read -r _line || [ -n "$_line" ]; do
+	# `_drop_line`, not `_line`: the caller keeps the peeled line in `_line`
+	# while this rewrite runs, and shell variables are global.
+	while IFS= read -r _drop_line || [ -n "$_drop_line" ]; do
 		if [ "$_dropped" -eq 0 ]; then
-			_check=$(printf '%s' "$_line" | tr -d '\r')
+			_check=$(printf '%s' "$_drop_line" | tr -d '\r')
 			_check=$(printf '%s' "$_check" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 			case "$_check" in
 			"" | \#*)
-				printf '%s\n' "$_line" >>"$_tmp" || return 1
+				printf '%s\n' "$_drop_line" >>"$_tmp" || return 1
 				continue
 				;;
 			esac
 			_dropped=1
 			continue
 		fi
-		printf '%s\n' "$_line" >>"$_tmp" || return 1
+		printf '%s\n' "$_drop_line" >>"$_tmp" || return 1
 	done <"$_file"
 	[ "$_dropped" -eq 1 ] || return 1
 	mv -f "$_tmp" "$_file" || return 1

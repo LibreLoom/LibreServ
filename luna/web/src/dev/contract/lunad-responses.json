@@ -242,7 +242,6 @@
       "last_error": "string",
       "last_ok_at": "number",
       "locked_drive_names": [],
-      "moving": "null",
       "next_check": "number",
       "notes": [],
       "old_phrase_copies": {
@@ -260,21 +259,19 @@
       "size": "number",
       "source_drive": "string",
       "source_drive_name": "string",
-      "source_missing": "boolean",
       "source_name": "string",
       "source_path": "string",
       "state": "string",
       "status": "string",
       "stop_reason": "string",
-      "waiting_reason": "null|string",
-      "waiting_since": "null|number"
+      "waiting_reason": "null",
+      "waiting_since": "null"
     }
   ],
   "GET /api/v1/cloud/phrase": {
     "check_due": "boolean",
     "last_checked_at": "number",
     "luna_id": "null|string",
-    "moving": "null",
     "old_phrase_copies": {
       "count": "number",
       "removed_at": "null|number"
@@ -310,15 +307,18 @@
     "cloud_backup": "string",
     "connect_active": "boolean",
     "connect_unreachable?": "string",
-    "device_code": "null",
-    "domain": "null",
+    "device_uid": "null|string",
+    "domain": "null|string",
     "enabled": "boolean",
-    "hostname": "null",
+    "hostname": "null|string",
     "lan_override": "boolean",
     "paired": "boolean",
+    "state": "string",
     "subdomain": "null",
     "tunnel_active": "boolean",
-    "unclaimed": "boolean"
+    "unbind_pending": "boolean",
+    "unclaimed": "boolean",
+    "verification_code": "null|string"
   },
   "GET /api/v1/device-tokens": [
     {
@@ -1202,7 +1202,6 @@
     "last_error": "string",
     "last_ok_at": "number",
     "locked_drive_names": [],
-    "moving": "null",
     "next_check": "number",
     "notes": [],
     "old_phrase_copies": "null",
@@ -1212,7 +1211,6 @@
     "size": "number",
     "source_drive": "string",
     "source_drive_name": "string",
-    "source_missing": "boolean",
     "source_name": "string",
     "source_path": "string",
     "state": "string",
@@ -1241,9 +1239,6 @@
   },
   "POST /api/v1/connect/device-token": {
     "message": "string",
-    "ok": "boolean"
-  },
-  "POST /api/v1/connect/unbind": {
     "ok": "boolean"
   },
   "POST /api/v1/device-tokens": {

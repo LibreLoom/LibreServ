@@ -2096,6 +2096,7 @@ pub struct OutboxRow {
 
 /// Queue a snapshot's signed record for publication, inside the transaction that commits the
 /// snapshot. The row stays until `clear_outbox` runs after the cloud acknowledges the record.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_outbox_in(
     tx: &rusqlite::Transaction,
     snapshot_id: &str,

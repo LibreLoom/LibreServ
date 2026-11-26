@@ -93,7 +93,8 @@ assert_eq "$(factory_peel_pairing_line_from_dir "$WORK/assets2")" "$UID1 $CODE1"
 assert_false test -s "$WORK/assets2/TOKENS"
 
 # Leading/trailing whitespace is not silently canonicalized.
-printf '  %s %s  \n%s %s\n' "$UID1 $CODE1" "$UID2 $CODE2" >"$WORK/assets3/TOKENS"
+mkdir -p "$WORK/assets3"
+printf '  %s  \n%s\n' "$UID1 $CODE1" "$UID2 $CODE2" >"$WORK/assets3/TOKENS"
 assert_eq "$(factory_tokens_first_line "$WORK/assets3/TOKENS")" "  $UID1 $CODE1  " "first line preserves field whitespace"
 assert_false factory_pairing_line "$(factory_tokens_first_line "$WORK/assets3/TOKENS")"
 assert_eq "$(factory_peel_pairing_line_from_dir "$WORK/assets3")" "$UID2 $CODE2" "non-exact line is skipped"

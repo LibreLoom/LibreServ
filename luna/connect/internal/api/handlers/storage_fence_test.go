@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type storageRelinkFixture struct {
@@ -85,14 +87,18 @@ func TestStorageRecordBodyIsRecheckedBeforeFinalCommit(t *testing.T) {
 	}
 	stor := StorageHandler{Deps: f.deps}
 	var replacementToken string
-	handler := f.devH.DeviceAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Mount the real route so PutRecord gets its path parameters; DeviceAuth
+	// admits the old credential, then the handler body relinks before the
+	// body recheck runs.
+	router := chi.NewRouter()
+	router.With(f.devH.DeviceAuth).Put("/storage/records/{kind}/{name}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		replacementToken = f.relink(t)
 		if rec := f.putRecord(t, replacementToken, "secret.json", "new-account-secret"); rec.Code != http.StatusOK {
 			t.Fatalf("seed replacement record %d %s", rec.Code, rec.Body.String())
 		}
 		stor.PutRecord(w, r)
 	}))
-	rec := storageDo(t, handler, http.MethodPut, "/records/snapshots/secret.json", f.oldToken, "shared", []byte("attacker"), nil)
+	rec := storageDo(t, router, http.MethodPut, "/records/snapshots/secret.json", f.oldToken, "shared", []byte("attacker"), nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("stale record write %d %s", rec.Code, rec.Body.String())
 	}
@@ -108,14 +114,16 @@ func TestSigningPublicRejectsBearerAdmittedBeforeRelink(t *testing.T) {
 	first := newHybridKey(t).pubHex()
 	second := newHybridKey(t).pubHex()
 	stor := StorageHandler{Deps: f.deps}
-	handler := f.devH.DeviceAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router := chi.NewRouter()
+	router.With(f.devH.DeviceAuth).Post("/storage/luna-ids/{id}/signing-public", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		newToken := f.relink(t)
-		if rec := f.putRecord(t, newToken, "identity/public", first); rec.Code != http.StatusOK {
-			t.Fatalf("seed replacement signing key %d %s", rec.Code, rec.Body.String())
+		seed := storageDo(t, storageRouter(f.deps), http.MethodPut, "/records/identity/public", newToken, "shared", []byte(first), nil)
+		if seed.Code != http.StatusOK {
+			t.Fatalf("seed replacement signing key %d %s", seed.Code, seed.Body.String())
 		}
 		stor.SetSigningPublic(w, r)
 	}))
-	req := storageDo(t, handler, http.MethodPost, "/luna-ids/shared/signing-public", f.oldToken, "", []byte(second), nil)
+	req := storageDo(t, router, http.MethodPost, "/luna-ids/shared/signing-public", f.oldToken, "", []byte(second), nil)
 	if req.Code != http.StatusUnauthorized {
 		t.Fatalf("stale signing write %d %s", req.Code, req.Body.String())
 	}

@@ -98,6 +98,7 @@ export function backup(over = {}) {
     last_ok_at: Math.floor(DEFAULT_NOW / 1000) - HOUR,
     last_error: "",
     hard: false,
+    source_missing: false,
     first_done: true,
     created_by: "u1",
     can_delete: true,
@@ -117,7 +118,6 @@ export function cloudBackup(over = {}) {
     target_drive_name: undefined,
     last_checked_at: Math.floor(DEFAULT_NOW / 1000) - 3 * DAY,
     check_problem: "",
-    source_missing: false,
     ...over,
   });
 }
@@ -221,7 +221,7 @@ export function baseWorld() {
     updateSource: { channel: "stable", default_keys: true, defaults: { channel: "stable", feed_url: DEFAULT_FEED_URL, keys: [] }, effective_keys: [], feed_url: DEFAULT_FEED_URL, keys: [] },
     backups: [],
     cloudBackups: [],
-    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12, moving: null, old_phrase_copies: { count: 0, removed_at: null }, resealing: false },
+    phrase: { set: true, set_at: 0, luna_id: "luna-1", signing_public: "", check_due: false, last_checked_at: 0, phrase_words: 12, old_phrase_copies: { count: 0, removed_at: null }, resealing: false },
     connect: { state: "unbound", enabled: false, device_uid: null, verification_code: null, unbind_pending: false },
     network: { ethernet_connected: true, wifi_connected: false, has_default_route: true },
     access: [],

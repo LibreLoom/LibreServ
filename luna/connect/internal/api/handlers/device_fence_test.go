@@ -113,6 +113,8 @@ func TestDomainFinalFenceFailureCleansProviderResources(t *testing.T) {
 	tunnel := &fenceTunnel{Tunnel: d.Tunnel}
 	dns := &fenceDNS{DNS: d.DNS}
 	d.Tunnel, d.DNS = tunnel, dns
+	// DeviceHandler copied Deps before the swap; point it at the wrappers.
+	devH.Deps = d
 	if _, err := d.DB.Exec(`CREATE TRIGGER ignore_device_domain_update BEFORE UPDATE OF subdomain ON devices
 BEGIN SELECT RAISE(IGNORE); END`); err != nil {
 		t.Fatal(err)
@@ -156,6 +158,8 @@ func TestDomainProvisioningIsFencedAcrossUnbindRevokeAndRepair(t *testing.T) {
 			tunnel := &fenceTunnel{Tunnel: d.Tunnel, started: make(chan struct{}), release: make(chan struct{})}
 			dns := &fenceDNS{DNS: d.DNS}
 			d.Tunnel, d.DNS = tunnel, dns
+			// DeviceHandler copied Deps before the swap; point it at the wrappers.
+			devH.Deps = d
 			domainDone := make(chan *httptest.ResponseRecorder, 1)
 			go func() {
 				req := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"fencedbox"}`))

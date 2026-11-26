@@ -478,7 +478,9 @@ fn an_offline_stale_state_recovery_keeps_the_credential_for_the_next_attempt() {
 
     assert!(!connect.poll_status());
     assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
-    assert_eq!(connect.status().state, ConnectState::Unbound);
+    // The valid credential wins over the stale saved state; the failed poll
+    // only records that Connect is unreachable, so the next attempt can use it.
+    assert_eq!(connect.status().state, ConnectState::Bound);
     assert!(connect.status().connect_unreachable.is_some());
     assert_eq!(mock.calls().len(), 1);
     assert_eq!(mock.calls()[0].path, "/api/v1/token/refresh");
@@ -792,7 +794,9 @@ fn a_generic_401_does_not_complete_an_unbind() {
     ));
     assert!(connect.unbind_pending());
     assert!(!connect.is_connect_active());
-    assert_eq!(connect.status().state, ConnectState::Revoked);
+    // A generic 401 is not proof the device was revoked; the credential stays
+    // for the next refresh, so the saved bound state still wins.
+    assert_eq!(connect.status().state, ConnectState::Bound);
     assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
     let calls = mock.calls();
     assert_eq!(

@@ -218,7 +218,7 @@ func (h DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 
 	var sealed, sub sql.NullString
 	var tunnelID string
-	err = h.DB.QueryRow(`SELECT subdomain, tunnel_token, tunnel_id FROM devices
+	err = h.DB.QueryRow(`SELECT subdomain, tunnel_token, COALESCE(tunnel_id, '') FROM devices
  WHERE id = ? AND account_id = ? AND state = 'bound' AND auth_token_hash = ?`,
 		dev.ID, dev.AccountID.String, dev.AuthTokenHash).Scan(&sub, &sealed, &tunnelID)
 	if err != nil {

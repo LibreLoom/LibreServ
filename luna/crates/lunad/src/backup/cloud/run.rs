@@ -406,6 +406,7 @@ fn pending_older_versions(
 
 /// Publishes and acknowledges the current version before copying. Historical repairs are
 /// best effort so a problem with an old key cannot block a new snapshot.
+#[allow(clippy::too_many_arguments)]
 fn publish_and_copy(
     db: &crate::Db,
     ctx: &RunContext,
@@ -746,8 +747,13 @@ pub(crate) fn copy_and_commit(
 fn unstable_problem(names: &[String]) -> Option<String> {
     match names {
         [] => None,
-        [one] => Some(format!("Luna skipped \"{one}\" because it was changing while it was copied. It will be copied on the next run.")),
-        many => Some(format!("Luna skipped {} files because they were changing while they were copied. They will be copied on the next run.", many.len())),
+        [one] => Some(format!(
+            "Luna skipped \"{one}\" because it was changing while it was copied. It will be copied on the next run."
+        )),
+        many => Some(format!(
+            "Luna skipped {} files because they were changing while they were copied. They will be copied on the next run.",
+            many.len()
+        )),
     }
 }
 
@@ -1343,8 +1349,17 @@ mod tests {
     fn queue_again(db: &crate::Db, snapshot_id: &str, record: &[u8]) {
         let mut conn = lock(db);
         let tx = conn.transaction().unwrap();
-        db::insert_outbox_in(&tx, snapshot_id, "p9", "", "snapshots", snapshot_id, record, 100)
-            .unwrap();
+        db::insert_outbox_in(
+            &tx,
+            snapshot_id,
+            "p9",
+            "",
+            "snapshots",
+            snapshot_id,
+            record,
+            100,
+        )
+        .unwrap();
         tx.commit().unwrap();
     }
 
@@ -1359,7 +1374,10 @@ mod tests {
         assert!(db::pending_outbox(&lock(&db)).unwrap().is_empty());
 
         // The crash happened after the local commit: the cloud never got the record.
-        let record = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let record = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
         store.delete_record("snapshots", &snapshot_id).unwrap();
         queue_again(&db, &snapshot_id, &record);
         assert_eq!(db::pending_outbox(&lock(&db)).unwrap().len(), 1);
@@ -1382,7 +1400,10 @@ mod tests {
         let store = MemoryStore::new();
         let done = run_with_root(&db, "p9", &src, &store, true, 100).unwrap();
         let snapshot_id = done.snapshot_id.clone().unwrap();
-        let record = store.get_record("snapshots", &snapshot_id).unwrap().unwrap();
+        let record = store
+            .get_record("snapshots", &snapshot_id)
+            .unwrap()
+            .unwrap();
 
         // The record reached the cloud, but the clear after the acknowledgement never ran.
         queue_again(&db, &snapshot_id, &record);

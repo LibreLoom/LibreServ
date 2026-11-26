@@ -616,7 +616,6 @@ get("/api/v1/cloud/phrase", ({ world }) => ({
   check_due: Boolean(world.phrase?.check_due),
   last_checked_at: world.phrase?.last_checked_at ?? 0,
   phrase_words: world.phrase?.phrase_words ?? 0,
-  moving: world.phrase?.moving ?? null,
   old_phrase_copies: world.phrase?.old_phrase_copies ?? { count: 0, removed_at: null },
   resealing: Boolean(world.phrase?.resealing),
 }));

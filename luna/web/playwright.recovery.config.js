@@ -5,6 +5,9 @@ export default defineConfig({
   testMatch: "**/*.spec.js",
   fullyParallel: false,
   reporter: "list",
+  // The first page load compiles the app in Vite while the box is busy; the
+  // default 5s expectation can lose that race even though the page is fine.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: "http://127.0.0.1:19400",
     browserName: "chromium",

@@ -1339,7 +1339,8 @@ async fn a_cross_drive_folder_move_that_fails_mid_copy_leaves_the_source_whole()
     // The partial copy is gone from the destination.
     assert!(
         !root_b.join("project").exists(),
-        "partial copy left at the destination"
+        "partial copy left at the destination (job error: {})",
+        done.error
     );
 }
 

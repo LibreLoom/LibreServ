@@ -32,8 +32,8 @@ pub struct Layout {
 /// marker file is still there on a cache hit. `None` is not cached: a drive
 /// adopted just after a lookup must be seen on the next one.
 const DETECT_TTL: Duration = Duration::from_secs(60);
-static DETECT_CACHE: OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>> =
-    OnceLock::new();
+type DetectCache = OnceLock<Mutex<HashMap<PathBuf, (Instant, String, PathBuf)>>>;
+static DETECT_CACHE: DetectCache = OnceLock::new();
 
 /// Called wherever the drive manager forgets its own marker memo (adopt,
 /// format, eject, remove, reconcile, inspect). That hook has no root argument,
@@ -62,10 +62,10 @@ impl Layout {
                 .filter(|(at, _, _)| at.elapsed() < DETECT_TTL)
                 .map(|(_, prefix, marker)| (prefix.clone(), marker.clone()))
         };
-        if let Some((prefix, marker)) = cached {
-            if marker.is_file() {
-                return Some(Self::from_prefix(prefix));
-            }
+        if let Some((prefix, marker)) = cached
+            && marker.is_file()
+        {
+            return Some(Self::from_prefix(prefix));
         }
 
         let found = crate::drives::drive_db::prefix_for(root).map(Self::from_prefix);

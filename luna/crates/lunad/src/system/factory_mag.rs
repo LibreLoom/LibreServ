@@ -481,7 +481,7 @@ mod tests {
         std::fs::write(&code, format!("{CODE}\n")).unwrap();
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
-        write_tokens(&assets, &format!("ZZZZYYYYXXXXWWWWVVVV ABCDEF\n"));
+        write_tokens(&assets, "ZZZZYYYYXXXXWWWWVVVV ABCDEF\n");
 
         assert_eq!(
             fetch_pairing_material_from_mag(
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&code).unwrap().trim(), CODE);
         assert_eq!(
             std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
-            format!("ZZZZYYYYXXXXWWWWVVVV ABCDEF\n")
+            "ZZZZYYYYXXXXWWWWVVVV ABCDEF\n"
         );
     }
 
@@ -510,7 +510,7 @@ mod tests {
         let assets = dir.path().join("assets");
         std::fs::create_dir_all(&assets).unwrap();
         let canary = dir.path().join("canary.txt");
-        std::fs::write(&canary, &format!("keep me\n{UID} {CODE}\n")).unwrap();
+        std::fs::write(&canary, format!("keep me\n{UID} {CODE}\n")).unwrap();
         std::os::unix::fs::symlink(&canary, assets.join("TOKENS")).unwrap();
         let uid = dir.path().join("device-uid");
         let code = dir.path().join("pairing-code");

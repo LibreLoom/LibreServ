@@ -1447,11 +1447,8 @@ mod tests {
     struct KeyCopyRefused(MemoryStore);
 
     impl CloudStore for KeyCopyRefused {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(
             &self,
@@ -1543,11 +1540,8 @@ mod tests {
         "Add a payment card at connect.luna.libreloom.org to store your cloud backup.";
 
     impl CloudStore for NoCard {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(
             &self,
@@ -2153,11 +2147,8 @@ mod tests {
     }
 
     impl CloudStore for ScopeFlaky {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, b)
@@ -2309,11 +2300,8 @@ mod tests {
     }
 
     impl CloudStore for RequeueDuringSend<'_> {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(&self, id: &[u8; 32], scope: Option<&str>, b: &[u8]) -> Result<(), StoreError> {
             self.inner.put_pack(id, scope, b)

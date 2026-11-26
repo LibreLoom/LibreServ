@@ -11,9 +11,9 @@ use rand_core::{OsRng, RngCore};
 use rusqlite::{Connection, params};
 
 use super::crypto::{SealPublic, SigPublic};
-use super::keys::{self, Recipients};
 use super::format::{self, ChunkRef, OpenedPack, SignedRecord, SnapshotRecord};
 use super::identity;
+use super::keys::{self, Recipients};
 use super::run;
 use super::store::{CloudStore, StoreError};
 use crate::db::{self, BackupKey, SnapshotInsert};
@@ -225,15 +225,15 @@ fn reconcile_envelopes(plan: &Plan, store: &dyn CloudStore, protection_id: &str)
     let signer = plan.identity.signer();
     for (key, readers) in &plan.readers {
         let version = key.version;
-        let listed_ok = match fetch(store, "recipients", &keys::recipients_record_name(protection_id, version))? {
-            Some(bytes) => keys::verify_recipients(
-                &bytes,
-                &plan.public,
-                &plan.luna_id,
-                protection_id,
-                version,
-            )
-            .is_some_and(|users| Recipients::new(users) == *readers),
+        let listed_ok = match fetch(
+            store,
+            "recipients",
+            &keys::recipients_record_name(protection_id, version),
+        )? {
+            Some(bytes) => {
+                keys::verify_recipients(&bytes, &plan.public, &plan.luna_id, protection_id, version)
+                    .is_some_and(|users| Recipients::new(users) == *readers)
+            }
             None => false,
         };
         let mut copies_ok = true;
@@ -424,11 +424,8 @@ mod tests {
     }
 
     impl CloudStore for CorruptStore {
-
         fn device_binding(&self) -> Option<String> {
-
             Some("memory".into())
-
         }
         fn put_pack(
             &self,

@@ -216,7 +216,8 @@ describe("LunaPage one Luna", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reveal pairing details" }));
 
     expect(await screen.findByText(CODE)).toBeTruthy();
-    expect(screen.getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
+    const pairingDetails = screen.getByTestId("account-pairing-details");
+    expect(within(pairingDetails).getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
     expect(screen.getByText(/Settings → Luna Connect → Device token/)).toBeTruthy();
     expect(api).toHaveBeenCalledWith("/api/v1/account/devices/dev_1/code", {
       method: "POST",

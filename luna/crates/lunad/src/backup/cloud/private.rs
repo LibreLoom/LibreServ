@@ -45,7 +45,10 @@ pub fn private_namespace(auth_public: &SigPublic) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"luna-private-namespace-v1\0");
     hasher.update(&auth_public[..]);
-    hasher.finalize()[..16].iter().map(|b| format!("{b:02x}")).collect()
+    hasher.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// The scope id and its public name (the first 16 bytes of the id, as 32 hex characters).
@@ -664,7 +667,10 @@ mod tests {
             .unwrap()
             .verify(&signer.public())
             .unwrap();
-        assert_eq!(record.user_id, "owner");
+        // The record carries the opaque namespace derived from the owner's auth
+        // key, never the Luna user ID.
+        assert_eq!(record.user_id, private_namespace(&keys.auth_public));
+        assert_ne!(record.user_id, "owner");
         assert_eq!(record.created_at, 42);
         assert_eq!(record.scope_public, scope_public);
         // The dedup key opens with the scope's secret, not the owner's.

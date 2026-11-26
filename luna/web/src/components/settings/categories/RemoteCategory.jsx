@@ -67,7 +67,7 @@ export default function RemoteCategory() {
                 className="rounded-large-element border-2 border-error/30 bg-error/20 px-3 py-3 space-y-2"
                 role="alert"
               >
-                <p className="text-sm text-primary leading-relaxed">{hardError}</p>
+                <p className="text-sm text-secondary leading-relaxed">{hardError}</p>
               </div>
             ) : address ? (
               <CopyableValue
@@ -98,7 +98,7 @@ export default function RemoteCategory() {
                 className="rounded-large-element border-2 border-warning/30 bg-warning/20 px-3 py-3"
                 role="status"
               >
-                <p className="text-sm text-primary leading-relaxed">{tunnelWarn}</p>
+                <p className="text-sm text-secondary leading-relaxed">{tunnelWarn}</p>
               </div>
             ) : null}
           </div>

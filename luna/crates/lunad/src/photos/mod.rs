@@ -1495,6 +1495,10 @@ fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool
     let frame = io.out_path("frame.jpg")?;
     let mut cmd = std::process::Command::new(ffmpeg);
     cmd.arg("-y")
+        // One frame needs no thread pool, and the sandbox's address-space cap
+        // counts every thread stack: ffmpeg's default pool can fail to start
+        // on a many-core box under that cap.
+        .args(["-threads", "1"])
         .args(["-ss", "0", "-i"])
         .arg(&input)
         .args([

@@ -1,7 +1,10 @@
 export const SETUP_GRANT_PARAM = "setup_grant";
 
 function paramsFromHash(hash) {
-  return new URLSearchParams(String(hash || "").replace(/^#/, ""));
+  // Only a fragment can carry the grant. URLSearchParams strips a leading
+  // "?" too, so without this check a query string would look like a fragment.
+  const text = String(hash || "");
+  return new URLSearchParams(text.startsWith("#") ? text.slice(1) : "");
 }
 
 export function hasSetupGrantInHash(hash) {

@@ -36,7 +36,10 @@ async function settled(view) {
 
 /** Open a menu by its trigger label and return the option labels. */
 async function openMenu(view, label) {
-  fireEvent.click(within(view.dom).getByRole("button", { name: label }));
+  // The table widget re-renders as CodeMirror measures; wait for the trigger
+  // instead of reading a frame that caught the gap between two widgets.
+  const trigger = await waitFor(() => within(view.dom).getByRole("button", { name: label }));
+  fireEvent.click(trigger);
   const menu = await waitFor(() => {
     const el = document.querySelector("[data-slot='dropdown-menu']");
     if (!(el instanceof HTMLElement)) throw new Error("menu not open");
