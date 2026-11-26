@@ -15,10 +15,10 @@ const TYPE_CONFIG = {
 
 // Circumference of the time-ring (r = 12). Drives the stroke-dash depletion.
 const RING_CIRC = 2 * Math.PI * 12;
-// Collapsed message clip — ~1 line of text-sm / leading-snug.
-const COLLAPSED_H = "1.3rem";
-// Overflow threshold in the same units as scrollHeight (px).
-const TRUNCATION_THRESHOLD_PX = 30;
+// Collapsed message clip — 2 lines of text-sm / leading-snug (14px × 1.375).
+const COLLAPSED_H = "2.4rem";
+// Overflow threshold in the same units as scrollHeight (px): more than 2 lines.
+const TRUNCATION_THRESHOLD_PX = 40;
 
 // Drag gesture. A press must move a few px before it counts as a drag, and a
 // release dismisses past the distance threshold or on a quick flick.
@@ -240,11 +240,11 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
       data-dragging={drag && !snapping ? "true" : undefined}
       style={dragStyle}
       className={cn(
-        "pointer-events-auto relative flex items-start gap-3 overflow-hidden touch-none",
+        "pointer-events-auto relative flex items-center gap-3 overflow-hidden touch-none",
         "min-w-[220px] max-w-[380px]",
         "surface-secondary",
         "rounded-large-element border border-primary/10 shadow-lg",
-        "pl-3 pr-2 py-2.5 origin-top-right",
+        "py-2.5 pl-3 pr-2.5 origin-top-right",
         toast.exiting ? !swipedOut && "animate-toast-exit" : entering && "animate-toast-enter",
         isTruncated && "cursor-pointer",
       )}
@@ -310,40 +310,17 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         <Icon size={ICON_SIZE.sm} className="text-primary" strokeWidth={2.5} aria-hidden="true" />
       </div>
 
-      <div className="flex-1 min-w-0 py-0.5">
-        <div className="flex items-start gap-1">
-          <div
-            className="min-w-0 overflow-hidden motion-safe:transition-[max-height] motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.2,0,0,1)]"
-            style={{ maxHeight: expanded ? (fullHeight ? `${fullHeight}px` : "none") : COLLAPSED_H }}
-          >
-            <p ref={msgRef} className="font-mono text-sm text-primary leading-snug">
-              {toast.message}
-            </p>
-          </div>
-          {isTruncated && (
-            <button
-              type="button"
-              aria-label={expanded ? "Show less" : "Show more"}
-              aria-expanded={expanded}
-              onClick={toggleExpanded}
-              className={cn(
-                "flex-shrink-0 flex items-center justify-center min-w-8 min-h-11 -my-2.5 -mr-1",
-                "rounded-pill focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
-              )}
-            >
-              <ChevronDown
-                size={ICON_SIZE.sm}
-                className={cn(
-                  "motion-safe:transition-transform motion-safe:duration-200",
-                  expanded && "rotate-180",
-                )}
-                aria-hidden="true"
-              />
-            </button>
-          )}
+      <div className="flex-1 min-w-0">
+        <div
+          className="min-w-0 overflow-hidden motion-safe:transition-[max-height] motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.2,0,0,1)]"
+          style={{ maxHeight: expanded ? (fullHeight ? `${fullHeight}px` : "none") : COLLAPSED_H }}
+        >
+          <p ref={msgRef} className="font-mono text-sm text-primary leading-snug">
+            {toast.message}
+          </p>
         </div>
         {toast.description && (
-          <p className="text-xs mt-0.5 leading-relaxed">{toast.description}</p>
+          <p className="text-xs mt-1 leading-snug">{toast.description}</p>
         )}
       </div>
 
@@ -357,7 +334,7 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
             onDismiss(toast.id);
           }}
           className={cn(
-            "flex-shrink-0 self-center min-h-11 -my-2.5 rounded-pill surface-primary px-3 text-xs font-mono",
+            "flex-shrink-0 h-8 rounded-pill surface-primary px-3 text-xs font-mono",
             "hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
             "motion-safe:transition-all active:motion-safe:scale-95",
             "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
@@ -367,23 +344,47 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          haptic("light");
-          onDismiss(toast.id);
-        }}
-        className={cn(
-          "flex-shrink-0 flex items-center justify-center min-w-11 min-h-11 -my-2.5 -mr-2 rounded-pill",
-          "hover:text-primary hover:bg-primary/10",
-          "motion-safe:transition-colors",
-          "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
+      <div className="flex flex-shrink-0 items-center">
+        {isTruncated && (
+          <button
+            type="button"
+            aria-label={expanded ? "Show less" : "Show more"}
+            aria-expanded={expanded}
+            onClick={toggleExpanded}
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-pill",
+              "hover:bg-primary/10 motion-safe:transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
+            )}
+          >
+            <ChevronDown
+              size={ICON_SIZE.sm}
+              className={cn(
+                "motion-safe:transition-transform motion-safe:duration-200",
+                expanded && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </button>
         )}
-        aria-label="Dismiss notification"
-      >
-        <X size={ICON_SIZE.sm} aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            haptic("light");
+            onDismiss(toast.id);
+          }}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-pill",
+            "hover:text-primary hover:bg-primary/10",
+            "motion-safe:transition-colors",
+            "focus-visible:ring-2 focus-visible:ring-accent no-focus-outline",
+          )}
+          aria-label="Dismiss notification"
+        >
+          <X size={ICON_SIZE.sm} aria-hidden="true" />
+        </button>
+      </div>
     </div>
   );
 }
