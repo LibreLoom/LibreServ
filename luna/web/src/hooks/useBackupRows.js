@@ -6,8 +6,7 @@ import { getPhraseStatus, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 
 /**
  * The one place that reads drive backups, cloud backups and the recovery phrase
- * status. The dashboard page and its Needs you list both call this hook, so they
- * share the same cache entries and each request is made once.
+ * status. The dashboard shares this result with its Needs you list.
  *
  * rows are empty until both backup lists have answered. A failed cloud list
  * (Connect off) only means no cloud rows.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { motion as Motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Database, Download, Eye, Inbox, RefreshCw, Trash2 } from "lucide-react";
@@ -32,6 +32,57 @@ import { cn } from "@libreloom/ui/lib/utils.js";
  *   question: FormQuestion | null,
  * }} ResponseColumn
  */
+
+const ResponsesTable = memo(/**
+ * @param {{ columns: ResponseColumn[], responses: FormResponse[], onOpen: (record: FormResponse) => void }} props
+ */ function ResponsesTable({ columns, responses, onOpen }) {
+  const sent = useMemo(() => new Map(responses.map((rec) => [rec, formatSent(rec)])), [responses]);
+  return (
+    <div className="overflow-x-auto">
+      <Table
+        rowKey="id"
+        mobileCards
+        data={responses}
+        onRowClick={onOpen}
+        columns={[
+          {
+            key: "sent",
+            label: "Sent",
+            render: (rec) => <span className="whitespace-nowrap">{sent.get(rec)}</span>,
+          },
+          ...columns.map((col) => ({
+            key: col.id,
+            label: col.label,
+            render: (rec) => (
+              <span className="block max-w-64 truncate">
+                {formatAnswer(col.question, rec.answers?.[col.id])}
+              </span>
+            ),
+          })),
+          {
+            key: "open",
+            label: "Open",
+            srOnly: true,
+            render: (rec) => (
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="iconSm"
+                aria-label={`View response sent ${sent.get(rec)}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpen(rec);
+                }}
+              >
+                <Eye size={ICON_SIZE.sm} aria-hidden="true" />
+              </Button>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+});
 
 /**
  * The builder's Responses tab: a server-paged table where a row opens every
@@ -110,37 +161,45 @@ export default function FormResponses({
 
   // Deleted questions keep a column even when their last answer sits on a
   // page that isn't loaded — the summary knows every answered id.
-  const knownIds = new Set(questions.map((q) => q.id));
-  /** @type {string[]} */
-  const orphanIds = [];
-  for (const entry of summary?.questions || []) {
-    if (!knownIds.has(entry.id) && !orphanIds.includes(entry.id)) orphanIds.push(entry.id);
-  }
-  for (const rec of responses) {
-    const answers = rec && typeof rec.answers === "object" ? rec.answers : null;
-    for (const id of Object.keys(answers || {})) {
-      if (!knownIds.has(id) && !orphanIds.includes(id)) orphanIds.push(id);
+  const columns = useMemo(() => {
+    const knownIds = new Set(questions.map((q) => q.id));
+    /** @type {Set<string>} */
+    const orphanIds = new Set();
+    for (const { id } of summary?.questions || []) {
+      if (!knownIds.has(id)) orphanIds.add(id);
     }
-  }
-  /** @type {ResponseColumn[]} */
-  const columns = [
-    ...questions.map((q) => ({
-      id: q.id,
-      label: q.label || "Untitled question",
-      type: q.type,
-      question: q,
-    })),
-    ...orphanIds.map((id, i) => ({
-      id,
-      label: orphanIds.length === 1 ? "Removed question" : `Removed question ${i + 1}`,
-      type: "",
-      question: null,
-    })),
-  ];
-  const summaryById = new Map(
-    (summary?.questions || []).map((entry) => [entry.id, entry]),
+    for (const rec of responses) {
+      const answers = rec && typeof rec.answers === "object" ? rec.answers : null;
+      for (const id of Object.keys(answers || {})) {
+        if (!knownIds.has(id)) orphanIds.add(id);
+      }
+    }
+    /** @type {ResponseColumn[]} */
+    const next = [
+      ...questions.map((q) => ({
+        id: q.id,
+        label: q.label || "Untitled question",
+        type: q.type,
+        question: q,
+      })),
+      ...Array.from(orphanIds, (id, i) => ({
+        id,
+        label: orphanIds.size === 1 ? "Removed question" : `Removed question ${i + 1}`,
+        type: "",
+        question: null,
+      })),
+    ];
+    return next;
+  }, [questions, responses, summary?.questions]);
+  const summaryById = useMemo(
+    () => new Map((summary?.questions || []).map((entry) => [entry.id, entry])),
+    [summary?.questions],
   );
-  const openResponse = responses.find((r) => r.id === openId) || null;
+  const openResponse = openId ? responses.find((r) => r.id === openId) || null : null;
+  const openRow = useCallback((rec) => {
+    setDeleteError("");
+    setOpenId(rec.id);
+  }, []);
 
   // Deleting the last row on a page leaves an offset past the end. Step back
   // once the new total arrives instead of showing an empty table.
@@ -386,53 +445,7 @@ export default function FormResponses({
             </div>
           </nav>
 
-          <div className="overflow-x-auto">
-            <Table
-              rowKey="id"
-              mobileCards
-              data={responses}
-              onRowClick={(rec) => {
-                setDeleteError("");
-                setOpenId(rec.id);
-              }}
-              columns={[
-                {
-                  key: "sent",
-                  label: "Sent",
-                  render: (rec) => <span className="whitespace-nowrap">{formatSent(rec)}</span>,
-                },
-                ...columns.map((col) => ({
-                  key: col.id,
-                  label: col.label,
-                  render: (rec) => (
-                    <span className="block max-w-64 truncate">
-                      {formatAnswer(col.question, rec.answers?.[col.id])}
-                    </span>
-                  ),
-                })),
-                {
-                  key: "open",
-                  label: "Open",
-                  srOnly: true,
-                  render: (rec) => (
-                    <Button
-                      variant="ghost"
-                      surface="secondary"
-                      size="iconSm"
-                      aria-label={`View response sent ${formatSent(rec)}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setDeleteError("");
-                        setOpenId(rec.id);
-                      }}
-                    >
-                      <Eye size={ICON_SIZE.sm} aria-hidden="true" />
-                    </Button>
-                  ),
-                },
-              ]}
-            />
-          </div>
+          <ResponsesTable columns={columns} responses={responses} onOpen={openRow} />
 
           {/* The top pager is far away once a phone has scrolled a page of
               cards. A second one sits after the rows for the same reason. */}

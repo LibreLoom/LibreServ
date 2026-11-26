@@ -835,7 +835,7 @@ describe("DashboardPage", () => {
       stubDashboardFetch({ cloudBackups: [cloudBackupRow()], phrase: DUE });
       renderDashboard();
       await userEvent.click(await screen.findByRole("button", { name: "Check now" }));
-      expect(screen.getByTestId("phrase-check-words")).toHaveTextContent("24");
+      expect(await screen.findByTestId("phrase-check-words")).toHaveTextContent("24");
       await userEvent.click(screen.getByRole("button", { name: "Phrase verified" }));
       expect(screen.queryByTestId("phrase-check")).not.toBeInTheDocument();
     });

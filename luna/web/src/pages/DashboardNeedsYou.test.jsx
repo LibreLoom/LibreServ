@@ -481,7 +481,7 @@ describe("Needs you on the dashboard", () => {
       expect(within(row).getByText("backup didn't finish")).toBeInTheDocument();
       expect(within(row).getByText("The backup drive is full.")).toBeInTheDocument();
       await userEvent.click(within(zone).getByRole("button", { name: "Open Photos backup" }));
-      expect(screen.getByTestId("protect-sheet")).toHaveTextContent("d1:Photos");
+      expect(await screen.findByTestId("protect-sheet")).toHaveTextContent("d1:Photos");
     });
 
     it("lists a stale backup as out of date", async () => {
@@ -620,7 +620,7 @@ describe("Needs you on the dashboard", () => {
         within(row).getByText("It's been a while. Make sure your recovery phrase still opens your cloud backups."),
       ).toBeInTheDocument();
       await userEvent.click(within(row).getByRole("button", { name: "Check now" }));
-      expect(screen.getByTestId("phrase-check")).toHaveTextContent("verify ready");
+      expect(await screen.findByTestId("phrase-check")).toHaveTextContent("verify ready");
       await userEvent.click(screen.getByRole("button", { name: "Close check" }));
       expect(screen.queryByTestId("phrase-check")).not.toBeInTheDocument();
     });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
@@ -6,6 +6,7 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
@@ -19,23 +20,25 @@ import { memberAccessRoots } from "../lib/shareTree.js";
 import { checkPhraseWords, PHRASE_CHECKED_TOAST, PHRASE_QUERY_KEY } from "../lib/cloudPhrase.js";
 import { readRecentItems } from "../lib/recentItems.js";
 import { perfAppReady } from "../lib/perf.js";
-import { drivesQuery, myAccessQuery, recentsQuery } from "../lib/dashboardData.js";
+import { myAccessQuery, recentsQuery } from "../lib/dashboardData.js";
+import lazyWithPreload from "../lib/lazyWithPreload.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import useNeedsYou from "../hooks/useNeedsYou.js";
-import { detectedDrivesQueryOptions } from "../hooks/detectedDrives.js";
 import { useSoftwareUpdates } from "../hooks/useSoftwareUpdates.jsx";
-import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck.jsx";
 import { pillChecks } from "../lib/needsYouChecks.js";
-import useBackupRows from "../hooks/useBackupRows.js";
-import ProtectSheet from "../components/files/ProtectSheet.jsx";
-import RecoveryPhraseCheck from "../components/cloud/RecoveryPhraseCheck.jsx";
 import NeedsYou from "../components/dashboard/NeedsYou.jsx";
 import RecentsCard from "../components/dashboard/RecentsCard.jsx";
 import DriveHomeCard from "../components/dashboard/DriveHomeCard.jsx";
 import NewDriveCard from "../components/dashboard/NewDriveCard.jsx";
 import SharedAlbumsCard from "../components/dashboard/SharedAlbumsCard.jsx";
 import BackupsLine from "../components/dashboard/BackupsLine.jsx";
-import { withDevMockDetected } from "../lib/devMockDrives.js";
+
+const ProtectSheet = lazyWithPreload(() => import("../components/files/ProtectSheet.jsx"));
+const RecoveryPhraseCheck = lazyWithPreload(() => import("../components/cloud/RecoveryPhraseCheck.jsx"));
+const NeedsYouCard = memo(NeedsYou);
+const DashboardBackups = memo(BackupsLine);
+const DashboardRecents = memo(RecentsCard);
+const DashboardNewDrives = memo(NewDriveCard);
 
 function getGreeting() {
   const today = new Date();
@@ -69,15 +72,11 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const { items } = useNeedsYou();
+  const { items, drives, driveList: adopted, pluggedIn, systemChecks: systemHealth, rows, phrase } = useNeedsYou();
   // The same queries the two header pills read, so nothing is fetched twice. Both stay off for
   // Members. The page reads them to know whether any pill will draw: the header turns an empty
   // right-hand slot into a blank card when it splits on a phone.
   const updates = useSoftwareUpdates();
-  const systemHealth = useSystemHealthCheck();
-  const { rows, phrase } = useBackupRows();
-  const drives = useQuery(drivesQuery);
-  const detected = useQuery(detectedDrivesQueryOptions(isAdmin));
   const access = useQuery(myAccessQuery(!isAdmin));
 
   // Backup row that opened its protect sheet, and whether the recovery phrase check is open.
@@ -88,7 +87,7 @@ export default function DashboardPage() {
    * Runs the button on a Needs you row that the page (not a link) handles.
    * @param {import("../components/dashboard/NeedsYou.jsx").NeedsYouItem} item
    */
-  function handleAction(item) {
+  const handleAction = useCallback((item) => {
     switch (item.action?.intent) {
       case "open-backup":
         setSheet(item.action.payload);
@@ -99,7 +98,7 @@ export default function DashboardPage() {
       default:
         break;
     }
-  }
+  }, []);
 
   function closeCheck() {
     setCheckingPhrase(false);
@@ -123,9 +122,6 @@ export default function DashboardPage() {
     </span>
   );
 
-  const adopted = Array.isArray(drives.data) ? drives.data : [];
-  // Dev mock injects a review fixture when lunad reports nothing new.
-  const pluggedIn = withDevMockDetected(detected.data);
   // Server-backed recents list: validates existence, follows renames, and omits dead links.
   const recents = useQuery(recentsQuery(user?.username));
   const recentItems = recents.data ?? (recents.isError ? readRecentItems(user?.username) : []);
@@ -217,13 +213,13 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-8">
         {items.length > 0 && (
           <div className="px-8">
-            <NeedsYou items={items} onAction={handleAction} />
+            <NeedsYouCard items={items} onAction={handleAction} />
           </div>
         )}
 
         {rows.length > 0 && (
           <div className="px-8">
-            <BackupsLine rows={rows} />
+            <DashboardBackups rows={rows} />
           </div>
         )}
 
@@ -236,7 +232,7 @@ export default function DashboardPage() {
           >
             {hasRecents && (
               <div className="min-w-0">
-                <RecentsCard items={recentItems} drives={adopted} />
+                <DashboardRecents items={recentItems} drives={adopted} />
               </div>
             )}
 
@@ -277,7 +273,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {isAdmin && <NewDriveCard drives={pluggedIn} />}
+                {isAdmin && <DashboardNewDrives drives={pluggedIn} />}
 
                 {/* Shared folders with no ready drive card to hang the link on: never a dead end. */}
                 {memberHasGrants && firstReadyIndex === -1 && (
@@ -303,25 +299,27 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {sheet && (
-        <ProtectSheet
-          driveId={sheet.source_drive}
-          path={sheet.source_path}
-          onClose={() => setSheet(null)}
-        />
-      )}
-      {checkingPhrase && phrase?.luna_id && (
-        <RecoveryPhraseCheck
-          verify={(words) => checkPhraseWords(words, phrase.luna_id).then(Boolean)}
-          words={phrase.phrase_words}
-          onVerified={() => {
-            addToast(PHRASE_CHECKED_TOAST);
-            closeCheck();
-          }}
-          onLost={() => navigate("/settings#cloud_backup")}
-          onClose={closeCheck}
-        />
-      )}
+      <Suspense fallback={<div className="pointer-events-none fixed inset-0 z-50 grid place-items-center"><Spinner /></div>}>
+        {sheet && (
+          <ProtectSheet
+            driveId={sheet.source_drive}
+            path={sheet.source_path}
+            onClose={() => setSheet(null)}
+          />
+        )}
+        {checkingPhrase && phrase?.luna_id && (
+          <RecoveryPhraseCheck
+            verify={(words) => checkPhraseWords(words, phrase.luna_id).then(Boolean)}
+            words={phrase.phrase_words}
+            onVerified={() => {
+              addToast(PHRASE_CHECKED_TOAST);
+              closeCheck();
+            }}
+            onLost={() => navigate("/settings#cloud_backup")}
+            onClose={closeCheck}
+          />
+        )}
+      </Suspense>
     </Page>
   );
 }

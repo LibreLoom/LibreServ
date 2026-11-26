@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Image as ImageIcon, Lock } from "lucide-react";
@@ -19,7 +19,6 @@ import UploadFilesPanel from "../components/files/UploadFilesPanel.jsx";
 import useFileNavigation from "../hooks/useFileNavigation.js";
 import { useFileOps } from "../context/FileOpsContext.jsx";
 import FileOpsDock from "../components/files/fileOps/FileOpsDock.jsx";
-import FormResponder from "../components/files/forms/FormResponder.jsx";
 import DocumentLoadingScreen from "../components/files/DocumentLoadingScreen.jsx";
 import PhotoThumb from "../components/photos/PhotoThumb.jsx";
 import PhotoLightbox, {
@@ -28,8 +27,18 @@ import PhotoLightbox, {
 } from "../components/photos/PhotoLightbox.jsx";
 import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import usePageTitle from "../hooks/usePageTitle.js";
+import lazyWithPreload from "../lib/lazyWithPreload.js";
+
+const FormResponder = lazyWithPreload(() => import("../components/files/forms/FormResponder.jsx"));
 
 /** @typedef {import("../components/photos/PhotoThumb.jsx").PhotosPhoto} PhotosPhoto */
+
+function FormSharePaint() {
+  useEffect(() => {
+    perfSinceNavigation("W15", { path: /^\/s\// });
+  }, []);
+  return null;
+}
 
 function isMediaName(name) {
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|mp4|mov|webm|mkv|avi|m4v)$/i.test(name || "");
@@ -136,9 +145,9 @@ function PublicShareSession() {
   }, [album.hasNextPage, loadMore, albumItems.length]);
 
   // W15 (luna/perf): a guest's first screen. Files and folders end in
-  // FileBrowser once the listing is up; the other link kinds end here.
+  // FileBrowser once the listing is up; the form ends inside its Suspense boundary.
   const guestScreenShown = !loading && !needPassword && !error
-    && (Boolean(formDoc) || isDropbox || (isAlbum && !album.isLoading));
+    && (isDropbox || (isAlbum && !album.isLoading));
   useEffect(() => {
     if (guestScreenShown) perfSinceNavigation("W15", { path: /^\/s\// });
   }, [guestScreenShown]);
@@ -193,6 +202,7 @@ function PublicShareSession() {
         if (!alive) return;
         setNeedPassword(false);
         if (data.kind === "form") {
+          FormResponder.preload().catch(() => {});
           setFormDoc(data);
           return;
         }
@@ -330,14 +340,17 @@ function PublicShareSession() {
             <PageNotice variant="error">{error}</PageNotice>
           </div>
         )}
-        <FormResponder
-          token={token}
-          form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
-          sharePassword={submittedPassword}
-          accepting={formDoc.accepting !== false}
-          full={formDoc.full === true}
-          closedMessage={typeof formDoc.closed_message === "string" ? formDoc.closed_message : ""}
-        />
+        <Suspense fallback={opening}>
+          <FormResponder
+            token={token}
+            form={formDoc.form && typeof formDoc.form === "object" ? formDoc.form : {}}
+            sharePassword={submittedPassword}
+            accepting={formDoc.accepting !== false}
+            full={formDoc.full === true}
+            closedMessage={typeof formDoc.closed_message === "string" ? formDoc.closed_message : ""}
+          />
+          <FormSharePaint />
+        </Suspense>
       </div>
     );
   }
