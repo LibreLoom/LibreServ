@@ -57,4 +57,4 @@ if [ -n "${USB_IMG:-}" ]; then
 	set -- "$@" -drive if=none,id=usbdata,format=raw,file="$USB_IMG" \
 		-device usb-storage,drive=usbdata,bus=xhci.0
 fi
-exec qemu-system-x86_64 "$@"
+exec qemu-system-x86_64 -monitor unix:"$DIR/monitor.sock",server,nowait "$@"

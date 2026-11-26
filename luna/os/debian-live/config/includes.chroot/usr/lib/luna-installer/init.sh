@@ -28,12 +28,14 @@ fi
 # (Debian ships no Colemak console map, so it is written out here: only the
 # keys that differ from QWERTY, with Ctrl combinations kept working.)
 _colemak() {
-	for _m in 18:f 19:p 20:g 21:j 22:l 23:u 24:y 25:semicolon 31:r 32:s 33:t 34:d 36:n 37:e 38:i 39:o 49:k; do
+	for _m in 18:f:F 19:p:P 20:g:G 21:j:J 22:l:L 23:u:U 24:y:Y 25:semicolon:colon 31:r:R 32:s:S 33:t:T 34:d:D 36:n:N 37:e:E 38:i:I 39:o:O 49:k:K; do
 		_k="${_m%%:*}"
-		_c="${_m#*:}"
-		printf 'keycode %s = %s\n' "$_k" "$_c"
-		case "$_c" in
-			[a-z]) printf 'control keycode %s = Control_%s\n' "$_k" "$_c" ;;
+		_r="${_m#*:}"
+		_lo="${_r%%:*}"
+		_up="${_r#*:}"
+		printf 'keycode %s = %s %s\n' "$_k" "$_lo" "$_up"
+		case "$_lo" in
+			[a-z]) printf 'control keycode %s = Control_%s\n' "$_k" "$_lo" ;;
 		esac
 	done
 	printf 'keycode 58 = BackSpace\n'
