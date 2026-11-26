@@ -171,7 +171,7 @@ export default function SettingsPage() {
               user={user}
               categories={categories}
               memberHint="You're signed in as a Member. Some settings are only for an Admin."
-              userHref={(/** @type {{ role?: string }} */ u) => (u.role === "admin" ? "/settings#users" : null)}
+              userHref="/settings#security"
               deviceName="this Luna"
               activeCategory={activeCategory}
               onCategoryChange={selectCategory}
@@ -194,7 +194,7 @@ export default function SettingsPage() {
                 user={user}
                 categories={categories}
                 memberHint="You're signed in as a Member. Some settings are only for an Admin."
-                userHref={(/** @type {{ role?: string }} */ u) => (u.role === "admin" ? "/settings#users" : null)}
+                userHref="/settings#security"
                 deviceName="this Luna"
                 activeCategory={activeCategory}
                 onCategoryChange={selectCategory}
