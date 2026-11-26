@@ -62,7 +62,7 @@ A drive backup lives entirely on the backup drive: if the drive moves to another
 - Earlier versions: at most three, the oldest copy that is at most 1 day old, the oldest at most 7 days old, and the oldest at most 31 days old ("about 1 day, 1 week and 1 month"). Only files that changed have any. Age is measured from the moment the older copy was replaced.
 - **Drive: deleted files** stay restorable for 30 days after the run that noticed the deletion, then are gone. The 30 days are counted on the backup's own clock, which **stops while the source is missing, unreachable or gone**, so an unplugged drive never ages deleted files out. The cloud does not use this clock. Its history is the newest seven snapshots (ARCHIVE_MODEL.md).
 - **Drive:** an updated file's old copy is moved (not copied) into `versions/`. When the backup drive fills up, the oldest versions go first and the run says so in a note; nothing in `current/` is touched. If nothing is left to remove, the backup fails with "<drive> is full".
-- **Cloud:** each run commits a whole-folder snapshot, and Luna keeps the newest seven, manual ones included. A daily run with no content changes makes none; "Back up now" always makes one. Every run hashes file contents; the size and modification-time shortcut is removed. Chunks are shared between snapshots, so only changed data costs storage. Unused packs wait in Connect's seven-day safety queue before they are deleted (ARCHIVE_MODEL.md).
+- **Cloud:** each run commits a whole-folder snapshot, and Luna keeps staggered versions: the newest of each of the last 7 days, the newest of each of the last 4 ISO weeks, and the newest of each of the last 3 calendar months, plus the newest overall. Manual ones count like any other and take their day's slot. A daily run with no content changes makes none; "Back up now" always makes one. Every run hashes file contents; the size and modification-time shortcut is removed. Chunks are shared between snapshots, so only changed data costs storage. Unused packs wait in Connect's seven-day safety queue before they are deleted (ARCHIVE_MODEL.md).
 - When cloud storage is full, uploads pause and no old data is removed.
 
 ## 6. Status
@@ -136,7 +136,7 @@ Drive backups run every 30 minutes; cloud backups once a day; cloud checks daily
 - Restoring a cloud backup **inside Luna**, in any form. Cloud copies come back only on the Luna Connect website.
 - Moving or replacing a Luna, including carrying cloud backups or their history to another Luna (deferred, section 9).
 - **Members signing in to Connect.** They get files from an Admin's share backup link.
-- **History beyond** the latest plus about one day, one week and one month of earlier versions, and deleted files beyond 30 days on drives. Cloud keeps only the newest seven snapshots (ARCHIVE_MODEL.md).
+- **History beyond** the latest plus about one day, one week and one month of earlier versions, and deleted files beyond 30 days on drives. Cloud keeps the staggered set of snapshots (ARCHIVE_MODEL.md).
 - A private item **inheriting** a parent's backup, being inside a parent's backup, or showing a parent's backup status.
 - **Admins opening** a private cloud backup, or restoring a private drive backup.
 - **Moving a cloud identity between Lunas or devices.** Data is copied, never the identity.
@@ -176,6 +176,6 @@ The user's fixed decisions are: private items never inherit and are never inside
 ## 13. Decisions recorded 2026-11-21 (owner)
 - Cloud restore: website only, no exceptions. Luna replacement and migration are out of scope for now.
 - **A folder that contains private items cannot be deleted** while they are inside. For anyone but an Admin, the refusal names nothing: "This folder can't be deleted because it holds items you can't see. An Admin can help." An Admin is told whose private items are inside, each owner in an `InlinePill`, and is still refused. This removes the "restore a private item whose parent folder was deleted" case.
-- **Cloud deletions:** superseded by ARCHIVE_MODEL.md. Cloud keeps the newest seven snapshots and has no 30-day deleted-file clock. A vanished source becomes "Original is gone" for both destinations, with one name and one mechanism. "Back up anyway" never commits a near-empty snapshot over a vanished source.
+- **Cloud deletions:** superseded by ARCHIVE_MODEL.md. Cloud keeps the staggered set (newest per day for 7 days, per ISO week for 4 weeks, per month for 3 months, plus the newest overall) and has no 30-day deleted-file clock. A vanished source becomes "Original is gone" for both destinations, with one name and one mechanism. "Back up anyway" never commits a near-empty snapshot over a vanished source.
 - Short version history stays. A per-backup setting is welcome only if it is done well; it is not required.
 - Share links survive the deletion of the account that made them.

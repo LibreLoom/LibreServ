@@ -18,8 +18,8 @@ Recovery happens through Luna Connect in a browser. There is no restore-into-Lun
 - There is one automatic run per day, plus manual **Back up now**.
 - A daily run that finds no content changes creates no snapshot.
 - A manual run always creates a snapshot, even when content is unchanged.
-- Luna keeps the newest seven snapshots total. Manual snapshots count toward the same limit.
-- There are no pinned snapshots, day/week/month buckets, paused retention clocks, or mass-delete holds.
+- Luna keeps the newest snapshot of each of the last 7 days, of each of the last 4 ISO weeks, and of each of the last 3 calendar months, plus the newest snapshot overall (at most about 14). Manual snapshots count like any other and compete for their day's slot.
+- There are no pinned snapshots, paused retention clocks, or mass-delete holds.
 - Missing source drives skip the run and leave existing snapshots untouched.
 - Deleting an archive is explicit. Physical deletion still uses the existing seven-day Connect safety queue.
 
@@ -100,7 +100,7 @@ These are targeted fixes around the existing core, not a format redesign:
 
 ## Required tests
 
-- Seven-snapshot retention, including manual snapshots and skipped unchanged daily runs.
+- Staggered retention (7 days, 4 ISO weeks, 3 months, plus the newest), including manual snapshots and skipped unchanged daily runs.
 - Deleted/missing source files preserve older snapshots.
 - Content hashing detects same-size/same-mtime edits while dedup suppresses unchanged uploads.
 - Publication crash/lost-acknowledgement recovery.

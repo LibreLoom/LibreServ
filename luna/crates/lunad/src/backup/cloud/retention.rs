@@ -12,8 +12,13 @@ use crate::db;
 
 /// Seconds a pack stays `marked` before it may be deleted. Matches `db::deletable_packs`.
 const GRACE_SECS: i64 = 86_400;
-/// How many snapshots an archive keeps, newest first. Manual and scheduled snapshots count alike.
-pub const KEEP_SNAPSHOTS: usize = 7;
+/// Staggered windows: the newest snapshot of each of the last `KEEP_DAYS` days,
+/// `KEEP_WEEKS` ISO weeks and `KEEP_MONTHS` calendar months is kept (their union).
+/// Days, weeks and months are counted in UTC. Manual and scheduled snapshots count alike.
+pub const KEEP_DAYS: i64 = 7;
+pub const KEEP_WEEKS: i64 = 4;
+pub const KEEP_MONTHS: i64 = 3;
+const DAY_SECS: i64 = 86_400;
 
 /// What one `thin` pass changed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +29,52 @@ pub struct Thinned {
     pub bytes_freed: u64,
 }
 
-/// Drop every snapshot past the newest `KEEP_SNAPSHOTS`, then mark and delete
+/// Which snapshots the staggered windows keep. `times` are creation times, newest
+/// first (the order `list_cloud_snapshots` returns). The newest snapshot is always
+/// kept; each other kept snapshot is the newest one in its day, week or month.
+pub fn keep_flags(times: &[i64], now: i64) -> Vec<bool> {
+    let day_now = now.div_euclid(DAY_SECS);
+    // ISO weeks start on Monday; 1970-01-05 was the first Monday after the epoch.
+    let week_of = |day: i64| (day - 4).div_euclid(7);
+    let week_now = week_of(day_now);
+    let month_now = month_key(day_now);
+    let mut seen_day = std::collections::HashSet::new();
+    let mut seen_week = std::collections::HashSet::new();
+    let mut seen_month = std::collections::HashSet::new();
+    times
+        .iter()
+        .enumerate()
+        .map(|(index, &at)| {
+            let day = at.div_euclid(DAY_SECS);
+            // The first snapshot seen in a bucket is the newest, so it takes the slot.
+            let first_day = seen_day.insert(day);
+            let first_week = seen_week.insert(week_of(day));
+            let first_month = seen_month.insert(month_key(day));
+            let in_day = first_day && (day_now - KEEP_DAYS + 1..=day_now).contains(&day);
+            let in_week = first_week
+                && (week_now - KEEP_WEEKS + 1..=week_now).contains(&week_of(day));
+            let in_month = first_month
+                && (month_now - KEEP_MONTHS + 1..=month_now).contains(&month_key(day));
+            index == 0 || in_day || in_week || in_month
+        })
+        .collect()
+}
+
+/// Year and month of a day count since 1970-01-01 as one number, so months compare
+/// by subtraction. Howard Hinnant's civil-from-days algorithm.
+fn month_key(days: i64) -> i64 {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    year * 12 + (month - 1)
+}
+
+/// Drop every snapshot the staggered windows do not keep, then mark and delete
 /// packs nothing uses. Safe to run again at any time: a pass that stops part-way
 /// is finished by the next one.
 pub fn thin(
@@ -47,7 +97,12 @@ pub fn thin(
             db::list_cloud_snapshots(&conn, protection_id)?
         }
     };
-    for snap in snapshots.iter().skip(KEEP_SNAPSHOTS) {
+    let times: Vec<i64> = snapshots.iter().map(|s| s.created_at).collect();
+    let keep = keep_flags(&times, now);
+    for (snap, keep) in snapshots.iter().zip(keep) {
+        if keep {
+            continue;
+        }
         // Store first: if it fails, the row stays and the next pass tries again.
         let (kind, name) = {
             let conn = lock(db)?;
@@ -318,19 +373,9 @@ mod tests {
         db::list_packs(&conn, SCOPE, state).unwrap()
     }
 
-    /// Fill the newest `KEEP_SNAPSHOTS` slots, so any snapshot added before them is past the limit.
-    /// The first of them carries `packs`.
+    /// Add a recent snapshot (newest, so kept) that carries `packs`, so older snapshots are the ones thinned.
     fn add_newer_snapshots(db: &crate::Db, store: &MemoryStore, packs: &[[u8; 32]]) {
-        for i in 0..KEEP_SNAPSHOTS {
-            let packs = if i == 0 { packs } else { &[] };
-            add_snapshot(
-                db,
-                store,
-                &format!("recent-{i}"),
-                NOW - 10 - i as i64,
-                packs,
-            );
-        }
+        add_snapshot(db, store, "recent-0", NOW - 10, packs);
     }
 
     #[test]
@@ -357,7 +402,7 @@ mod tests {
             )
             .unwrap();
         }
-        // A private snapshot, 40 days old, whose record lives under the private kind.
+        // A private snapshot, a year old, whose record lives under the private kind.
         store
             .put_record(
                 PSNAPSHOTS_KIND,
@@ -371,7 +416,7 @@ mod tests {
             let snap = SnapshotInsert {
                 id: "priv-1".into(),
                 protection_id: "p1".into(),
-                created_at: NOW - 40 * DAY,
+                created_at: NOW - 400 * DAY,
                 key_version: 1,
                 tree_pack_id: String::new(),
                 record: b"private record".to_vec(),
@@ -399,31 +444,52 @@ mod tests {
     }
 
     #[test]
-    fn the_newest_seven_snapshots_are_kept_whatever_their_age() {
+    fn staggered_windows_drop_what_no_window_keeps() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let store = MemoryStore::new();
-        // Two old snapshots sit past the limit. The seven newer ones are kept, even the oldest of them.
+        add_snapshot(&db, &store, "newest", NOW - 1, &[]);
         add_snapshot(&db, &store, "too-old", NOW - 400 * DAY, &[]);
-        add_snapshot(&db, &store, "old", NOW - 40 * DAY, &[]);
-        for i in 0..KEEP_SNAPSHOTS {
-            add_snapshot(
-                &db,
-                &store,
-                &format!("s{i}"),
-                NOW - 3 * DAY - i as i64 * DAY,
-                &[],
-            );
-        }
+        add_snapshot(&db, &store, "same-day", NOW - 2, &[]);
 
         let out = thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
         assert_eq!(out.snapshots_removed, 2);
-        let mut kept: Vec<String> = (0..KEEP_SNAPSHOTS).map(|i| format!("s{i}")).collect();
-        kept.sort();
-        assert_eq!(snapshot_ids(&db), kept);
+        assert_eq!(snapshot_ids(&db), ["newest"]);
         assert!(store.get_record("snapshots", "too-old").unwrap().is_none());
-        assert!(store.get_record("snapshots", "old").unwrap().is_none());
+        assert!(store.get_record("snapshots", "same-day").unwrap().is_none());
+    }
+
+    #[test]
+    fn newest_of_each_of_the_last_seven_days_is_kept() {
+        // NOW is the start of day 100. Two snapshots on day 100 (newest first), then one per day back to day 93.
+        let times: Vec<i64> = vec![
+            NOW + 2,
+            NOW + 1,
+            NOW - DAY + 1,
+            NOW - 2 * DAY + 1,
+            NOW - 3 * DAY + 1,
+            NOW - 4 * DAY + 1,
+            NOW - 5 * DAY + 1,
+            NOW - 6 * DAY + 1,
+            NOW - 7 * DAY + 1,
+        ];
+        let keep = keep_flags(&times, NOW);
+        assert_eq!(keep, [true, false, true, true, true, true, true, true, false]);
+    }
+
+    #[test]
+    fn newest_of_each_of_the_last_three_months_is_kept() {
+        // Day 100 is April, 70 is March (11th), 65 is March (6th), 40 is February (10th),
+        // 39 is February (9th), 9 is January.
+        let times: Vec<i64> = [100, 70, 65, 40, 39, 9].iter().map(|d| d * DAY + 1).collect();
+        let keep = keep_flags(&times, NOW);
+        assert_eq!(keep, [true, true, false, true, false, false]);
+    }
+
+    #[test]
+    fn newest_snapshot_is_kept_however_old() {
+        assert_eq!(keep_flags(&[NOW - 400 * DAY], NOW), [true]);
     }
 
     #[test]
@@ -446,7 +512,7 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_snapshot(&db, &store, "gone", NOW - 400 * DAY, &[unused]);
         add_newer_snapshots(&db, &store, &[kept]);
 
         let out = thin(&db, "p1", SCOPE, &store, NOW).unwrap();
@@ -463,7 +529,7 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack bytes");
-        add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_snapshot(&db, &store, "gone", NOW - 400 * DAY, &[unused]);
         add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
@@ -486,7 +552,7 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_snapshot(&db, &store, "gone", NOW - 400 * DAY, &[unused]);
         add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         // A run that began before the mark might still be using the pack.
@@ -515,7 +581,7 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let reused = add_pack(&db, &store, b"reused pack");
-        add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[reused]);
+        add_snapshot(&db, &store, "gone", NOW - 400 * DAY, &[reused]);
         add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         assert_eq!(packs_in_state(&db, "marked"), [hex(&reused)]);
@@ -643,7 +709,7 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_snapshot(&db, &store, "gone", NOW - 400 * DAY, &[unused]);
         add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         store.delete_pack(&unused).unwrap();
