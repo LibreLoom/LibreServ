@@ -38,6 +38,18 @@ describe("useMultiSelect", () => {
     expect(result.current.getSelectedItems()).toEqual([photos[0], photos[2]]);
   });
 
+  it("looks up photo positions after a list reorder", () => {
+    const { result, rerender } = renderHook(({ items }) => useMultiSelect({ items }), {
+      initialProps: { items: photos },
+    });
+    const key = photoSelectionKey(photos[0]);
+    expect(result.current.indexOfKey(key)).toBe(0);
+    rerender({ items: [photos[2], photos[1], photos[0]] });
+    expect(result.current.indexOfKey(key)).toBe(2);
+    rerender({ items: photos.slice(1) });
+    expect(result.current.indexOfKey(key)).toBe(-1);
+  });
+
   it("clears on exit and selectAllInView fills the set", () => {
     const { result } = renderHook(() => useMultiSelect({ items: photos }));
     act(() => result.current.selectAllInView());

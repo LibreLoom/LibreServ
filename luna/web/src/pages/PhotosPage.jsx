@@ -1430,12 +1430,9 @@ export default function PhotosPage() {
   }, []);
 
   const lightboxPhotos = photos;
-  const lightboxName = lightbox ? lightboxPhotos.find((p) => photoSelectionKey(p) === lightbox.key)?.name : null;
+  const lightboxIndex = lightbox ? selection.indexOfKey(lightbox.key) : -1;
+  const lightboxName = lightboxPhotos[lightboxIndex]?.name;
   usePageTitle(lightboxName || albumView?.name || viewLabel || "Photos");
-
-  const lightboxIndex = lightbox
-    ? Math.max(0, lightboxPhotos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
-    : 0;
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = photoQuery;
   const loadMore = useCallback(() => {
@@ -2359,8 +2356,7 @@ export default function PhotosPage() {
       {lightbox && (
         <PhotoLightbox
           photos={lightboxPhotos}
-          photoKey={lightbox.key}
-          index={lightboxIndex}
+          index={Math.max(0, lightboxIndex)}
           onClose={() => {
             // A pushed `?p=` entry pops — Forward can reopen the photo.
             if (window.history.state?.lunaPhotosDetail) {

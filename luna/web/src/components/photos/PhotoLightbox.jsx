@@ -173,6 +173,8 @@ export default function PhotoLightbox({
   const dialogRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const closeButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const trackElRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  const stepRef = useRef(0);
+  const trackXRef = useRef(0);
   const gestureRef = useRef(/** @type {{x0:number,y0:number,lastX:number,lastT:number,vel:number,axis:(string|null),grab:number,near:number}|null} */ (null));
   // Set when a real swipe ends so the synthetic click that follows touchend
   // (React attaches touch listeners passively — preventDefault won't reach it)
@@ -253,15 +255,18 @@ export default function PhotoLightbox({
   useEffect(() => {
     if (!slideshow || isClosing || photos.length < 2) return undefined;
     const id = setInterval(() => {
-      onIndexChange(index >= photos.length - 1 ? 0 : index + 1);
+      onIndexChangeRef.current(index >= photos.length - 1 ? 0 : index + 1);
     }, 4000);
     return () => clearInterval(id);
-  }, [slideshow, isClosing, index, photos.length, onIndexChange]);
+  }, [slideshow, isClosing, index, photos.length]);
 
   /** Width of one pane + gap — the distance of a full slide step. */
   const slideStep = useCallback(() => {
-    const w = trackElRef.current?.clientWidth || stageRef.current?.clientWidth || window.innerWidth;
-    return (w || 1) + PANE_GAP_PX;
+    if (!stepRef.current) {
+      const width = trackElRef.current?.clientWidth || stageRef.current?.clientWidth || window.innerWidth || 1;
+      stepRef.current = width + PANE_GAP_PX;
+    }
+    return stepRef.current;
   }, []);
 
   /** Track translate (px) that centers pane `i` within the mounted window. */
@@ -273,22 +278,13 @@ export default function PhotoLightbox({
   /** Write the track transform straight to the DOM — no React render. */
   const writeTrack = useCallback((txPx) => {
     const el = trackElRef.current;
-    if (el) el.style.transform = `translateX(${txPx}px)`;
+    if (!el) return;
+    trackXRef.current = txPx;
+    el.style.transform = `translateX(${txPx}px)`;
   }, []);
 
-  /** Current track translate in px — covers drags and mid-spring grabs. */
-  const measureTrack = useCallback(() => {
-    const el = trackElRef.current;
-    if (!el) return 0;
-    try {
-      const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-      if (Number.isFinite(m.e)) return m.e;
-    } catch {
-      // jsdom has no DOMMatrix — fall through to the inline-style parse.
-    }
-    const match = /translateX\((-?\d+(?:\.\d+)?)px\)/.exec(el.style.transform || "");
-    return match ? Number.parseFloat(match[1]) : 0;
-  }, []);
+  // Every track write comes through writeTrack, including spring frames.
+  const readTrack = useCallback(() => trackXRef.current, []);
 
   /** Diminishing-returns drag past the first/last photo — soft, not stiff. */
   function rubberBand(dx, dim) {
@@ -330,7 +326,7 @@ export default function PhotoLightbox({
       const el = trackElRef.current;
       const s = {
         dest,
-        x: measureTrack(),
+        x: readTrack(),
         v: velocity * 1000, // px/s
         raf: /** @type {number|null} */ (0),
         timer: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
@@ -372,7 +368,7 @@ export default function PhotoLightbox({
       settleRef.current = s;
       s.raf = requestAnimationFrame(tick);
     },
-    [finishSettle, measureTrack, paneX, writeTrack],
+    [finishSettle, readTrack, paneX, writeTrack],
   );
 
   /**
@@ -401,11 +397,11 @@ export default function PhotoLightbox({
         return;
       }
       const impulse = boost
-        ? Math.sign(paneX(dest) - measureTrack()) * slideStep() * NAV_IMPULSE_STEPS_S
+        ? Math.sign(paneX(dest) - readTrack()) * slideStep() * NAV_IMPULSE_STEPS_S
         : 0;
       settleTo(dest, (impulse / 1000) + vel);
     },
-    [settleTo, setPending, paneX, slideStep, measureTrack, finishSettle],
+    [settleTo, setPending, paneX, slideStep, readTrack, finishSettle],
   );
 
   useEffect(() => {
@@ -533,12 +529,12 @@ export default function PhotoLightbox({
       const dpx = df * slideStep();
       if (settleRef.current) settleRef.current.x -= dpx;
       if (gestureRef.current) gestureRef.current.grab -= dpx;
-      writeTrack(measureTrack() - dpx);
+      writeTrack(readTrack() - dpx);
       return;
     }
     if (gestureRef.current || settleRef.current) return;
     writeTrack(paneX(layoutIndex));
-  }, [firstPane, lastPane, layoutIndex, photos.length, paneX, writeTrack, measureTrack, slideStep]);
+  }, [firstPane, lastPane, layoutIndex, photos.length, paneX, writeTrack, readTrack, slideStep]);
 
   // Spring (or jump, for non-adjacent moves) when the parent changes `index`.
   useEffect(() => {
@@ -569,23 +565,34 @@ export default function PhotoLightbox({
   // Stage resizes (info panel, orientation, window) change the pane step — the
   // px translate would go stale, so rescale it and any live spring/drag
   // baseline to keep the same fractional pane position under the view.
-  useEffect(() => {
-    const stageEl = stageRef.current;
-    if (!stageEl || typeof ResizeObserver === "undefined") return undefined;
-    let lastW = stageEl.clientWidth || 0;
-    const ro = new ResizeObserver(() => {
-      const w = stageEl.clientWidth || 0;
-      if (!w || w === lastW) return;
-      const oldTx = measureTrack();
-      const tx = (oldTx / (lastW + PANE_GAP_PX)) * (w + PANE_GAP_PX);
-      lastW = w;
-      if (settleRef.current) settleRef.current.x = tx;
+  useLayoutEffect(() => {
+    const track = trackElRef.current;
+    if (!track) return undefined;
+    const resize = () => {
+      const width = track.clientWidth;
+      const lastStep = slideStep();
+      const nextStep = width + PANE_GAP_PX;
+      if (!width || nextStep === lastStep) return;
+      stepRef.current = nextStep;
+      const scale = nextStep / lastStep;
+      const oldTx = readTrack();
+      const tx = oldTx * scale;
+      if (settleRef.current) {
+        settleRef.current.x = tx;
+        settleRef.current.v *= scale;
+      }
       if (gestureRef.current) gestureRef.current.grab += tx - oldTx;
       writeTrack(tx);
-    });
-    ro.observe(stageEl);
+    };
+    resize();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", resize);
+      return () => window.removeEventListener("resize", resize);
+    }
+    const ro = new ResizeObserver(resize);
+    ro.observe(track);
     return () => ro.disconnect();
-  }, [measureTrack, writeTrack]);
+  }, [readTrack, slideStep, viewing, writeTrack]);
 
   function onTouchStart(e) {
     if (isClosingRef.current) return;
@@ -600,7 +607,7 @@ export default function PhotoLightbox({
       settleRef.current = null;
     }
     setReach(null);
-    const grab = measureTrack();
+    const grab = readTrack();
     gestureRef.current = {
       x0: t.clientX,
       y0: t.clientY,
@@ -676,9 +683,8 @@ export default function PhotoLightbox({
     const { first } = windowRef.current ?? { first: 0 };
     const len = live.current.photosLength;
     const dx = (e.changedTouches?.[0]?.clientX ?? g.lastX) - g.x0;
-    // The DOM holds the rubber-banded truth — measure it rather than trusting
-    // grab+dx, which ignores the end-of-track resistance.
-    const tx = measureTrack();
+    // Use the last position written, including end-of-track resistance.
+    const tx = readTrack();
     // Pane position in fractional index units — 0.0 = photo 0.
     const curFloat = first - tx / step;
     let dest;

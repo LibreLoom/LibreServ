@@ -346,7 +346,7 @@ function PublicShareSession() {
     if (album.isLoading && !error) return opening;
     const title = meta?.name || "Shared album";
     const lightboxIndex = lightbox
-      ? Math.max(0, albumItems.findIndex((p) => photoSelectionKey(p) === lightbox.key))
+      ? Math.max(0, selection.indexOfKey(lightbox.key))
       : 0;
     const lightboxPhoto = albumItems[lightboxIndex];
     return (
@@ -438,7 +438,6 @@ function PublicShareSession() {
             <PhotoLightbox
               mode="guest"
               photos={albumItems}
-              photoKey={lightbox.key}
               index={lightboxIndex}
               contentSrc={resolveDisplaySrc(lightboxPhoto, {
                 contentSrc: albumContentSrc(lightboxPhoto),

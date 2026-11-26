@@ -4,8 +4,7 @@ import { AnimatePresence, motion as Motion, useReducedMotion } from "motion/reac
 
 // Pages move like a carousel, the way their selector reads: going to a page
 // further along pushes the old one out to the left and the new one follows in
-// from the right, both at once, on the same spring (350ms, a touch of
-// overshoot) as a SegmentedControl's sliding pill.
+// from the right. A short spring lets the new page settle quickly.
 //
 // `transform` itself is animated, not Motion's `x` shorthand: Motion hands a
 // `transform` animation to the browser (WAAPI), which runs it on the
@@ -18,7 +17,7 @@ const SLIDE = {
   leave: (/** @type {number} */ dir) => ({ transform: `translateX(${-100 * dir}%)`, opacity: 0.6 }),
 };
 /** @type {import("motion/react").Transition} */
-const SPRING = { type: "spring", duration: 0.35, bounce: 0.12 };
+const SPRING = { type: "spring", duration: 0.24, bounce: 0.06 };
 const INSTANT = { duration: 0 };
 // The entrances a page's own pieces would play on mount (index.css). A page
 // sliding in already moves, so they wait until it lands.
@@ -119,17 +118,22 @@ export default function SlidePages({
     const target = liftOf(coming?.firstElementChild ?? null);
     const before = scrollAt.current;
     if (before !== target) (el ?? window).scrollTo({ top: target, behavior: "instant" });
-    const moved = Math.round(before - readY());
-    scrollAt.current = readY();
+    const scrollY = readY();
+    const moved = Math.round(before - scrollY);
+    scrollAt.current = scrollY;
     let anyShifted = false;
     for (const page of pages) {
       const inner = /** @type {HTMLElement|null} */ (page.firstElementChild);
       if (!inner) continue;
-      const lift = page === coming ? 0 : liftOf(inner) + moved;
+      const oldLift = liftOf(inner);
+      const lift = page === coming ? 0 : oldLift + moved;
+      if (lift !== 0) {
+        anyShifted = true;
+      }
+      if (lift === oldLift) continue;
       if (lift !== 0) {
         inner.dataset.lift = String(lift);
         inner.style.transform = `translateY(${-lift}px)`;
-        anyShifted = true;
       } else {
         delete inner.dataset.lift;
         inner.style.transform = "";

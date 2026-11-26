@@ -113,7 +113,7 @@ export default function DashboardPage() {
       <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
       <span
         className={cn(
-          "transition-all duration-300 ease-out motion-reduce:transition-none",
+          "motion-safe:transition-[opacity,translate] duration-150 ease-out",
           showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
         )}
         aria-hidden={!showUsername}
@@ -139,7 +139,11 @@ export default function DashboardPage() {
   // and stays memoized instead of re-rendering with every poll on the page.
   const grantsByDrive = useMemo(() => {
     const byDrive = new Map();
-    for (const g of grants) byDrive.set(g.drive_id, [...(byDrive.get(g.drive_id) ?? []), g]);
+    for (const grant of grants) {
+      const rows = byDrive.get(grant.drive_id);
+      if (rows) rows.push(grant);
+      else byDrive.set(grant.drive_id, [grant]);
+    }
     return byDrive;
   }, [grants]);
   const memberSharesLoading = !isAdmin && access.isLoading;

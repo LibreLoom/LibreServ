@@ -231,6 +231,19 @@ describe("PhotoTimeline next page", () => {
     expect(screen.getAllByRole("button", { name: /^p\d+\.jpg$/ })).toHaveLength(100);
   });
 
+  it("asks once when the sentinel reports the same page repeatedly", () => {
+    const callbacks = stubObservers();
+    const onLoadMore = vi.fn();
+    render(<PhotoTimeline photos={photoList(20)} hasMore onLoadMore={onLoadMore} />);
+    act(() => {
+      for (const cb of callbacks) {
+        cb([{ isIntersecting: true, target: null }]);
+        cb([{ isIntersecting: true, target: null }]);
+      }
+    });
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
   it("selects a whole day while the rest of the page is still to come", () => {
     // The rest waits for an idle moment that never comes here.
     const callbacks = stubObservers();

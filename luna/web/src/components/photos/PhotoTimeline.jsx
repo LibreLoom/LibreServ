@@ -86,11 +86,9 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
   onDragStart,
   onDragEnter,
 }) {
-  const dayPhotos = group.items.map((i) => i.photo);
-  const allSelected =
-    dayPhotos.length > 0 &&
-    dayPhotos.every((p) => selectedKeys?.has(photoSelectionKey(p)));
   const showDaySelect = Boolean(selectMode && hasSelectDay);
+  const allSelected = showDaySelect && group.items.length > 0
+    && group.items.every(({ photo }) => selectedKeys?.has(photoSelectionKey(photo)));
   return (
     <section
       aria-labelledby={`day-${group.key}`}
@@ -132,38 +130,26 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
             {group.items.length} {group.items.length === 1 ? "photo" : "photos"}
           </span>
         )}
-        <div
-          className={`grid shrink-0 min-w-0 motion-safe:transition-[grid-template-columns,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
-            showDaySelect
-              ? "grid-cols-[1fr] opacity-100"
-              : "grid-cols-[0fr] opacity-0 pointer-events-none"
-          }`}
-          aria-hidden={!showDaySelect}
-        >
-          {/* overflow-x-clip only so the focus ring isn't clipped;
-              px-1 gives the ring room on the sides. */}
-          <div className="min-w-0 overflow-x-clip px-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={allSelected ? "secondary" : "outline"}
-              // outline has border-2, secondary doesn't — without this
-              // the button changes height when toggling state.
-              className={allSelected ? "border-2 border-transparent" : ""}
-              surface="primary"
-              tabIndex={showDaySelect ? 0 : -1}
-              aria-pressed={allSelected}
-              onClick={() => {
-                haptic("selection");
-                if (allSelected) onDeselectDay?.(dayPhotos);
-                else onSelectDay?.(dayPhotos);
-              }}
-            >
-              {allSelected && <Check size={14} aria-hidden="true" />}
-              {allSelected ? "Day selected" : "Select day"}
-            </Button>
-          </div>
-        </div>
+        {showDaySelect && (
+          <Button
+            type="button"
+            size="sm"
+            variant={allSelected ? "secondary" : "outline"}
+            // outline has border-2, secondary doesn't — without this
+            // the button changes height when toggling state.
+            className={`motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150 ${allSelected ? "border-2 border-transparent" : ""}`}
+            surface="primary"
+            aria-pressed={allSelected}
+            onClick={() => {
+              const dayPhotos = group.items.map(({ photo }) => photo);
+              if (allSelected) onDeselectDay?.(dayPhotos);
+              else onSelectDay?.(dayPhotos);
+            }}
+          >
+            {allSelected && <Check size={14} aria-hidden="true" />}
+            {allSelected ? "Day selected" : "Select day"}
+          </Button>
+        )}
       </div>
       <div
         id={`day-grid-${group.key}`}
@@ -223,17 +209,15 @@ function daySectionEqual(prev, next) {
     }
   }
   if (prev.selectedKeys !== next.selectedKeys) {
-    for (const { photo } of b.items) {
-      const key = photoSelectionKey(photo);
-      if (Boolean(prev.selectedKeys?.has(key)) !== Boolean(next.selectedKeys?.has(key))) return false;
-    }
+    if (prev.selectedKeys?.size !== next.selectedKeys?.size) return false;
+    for (const key of next.selectedKeys ?? []) if (!prev.selectedKeys?.has(key)) return false;
   }
   return true;
 }
 
 /**
  * @typedef {{ key: string, label: string, items: { photo: PhotosPhoto, index: number }[] }} DayGroup
- * @typedef {{ photos: PhotosPhoto[], groups: DayGroup[], at: Map<string, number> }} DayGrouping
+ * @typedef {{ photos: PhotosPhoto[], groups: DayGroup[], at: Map<string, number>, photoDays: Map<string, string[]> }} DayGrouping
  */
 
 /**
@@ -264,11 +248,16 @@ export function groupByDay(photos, prev = null) {
   }
   const groups = from ? prev.groups.slice() : [];
   const at = from ? new Map(prev.at) : new Map();
+  /** @type {DayGrouping["photoDays"]} */
+  const photoDays = from ? new Map(prev.photoDays) : new Map();
   /** @type {Map<number, DayGroup["items"]>} days given new photos, by position */
   const grown = new Map();
   for (let index = from; index < photos.length; index++) {
     const photo = photos[index];
     const key = dayKey(photo.taken_at);
+    const photoKey = photoSelectionKey(photo);
+    const days = photoDays.get(photoKey);
+    if (!days?.includes(key)) photoDays.set(photoKey, days ? [...days, key] : [key]);
     let pos = at.get(key);
     if (pos === undefined) {
       pos = groups.length;
@@ -286,7 +275,7 @@ export function groupByDay(photos, prev = null) {
   for (const [pos, items] of grown) {
     if (groups[pos].items !== items) groups[pos] = { ...groups[pos], items };
   }
-  return { photos, groups, at };
+  return { photos, groups, at, photoDays };
 }
 
 // Photos drawn in the first frame a timeline mounts; the rest follow in a
@@ -348,6 +337,20 @@ function PhotoTimeline({
   const grouping = useMemo(() => groupByDay(photos, lastGrouping.current), [photos]);
   lastGrouping.current = grouping;
   const groups = grouping.groups;
+  // A single click normally picks only a few keys. Look up their days instead
+  // of comparing selection flags for every thumbnail on the timeline.
+  const selectedByDay = useMemo(() => {
+    /** @type {Map<string, Set<string>>} */
+    const byDay = new Map();
+    for (const photoKey of selectedKeys ?? []) {
+      for (const day of grouping.photoDays.get(photoKey) ?? []) {
+        let keys = byDay.get(day);
+        if (!keys) byDay.set(day, keys = new Set());
+        keys.add(photoKey);
+      }
+    }
+    return byDay;
+  }, [grouping, selectedKeys]);
 
   // How many photos are drawn, in list order (Infinity: all of them).
   const [drawn, setDrawn] = useState(photos.length <= FIRST_PAINT_PHOTOS ? Infinity : FIRST_PAINT_PHOTOS);
@@ -425,24 +428,29 @@ function PhotoTimeline({
     const el = sentinel.current;
     // Not before every photo is drawn: the short first frame would show the
     // sentinel and fetch a page nobody scrolled to.
-    if (!el || !hasMore || !drawAll) return undefined;
+    if (!el || !hasMore || loadingMore || !drawAll || !onLoadMore) return undefined;
     // Two frames later: after a jump, the days now on screen draw in the
     // next frame and ask for their thumbnails then. Drawing the next page
     // first held those requests back behind its long render (W8).
     let frame = 0;
+    let requested = false;
     const count = photos.length;
     const loadMore = () => {
+      frame = 0;
+      if (requested) return;
+      requested = true;
       setAskedAt(count);
-      onLoadMore?.();
+      onLoadMore();
     };
     const io = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((e) => e.isIntersecting)) return;
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        if (requested || !entries.some((e) => e.isIntersecting)) return;
         if (typeof requestAnimationFrame !== "function") {
           loadMore();
           return;
         }
-        cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => {
           frame = requestAnimationFrame(loadMore);
         });
@@ -454,7 +462,7 @@ function PhotoTimeline({
       io.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [hasMore, onLoadMore, photos.length, drawAll]);
+  }, [hasMore, loadingMore, onLoadMore, photos.length, drawAll]);
 
   useEffect(() => {
     function endDrag() {
@@ -521,7 +529,7 @@ function PhotoTimeline({
           key={group.key}
           group={group}
           isCollapsed={collapsed.has(group.key)}
-          selectedKeys={selectedKeys}
+          selectedKeys={selectedByDay.get(group.key)}
           selectMode={selectMode}
           gridClass={gridClass}
           thumbSizes={COL_SIZES[columns] || COL_SIZES[6]}

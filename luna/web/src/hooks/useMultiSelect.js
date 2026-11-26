@@ -27,9 +27,18 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
   // re-render every thumbnail in the grid.
   const anchorRef = useRef(/** @type {string|null} */ (null));
 
-  const keysInView = useMemo(() => items.map((item) => keyOf(item)).filter(Boolean), [items, keyOf]);
-  const keysInViewRef = useRef(keysInView);
-  keysInViewRef.current = keysInView;
+  const view = useMemo(() => {
+    const keys = items.map((item) => keyOf(item));
+    /** @type {Map<string, number>} */
+    const indices = new Map();
+    keys.forEach((key, index) => {
+      if (key && !indices.has(key)) indices.set(key, index);
+    });
+    return { keys, indices };
+  }, [items, keyOf]);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const indexOfKey = useCallback((key) => view.indices.get(key) ?? -1, [view]);
 
   const clear = useCallback(() => {
     setSelected(new Set());
@@ -52,16 +61,18 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
       if (!key) return;
       setSelectMode(true);
       // Read before the updater runs: it executes later, after the anchor moves.
-      const keys = keysInViewRef.current;
+      const { keys, indices } = viewRef.current;
       const anchorKey = anchorRef.current;
       setSelected((prev) => {
         const next = new Set(prev);
         if (range && anchorKey) {
-          const a = keys.indexOf(anchorKey);
-          const b = keys.indexOf(key);
-          if (a >= 0 && b >= 0) {
+          const a = indices.get(anchorKey);
+          const b = indices.get(key);
+          if (a !== undefined && b !== undefined) {
             const [lo, hi] = a < b ? [a, b] : [b, a];
-            for (let i = lo; i <= hi; i += 1) next.add(keys[i]);
+            for (let i = lo; i <= hi; i += 1) {
+              if (keys[i]) next.add(keys[i]);
+            }
             return next;
           }
         }
@@ -76,8 +87,8 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
 
   const selectAllInView = useCallback(() => {
     setSelectMode(true);
-    setSelected(new Set(keysInView));
-  }, [keysInView]);
+    setSelected(new Set(view.indices.keys()));
+  }, [view]);
 
   /** Select a specific list of items (e.g. one day in the timeline). */
   const selectItems = useCallback(
@@ -124,6 +135,7 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     selected,
     selectedCount: selected.size,
     getSelectedItems,
+    indexOfKey,
     isSelected,
     enter,
     exit,

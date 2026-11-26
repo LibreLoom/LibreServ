@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useRef, useState } from "react";
 import { MotionConfig } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
@@ -54,6 +54,222 @@ function CapsPill({ caps, album, file }) {
   return <Pill variant={variant}>{capsLabel(caps, { album, file })}</Pill>;
 }
 
+const NO_ITEMS = [];
+
+const SharedItems = memo(/**
+ * Only the active tab is filtered. Keep its table off the input's urgent render.
+ * @param {{
+ *   tab: string,
+ *   rows: any[],
+ *   search: string,
+ *   onManage: (subject: import("../lib/access.js").ShareSubject) => void,
+ *   onLeave: (row: any) => void,
+ *   onOpen: (href: string) => void,
+ * }} props
+ */ function SharedItems({ tab, rows, search, onManage, onLeave, onOpen }) {
+  const query = search.toLowerCase();
+  const shownItems = query ? rows.filter((row) =>
+    (row.name || "").toLowerCase().includes(query)
+    || (row.path || "").toLowerCase().includes(query)
+    || (row.drive_label || "").toLowerCase().includes(query),
+  ) : rows;
+
+  return (
+    <SlidePages pageKey={tab} position={tab === "manage" ? 1 : 0}>
+      {tab === "with_me" && (
+        shownItems.length === 0 ? (
+          <EmptyState
+            icon={Share2}
+            title={query ? "Nothing matches" : "Nothing shared with you yet"}
+            description={query
+              ? `Nothing shared with you matches "${search}".`
+              : "When someone shares a file, folder, drive, or album with you, it shows here."}
+          />
+        ) : (
+          <Card
+            surface="primary"
+            padding={false}
+            noPopIn
+            noHeightAnim
+            className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
+          >
+            <div className="overflow-x-auto">
+              <Table
+                columns={[
+                  {
+                    key: "item",
+                    label: "Item",
+                    render: (row) => (
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <SubjectIcon kind={row.kind} isFile={row.is_file} />
+                        <span className="min-w-0 text-sm truncate">{row.name}</span>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "where",
+                    label: "Where",
+                    render: (row) => subjectSubtitle(row),
+                  },
+                  {
+                    key: "access",
+                    label: "Access",
+                    render: (row) => (
+                      <CapsPill
+                        caps={row.caps}
+                        album={row.kind === KIND_ALBUM}
+                        file={row.is_file}
+                      />
+                    ),
+                  },
+                  {
+                    key: "shared_by",
+                    label: "Shared by",
+                    // Empty when the account that shared it no longer exists.
+                    render: (row) => row.shared_by || "Unknown",
+                  },
+                  {
+                    key: "actions",
+                    label: "Actions",
+                    srOnly: true,
+                    align: "right",
+                    noRowClick: true,
+                    render: (row) => (
+                      <span className="flex items-center justify-end gap-2">
+                        {row.exists !== false && opensAlbumSharing(row) ? (
+                          <Button size="sm" variant="primary" onClick={() => onManage(shareSubjectFromRow(row))}>
+                            Share
+                          </Button>
+                        ) : row.exists !== false ? (
+                          <Button size="sm" variant="primary" asChild>
+                            <Link to={sharedItemHref(row)}>{sharedItemAction(row)}</Link>
+                          </Button>
+                        ) : (
+                          <span className="text-primary text-xs">Unavailable</span>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          surface="secondary"
+                          onClick={() => onLeave(row)}
+                        >
+                          Leave
+                        </Button>
+                      </span>
+                    ),
+                  },
+                ]}
+                data={shownItems}
+                rowKey="id"
+                mobileCards
+                striped
+                onRowClick={(row) => {
+                  if (row.exists === false) return;
+                  if (opensAlbumSharing(row)) {
+                    onManage(shareSubjectFromRow(row));
+                  } else {
+                    onOpen(sharedItemHref(row));
+                  }
+                }}
+              />
+            </div>
+          </Card>
+        )
+      )}
+
+      {tab === "manage" && (
+        shownItems.length === 0 ? (
+          <EmptyState
+            icon={Share2}
+            title={query ? "Nothing matches" : "Nothing shared yet"}
+            description={query
+              ? `Nothing you manage matches "${search}".`
+              : "Use the share button on a file, folder, drive, or album. Everything you share shows here."}
+          />
+        ) : (
+          <Card
+            surface="primary"
+            padding={false}
+            noPopIn
+            noHeightAnim
+            className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
+          >
+            <div className="overflow-x-auto">
+              <Table
+                columns={[
+                  {
+                    key: "item",
+                    label: "Item",
+                    render: (s) => (
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <SubjectIcon kind={s.kind} isFile={s.is_file} />
+                        <span className="min-w-0">
+                          <span className="block font-mono text-sm truncate">
+                            {s.name || s.path || s.drive_label}
+                          </span>
+                          {!s.exists && (
+                            <span className="block text-xs">
+                              Unavailable
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "where",
+                    label: "Where",
+                    render: (s) => subjectSubtitle(s),
+                  },
+                  {
+                    key: "shared",
+                    label: "Shared with",
+                    render: (s) => (
+                      // The Manage button nests at the row's right edge —
+                      // it's the row's own affordance, not a separate
+                      // trailing column.
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="flex flex-wrap gap-1">
+                          {s.members?.length > 0 && (
+                            <Pill variant="info">
+                              {s.members.length} {s.members.length === 1 ? "person" : "people"}
+                            </Pill>
+                          )}
+                          {s.links?.length > 0 && (
+                            <Pill variant="success">
+                              {s.links.length} {s.links.length === 1 ? "link" : "links"}
+                            </Pill>
+                          )}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          surface="secondary"
+                          onClick={() => onManage(shareSubjectFromRow(s))}
+                        >
+                          Manage
+                        </Button>
+                      </span>
+                    ),
+                  },
+                ]}
+                data={shownItems.map((s) => ({
+                  ...s,
+                  key: `${s.kind}:${s.drive_id}:${s.path}:${s.album_id}`,
+                }))}
+                rowKey="key"
+                mobileCards
+                striped
+                onRowClick={(s) => onManage(shareSubjectFromRow(s))}
+              />
+            </div>
+          </Card>
+        )
+      )}
+    </SlidePages>
+  );
+});
+
 export default function SharedPage() {
   usePageTitle("Shared");
   const { user } = useAuth();
@@ -99,17 +315,14 @@ export default function SharedPage() {
     },
   });
 
-  const sharing = mine.data?.sharing || [];
-  const withMe = mine.data?.with_me || [];
+  const sharing = mine.data?.sharing || NO_ITEMS;
+  const withMe = mine.data?.with_me || NO_ITEMS;
   const tab = chosenTab ?? (isAdmin && withMe.length === 0 ? "manage" : "with_me");
-  const query = search.trim().toLowerCase();
-  const matches = (row) =>
-    !query
-    || (row.name || "").toLowerCase().includes(query)
-    || (row.path || "").toLowerCase().includes(query)
-    || (row.drive_label || "").toLowerCase().includes(query);
-  const shownWithMe = withMe.filter(matches);
-  const shownSharing = sharing.filter(matches);
+  const deferredSearch = useDeferredValue(search.trim());
+  const openLeave = useCallback((row) => {
+    setLeaveError(null);
+    setLeaving(row);
+  }, []);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -157,202 +370,14 @@ export default function SharedPage() {
             </label>
           </div>
 
-          {/* Manage sharing sits right of Shared with you, as in the tab bar. */}
-          <SlidePages pageKey={tab} position={tab === "manage" ? 1 : 0}>
-          {tab === "with_me" && (
-            shownWithMe.length === 0 ? (
-              <EmptyState
-                icon={Share2}
-                title={query ? "Nothing matches" : "Nothing shared with you yet"}
-                description={query
-                  ? `Nothing shared with you matches "${search.trim()}".`
-                  : "When someone shares a file, folder, drive, or album with you, it shows here."}
-              />
-            ) : (
-              <Card
-                surface="primary"
-                padding={false}
-                noPopIn
-                noHeightAnim
-                className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
-              >
-                <div className="overflow-x-auto">
-                  <Table
-                    columns={[
-                      {
-                        key: "item",
-                        label: "Item",
-                        render: (row) => (
-                          <span className="flex min-w-0 items-center gap-2.5">
-                            <SubjectIcon kind={row.kind} isFile={row.is_file} />
-                            <span className="min-w-0 text-sm truncate">{row.name}</span>
-                          </span>
-                        ),
-                      },
-                      {
-                        key: "where",
-                        label: "Where",
-                        render: (row) => subjectSubtitle(row),
-                      },
-                      {
-                        key: "access",
-                        label: "Access",
-                        render: (row) => (
-                          <CapsPill
-                            caps={row.caps}
-                            album={row.kind === KIND_ALBUM}
-                            file={row.is_file}
-                          />
-                        ),
-                      },
-                      {
-                        key: "shared_by",
-                        label: "Shared by",
-                        // Empty when the account that shared it no longer exists.
-                        render: (row) => row.shared_by || "Unknown",
-                      },
-                      {
-                        key: "actions",
-                        label: "Actions",
-                        srOnly: true,
-                        align: "right",
-                        noRowClick: true,
-                        render: (row) => (
-                          <span className="flex items-center justify-end gap-2">
-                            {row.exists !== false && opensAlbumSharing(row) ? (
-                              <Button size="sm" variant="primary" onClick={() => setManaging(shareSubjectFromRow(row))}>
-                                Share
-                              </Button>
-                            ) : row.exists !== false ? (
-                              <Button size="sm" variant="primary" asChild>
-                                <Link to={sharedItemHref(row)}>{sharedItemAction(row)}</Link>
-                              </Button>
-                            ) : (
-                              <span className="text-primary text-xs">Unavailable</span>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              surface="secondary"
-                              onClick={() => {
-                                setLeaveError(null);
-                                setLeaving(row);
-                              }}
-                            >
-                              Leave
-                            </Button>
-                          </span>
-                        ),
-                      },
-                    ]}
-                    data={shownWithMe}
-                    rowKey="id"
-                    mobileCards
-                    striped
-                    onRowClick={(row) => {
-                      if (row.exists === false) return;
-                      if (opensAlbumSharing(row)) {
-                        setManaging(shareSubjectFromRow(row));
-                      } else {
-                        navigate(sharedItemHref(row));
-                      }
-                    }}
-                  />
-                </div>
-              </Card>
-            )
-          )}
-
-          {tab === "manage" && (
-            shownSharing.length === 0 ? (
-              <EmptyState
-                icon={Share2}
-                title={query ? "Nothing matches" : "Nothing shared yet"}
-                description={query
-                  ? `Nothing you manage matches "${search.trim()}".`
-                  : "Use the share button on a file, folder, drive, or album. Everything you share shows here."}
-              />
-            ) : (
-              <Card
-                surface="primary"
-                padding={false}
-                noPopIn
-                noHeightAnim
-                className="overflow-hidden border-0 md:border-2 bg-transparent md:bg-primary"
-              >
-                <div className="overflow-x-auto">
-                  <Table
-                    columns={[
-                      {
-                        key: "item",
-                        label: "Item",
-                        render: (s) => (
-                          <span className="flex min-w-0 items-center gap-2.5">
-                            <SubjectIcon kind={s.kind} isFile={s.is_file} />
-                            <span className="min-w-0">
-                              <span className="block font-mono text-sm truncate">
-                                {s.name || s.path || s.drive_label}
-                              </span>
-                              {!s.exists && (
-                                <span className="block text-xs">
-                                  Unavailable
-                                </span>
-                              )}
-                            </span>
-                          </span>
-                        ),
-                      },
-                      {
-                        key: "where",
-                        label: "Where",
-                        render: (s) => subjectSubtitle(s),
-                      },
-                      {
-                        key: "shared",
-                        label: "Shared with",
-                        render: (s) => (
-                          // The Manage button nests at the row's right edge —
-                          // it's the row's own affordance, not a separate
-                          // trailing column.
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="flex flex-wrap gap-1">
-                              {s.members?.length > 0 && (
-                                <Pill variant="info">
-                                  {s.members.length} {s.members.length === 1 ? "person" : "people"}
-                                </Pill>
-                              )}
-                              {s.links?.length > 0 && (
-                                <Pill variant="success">
-                                  {s.links.length} {s.links.length === 1 ? "link" : "links"}
-                                </Pill>
-                              )}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              surface="secondary"
-                              onClick={() => setManaging(shareSubjectFromRow(s))}
-                            >
-                              Manage
-                            </Button>
-                          </span>
-                        ),
-                      },
-                    ]}
-                    data={shownSharing.map((s) => ({
-                      ...s,
-                      key: `${s.kind}:${s.drive_id}:${s.path}:${s.album_id}`,
-                    }))}
-                    rowKey="key"
-                    mobileCards
-                    striped
-                    onRowClick={(s) => setManaging(shareSubjectFromRow(s))}
-                  />
-                </div>
-              </Card>
-            )
-          )}
-          </SlidePages>
+          <SharedItems
+            tab={tab}
+            rows={tab === "manage" ? sharing : withMe}
+            search={deferredSearch}
+            onManage={setManaging}
+            onLeave={openLeave}
+            onOpen={navigate}
+          />
         </>
       )}
 
