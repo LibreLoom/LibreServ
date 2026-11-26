@@ -76,13 +76,13 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"device_token"`
 	}
 	out := make([]minted, 0, req.Count)
-	for i := 0; i < req.Count; i++ {
-		id, token, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
-		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
-			return
-		}
-		out = append(out, minted{ID: id, Token: security.GroupCrockford(token)})
+	ids, tokens, err := insertDeviceBatch(h.DB, "official", req.OrderRef, req.Count)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
+		return
+	}
+	for i := range ids {
+		out = append(out, minted{ID: ids[i], Token: security.GroupCrockford(tokens[i])})
 	}
 	if len(out) == 1 {
 		JSON(w, http.StatusCreated, map[string]any{
@@ -109,14 +109,10 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusBadRequest, "Ask for 500 device tokens or fewer at a time.")
 		return
 	}
-	var lines []string
-	for i := 0; i < req.Count; i++ {
-		_, token, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
-		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create device tokens. Try again.")
-			return
-		}
-		lines = append(lines, token)
+	_, lines, err := insertDeviceBatch(h.DB, "official", req.OrderRef, req.Count)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not create device tokens. Try again.")
+		return
 	}
 	JSON(w, http.StatusCreated, map[string]any{
 		"filename": "TOKENS",

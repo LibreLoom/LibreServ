@@ -2,6 +2,7 @@ package database
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -42,5 +43,20 @@ func TestMigrateFreshDBInsertsUnboundDevice(t *testing.T) {
 VALUES ('dev1', 'hash1', 'diy', 8090, ?)`, time.Now().Unix())
 	if err != nil {
 		t.Fatalf("fresh unbound insert: %v", err)
+	}
+}
+
+func TestMigrateRejectsOldDeviceModel(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "old.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE devices (id TEXT PRIMARY KEY, device_uid TEXT, code_hash TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	err = Migrate(db)
+	if err == nil || !strings.Contains(err.Error(), "old device model") {
+		t.Fatalf("want old-device-model error, got %v", err)
 	}
 }

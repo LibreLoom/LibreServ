@@ -509,3 +509,44 @@ VALUES ('pair_live', ?, 'acct_pair_new', ?, ?)`, devID, now, now+300)
 		t.Fatalf("stale request changed replacement: state=%s account=%s pairing=%s", state, account, pairingID)
 	}
 }
+
+func TestClaimPairRevokedDeviceRefundsChargeAndStaysGeneric(t *testing.T) {
+	d := testDeps(t)
+	devH := DeviceHandler{Deps: d}
+	id, uid := mintDevice(t, d, "official")
+	if _, err := d.DB.Exec(`UPDATE devices SET state = 'revoked', revoked = 1 WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < pairingIPFailures*2+1; i++ {
+		if rec := claimPairRequest(devH, uid); rec.Code != http.StatusNotFound {
+			t.Fatalf("revoked poll %d: %d %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	ip := ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))
+	var failures int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM guess_attempts WHERE key = ?`, "pair-ip:"+ip).Scan(&failures); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 0 {
+		t.Fatalf("revoked-device polling recorded %d failures", failures)
+	}
+}
+
+func TestMintBatchRollsBackOnFailure(t *testing.T) {
+	d := testDeps(t)
+	// Make the third insert fail so the first two must roll back.
+	if _, err := d.DB.Exec(`CREATE TRIGGER fail_third BEFORE INSERT ON devices
+WHEN (SELECT COUNT(*) FROM devices) >= 2 BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Skipf("trigger unsupported: %v", err)
+	}
+	if _, _, err := insertDeviceBatch(d.DB, "official", "", 3); err == nil {
+		t.Fatal("expected batch failure")
+	}
+	var n int
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("batch left %d orphaned devices", n)
+	}
+}

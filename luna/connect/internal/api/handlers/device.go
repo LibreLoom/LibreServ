@@ -386,7 +386,7 @@ func itoa(n int) string {
 // insertDeviceIdentity mints a factory or DIY device token. Only its hash and a
 // short non-secret hint are stored, so the token is returned here once and
 // Connect can never show it again.
-func insertDeviceIdentity(db *database.DB, kind, orderRef string) (id, token string, err error) {
+func insertDeviceIdentity(db deviceExecer, kind, orderRef string) (id, token string, err error) {
 	token = security.DeviceToken()
 	id = security.NewID("dev")
 	_, err = db.Exec(`INSERT INTO devices (
@@ -397,6 +397,33 @@ func insertDeviceIdentity(db *database.DB, kind, orderRef string) (id, token str
 		return "", "", err
 	}
 	return id, token, nil
+}
+
+// insertDeviceBatch mints count devices in one transaction, so a failure part
+// way through leaves no device whose token was never returned.
+func insertDeviceBatch(db *database.DB, kind, orderRef string, count int) (ids, tokens []string, err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for i := 0; i < count; i++ {
+		id, token, err := insertDeviceIdentity(tx, kind, orderRef)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		tokens = append(tokens, token)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return ids, tokens, nil
+}
+
+// deviceExecer is satisfied by *database.DB and *database.Tx.
+type deviceExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
 }
 
 func nullIfEmpty(s string) any {

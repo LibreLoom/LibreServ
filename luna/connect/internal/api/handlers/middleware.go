@@ -58,9 +58,9 @@ func CSRF(next http.Handler) http.Handler {
 			return
 		}
 		// Luna has no browser session or CSRF cookie while polling an online
-		// pairing claim. This route authenticates only with the device token
-		// and has no ambient cookie authority to protect.
-		if r.URL.Path == "/api/v1/devices/pair/claim" {
+		// pairing claim, or cancels one. These routes authenticate only with the
+		// device token and have no ambient cookie authority to protect.
+		if r.URL.Path == "/api/v1/devices/pair/claim" || r.URL.Path == "/api/v1/devices/pair/cancel" {
 			next.ServeHTTP(w, r)
 			return
 		}

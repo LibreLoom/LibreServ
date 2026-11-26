@@ -59,3 +59,18 @@ func TestCSRFRejectsEvilOrigin(t *testing.T) {
 		t.Fatalf("matching origin %d %s", okRec.Code, okRec.Body.String())
 	}
 }
+
+func TestPairingClaimAndCancelWorkWithoutCookiesOrOrigin(t *testing.T) {
+	h := testServer(t)
+	prev := config.C.Server.BaseURL
+	t.Cleanup(func() { config.C.Server.BaseURL = prev })
+	config.C.Server.BaseURL = "https://connect.luna.libreloom.org"
+	for _, path := range []string{"/api/v1/devices/pair/claim", "/api/v1/devices/pair/cancel"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"device_token":"7K4M-2Q9X-R8N3-6T5W-1PZH"}`))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s should reach its generic answer without cookies or Origin, got %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+}

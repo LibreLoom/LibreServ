@@ -616,7 +616,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state); err != nil {
   last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND state = 'pairing'`, deviceID)
 		}
-		if state == "unbound" || state == "pairing" || state == "bound" {
+		if state == "unbound" || state == "pairing" || state == "bound" || state == "revoked" {
 			if err := refundPairingRate(tx, rate); err != nil {
 				return nil, err
 			}
@@ -648,6 +648,10 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state); err != nil {
 		return nil, errPairingNoAttempt
 	}
 	if state == "revoked" {
+		// A valid token on a revoked device is not a guess: refund the charge.
+		if err := refundPairingRate(tx, rate); err != nil {
+			return nil, err
+		}
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
