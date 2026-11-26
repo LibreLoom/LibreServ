@@ -1,7 +1,7 @@
 import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { defaultRangeExtractor, measureElement as measureVirtualElement, useWindowVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
   Check,
@@ -170,9 +170,9 @@ const ROW_OVERSCAN = 12;
 const ROW_OVERSCAN_BEHIND = 3;
 /** The same on a folder's first frame (see fullOverscan). */
 const FIRST_FRAME_OVERSCAN = 2;
-/** A row's height before any row is measured; the first measured row replaces it. */
-const ROW_HEIGHT_GUESS = 47;
-const DENSE_ROW_HEIGHT_GUESS = 43;
+/** A row's height: rows have min-h-12 / min-h-11 (FileRow), so this is exact unless a row wraps. */
+const ROW_HEIGHT_GUESS = 48;
+const DENSE_ROW_HEIGHT_GUESS = 44;
 const SORT_STORAGE_KEY = "luna.files.sort";
 
 /** @type {WeakMap<object, boolean>} */
@@ -320,19 +320,25 @@ function VirtualRowWindow({
   topSpacerRef,
   renderRow,
 }) {
-  // Rows all share one height, so the first measured row becomes the estimate
-  // for the rest. A wrong estimate made every newly mounted row while
-  // scrolling re-lay the offsets of all the rows after it (W6).
-  const rowHeightRef = useRef(0);
-  const measureRow = useCallback((element, entry, instance) => {
-    const size = measureVirtualElement(element, entry, instance);
-    if (!rowHeightRef.current && size > 0) rowHeightRef.current = size;
+  // Rows all share one height (min-h in FileRow), so the estimate is exact.
+  // A wrong estimate made every newly mounted row while scrolling re-lay the
+  // offsets of all the rows after it (W6), and learning it from the first
+  // measured row was wrong too: that row can be measured before fonts settle.
+  // The stock measurement rounds to whole pixels, but a row is fractional
+  // (about 46.55px). The page then ran 0.45px per mounted row shorter than the
+  // virtualizer's total, so its height and the list's bottom edge shifted
+  // whenever the number of mounted rows changed (scroll direction, coming to
+  // rest). Measure the true height so the two always agree.
+  const measureRow = useCallback((element, entry) => {
+    const box = entry?.borderBoxSize?.[0];
+    // An empty rectangle only happens where there is no layout (jsdom tests).
+    const size = box?.blockSize || element.getBoundingClientRect().height || element.offsetHeight;
     return size;
   }, []);
   const instanceRef = useRef(/** @type {any} */ (null));
   const virtualizer = useWindowVirtualizer({
     count,
-    estimateSize: () => rowHeightRef.current || (dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS),
+    estimateSize: () => (dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS),
     measureElement: measureRow,
     overscan: fullOverscan ? ROW_OVERSCAN : FIRST_FRAME_OVERSCAN,
     // Scrolling must not synchronously re-render the whole list on every event.
@@ -1547,7 +1553,7 @@ export default function FileBrowser({
     );
   };
 
-  const padY = dense ? "py-2" : "py-2.5";
+  const padY = dense ? "py-2 min-h-11" : "py-2.5 min-h-12";
   const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;

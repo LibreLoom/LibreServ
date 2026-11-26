@@ -93,7 +93,16 @@ function FileRow({
   const stripeBg = surface === "primary"
     ? "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]"
     : "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
-  const padY = dense ? "py-2" : "py-2.5";
+  // min-h pins every row to one whole-pixel height, so the list window knows
+  // it before measuring anything (see VirtualRowWindow).
+  // Selected rows dim whichever background they sit on (plain or striped), so
+  // all four row looks stay distinguishable from one another.
+  const baseBg = surface === "primary" ? "var(--primary)" : "var(--secondary)";
+  const stripeMix = surface === "primary"
+    ? "color-mix(in_oklab,var(--primary)_92%,var(--secondary))"
+    : "color-mix(in_oklab,var(--secondary)_92%,var(--primary))";
+  const selectedBg = `bg-[color-mix(in_oklab,currentColor_14%,${striped ? stripeMix : baseBg})]`;
+  const padY = dense ? "py-2 min-h-11" : "py-2.5 min-h-12";
 
   const openable = canOpenRow(entry, displayName, trashView);
   const isDir = entry.kind === "dir";
@@ -346,7 +355,7 @@ function FileRow({
         // the fill out of the border box, so the translucent
         // divider always blends over the card behind it instead of
         // being tinted by the stripe/selection color.
-        `bg-clip-padding ${isSelected || isDrop ? "bg-current/10" : striped ? stripeBg : cardSurface} ${fg}`,
+        `bg-clip-padding ${isDrop ? "bg-current/10" : isSelected ? selectedBg : striped ? stripeBg : cardSurface} ${fg}`,
         // One outline: the drop ring replaces the row separator
         // (border-b kept transparent so the row height doesn't
         // shift). The last row always rounds to hug the card's
