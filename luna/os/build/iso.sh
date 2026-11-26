@@ -3,7 +3,7 @@
 # Never calls podman or sudo, and needs no root on the host.
 #
 #   in:  OSDIR   (/luna/os, read-only) installer scripts, package lists, hooks
-#        PAYLOAD (/payload, read-only) must hold luna-os-x86_64.img.xz and its
+#        PAYLOAD (/payload, read-only) must hold luna-os-x86_64.img.zst and its
 #                .sha256. The image carries the daemon, cloudflared and both
 #                editor packs, so nothing else is needed here.
 #        CACHE   (/cache, optional volume) apt downloads + the finished live
@@ -24,7 +24,7 @@ MIRROR="${DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 THREADS="${XZ_THREADS:-$(nproc)}"
 WORK="${WORK:-/build}"
 ISO="$OUT/luna-rapidinstall-$ARCH.iso"
-IMG="luna-os-$ARCH.img.xz"
+IMG="luna-os-$ARCH.img.zst"
 
 # What find-media.sh and the installer rely on (see README: kernel line).
 LIVE_APPEND='boot=live text nomodeset console=tty0 net.ifnames=0 biosdevname=0 init=/usr/lib/luna-installer/init.sh'

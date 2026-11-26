@@ -11,7 +11,7 @@ support call later.
 - Official quick-start card with a Device ID and Verification code
 
 ## 1. Flash
-- [ ] `os/build-rootfs.sh` + `os/make-image.sh` produced `os/dist/luna-os-x86_64.img.xz`
+- [ ] `os/build-rootfs.sh` + `os/make-image.sh` produced `os/dist/luna-os-x86_64.img.zst`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
 - [ ] Factory stick: mount `LUNAASSETS`; each `TOKENS` line is exactly `<20-character Crockford Device ID> <6-hex Verification code>`, such as `7K4M2Q9XR8N36T5W1PZH A3F91C`; each flash peels the first line and writes `device-uid` and `pairing-code` separately

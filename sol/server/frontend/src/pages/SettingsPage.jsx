@@ -360,6 +360,7 @@ export default function SettingsPage() {
         {/* Content — the only thing that scrolls */}
         <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
           <SettingsContent
+            isAdmin={isAdmin}
             category={activeCategory}
             settings={settings}
             theme={theme}
@@ -424,6 +425,7 @@ export default function SettingsPage() {
               <span>Back</span>
             </Button>
             <SettingsContent
+              isAdmin={isAdmin}
               category={activeCategory}
               settings={settings}
               theme={theme}

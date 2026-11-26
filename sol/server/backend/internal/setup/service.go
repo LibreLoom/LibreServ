@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
@@ -34,10 +35,24 @@ type State struct {
 	ProgressUpdatedAt *time.Time             `json:"progress_updated_at,omitempty"`
 }
 
+// completionCacheTTL bounds how long IsComplete trusts its cached answer.
+// Setup state changes go through this service (or InvalidateCompletion), so
+// the TTL is only a safety net for out-of-band changes such as a DB restore.
+const completionCacheTTL = 30 * time.Second
+
+type completionSnapshot struct {
+	complete bool
+	checked  time.Time
+}
+
 type Service struct {
 	db            *database.DB
 	mu            sync.Mutex
 	SetupCodePath string
+
+	// One atomic value keeps the answer and its timestamp together, so the
+	// fast path cannot read a fresh timestamp and a stale answer.
+	completion atomic.Value
 }
 
 func NewService(db *database.DB) *Service {
@@ -47,12 +62,25 @@ func NewService(db *database.DB) *Service {
 // DefaultSetupCodePath is the well-known path on Sol ISOs.
 const DefaultSetupCodePath = "/etc/sol/setup-code"
 
+func (s *Service) cacheCompletion(status string) {
+	s.completion.Store(completionSnapshot{
+		complete: status == StatusComplete,
+		checked:  time.Now(),
+	})
+}
+
+func (s *Service) cachedCompletion() (completionSnapshot, bool) {
+	snap, ok := s.completion.Load().(completionSnapshot)
+	return snap, ok && time.Since(snap.checked) < completionCacheTTL
+}
+
 func (s *Service) Ensure(ctx context.Context) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	state, err := s.get(ctx)
 	if err == nil {
+		s.cacheCompletion(state.Status)
 		// Always reconcile the nonce with the file on disk (file is source of truth
 		// for installations with a physical setup code card).
 		if fileCode := s.readCodeFromFile(); fileCode != "" && fileCode != state.Nonce {
@@ -84,6 +112,7 @@ func (s *Service) Ensure(ctx context.Context) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}
+	s.cacheCompletion(StatusPending)
 
 	return &State{
 		Status:      StatusPending,
@@ -110,15 +139,19 @@ func (s *Service) MarkInProgress(ctx context.Context) (*State, error) {
 	}
 
 	now := time.Now()
-	_, err = s.db.Exec(`
+	result, err := s.db.Exec(`
 		UPDATE setup_state SET status = ?, started_at = ? WHERE id = 1
 	`, StatusInProgress, now)
 	if err != nil {
 		return nil, fmt.Errorf("mark in progress: %w", err)
 	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return nil, errors.New("mark in progress: setup state row is missing")
+	}
 
 	state.Status = StatusInProgress
 	state.StartedAt = &now
+	s.cacheCompletion(StatusInProgress)
 	return state, nil
 }
 
@@ -127,22 +160,56 @@ func (s *Service) MarkComplete(ctx context.Context) (*State, error) {
 	defer s.mu.Unlock()
 
 	now := time.Now()
-	_, err := s.db.Exec(`
+	result, err := s.db.Exec(`
 		UPDATE setup_state SET status = ?, completed_at = ?, current_step = ?, current_sub_step = NULL, step_data = '{}', progress_updated_at = ?
 		WHERE id = 1
 	`, StatusComplete, now, StepComplete, now)
 	if err != nil {
 		return nil, fmt.Errorf("mark complete: %w", err)
 	}
+	// Exec reports success for a 0-row update; without this check a missing
+	// setup_state row would be cached as "complete" for the TTL.
+	if n, _ := result.RowsAffected(); n == 0 {
+		return nil, errors.New("mark complete: setup state row is missing")
+	}
+	s.cacheCompletion(StatusComplete)
 	return &State{Status: StatusComplete, CompletedAt: &now, CurrentStep: StepComplete}, nil
 }
 
+// IsComplete answers without a DB round-trip on the common path. Every
+// authenticated request used to read and JSON-decode the whole setup_state
+// row under the service mutex; only the status column is needed here.
 func (s *Service) IsComplete(ctx context.Context) bool {
-	state, err := s.Get(ctx)
+	if snap, ok := s.cachedCompletion(); ok {
+		return snap.complete
+	}
+
+	// Hold the same mutex as the state-changing methods across the read and
+	// the store. Without it, a read that began before a factory reset could
+	// repopulate the cache with the old answer after the reset cleared it.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if snap, ok := s.cachedCompletion(); ok {
+		return snap.complete
+	}
+
+	var status string
+	err := s.db.QueryRowContext(ctx, "SELECT status FROM setup_state WHERE id = 1").Scan(&status)
 	if err != nil {
+		// Fail closed: an unreadable state must not grant access.
 		return false
 	}
-	return state.Status == StatusComplete
+	s.cacheCompletion(status)
+	return status == StatusComplete
+}
+
+// InvalidateCompletion drops the cached answer. Call this when setup_state is
+// changed outside MarkComplete/MarkInProgress, for example during a factory
+// reset or a database restore.
+func (s *Service) InvalidateCompletion() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.completion.Store(completionSnapshot{checked: time.Time{}})
 }
 
 // SetupToken returns the current setup token (nonce).

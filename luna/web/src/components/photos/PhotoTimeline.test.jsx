@@ -34,18 +34,18 @@ describe("PhotoThumb cascading animation", () => {
     expect(button.style.animationFillMode).toBe("backwards");
   });
 
-  it("fades thumbnail image in smoothly when onLoad triggers", () => {
+  it("marks the thumbnail loaded on load, without re-rendering the cell", () => {
     const photo = { name: "photo.jpg", path: "photo.jpg", drive_id: "d1", thumb: "/thumb.jpg" };
     const { container } = render(<PhotoThumb photo={photo} index={0} />);
 
     const img = container.querySelector("img");
     expect(img).toBeInTheDocument();
     expect(img?.className).toContain("motion-safe:transition-[opacity,scale]");
-    expect(img?.className).toContain("motion-reduce:opacity-100");
     expect(img?.className).toContain("opacity-0");
+    expect(img?.dataset.thumbLoaded).toBeUndefined();
 
     fireEvent.load(img);
-    expect(img?.className).toContain("opacity-100");
+    expect(img?.dataset.thumbLoaded).toBe("1");
   });
 });
 

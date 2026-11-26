@@ -339,6 +339,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_device_unique ON subscriptio
 CREATE INDEX IF NOT EXISTS idx_credentials_device ON service_credentials(device_id);
 CREATE INDEX IF NOT EXISTS idx_usage_device ON usage_events(device_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_usage_plan ON usage_events(plan_id);
+CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_cases_device ON support_cases(device_id);
 CREATE INDEX IF NOT EXISTS idx_cases_status ON support_cases(status);
 CREATE INDEX IF NOT EXISTS idx_messages_case ON case_messages(case_id);

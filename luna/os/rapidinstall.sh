@@ -18,7 +18,7 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 ARCH="${ARCH:-x86_64}"
 # The slot image the ISO carries: the exact bytes the update feed lists.
-OS_IMAGE="${LUNA_OS_IMAGE:-$HERE/luna-os-$ARCH.img.xz}"
+OS_IMAGE="${LUNA_OS_IMAGE:-$HERE/luna-os-$ARCH.img.zst}"
 
 # QEMU / automation: allow overrides from the kernel command line.
 if [ -z "${LUNA_TARGET:-}" ] && [ -r /proc/cmdline ]; then
@@ -268,7 +268,7 @@ if ! factory_apply_pairing_material "$_data_mnt"; then
 	echo "Fix the TOKENS magazine on LUNAASSETS, or re-run and enter both values when prompted."
 	exit 1
 fi
-# os-image.sha256 = sha256 of the exact luna-os-*.img.xz written to both slots
+# os-image.sha256 = sha256 of the exact luna-os-*.img.zst written to both slots
 # (flash_luna_disk sets _os_hash). Missing hash = failed install.
 if [ -z "${_os_hash:-}" ] || ! _record_os_image_hash "$_data_mnt" "$_os_hash"; then
 	umount "$_data_mnt" 2>/dev/null || true

@@ -174,6 +174,112 @@ pub async fn sdkjs_dispatch(
     }
 }
 
+/// Parse the single-range form a browser sends for a font file. Returns the
+/// half-open slice. An unparsable range is ignored and the whole file is
+/// served; a static server would answer 416, but the editor never sends one.
+fn parse_byte_range(value: &str, total: usize) -> Option<(usize, usize)> {
+    let spec = value.strip_prefix("bytes=")?;
+    let (first, last) = spec.split_once('-')?;
+    if first.is_empty() {
+        // Suffix range: the last N bytes.
+        let n: usize = last.parse().ok()?;
+        if n == 0 || n > total {
+            return None;
+        }
+        return Some((total - n, total));
+    }
+    let start: usize = first.parse().ok()?;
+    if start >= total {
+        return None;
+    }
+    let end = if last.is_empty() {
+        total
+    } else {
+        last.parse::<usize>().ok()?.saturating_add(1).min(total)
+    };
+    (start < end).then_some((start, end))
+}
+
+/// True for `If-None-Match: *`, a comma-separated list containing the ETag,
+/// or a weak form of it. Mirrors what a static file server accepts.
+fn if_none_match_matches(header: Option<&str>, etag: &str) -> bool {
+    match header {
+        Some("*") => true,
+        Some(list) => list.split(',').any(|candidate| {
+            let candidate = candidate.trim();
+            candidate == "*" || candidate == etag || candidate.strip_prefix("W/") == Some(etag)
+        }),
+        None => false,
+    }
+}
+
+/// Build the response for a synthesized font. Kept separate from the handler
+/// so the conditional, HEAD and range paths can be tested without a pack.
+fn aliased_font_response(
+    etag: String,
+    is_head: bool,
+    if_none_match: Option<&str>,
+    range_header: Option<&str>,
+    total: usize,
+    body: Vec<u8>,
+) -> Response {
+    if if_none_match_matches(if_none_match, &etag) {
+        return axum::response::Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(axum::http::header::ETAG, etag)
+            .header(
+                axum::http::header::CACHE_CONTROL,
+                "public, max-age=0, must-revalidate",
+            )
+            .body(axum::body::Body::empty())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let range = if is_head {
+        None
+    } else {
+        range_header.and_then(|v| parse_byte_range(v, total))
+    };
+    let (status, length, content_range) = if let Some((start, end)) = range {
+        (
+            StatusCode::PARTIAL_CONTENT,
+            Some(end - start),
+            Some(format!(
+                "bytes {}-{}/{}",
+                start,
+                end.saturating_sub(1),
+                total
+            )),
+        )
+    } else {
+        (StatusCode::OK, Some(total), None)
+    };
+    let mut res = axum::response::Response::builder()
+        .status(status)
+        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+        .header(axum::http::header::ETAG, etag)
+        .header(
+            axum::http::header::CACHE_CONTROL,
+            "public, max-age=0, must-revalidate",
+        )
+        .header(axum::http::header::ACCEPT_RANGES, "bytes");
+    if let Some(len) = length {
+        res = res.header(axum::http::header::CONTENT_LENGTH, len);
+    }
+    if let Some(value) = content_range {
+        res = res.header(axum::http::header::CONTENT_RANGE, value);
+    }
+    let payload = if is_head {
+        Vec::new()
+    } else {
+        match range {
+            Some((start, end)) => body[start..end].to_vec(),
+            None => body,
+        }
+    };
+    res.body(axum::body::Body::from(payload))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
 /// The sdkjs font loader resolves `../../../../fonts/` against the site root
 /// (Document Server's nginx layout) — serve the pack's generated fonts.
 /// The route shadows the web app's own /fonts/* brand fonts, so a miss falls
@@ -186,7 +292,63 @@ pub async fn fonts_dispatch(
     Path(tail): Path<String>,
     mut req: axum::extract::Request,
 ) -> Response {
-    let dir = crate::packs::dir(&state.data_dir, "eurooffice").join("fonts");
+    let pack = crate::packs::dir(&state.data_dir, "eurooffice");
+    // allfontsgen copies a core font and masks its first <=32 bytes in place.
+    // The image ships only those masked bytes, so rebuild the original file
+    // here. The manifest carries the hash of those exact bytes: a revalidation
+    // can answer 304 without reading the TTF from the eMMC.
+    let is_head = req.method() == axum::http::Method::HEAD;
+    // The route is registered with `any`; only the read verbs may take the
+    // synthesized path. Other methods fall through to ServeDir, which answers
+    // 405 as it did before this route existed.
+    let is_read = is_head || req.method() == axum::http::Method::GET;
+    let if_none_match = req
+        .headers()
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let range_header = req
+        .headers()
+        .get(axum::http::header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    if is_read && let Some(etag) = crate::api::font_aliases::etag_for(&pack, &tail) {
+        // A matching validator returns 304 before the font is read at all.
+        if if_none_match_matches(if_none_match.as_deref(), &etag) {
+            return aliased_font_response(
+                etag,
+                is_head,
+                if_none_match.as_deref(),
+                None,
+                0,
+                Vec::new(),
+            );
+        }
+        // HEAD needs only the would-be length: the masked prefix replaces
+        // 32 bytes in place, so the source file's size is the answer.
+        if is_head && let Some(len) = crate::api::font_aliases::source_len_for(&pack, &tail) {
+            return aliased_font_response(
+                etag,
+                true,
+                if_none_match.as_deref(),
+                None,
+                len as usize,
+                Vec::new(),
+            );
+        }
+        if let Some(body) = crate::api::font_aliases::synth(&pack, &tail).await {
+            let total = body.len();
+            return aliased_font_response(
+                etag,
+                is_head,
+                if_none_match.as_deref(),
+                range_header.as_deref(),
+                total,
+                body,
+            );
+        }
+    }
+    let dir = pack.join("fonts");
     let orig_path = req.uri().path().to_string();
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
@@ -976,11 +1138,128 @@ mod tests {
     use crate::access::{CAP_ALL, CAP_VIEW, KIND_PATH};
     use crate::drives::DriveManager;
     use crate::drives::mount::shared_mock;
+    use base64::Engine as _;
+    use sha2::Digest as _;
 
     fn test_state(dir: &tempfile::TempDir) -> AppState {
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let dm = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
         AppState::new(conn, dm, dir.path())
+    }
+
+    #[tokio::test]
+    async fn fonts_dispatch_covers_aliases_validators_and_verbs() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("eurooffice");
+        std::fs::create_dir_all(pack.join("fonts")).unwrap();
+        std::fs::create_dir_all(pack.join("core-fonts")).unwrap();
+
+        let source = vec![7u8; 64];
+        let mut generated = source.clone();
+        for byte in generated.iter_mut().take(32) {
+            *byte ^= 0xA5;
+        }
+        std::fs::write(pack.join("core-fonts/real.ttf"), &source).unwrap();
+        let head = base64::engine::general_purpose::STANDARD.encode(&generated[..32]);
+        let hash = format!(
+            "\"{}\"",
+            sha2::Sha256::digest(&generated)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        std::fs::write(
+            pack.join("fonts/aliases.json"),
+            serde_json::json!({
+                "version": 1,
+                "fonts": {
+                    "024": {
+                        "src": "core-fonts/real.ttf",
+                        "head": head,
+                        "sha256": hash.trim_matches('"'),
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let state = test_state(&dir);
+        let request = |method: axum::http::Method, headers: &[(&str, &str)]| {
+            let mut builder = axum::extract::Request::builder()
+                .method(method)
+                .uri("/fonts/024");
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            builder.body(axum::body::Body::empty()).unwrap()
+        };
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[axum::http::header::ETAG], hash);
+        assert_eq!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            generated.as_slice()
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[("if-none-match", hash.as_str())]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            !res.headers()
+                .contains_key(axum::http::header::CONTENT_LENGTH)
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::HEAD, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[axum::http::header::CONTENT_LENGTH], "64");
+        assert!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let res = fonts_dispatch(
+            State(state.clone()),
+            Path("024".to_string()),
+            request(axum::http::Method::GET, &[("range", "bytes=0-9")]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            &generated[..10]
+        );
+
+        let res = fonts_dispatch(
+            State(state),
+            Path("024".to_string()),
+            request(axum::http::Method::POST, &[]),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     fn mount_drive(dir: &tempfile::TempDir) {
@@ -1020,6 +1299,111 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn aliased_font_response_handles_validators_and_ranges() {
+        let body = vec![7u8; 64];
+        let etag = "\"abc\"".to_string();
+
+        let ok = aliased_font_response(etag.clone(), false, None, None, 64, body.clone());
+        assert_eq!(ok.status(), StatusCode::OK);
+        assert_eq!(ok.headers()[axum::http::header::CONTENT_LENGTH], "64");
+        assert_eq!(ok.headers()[axum::http::header::ETAG], "\"abc\"");
+        assert_eq!(
+            axum::body::to_bytes(ok.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .len(),
+            64
+        );
+
+        let not_modified = aliased_font_response(
+            etag.clone(),
+            false,
+            Some("\"abc\""),
+            Some("bytes=1-2"),
+            64,
+            body.clone(),
+        );
+        assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            !not_modified
+                .headers()
+                .contains_key(axum::http::header::CONTENT_LENGTH)
+        );
+        assert!(
+            !not_modified
+                .headers()
+                .contains_key(axum::http::header::CONTENT_RANGE)
+        );
+        assert!(
+            axum::body::to_bytes(not_modified.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let head = aliased_font_response(
+            etag.clone(),
+            true,
+            None,
+            Some("bytes=1-2"),
+            64,
+            body.clone(),
+        );
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(head.headers()[axum::http::header::CONTENT_LENGTH], "64");
+        assert!(
+            !head
+                .headers()
+                .contains_key(axum::http::header::CONTENT_RANGE)
+        );
+        assert!(
+            axum::body::to_bytes(head.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let partial =
+            aliased_font_response(etag, false, None, Some("bytes=10-19"), 64, body.clone());
+        assert_eq!(partial.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(partial.headers()[axum::http::header::CONTENT_LENGTH], "10");
+        assert_eq!(
+            partial.headers()[axum::http::header::CONTENT_RANGE],
+            "bytes 10-19/64"
+        );
+        assert_eq!(
+            axum::body::to_bytes(partial.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            &body[10..20]
+        );
+    }
+
+    #[test]
+    fn if_none_match_accepts_star_lists_and_weak_etags() {
+        let etag = "\"abc\"";
+        assert!(if_none_match_matches(Some("*"), etag));
+        assert!(if_none_match_matches(Some("*, \"other\""), etag));
+        assert!(if_none_match_matches(Some("\"x\", \"abc\""), etag));
+        assert!(if_none_match_matches(Some("W/\"abc\""), etag));
+        assert!(!if_none_match_matches(Some("\"other\""), etag));
+        assert!(!if_none_match_matches(None, etag));
+    }
+
+    #[test]
+    fn font_byte_ranges_are_clamped_to_the_file() {
+        assert_eq!(parse_byte_range("bytes=0-9", 100), Some((0, 10)));
+        assert_eq!(parse_byte_range("bytes=40-", 100), Some((40, 100)));
+        assert_eq!(parse_byte_range("bytes=90-200", 100), Some((90, 100)));
+        assert_eq!(parse_byte_range("bytes=-10", 100), Some((90, 100)));
+        assert_eq!(parse_byte_range("bytes=-200", 100), None);
+        assert_eq!(parse_byte_range("bytes=100-120", 100), None);
+        assert_eq!(parse_byte_range("bytes=abc", 100), None);
+        assert_eq!(parse_byte_range("items=0-1", 100), None);
     }
 
     #[test]

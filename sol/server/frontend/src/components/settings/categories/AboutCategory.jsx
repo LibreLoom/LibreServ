@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Heart, Coffee, Globe, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -8,14 +8,170 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CollapsibleSection from "@libreloom/ui/components/common/CollapsibleSection.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
+import api from "../../../lib/api";
 import { labelFor } from "../../../lib/healthChecks";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
 const inputClass =
   "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary outline-none focus:border-accent";
 
-function SystemChecksCard({ index = 2 }) {
+function SystemChecksCard({ index = 2, isAdmin = false }) {
   const { data, isLoading, error } = useSystemHealthCheck();
+  const [checkingFile, setCheckingFile] = useState(false);
+  const [fileResult, setFileResult] = useState(null);
+  const [fileProblem, setFileProblem] = useState(false);
+  const [fileChecked, setFileChecked] = useState(false);
+  const pollRef = useRef(null);
+  const manualStartedRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const lastHealthRef = useRef(data);
+  useEffect(() => () => pollRef.current?.abort(), []);
+
+  // Two different lifetimes: a manual "fine" describes the health snapshot it
+  // was taken against and expires with the next one, while a corruption or
+  // missing-file finding survives unrelated polls until a new manual check.
+  useEffect(() => {
+    if (data === lastHealthRef.current) return;
+    lastHealthRef.current = data;
+    if (fileChecked && !fileProblem) {
+      setFileChecked(false);
+      setFileResult(null);
+    }
+  }, [data, fileChecked, fileProblem]);
+
+  // Bring back the last verdict after a trip to another settings tab.
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let cancelled = false;
+    api("/system/database/integrity/status")
+      .then((res) => res.json())
+      .then((result) => {
+        if (cancelled || manualStartedRef.current || !result.status || result.status === "running" || result.status === "idle") return;
+        // A cached "fine" must not be restored on top of a live failed row.
+        if (result.status === "ok" && dataRef.current?.checks?.database?.status === "failed") return;
+        setFileResult(result.message || (result.status === "ok" ? "The database file is fine." : null));
+        setFileProblem(result.status === "corrupt" || result.reason === "missing");
+        setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  // Always available to an admin, even when the periodic health query fails.
+  const actionRow = isAdmin && (
+    <div className="flex flex-wrap items-center gap-3 pb-4">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={checkDatabaseFile}
+        loading={checkingFile}
+      >
+        Check the database file
+      </Button>
+      {fileResult && (
+        <p className={`text-sm ${fileProblem ? "px-3 py-1 rounded-chip bg-error/20 border-2 border-error/30 text-primary" : ""}`} role="status">
+          {fileResult}
+        </p>
+      )}
+    </div>
+  );
+
+  async function checkDatabaseFile() {
+    // Ignore a slow mount-time status fetch that resolves after this run.
+    manualStartedRef.current = true;
+    // Leaving Settings must stop the poll, even if a status request hangs.
+    pollRef.current?.abort();
+    const controller = new AbortController();
+    pollRef.current = controller;
+    setCheckingFile(true);
+    setFileResult(null);
+    setFileProblem(false);
+    setFileChecked(false);
+    let restartedIdle = false;
+    // A single hung request must not disable the button forever. Bound every
+    // call separately; the deadline below bounds the whole poll.
+    const request = async (path, options = {}) => {
+      const reqController = new AbortController();
+      const onParentAbort = () => reqController.abort();
+      controller.signal.addEventListener("abort", onParentAbort, { once: true });
+      let timer;
+      try {
+        return await Promise.race([
+          api(path, { ...options, signal: reqController.signal }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              // Abort the real fetch too; the race alone leaves it running.
+              reqController.abort();
+              reject(new Error("request-timeout"));
+            }, 10_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        controller.signal.removeEventListener("abort", onParentAbort);
+      }
+    };
+    try {
+      // The page walk runs in the background: the request only starts it,
+      // then this card polls for the verdict. A big database can take its
+      // full two minutes without hitting the 15 s HTTP write timeout.
+      await request("/system/database/integrity", { method: "POST" });
+      const deadline = Date.now() + 3 * 60_000;
+      while (!controller.signal.aborted) {
+        const res = await request("/system/database/integrity/status");
+        const result = await res.json();
+        if (result.status === "idle") {
+          // A restart between starting and polling loses the job. Try once
+          // more, then say it never started rather than claiming success.
+          if (!restartedIdle) {
+            restartedIdle = true;
+            await request("/system/database/integrity", { method: "POST" });
+            continue;
+          }
+          setFileChecked(true);
+          setFileResult("The database check hasn't started yet. Please try again.");
+          break;
+        }
+        if (result.status !== "running") {
+          // A timeout or a locked database is not a problem with the file.
+          // A check that could not run is retryable, not a damaged file.
+          setFileProblem(result.status === "corrupt" || result.reason === "corrupt" || result.reason === "missing");
+          setFileChecked(result.status === "ok" || result.reason === "timeout" || result.reason === "error");
+          setFileResult(result.message || "The database file is fine.");
+          break;
+        }
+        if (Date.now() > deadline) {
+          setFileChecked(true);
+          setFileResult("Sol couldn't finish checking the database file. Please try again.");
+          break;
+        }
+        await new Promise((resolve) => {
+          let timer;
+          const onAbort = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          timer = setTimeout(() => {
+            controller.signal.removeEventListener("abort", onAbort);
+            resolve();
+          }, 1500);
+          controller.signal.addEventListener("abort", onAbort, { once: true });
+        });
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        setFileProblem(false);
+        setFileChecked(true);
+        setFileResult(err?.message === "request-timeout"
+          ? "The database check took too long. Please try again."
+          : "Sol couldn't check the database file right now. Please try again.");
+        setCheckingFile(false);
+      }
+    } finally {
+      if (!controller.signal.aborted) setCheckingFile(false);
+    }
+  }
 
   if (isLoading && !data) {
     return (
@@ -28,6 +184,8 @@ function SystemChecksCard({ index = 2 }) {
             </div>
           ))}
         </div>
+        {/* The deep file check does not depend on the comprehensive query. */}
+        <div className="px-5">{actionRow}</div>
       </SettingsCard>
     );
   }
@@ -35,18 +193,34 @@ function SystemChecksCard({ index = 2 }) {
   if (!data && error) {
     return (
       <SettingsCard icon={Activity} title="System checks" padding={false} index={index}>
-        <p className="px-5 py-4 text-sm text-error">
+        <p className="px-5 pt-4 text-sm text-error">
           Couldn't check your system right now. Please try again later.
         </p>
+        <div className="px-5">{actionRow}</div>
       </SettingsCard>
     );
   }
 
-  const checks = data?.checks ? Object.entries(data.checks) : [];
+  const rawChecks = data?.checks ? Object.entries(data.checks) : [];
+  // The cheap probe still reports the database connection as healthy when the
+  // manual file check found damage. Replace that row so the card cannot argue
+  // with itself.
+  // A file-only check says nothing about the connection pool serving
+  // requests, so it may flag a row but never upgrade a failed one to passed.
+  const checks = fileProblem
+    ? rawChecks.map(([name, check]) => name === "database"
+      ? [name, { ...check, status: "failed", message: fileResult || "The database file needs attention." }]
+      : [name, check])
+    : rawChecks;
   const summary = data?.summary;
-  const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
-  const failed = summary?.failed ?? checks.length - passed;
-  const allOk = failed === 0 && checks.length > 0;
+  // A manual check can change the database row, so the old summary would
+  // contradict it. Recount from the merged rows in that case.
+  const recount = fileProblem;
+  const passed = recount
+    ? checks.filter(([, c]) => c.status === "passed").length
+    : summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
+  const failed = recount ? checks.length - passed : summary?.failed ?? checks.length - passed;
+  const allOk = failed === 0 && checks.length > 0 && !fileProblem;
 
   // Failed checks first, then alphabetical, so problems are the first thing seen.
   const ordered = [...checks].sort((a, b) => {
@@ -60,11 +234,13 @@ function SystemChecksCard({ index = 2 }) {
       <div className="px-5 py-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <p className="text-sm">
-            {checks.length === 0
-              ? "No checks recorded yet."
-              : allOk
-                ? `${passed} of ${checks.length} checks passed — everything looks good.`
-                : `${failed} of ${checks.length} checks need attention.`}
+            {fileProblem
+              ? "The database file needs attention."
+              : checks.length === 0
+                ? "No checks recorded yet."
+                : allOk
+                  ? `${passed} of ${checks.length} checks passed — everything looks good.`
+                  : `${failed} of ${checks.length} checks need attention.`}
           </p>
           <span
             className={cn(
@@ -75,6 +251,8 @@ function SystemChecksCard({ index = 2 }) {
             {allOk ? "Healthy" : "Issues found"}
           </span>
         </div>
+
+        {actionRow}
 
         <ul className="space-y-1">
           {ordered.map(([name, check]) => {
@@ -114,7 +292,7 @@ function SystemChecksCard({ index = 2 }) {
   );
 }
 
-export default function AboutCategory({ settings, onUpdateSourceSave }) {
+export default function AboutCategory({ settings, onUpdateSourceSave, isAdmin = false }) {
   const updates = settings?.updates;
   const [modalOpen, setModalOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -204,7 +382,7 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         </div>
       </SettingsCard>
 
-      <SystemChecksCard index={2} />
+      <SystemChecksCard index={2} isAdmin={isAdmin} />
 
       {/* Advanced — only rendered for admins, whose settings actually loaded. */}
       {updates != null && (
@@ -336,4 +514,5 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
 AboutCategory.propTypes = {
   settings: PropTypes.object,
   onUpdateSourceSave: PropTypes.func,
+  isAdmin: PropTypes.bool,
 };

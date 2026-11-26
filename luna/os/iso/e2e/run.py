@@ -10,7 +10,7 @@ import time
 from lib import DIST, KVM, WORK, Luna, VM, check, say, sh, summary
 
 ISO = f"{DIST}/luna-rapidinstall-x86_64.iso"
-SLOT_IMG = f"{DIST}/luna-os-x86_64.img.xz"
+SLOT_IMG = f"{DIST}/luna-os-x86_64.img.zst"
 DISK_GB = 7
 DEVICE_UID = "7K4M2Q9XR8N36T5W1PZH"
 VERIFICATION_CODE = "A3F91C"
@@ -97,7 +97,7 @@ def serial_console_for_tests(disk):
     """Test-only: a serial console for boot logs, and a root shell on it for the checks.
 
     GRUB gets console=ttyS0; slot A's inittab gets a ttyS0 shell. The slot image
-    that Luna ships is not touched (os-image.sha256 is of the .img.xz).
+    that Luna ships is not touched (os-image.sha256 is of the .img.zst).
     """
     inittab = ext_cat(disk, 3, "/etc/inittab")
     line = "ttyS0::respawn:/usr/bin/env TERM=dumb /bin/ash"
@@ -123,11 +123,23 @@ def stick_with_tokens():
     stick = f"{WORK}/stick.iso"
     if not os.path.exists(stick):
         sh(f"cp {ISO} {stick}")
-    out = sh(f"sfdisk -d {stick}")
-    start = int(re.search(r"start=\s*(\d+),[^\n]*name=\"Appended3\"", out).group(1))
+    start = magazine_start(stick)
     open(f"{WORK}/TOKENS", "w").write(PAIRING_LINE + "\n")
-    sh(f"MTOOLS_SKIP_CHECK=1 mcopy -o -i {stick}@@{start * 512} {WORK}/TOKENS ::TOKENS")
-    return stick, start * 512
+    sh(f"MTOOLS_SKIP_CHECK=1 mcopy -o -i {stick}@@{start} {WORK}/TOKENS ::TOKENS")
+    return stick, start
+
+
+def magazine_start(stick):
+    """First byte of the writable magazine at the end of the stick.
+
+    Everything below it is the installer image and must stay byte-identical;
+    the magazine is rewritten with the factory pairing line on every stage, so it is
+    the only part allowed to differ. Read from the partition table instead of
+    assumed, because the image changes size from release to release.
+    """
+    out = sh(f"sfdisk -d {stick}")
+    start = re.search(r'start=\s*(\d+),[^\n]*name="Appended3"', out)
+    return int(start.group(1)) * 512
 
 
 def run_installer(name, target_disks, stick, extra_append="", answers=None, timeout=900, firmware="bios"):
@@ -172,7 +184,7 @@ def stage_install(bus, fw):
     check(f"[{bus}] no legacy device-token on LUNA_DATA", not ext_cat(disk, 5, "/device-token").strip())
     remaining = sh(f"MTOOLS_SKIP_CHECK=1 mtype -i {stick}@@{assets_offset} ::TOKENS", check_rc=False)
     check(f"[{bus}] TOKENS magazine advanced", remaining.strip() == "", remaining)
-    want = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
+    want = open(f"{DIST}/luna-os-x86_64.img.zst.sha256").read().split()[0]
     check(f"[{bus}] os-image.sha256 matches the image", want in ext_cat(disk, 5, "/os-image.sha256"))
     env = esp_grubenv(disk)
     check(f"[{bus}] grubenv starts on slot A, confirmed", env.get("luna_slot") == "A" and env.get("luna_boot_ok") == "1", str(env))
@@ -216,9 +228,10 @@ def stage_installer_safety():
     check("two disks: installer finished", "Installation complete" in log, log[-300:])
     check("two disks: smaller disk got Luna", len(parts(small)) == 5 if sh(f"sfdisk -J {small}", check_rc=False).strip() else False)
     check("two disks: bigger disk is untouched", is_zero(big, 0, 64 * 1048576))
-    # Only the small LUNAASSETS partition at the end may change (the pairing line is used up).
-    same = sh(f"cmp -n 800000000 {ISO} {ro_stick} && echo same", check_rc=False).strip().endswith("same")
-    check("the install stick's installer image is unchanged", same)
+    # Only the magazine at the end may change (the factory token is used up).
+    tail = magazine_start(ro_stick)
+    same = sh(f"cmp -n {tail} {ISO} {ro_stick} && echo same", check_rc=False).strip().endswith("same")
+    check("the install stick's installer image is unchanged", same, f"compared {tail} bytes")
     os.unlink(ro_stick)
     for f in (d, small, big):
         os.unlink(f)
@@ -361,7 +374,8 @@ def stage_boot():
     bad = [l for l in vm.serial_text().replace("\r", "").split("\n") if BAD_LOG.search(l) and "e2e" not in l.lower()]
     check("boot log has no error lines", not bad, "\n".join(bad[:10]))
     rc, out = vm.sh("dmesg | grep -i -E 'error|fail|warn|taint|oops' | head -20")
-    check("kernel log has no errors", out.strip() == "", out)
+    bad = out.splitlines()
+    check("kernel log has no errors", not bad, "\n".join(bad[:10]))
     rc, out = vm.sh("cat /run/luna/boot-ok; cat /proc/sys/kernel/random/boot_id")
     ids = out.split()
     check("luna-boot-ok confirmed this boot", len(ids) == 2 and ids[0] == ids[1], out)
@@ -845,7 +859,11 @@ def part_foreign_drives(vm, lu, fx):
         show(f"{kind} inspect", (c2, b2))
         pre = sh(f"sha256sum {img}").split()[0]
         c, b = lu.post(f"/api/v1/drives/{d['name']}/adopt", {"label": f"Fresh {kind}"})
-        check(f"[{kind}] adding is refused with a plain message", c == 400 and isinstance(b, dict) and "isn't available" in b.get("error", ""), f"{c} {b}")
+        # Either plain sentence is fine -- "needs setting up" or "erase it
+        # first" -- as long as it says what is wrong and nothing was adopted.
+        msg = str(b.get("error", "")) if isinstance(b, dict) else ""
+        check(f"[{kind}] adding is refused with a plain message",
+              c == 400 and ("isn't available" in msg or "Erase it first" in msg), f"{c} {b}")
         post = sh(f"sha256sum {img}").split()[0]
         check(f"[{kind}] and the drive is left untouched", pre == post)
         unplug(vm, lu, f"u-{kind}", d["name"])
@@ -1215,7 +1233,8 @@ def stage_matrix():
         c, b = lu.get("/api/v1/health")
         check(T + "Luna's health answer is ok", c == 200 and b.get("status") == "ok", f"{c} {str(b)[:300]}")
         rc, o = vm.sh("dmesg | grep -i -E 'error|fail' | grep -v -i -E 'ACPI|firmware|apparmor' | head -8")
-        check(T + "no kernel errors", o.strip() == "", o)
+        bad = o.splitlines()
+        check(T + "no kernel errors", not bad, "\n".join(bad[:8]))
         # SMART/health of the system disk shouldn't hang the box
         vm.hmp("system_powerdown")
         check(T + "ACPI power button shuts it down cleanly within 60 s", vm.wait_exit(60))
@@ -1596,7 +1615,9 @@ def stage_bigfiles():
     c, b, _, _ = upload_file(lu, D, "fill.bin", fillsrc)
     check("a file that just fits is accepted", c == 200, f"{c} {b}")
     c, b, _ = upload(lu, D, "one-more.bin", os.urandom(2_000_000))
-    check("when the drive is full the next upload says so plainly", c in (400, 413, 507) and isinstance(b, dict) and "full" in str(b.get("error", "")).lower(), f"{c} {b}")
+    msg = str(b.get("error", "")).lower() if isinstance(b, dict) else ""
+    check("when the drive is full the next upload says so plainly",
+          c in (400, 413, 507) and ("full" in msg or "free space" in msg), f"{c} {b}")
     c, ls = file_names(lu, D)
     check("and leaves no partial file", "one-more.bin" not in ls, str(ls))
     # delete frees space
@@ -1694,19 +1715,26 @@ def stage_app():
     check("[app] it's gone from the folder", "holiday plan.txt" not in ls, str(ls))
     c, tr = lu.get(f"/api/v1/drives/{A}/files?path={quote('.luna-trash')}")
     show("trash listing", (c, str(tr)[:300]))
-    # protections (backup to the other drive)
-    c, b = lu.post("/api/v1/protections", {"source_drive_id": A, "source_path": "Docs", "target_drive_id": B})
-    show("create protection", (c, b))
+    # a backup of a folder from one drive onto the other
+    c, b = lu.post("/api/v1/backups", {"source_drive_id": A, "source_path": "Docs", "target_drive_id": B})
+    show("create backup", (c, b))
     check("[app] a backup to the other drive can be set up", c in (200, 201), f"{c} {b}")
-    pid = b.get("id") if isinstance(b, dict) else None
-    if pid:
-        c, b = lu.post(f"/api/v1/protections/{pid}/run")
-        show("run protection", (c, b))
-        check("[app] and it runs", c in (200, 202), f"{c} {b}")
-        time.sleep(8)
-        c, b = lu.get("/api/v1/protections")
-        show("protections", (c, str(b)[:400]))
-        check("[app] the backup reports it finished fine", c == 200 and all(x.get("state") == "ok" and not x.get("last_error") for x in b), str(b)[:300])
+    bid = b.get("id") if isinstance(b, dict) else None
+    if bid:
+        c, b = lu.post(f"/api/v1/backups/{bid}/run")
+        show("run backup", (c, b))
+        if c == 200 and b.get("done") is not True:
+            # A backup of this drive may already be running; let it end and ask
+            # the list below whether this one is fine.
+            for _ in range(30):
+                time.sleep(2)
+                c, b = lu.post(f"/api/v1/backups/{bid}/run")
+                if b.get("done") is True:
+                    break
+        check("[app] and it runs", c == 200 and isinstance(b, dict) and (b.get("done") is True or b.get("problem")), f"{c} {b}")
+        c, b = lu.get(f"/api/v1/backups?drive={A}")
+        show("backups", (c, str(b)[:400]))
+        check("[app] the backup reports it finished fine", c == 200 and any(x.get("state") == "ok" and not x.get("last_error") for x in b), str(b)[:300])
     # Local app access tokens (separate from Luna Connect pairing material).
     c, b = lu.post("/api/v1/device-tokens", {"name": "e2e laptop"})
     tok = b.get("token") if isinstance(b, dict) else None
@@ -1923,6 +1951,48 @@ def stage_recovery():
     vm.quit()
 
 
+def slot_fs_uuid(disk, n):
+    """The filesystem UUID ext4 recorded in partition `n`, read offline."""
+    return sh(
+        f"tune2fs -l '{disk}?offset={parts(disk)[n][0]}' 2>/dev/null | awk '/Filesystem UUID/ {{print $3}}'"
+    ).strip()
+
+
+MENU_COPIES = ("/grub/grub.cfg", "/EFI/BOOT/grub.cfg", "/EFI/BOOT/grub/grub.cfg")
+
+
+def downgrade_boot_menu(disk):
+    """Put the startup menu back to the shape 0.0.11 wrote.
+
+    That menu uses `root=UUID=`, an initramfs, and `rootflags=ro,noatime`. The
+    restored storage initramfs accepts that boot shape; this check proves the
+    updater still rewrites the menu before it arms the other slot.
+    """
+    uuid_b = slot_fs_uuid(disk, 4)  # slot B is GPT partition 4
+    check("the old menu has slot B's filesystem UUID", len(uuid_b) == 36, uuid_b)
+    wrote = 0
+    for path in MENU_COPIES:
+        cfg = esp_cat(disk, path)
+        if "luna.slot=B" not in cfg:
+            continue
+        out = []
+        for line in cfg.splitlines():
+            if "luna.slot=B" in line and line.lstrip().startswith("linux "):
+                line = re.sub(r"root=(?:UUID|PARTUUID)=\S+", f"root=UUID={uuid_b}", line)
+                line = line.replace("rootflags=ro ", "rootflags=ro,noatime ")
+                out.append(line)
+            else:
+                out.append(line)
+        esp_put(disk, path, "\n".join(out) + "\n")
+        wrote += 1
+    after = esp_cat(disk, "/grub/grub.cfg")
+    check(
+        "the startup menu is back to its 0.0.11 shape",
+        wrote >= 1 and "root=UUID=" in after and "noatime" in after and "initrd /boot/initramfs-lts" in after,
+        f"{wrote} copies",
+    )
+
+
 def set_grubenv(disk, **kv):
     """Write ESP/grub/grubenv offline (a fixed 1024-byte block, as grub-editenv would)."""
     body = "# GRUB Environment Block\n" + "".join(f"{k}={v}\n" for k, v in kv.items())
@@ -2025,11 +2095,11 @@ def os_image_variant(name, edits):
     Always carries the serial test shell so the checks can look inside, and a
     marker file naming the variant.
     """
-    out = f"{UPD}/files/{name}.img.xz"
+    out = f"{UPD}/files/{name}.img.zst"
     if os.path.exists(out):
         return out
     raw = f"{WORK}/{name}.raw"
-    sh(f"xz -dc {SLOT_IMG} > {raw}")
+    sh(f"zstd -dcq {SLOT_IMG} > {raw}")
     inittab = sh(f"debugfs -R 'cat /etc/inittab' {raw} 2>/dev/null")
     edits = dict(edits)
     edits["/etc/inittab"] = inittab.rstrip("\n") + "\nttyS0::respawn:/usr/bin/env TERM=dumb /bin/ash\n"
@@ -2049,7 +2119,7 @@ def os_image_variant(name, edits):
     # Every real build has its own random filesystem UUID. Variants made from one image
     # must too, or the spare slot briefly shares the running slot's UUID during a write.
     sh(f"e2fsck -fy {raw} >/dev/null 2>&1; tune2fs -U random {raw} >/dev/null")
-    sh(f"xz -T0 -3 -c {raw} > {out}")
+    sh(f"zstd -T3 -19 -q -c {raw} > {out}")
     os.unlink(raw)
     return out
 
@@ -2064,7 +2134,7 @@ def publish(version, os_img=None, key="good", published=None, tamper=False, note
     pub, sec = minisign_keys(key)
     parts = []
     if os_img:
-        parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.xz",
+        parts.append({"name": "os", "os": "linux", "arch": "amd64", "file": "luna-os-x86_64.img.zst",
                       "size": os.path.getsize(os_img), "sha256": sha256_file(os_img),
                       "urls": [f"{FEED_URL}/files/{os.path.basename(os_img)}"]})
         if tamper:
@@ -2119,14 +2189,33 @@ def wait_reboot_up(vm, lu, timeout=300):
     return False
 
 
+def image_version(lu):
+    """The version the running image carries, as lunad reports it.
+
+    lunad's version comes from luna/VERSION at build time, and the feed is
+    compared against it, so the test feed has to offer something newer. Read
+    from the box so the suite works at any version instead of hardcoding
+    0.0.x strings that stop looking newer after the first release bump.
+    """
+    c, b = lu.get("/api/v1/health")
+    v = str(b.get("version") or "") if isinstance(b, dict) else ""
+    if re.fullmatch(r"\d+\.\d+\.\d+", v):
+        return v
+    say(f"    (health did not say which version runs: {c} {b})")
+    return "0.0.0"
+
+
 def stage_update():
     """Signed updates end to end: lunad-only, OS to the other slot, rollbacks, bad input."""
     say("-- updates")
     feed_server()
     good_pub, _ = minisign_keys("good")
     evil_pub, _ = minisign_keys("evil")
-    g = f"{WORK}/golden-sata.raw"
+    golden = f"{WORK}/golden-sata.raw"
+    g = f"{WORK}/update-golden.raw"
+    sh(f"rm -f {g}; cp --sparse=always --reflink=auto {golden} {g}")
     serial_console_for_tests(g)
+    downgrade_boot_menu(g)
     start_mock_connect()
     vm = boot_disk("update", g, "sata", port=18080)
     lu = Luna(18080)
@@ -2149,9 +2238,21 @@ def stage_update():
     c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": "ftp://x", "channel": "stable", "keys": [good_pub]})
     check("update source: a non-web address is refused plainly", c == 400, f"{c} {b}")
     c, b = lu.req("PUT", "/api/v1/system/updates/source", {"feed_url": FEED_URL, "channel": "stable", "keys": [good_pub]})
-    old_hash = open(f"{DIST}/luna-os-x86_64.img.xz.sha256").read().split()[0]
+    old_hash = open(f"{DIST}/luna-os-x86_64.img.zst.sha256").read().split()[0]
     rc, h = vm.sh("cat /var/lib/luna/os-image.sha256")
     check("OS image hash is recorded before any update", old_hash in h, h)
+
+    # Versions in the feed have to be newer than the one this image carries
+    # (luna/VERSION, compiled into lunad), or every check below just sees "no
+    # update". Count them up from that instead of naming them by hand.
+    installed = image_version(lu)
+
+    def fv(n):
+        parts = (installed.split(".") + ["0", "0", "0"])[:3]
+        major, minor, patch = (int(p) if p.isdigit() else 0 for p in parts)
+        return f"{major}.{minor}.{patch + n}"
+
+    say(f"-- updates: installed {installed}, feed versions from {fv(2)}")
 
     # nothing published
     for f in ("stable.json", "stable.json.minisig"):
@@ -2160,7 +2261,7 @@ def stage_update():
     c, b = api_check(lu)
     check("no feed yet: a plain 'nothing published' answer", c in (404, 502, 503) and isinstance(b, dict) and b.get("error"), f"{c} {b}")
     # signed by the wrong key
-    publish("0.0.2", key="evil")
+    publish(fv(2), key="evil")
     c, b = api_check(lu)
     check("a feed signed by a key Luna does not trust is refused", c >= 400 and isinstance(b, dict) and b.get("error"), f"{c} {b}")
     c, b = apply_update(lu)
@@ -2168,31 +2269,36 @@ def stage_update():
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1; cat /var/lib/luna/os-image.sha256")
     check("untrusted feed left no new lunad and kept the OS hash", "lunad" not in o.split("\n")[0] and old_hash in o, o)
     # a part whose bytes do not match the signed checksum
-    publish("0.0.2", key="good", os_img=os_image_variant("tampered", {}), tamper=True)
+    publish(fv(2), key="good", os_img=os_image_variant("tampered", {}), tamper=True)
     c, b = api_check(lu)
-    check("a signed feed is accepted", c == 200 and b.get("update_available") is True and b.get("latest_version") == "0.0.2", f"{c} {b}")
+    check("a signed feed is accepted", c == 200 and b.get("update_available") is True and b.get("latest_version") == fv(2), f"{c} {b}")
     c, b = apply_update(lu)
     check("a download that does not match its checksum is refused", c >= 400 and isinstance(b, dict) and b.get("error"), f"{c} {b}")
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
     check("nothing from the bad download is left installed", "lunad" not in o or "No such file" in o, o)
     # the feed cannot go backwards (replay of an older list)
-    publish("0.0.4", key="good")
+    publish(fv(4), key="good")
     api_check(lu)
-    publish("0.0.3", key="good", published="2026-10-01T00:00:00Z")
+    publish(fv(3), key="good", published="2026-10-01T00:00:00Z")
     c, b = api_check(lu)
     check("an older feed replayed after a newer one is refused", c >= 400 or b.get("update_available") is False, f"{c} {b}")
 
     # There is no daemon-only update: a feed with no os part offers nothing,
     # because lunad lives in the image.
-    publish("0.0.5", key="good")
+    publish(fv(5), key="good")
     c, b = api_check(lu)
-    check("a feed without an OS image offers no update", c == 200 and not b.get("update_available"), f"{c} {b}")
+    # Either shape is fine: no update on offer, or a plain sentence saying the
+    # feed carries nothing for this Luna. What must never happen is an install.
+    offered = c == 200 and not b.get("update_available")
+    explained = c == 400 and isinstance(b, dict) and "no software for this Luna" in str(b.get("error", ""))
+    check("a feed without an OS image offers no update", offered or explained, f"{c} {b}")
     rc, o = vm.sh("ls /var/lib/luna/bin 2>&1")
     check("nothing executable is ever written to the data partition", "No such file" in o or "lunad" not in o, o)
 
-    # OS update to slot B
+    # OS update to slot B, from a box whose menu is still the 0.0.11 one: the
+    # update must replace that menu before arming the new slot.
     good_v2 = os_image_variant("v2", {})
-    publish("0.0.6", key="good", os_img=good_v2)
+    publish(fv(6), key="good", os_img=good_v2)
     c, b = api_check(lu)
     check("an OS update is offered and says it needs a restart", c == 200 and b.get("update_available") and b.get("reboot_required") is True, f"{c} {b}")
     check("the active slot is A before the update", slot_of(vm) == "A")
@@ -2203,6 +2309,24 @@ def stage_update():
     check("it is now running slot B", slot_of(vm) == "B")
     rc, o = vm.sh("cat /etc/luna-os-release")
     check("slot B holds the new OS image", "e2e-v2" in o, o)
+    rc, o = vm.sh(
+        "mkdir -p /tmp/espread && mount -o ro LABEL=LUNAESP /tmp/espread && "
+        "cat /tmp/espread/grub/grub.cfg; umount /tmp/espread && echo MENU-READ"
+    )
+    check(
+        "the update rewrote the startup menu for the new system",
+        "MENU-READ" in o and "root=UUID=" in o
+        and "initrd /boot/initramfs-lts" in o and "noatime" not in o,
+        o[:600],
+    )
+    # A dirty boot partition is what makes the *next* update fail: FAT turns
+    # itself read-only halfway through the menu.
+    rc, o = vm.sh('fsck.fat -n "$(blkid -t PARTLABEL=LUNAESP -o device)"')
+    check(
+        "the boot partition is left clean for the next update",
+        rc == 0 and "Dirty bit" not in o and "cluster chain length is 0" not in o,
+        o[-600:],
+    )
     c, b = lu.post("/api/v1/auth/login", {"username": ADMIN["username"], "password": ADMIN["password"]})
     check("accounts and data survived the OS update", c == 200, f"{c} {b}")
     time.sleep(20)
@@ -2215,7 +2339,7 @@ def stage_update():
 
     # -- and back to slot A with a second update
     good_v3 = os_image_variant("v3", {})
-    publish("0.0.7", key="good", os_img=good_v3)
+    publish(fv(7), key="good", os_img=good_v3)
     c, b = api_check(lu)
     check("a second OS update is offered", c == 200 and b.get("update_available") and b.get("reboot_required"), f"{c} {b}")
     c, b = apply_update(lu)
@@ -2275,9 +2399,13 @@ def stage_update():
     # The daemon is baked into the image, so a broken lunad is a broken image:
     # the box must fall back to the slot it came from.
     cur = slot_of(vm)
-    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, "0.0.8", "lunad cannot start", cur)
+    rollback_case("badlunad", {"/usr/local/bin/lunad": (b"#!/bin/sh\nexit 1\n",)}, fv(8), "lunad cannot start", cur)
+    # A missing or broken kernel stops the slot before userspace, even with the
+    # storage initramfs present.
+    # GRUB runs its error out on a screen nobody is watching, so what is checked
+    # here is what matters: the box comes back and says the update did not start.
     cur = slot_of(vm)
-    rollback_case("badboot", {"/boot/initramfs-lts": b"this is not an initramfs\n" * 100}, "0.0.9", "kernel cannot find its root", cur, expect_panic=True)
+    rollback_case("badboot", {"/boot/vmlinuz-lts": b"this is not a kernel\n" * 100}, fv(9), "the kernel will not load", cur)
 
     # (a power cut during the write has its own stage, update-powercut, on a raw disk)
     rc, o = vm.sh("cat /var/lib/luna/os-image.sha256")

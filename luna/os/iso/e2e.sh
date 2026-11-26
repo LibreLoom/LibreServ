@@ -6,7 +6,7 @@
 #   E2E_KEEP=1 iso/e2e.sh ...    keep os/dist/e2e/ (golden disks) between runs
 #
 # Needs os/dist/luna-rapidinstall-x86_64.iso (os/make-iso.sh or build-iso.sh) and
-# os/dist/luna-os-x86_64.img.xz. Works in os/dist/e2e/ (several GiB of sparse
+# os/dist/luna-os-x86_64.img.zst. Works in os/dist/e2e/ (several GiB of sparse
 # disks). Uses KVM when /dev/kvm is writable. Exit status is the number of failed
 # checks > 0. The test code is in iso/e2e/ (lib.py = QEMU + API helpers,
 # run.py = the stages).

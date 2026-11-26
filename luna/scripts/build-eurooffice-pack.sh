@@ -9,7 +9,8 @@
 #
 # Excludes web-apps/*/resources/help: ~500MB of offline-help PNGs that barely
 # compress, and the Help menu is disabled anyway (customization.help=false
-# in EuroOfficeHost). Keeps every font and all dictionaries.
+# in EuroOfficeHost). Keeps every core font and all dictionaries; the generated
+# fonts/NNN copies become fonts/aliases.json and are rebuilt by lunad on request.
 # PACK_OUT_DIR / PACK_WORK_DIR move the output and scratch dirs (the release
 # tool builds from a read-only source export and sets both).
 set -eu
@@ -35,12 +36,20 @@ for f in \
 	[ -f "$f" ] || { echo "ERROR: pack at $PACK_SRC is incomplete (missing $f)" >&2; exit 1; }
 done
 
+# Always run dedupe, even when a manifest already exists. The script is
+# idempotent and its stale-manifest guard must also cover a regenerated dev
+# pack that reintroduces fonts/NNN alongside an older aliases.json.
+python3 "$ROOT/scripts/dedupe-office-fonts.py" "$PACK_SRC"
+
 mkdir -p "$OUT"
 echo "Packing $PACK_SRC → $TARBALL (help dirs excluded)…"
 tmp="$TARBALL.tmp"
 # Pack the eurooffice/ dir itself so the tarball is self-describing and
 # unpacks straight into the image's pack root (/usr/share/luna).
-tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' -cf - eurooffice |
+# *.js.map files are debug-only (browser devtools); ServeDir never serves a
+# source map to the editor, so they are pure image weight (~23 MiB unpacked).
+tar -C "$(dirname "$PACK_SRC")" --exclude='*/resources/help' --exclude='*.js.map' \
+    --exclude='*/x2t/*.br' -cf - eurooffice |
 	zstd -19 -T0 -o "$tmp"
 mv "$tmp" "$TARBALL"
 

@@ -65,6 +65,7 @@ export default function SettingsContent({
   connectLoading,
   connectRepos = [],
   csrfToken = "",
+  isAdmin = false,
 }) {
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
@@ -122,7 +123,7 @@ export default function SettingsContent({
           csrfToken,
         };
       case "about":
-        return { settings, onUpdateSourceSave };
+        return { settings, onUpdateSourceSave, isAdmin };
       default:
         return { settings };
     }

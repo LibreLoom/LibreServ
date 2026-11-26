@@ -841,10 +841,10 @@ describe("purity", () => {
     expect(ids(buildNeedsYouItems(input))).toEqual(["backup:drive:own", "phrase-check"]);
   });
 
-  it("reads no clock", () => {
+  it("reads no clock when the caller passes now", () => {
     const now = vi.spyOn(Date, "now");
     try {
-      buildNeedsYouItems(fullAdminInput());
+      buildNeedsYouItems({ ...fullAdminInput(), now: 1_700_000_000_000 });
       expect(now).not.toHaveBeenCalled();
     } finally {
       now.mockRestore();

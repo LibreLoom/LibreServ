@@ -52,6 +52,7 @@ tracing-subscriber.workspace = true
 zip.workspace = true
 tempfile = "3"
 lzma-rust2.workspace = true
+zstd.workspace = true
 semver.workspace = true
 # Cloud backup crypto (backup/cloud/crypto.rs): key agreement, signatures, AEAD, KDF, recovery phrases.
 bip39 = "3"

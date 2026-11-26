@@ -143,7 +143,10 @@ func (e *Engine) EnsureImage(ctx context.Context, name string, opts BuildOpts, l
 	if opts.NoCache {
 		args = append(args, "--no-cache")
 	}
-	args = append(args, img.Dir)
+	if filepath.Clean(img.Context) != filepath.Clean(img.Dir) {
+		args = append(args, "-f", filepath.Join(img.Dir, "Containerfile"))
+	}
+	args = append(args, img.Context)
 	if err := e.stream(ctx, exec.CommandContext(ctx, e.cfg.Podman, args...), "", log); err != nil {
 		return img, fmt.Errorf("build image %s: %w", name, err)
 	}

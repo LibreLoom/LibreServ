@@ -11,6 +11,7 @@ pub mod device_tokens;
 pub mod drive_crypt;
 pub mod drive_format;
 pub mod drives;
+pub mod font_aliases;
 /// Rate-limit budgets, bucket keys, and upload quota for public form links.
 /// The file lives with the form handlers; while `forms` is still one file this
 /// declaration is what includes it.

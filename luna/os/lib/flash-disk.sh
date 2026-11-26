@@ -2,8 +2,8 @@
 # Write Luna OS onto a whole disk so it can start on ordinary x86_64 machines:
 # BIOS (mini PCs, older boxes) and UEFI (Wyse 3040, modern mini PCs).
 # GPT: bios_grub + ESP + LUNA_A + LUNA_B + LUNA_DATA.
-# Both OS slots get the same slot image (luna-os-*.img.xz, streamed through
-# `xz -dc`) at factory. GRUB tryboot picks the slot;
+# Both OS slots get the same slot image (luna-os-*.img.zst, streamed through
+# `zstd -dcq`) at factory. GRUB tryboot picks the slot;
 # Luna state lives on LUNA_DATA mounted at /var/lib/luna.
 
 _wait_block() {
@@ -30,12 +30,22 @@ _find_boot_images() {
 		echo "The Luna system image has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
+	# The slot image must carry the storage initramfs: root=UUID is resolved
+	# there before root is mounted, and it carries controllers outside the
+	# kernel's built-in common path.
+	if [ -z "$_i" ] || [ "$_i" = "." ] || [ ! -e "$_rootmnt/boot/$_i" ]; then
+		echo "The Luna system image has no storage initramfs. Refusing to write a bootloader that cannot start." >&2
+		return 1
+	fi
 	printf '%s\n' "$_k" "$_i"
 }
 
 # Dual-slot GRUB menu with tryboot. Lives on the ESP so rewriting a slot
 # cannot erase the bootloader config. grubenv keys:
 #   luna_slot=A|B  luna_boot_ok=0|1  luna_tries=0|1|2|3
+# Slots are named by their filesystem UUID, which the storage initramfs can
+# resolve. Luna supports one installed OS disk; an update keeps each slot's UUID
+# across a write.
 _write_grub_cfg() {
 	_cfgpath="$1"
 	_uuid_a="$2"
@@ -45,7 +55,9 @@ _write_grub_cfg() {
 
 	mkdir -p "$(dirname "$_cfgpath")"
 	{
-		echo 'set timeout=2'
+		# No waiting on the menu: the box has no screen and nobody to press a key,
+		# and a wrong slot rolls back on its own through fallback=1 and tryboot.
+		echo 'set timeout=0'
 		echo 'set default=0'
 		echo 'set fallback=1'
 		echo 'insmod part_gpt'
@@ -85,26 +97,28 @@ _write_grub_cfg() {
 		# Two entries: the slot GRUB picked, and the other one as a fallback. If the
 		# first cannot start at all (its filesystem is not found, or the kernel
 		# will not load), GRUB moves on by itself instead of waiting at an error
-		# for a key nobody is there to press.
+		# for a key nobody is there to press. Keep rootflags=ro: userspace mount
+		# accepts noatime, but the kernel's direct root-mount path rejects it. A
+		# read-only root has no atimes to update, so ro is all it needs.
 		echo 'menuentry "Luna" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 		echo 'menuentry "Luna (other system)" {'
 		echo '    if [ "$luna_slot" = "B" ]; then'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_a}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.slot=A modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_a} luna.fsuuid=${_uuid_a} luna.slot=A rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    else'
 		echo "      search --no-floppy --fs-uuid --set=root ${_uuid_b}"
-		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.slot=B modules=ext4 rootfstype=ext4 rootflags=ro,noatime panic=10 quiet"
+		echo "      linux /boot/${_k} root=UUID=${_uuid_b} luna.fsuuid=${_uuid_b} luna.slot=B rootfstype=ext4 rootflags=ro panic=10 quiet"
 		echo '    fi'
-		echo "    initrd /boot/${_i}"
+		[ -z "$_i" ] || echo "    initrd /boot/${_i}"
 		echo '}'
 	} >"$_cfgpath"
 }
@@ -270,10 +284,28 @@ _flash_guards() {
 		echo "Luna's system file is missing: $_img" >&2
 		return 2
 	fi
-	if ! command -v xz >/dev/null 2>&1; then
-		echo "This environment is missing xz, which unpacks Luna's system file." >&2
-		return 1
-	fi
+	# Require the decoder this image actually needs before any disk is wiped.
+	# _write_slot still accepts old xz assets, so a host with only one of the
+	# two tools must refuse here rather than fail after repartitioning.
+	_magic="$(dd if="$_img" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_magic" in
+	28b52ffd)
+		if ! command -v zstd >/dev/null 2>&1; then
+			echo "This environment is missing zstd, which unpacks this Luna image." >&2
+			return 1
+		fi
+		;;
+	fd377a58)
+		if ! command -v xz >/dev/null 2>&1; then
+			echo "This environment is missing xz, which unpacks this older Luna image." >&2
+			return 1
+		fi
+		;;
+	*)
+		echo "Luna's system file is not a zstd or xz image: $_img" >&2
+		return 2
+		;;
+	esac
 	if ! command -v grub-install >/dev/null 2>&1; then
 		echo "This environment is missing GRUB. Boot the rapidinstall ISO instead." >&2
 		return 1
@@ -293,7 +325,7 @@ _record_os_image_hash() {
 	return 0
 }
 
-# sha256 of the exact .img.xz at $1, which is what Luna records as
+# sha256 of the exact compressed image at $1, which is what Luna records as
 # os-image.sha256 and compares against the update feed. When a
 # <image>.sha256 companion sits beside it (the ISO always stages one), the two
 # must agree: a damaged or swapped file stops the install before the disk is
@@ -309,10 +341,16 @@ _verify_os_image() {
 	printf '%s\n' "$_got"
 }
 
-# Stream the .img.xz at $1 onto block device (or file) $2. dash has no
-# pipefail, so xz writes straight to the device and its own exit status counts.
+# Stream the slot image at $1 onto block device (or file) $2. New images are
+# zstd; an older xz asset still flashes. dash has no pipefail, so the
+# decompressor writes straight to the device and its own exit status counts.
 _write_slot() {
-	xz -dc "$1" >"$2" || return 1
+	_magic="$(dd if="$1" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_magic" in
+	28b52ffd) zstd -dcq "$1" >"$2" || return 1 ;;
+	fd377a58) xz -dc "$1" >"$2" || return 1 ;;
+	*) return 1 ;;
+	esac
 	sync
 }
 
@@ -321,8 +359,8 @@ _write_os_image_hash() {
 	_record_os_image_hash "$1" "$2"
 }
 
-# flash_luna_disk <whole disk> <luna-os-*.img.xz>
-# Sets _os_hash (sha256 of that .img.xz) for the caller to record.
+# flash_luna_disk <whole disk> <luna-os-*.img.zst>
+# Sets _os_hash (sha256 of that image) for the caller to record.
 flash_luna_disk() {
 	_dev="$1"
 	_slot_img="${2:-${LUNA_OS_IMAGE:-}}"
@@ -373,16 +411,19 @@ PART
 		echo "Writing Luna to slot B failed." >&2
 		return 1
 	}
-	# Both slots come from one image, so they share a filesystem UUID; GRUB and
-	# the kernel pick a slot by UUID, so slot B needs its own.
-	e2fsck -fy "$_root_b" >/dev/null 2>&1 || [ $? -le 1 ] || {
-		echo "Slot B did not check clean after writing." >&2
-		return 1
-	}
-	tune2fs -U random "$_root_b" >/dev/null || {
-		echo "Could not give slot B its own identity." >&2
-		return 1
-	}
+	# Both slots come from one image, so they share its filesystem UUID. Give
+	# each slot a random identity: GRUB searches these UUIDs to load kernels,
+	# and the initramfs uses the same UUID to find root.
+	for _slot in "$_root_a" "$_root_b"; do
+		e2fsck -fy "$_slot" >/dev/null 2>&1 || [ $? -le 1 ] || {
+			echo "An OS slot did not check clean after writing." >&2
+			return 1
+		}
+		tune2fs -U random "$_slot" >/dev/null || {
+			echo "Could not give an OS slot its own identity." >&2
+			return 1
+		}
+	done
 	# Relabel in case the image carried a generic label.
 	e2label "$_root_a" LUNA_A 2>/dev/null || true
 	e2label "$_root_b" LUNA_B 2>/dev/null || true
@@ -393,7 +434,6 @@ PART
 		echo "Could not read the Luna slot UUIDs for GRUB." >&2
 		return 1
 	fi
-
 	_mnt_a="$(mktemp -d /tmp/luna-a.XXXXXX)" || return 1
 	_mnt_b="$(mktemp -d /tmp/luna-b.XXXXXX)" || {
 		rmdir "$_mnt_a" 2>/dev/null || true

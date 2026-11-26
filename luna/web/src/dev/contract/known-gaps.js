@@ -13,16 +13,6 @@ export const KNOWN_GAPS = [
     reason: "Same as search_inside.details: the recording container lacks the PDF and OCR tools the OS image ships.",
   },
   {
-    key: "GET /api/v1/backups",
-    path: "$[].can_resume",
-    reason: "lunad added can_resume (paused backups rebuilt from a drive) after lunad-responses.json was last recorded. Remove this once a full ./ci run -p luna rewrites the fixture.",
-  },
-  {
-    key: "GET /api/v1/forms/responses",
-    path: "*",
-    reason: "SQLite paging adds total, next_offset and revision, and each row carries v/sent_at. Remove this once a full ./ci run -p luna rewrites lunad-responses.json.",
-  },
-  {
     key: "GET /api/v1/connect/status",
     path: "$.device_code",
     reason: "The generated fixture predates device auth; lunad removed device_code and now reports state. Remove this once a full ./ci run -p luna records the new response shape.",

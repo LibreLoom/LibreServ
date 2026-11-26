@@ -21,11 +21,11 @@
       "name": "os",
       "os": "linux",
       "arch": "amd64",
-      "file": "luna-os-x86_64.img.xz",
+      "file": "luna-os-x86_64.img.zst",
       "size": 400,
-      "sha256": "4c9f78b342c24ff86ea200f6bfd53803d4e158d08c6f4a5f653e8be17d44341f",
+      "sha256": "dc7d0302646dc3c017f94ae2d72831c61b1998e7c9f7d46fbd372b3a089080a7",
       "urls": [
-        "http://feed-test.invalid/generic/luna/0.4.0/luna-os-x86_64.img.xz"
+        "http://feed-test.invalid/generic/luna/0.4.0/luna-os-x86_64.img.zst"
       ]
     }
   ],

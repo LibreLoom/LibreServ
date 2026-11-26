@@ -104,7 +104,7 @@ assert_file_lacks "$ISO_SH" 'eurooffice-pack.tar.zst' \
 assert_file_lacks "$ISO_SH" 'drawio-pack.tar.zst' \
 	"the ISO must not carry the draw.io pack: it is inside the image"
 assert_file_has "$ISO_SH" 'map %s /luna/%s' "ISO build must map the payload to /luna"
-assert_file_has "$ISO_SH" 'img.xz' "ISO must carry the released .img.xz"
+assert_file_has "$ISO_SH" 'img.zst' "ISO must carry the released .img.zst"
 assert_file_lacks "$LIVE_SH" '^[^#]*(podman|sudo|--privileged)' "live build must stay rootless"
 assert_file_has "$LIVE_SH" 'scripts/live' "live build must check live-boot is in the initramfs"
 assert_file_has "$OSROOT/build/iso-customize.sh" 'update-initramfs' "live initramfs must be rebuilt with live-boot inside"
@@ -116,8 +116,8 @@ for _gone in iso/add-uefi-boot.sh iso/build-debian-live.sh iso/Containerfile.liv
 done
 assert_file_lacks "$OSROOT/rapidinstall.sh" 'LUNA_ROOTFS|luna-rootfs' "the rootfs tarball install path is gone"
 assert_file_lacks "$OSROOT/lib/flash-disk.sh" 'tar -x|_populate_slot' "the tarball install path is gone"
-assert_file_has "$OSROOT/lib/flash-disk.sh" 'xz -dc' "installer must stream the .img.xz onto both slots"
-assert_file_has "$OSROOT/lib/flash-disk.sh" '_verify_os_image' "installer must check the .img.xz against its .sha256 before erasing"
+assert_file_has "$OSROOT/lib/flash-disk.sh" 'zstd -dcq' "installer must stream the .img.zst onto both slots"
+assert_file_has "$OSROOT/lib/flash-disk.sh" '_verify_os_image' "installer must check the image against its .sha256 before erasing"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'i386-pc --boot-directory="$_espmnt" "$_dev"' \
 	"BIOS GRUB must use the ESP root as boot-directory so it finds ESP/grub/grub.cfg"
 assert_file_lacks "$OSROOT/lib/flash-disk.sh" 'boot-directory="$_espmnt/grub"' \

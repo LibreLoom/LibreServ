@@ -12,6 +12,7 @@ export function useApps(refreshInterval) {
       return data.apps || [];
     },
     refetchInterval: refreshInterval ?? 30_000,
+    refetchOnWindowFocus: false,
   });
 }
 

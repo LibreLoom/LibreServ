@@ -50,9 +50,9 @@ assert_file_has "$_ROOTFS_BODY" 'critical_mounts="/var/lib/luna"' "LUNA_DATA mus
 assert_file_lacks "$_ROOTFS_BODY" 'runlevels/default/local' "boot hooks must not use OpenRC local.d"
 rm -f "$_ROOTFS_BODY"
 
-assert_file_has "$OS/build/image.sh" "img.xz" "image build must produce the OTA slot asset (.img.xz)"
+assert_file_has "$OS/build/image.sh" "img.zst" "image build must produce the OTA slot asset (.img.zst)"
 assert_file_has "$OS/build-iso.sh" 'make-image.sh' "ISO build must produce the slot image"
-assert_file_has "$OS/build/iso.sh" "img.xz" "ISO build must carry the .img.xz slot image"
+assert_file_has "$OS/build/iso.sh" "img.zst" "ISO build must carry the .img.zst slot image"
 assert_file_has "$OS/rapidinstall.sh" 'partition_data' "factory must save pairing material onto LUNA_DATA"
 
 # The updater code may be split across domain modules — scan the crate.

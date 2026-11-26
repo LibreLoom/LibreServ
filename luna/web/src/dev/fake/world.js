@@ -125,13 +125,45 @@ export function cloudBackup(over = {}) {
 const admin = user({ id: "u1", username: "max", display_name: "Max", role: "admin" });
 const photosDrive = drive({ id: "d1", label: "Family photos" });
 
+/** The setup system check's default answer: every probe lunad reports, all passing. */
+export function healthyPreflight() {
+  const ok = (category, message, extra = {}) => ({ category, message, status: "passed", ...extra });
+  return {
+    healthy: true,
+    timestamp: Math.floor(DEFAULT_NOW / 1000),
+    checks: {
+      clock: ok("system", "Luna's clock is on time."),
+      data_path_writable: ok("storage", "Luna can write to its data folder."),
+      database: ok("system", "Accounts, sharing, and settings are readable."),
+      diagram_pack: ok("features", "Diagram pack installed.", { more: "" }),
+      disk_space: ok("storage", "12.4 GB free on Luna's system disk.", {
+        details: { free_bytes: 12_400_000_000, free_human: "12.4 GB" },
+      }),
+      drive_tools: ok("drives", "Luna can add and eject drives."),
+      heic_tools: ok("features", "iPhone photo support installed.", { details: { missing: [] }, more: "" }),
+      logs_path_writable: ok("storage", "Luna can write to its log folder."),
+      meaning_search: ok("features", "Search also finds documents about what you type, in other words.", { more: "" }),
+      network: ok("network", "Connected to your router or modem, with a path to the internet."),
+      ntfs_support: ok("drives", "Luna can open drives formatted as NTFS, the format Windows uses for its own drives.", { details: { missing: [] }, more: "" }),
+      office_pack: ok("features", "Document pack installed.", { details: { missing: [] }, more: "" }),
+      photo_search: ok("features", "Search finds photos by what they show.", { more: "" }),
+      search_inside: ok("features", "Search finds words inside documents, scans, and screenshots.", { details: { missing: [] }, more: "" }),
+      smart_tool: ok("drives", "Drive health checks are available.", { details: { missing: [] }, more: "" }),
+      trim_tool: ok("drives", "Luna can run its weekly SSD (solid-state drive) upkeep."),
+      update_signing: ok("system", "Updates are checked against Luna's signing key."),
+      video_tools: ok("features", "Video previews installed.", { details: { missing: [] }, more: "" }),
+      whiteboard: ok("features", "Whiteboard tools are installed."),
+    },
+  };
+}
+
 /** A healthy, ordinary Luna with one admin, one drive and nothing to fix. */
 export function baseWorld() {
   const passed = (category, message) => ({ category, message, status: "passed" });
   return {
     name: "Luna",
     setup: { name: "Luna", setup_completed: true, current_step: "done", step_data: { network_connected: true } },
-    preflight: { healthy: true, checks: { disk_space: { status: "passed", message: "12.4 GB free on Luna's system disk." }, network: { status: "passed", message: "Connected to your router or modem, with a path to the internet." } } },
+    preflight: healthyPreflight(),
     users: [{ ...admin }],
     sessionUserId: "u1",
     hasAdmin: true,

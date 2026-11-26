@@ -50,6 +50,13 @@ type Service struct {
 	pendingWebAuthnMu    sync.Mutex
 	pendingWebAuthnLabel map[string]string
 	pendingWebAuthnType  map[string]string
+
+	// Last time each API token's last_used_at was written. The visible value
+	// only shows in the token list, so a minute of granularity is plenty and
+	// keeps a write off every authenticated request. Bounded, because revoked
+	// tokens are never validated again.
+	apiTokenLastUsedMu sync.Mutex
+	apiTokenLastUsed   map[string]time.Time
 }
 
 // NewService creates a new auth service

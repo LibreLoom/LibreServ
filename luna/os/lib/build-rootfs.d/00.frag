@@ -33,8 +33,9 @@ find "$ROOTFS" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 # The grub post-install trigger runs grub-probe against whatever disk the
 # build host boots from and is useless here, so a trigger error is tolerated;
 # the check below still fails the build if any package did not install.
-# The linux-lts trigger builds /boot/initramfs-lts itself (no proc/sys mounts
-# needed), so there is no extra chroot mkinitfs pass.
+# The linux-lts trigger builds a stock /boot/initramfs-lts. 06.frag replaces it
+# with a storage-only initramfs for the custom kernel, keeping broad root-disk
+# support without carrying the stock image's unrelated drivers and tools.
 APK_CACHE=""
 if [ -d "${LUNA_CACHE_DIR:-/nonexistent}" ]; then
     mkdir -p "$LUNA_CACHE_DIR/apk"
@@ -44,10 +45,10 @@ fi
 apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_CACHE \
     --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" \
     --repository "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" \
-    alpine-base openrc linux-lts kmod \
+    alpine-base openrc linux-lts mkinitfs kmod \
     linux-firmware-none linux-firmware-rtl_nic linux-firmware-e100 \
     avahi acpid \
-    e2fsprogs e2fsprogs-extra exfatprogs \
+    e2fsprogs e2fsprogs-extra exfatprogs dosfstools \
     cryptsetup device-mapper \
     smartmontools syslinux util-linux \
     grub \
@@ -56,7 +57,7 @@ apk add --root "$ROOTFS" --initdb --keys-dir /etc/apk/keys --arch "$ARCH" $APK_C
     poppler-utils tesseract-ocr tesseract-ocr-data-eng onnxruntime \
     hdparm \
     chrony logrotate || echo "apk reported errors; verifying installed packages" >&2
-for _p in alpine-base openrc linux-lts grub chrony ffmpeg onnxruntime; do
+for _p in alpine-base openrc linux-lts mkinitfs grub chrony ffmpeg onnxruntime; do
     apk info --root "$ROOTFS" -e "$_p" >/dev/null || { echo "package $_p did not install" >&2; exit 1; }
 done
 # Every helper program lunad shells out to must be in the image. An OS update
@@ -64,19 +65,19 @@ done
 # the update fails after the new system is already written. cryptsetup and
 # mkfs.ext4 build and open encrypted drives (a Luna without them cannot unlock
 # a drive it already owns); mkfs.exfat and fsck.exfat make plain drives and
-# repair them after a power cut (exFAT has no journal). pdftotext, pdftoppm and
-# tesseract let search read PDFs, scans and screenshots.
-for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm tesseract; do
+# repair them after a power cut (exFAT has no journal); fsck.fat does the same
+# for the boot partition before an update writes the startup menu. pdftotext,
+# pdftoppm and tesseract let search read PDFs, scans and screenshots.
+for _b in acpid tune2fs e2label e2fsck grub-editenv mkfs.exfat fsck.fat wipefs sfdisk partprobe blkid blockdev smartctl ffmpeg ffprobe heif-dec curl timeout logrotate findmnt cryptsetup mkfs.ext4 fsck.exfat pdftotext pdftoppm tesseract; do
     _have=0
     for _d in sbin usr/sbin bin usr/bin; do
         if [ -e "$ROOTFS/$_d/$_b" ] || [ -L "$ROOTFS/$_d/$_b" ]; then _have=1; break; fi
     done
     [ "$_have" = 1 ] || { echo "the OS image is missing the program $_b that Luna needs" >&2; exit 1; }
 done
-# A slot without kernel + initramfs cannot boot: fail here, not on the device.
-for _f in boot/vmlinuz-lts boot/initramfs-lts; do
-    [ -s "$ROOTFS/$_f" ] || { echo "missing $_f in the rootfs (kernel trigger did not run)" >&2; exit 1; }
-done
+# A slot without a kernel cannot boot: fail here, not on the device. The
+# storage initramfs is built and checked after the custom kernel is installed.
+[ -s "$ROOTFS/boot/vmlinuz-lts" ] || { echo "missing boot/vmlinuz-lts in the rootfs (the linux-lts install did not finish)" >&2; exit 1; }
 
 mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev"
 # Rootless apk cannot mknod, so it leaves a plain empty file where /dev/null

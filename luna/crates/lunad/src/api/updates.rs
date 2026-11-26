@@ -302,7 +302,7 @@ mod tests {
     struct NoopInstall;
     impl Installer for NoopInstall {}
 
-    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"os","os":"linux","arch":"ARCH","file":"luna-os-x86_64.img.xz","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/os"]}]}"#;
+    const FEED_JSON: &str = r#"{"format":1,"unit":"luna","channel":"stable","version":"0.9.0","published":"2026-10-12T14:03:00Z","notes":"hello luna","parts":[{"name":"os","os":"linux","arch":"ARCH","file":"luna-os-x86_64.img.zst","size":3,"sha256":"3a2d1f1ad8a24b0e0cbd9f1fae1f8bbd0c4b3c6c1d4b6f6c8b1a1d1f1f1f1f1f","urls":["http://dl.test/os"]}]}"#;
 
     fn app() -> (axum::Router, String, crate::AppState) {
         let arch = match std::env::consts::ARCH {

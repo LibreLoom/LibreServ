@@ -77,7 +77,6 @@ function PhotoThumb({
   style = undefined,
   sizes = undefined,
 }) {
-  const [loaded, setLoaded] = useState(false);
   const srcSet = sizes && isLunadThumb(photo.thumb) ? gridThumbSrcSet(photo.thumb) : undefined;
   // The image is asked for once the cell nears the screen (nearViewport.js),
   // so a jump loads what is in view first. Its src is set on the element,
@@ -85,6 +84,7 @@ function PhotoThumb({
   const [gated] = useState(canWatchNearViewport);
   const imgRef = useRef(/** @type {HTMLImageElement|null} */ (null));
   const started = useRef(false);
+  const shownThumb = useRef(photo.thumb);
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!gated || !img || !photo.thumb) return undefined;
@@ -92,7 +92,13 @@ function PhotoThumb({
       started.current = true;
       if (srcSet) img.srcset = srcSet;
       else img.removeAttribute("srcset");
-      img.src = photo.thumb || "";
+      // React owns no src on this path. Only clear when the URL actually
+      // changes: a column resize changes srcSet for the same photo, and
+      // hiding an image that is already loaded would flash it.
+      if (img.getAttribute("src") !== photo.thumb) {
+        delete img.dataset.thumbLoaded;
+        img.src = photo.thumb || "";
+      }
       img.removeAttribute("data-thumb-pending");
     };
     if (started.current) {
@@ -190,9 +196,27 @@ function PhotoThumb({
     >
       {photo.thumb ? (
         <img
+          // Keep this callback inline: its identity changing each render is
+          // what re-runs the recycled-cell check below. Wrapping it in
+          // useCallback would leave the old thumb-loaded flag in place.
           ref={(img) => {
             imgRef.current = img;
-            if (img?.complete && img.currentSrc) setLoaded(true);
+            if (!img) return;
+            // A recycled cell keeps the same <img>. Clear the previous
+            // photo's flag on both the gated and ungated paths, then let the
+            // cached-image check below set it again when appropriate.
+            if (shownThumb.current !== photo.thumb) {
+              delete img.dataset.thumbLoaded;
+              shownThumb.current = photo.thumb;
+            }
+            // On the gated path React leaves src undefined and `show()` still
+            // holds the previous photo's URL. Only mark loaded when the DOM
+            // src matches the photo for this render.
+            // `complete` is also true after a failed load; naturalWidth tells
+            // a decoded image from a broken one.
+            if (img.getAttribute("src") === photo.thumb && img.complete && img.naturalWidth > 0) {
+              img.dataset.thumbLoaded = "1";
+            }
           }}
           src={gated ? undefined : photo.thumb}
           srcSet={gated ? undefined : srcSet}
@@ -203,10 +227,14 @@ function PhotoThumb({
           // for its own check at the next frame, behind any long render.
           loading={gated ? undefined : "lazy"}
           decoding="async"
-          onLoad={() => setLoaded(true)}
-          className={`h-full w-full object-cover motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100 ${
-            loaded ? "opacity-100" : "opacity-0"
-          }`}
+          onLoad={(e) => {
+            // Only mark the cell loaded when the DOM src is the photo this
+            // render asked for; changing src cancels the previous request.
+            if (e.currentTarget.getAttribute("src") === photo.thumb) {
+              e.currentTarget.dataset.thumbLoaded = "1";
+            }
+          }}
+          className="h-full w-full object-cover opacity-0 data-[thumb-loaded]:opacity-100 motion-safe:transition-[opacity,scale] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized-decelerate)] group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:opacity-100"
         />
       ) : (
         <span className="flex h-full w-full items-center justify-center font-mono text-xs">

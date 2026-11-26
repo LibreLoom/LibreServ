@@ -102,10 +102,10 @@ a failed cut on the same commit.
   volume ID `LUNAINST`, kernel line `boot=live text nomodeset console=tty0
   net.ifnames=0 biosdevname=0 init=/usr/lib/luna-installer/init.sh`, which
   `find-media.sh` and the installer rely on). The ISO carries the released
-  `luna-os-x86_64.img.xz` (exact bytes the feed lists); `rapidinstall.sh` /
-  `flash-disk.sh` stream `xz -dc` onto both slots and write `os-image.sha256`.
+  `luna-os-x86_64.img.zst` (exact bytes the feed lists); `rapidinstall.sh` /
+  `flash-disk.sh` stream `zstd -dcq` onto both slots and write `os-image.sha256`.
 - **OS image:** `mkfs.ext4 -d` into a plain file; the rootfs lives in a podman
-  volume so ownership stays correct. `.img.xz` is compressed once. The image is
+  volume so ownership stays correct. `.img.zst` is compressed once. The image is
   the whole system — lunad, luna-console, cloudflared, the editor packs and the
   search models are all inside it — so every luna release builds and ships it,
   plus the installer. Nothing is reused from an earlier version: that reuse is

@@ -63,3 +63,80 @@ func TestSetupServiceLifecycle(t *testing.T) {
 		t.Fatalf("completed_at not set correctly")
 	}
 }
+
+func TestIsCompleteInvalidationContract(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db)
+	ctx := context.Background()
+	if _, err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.MarkComplete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.IsComplete(ctx) {
+		t.Fatal("MarkComplete should make IsComplete true")
+	}
+
+	svc.InvalidateCompletion()
+	// The database still says complete, so a re-read returns true. The point
+	// is that the answer now comes from the file, not the cache.
+	if !svc.IsComplete(ctx) {
+		t.Fatal("IsComplete should re-read the database after invalidation")
+	}
+
+	// A restore hook must have the same effect: the file changes underneath
+	// the service, so the cached answer has to be dropped.
+	if _, err := svc.MarkComplete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db.OnReplace(svc.InvalidateCompletion)
+	replacement := filepath.Join(dir, "restored.db")
+	other, err := database.Open(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceFile(ctx, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if svc.IsComplete(ctx) {
+		t.Fatal("a restore must invalidate the completion cache")
+	}
+}
+
+func TestMarkCompleteRejectsMissingRow(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM setup_state WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db)
+	ctx := context.Background()
+	if _, err := svc.MarkComplete(ctx); err == nil {
+		t.Fatal("MarkComplete must fail when no row was updated")
+	}
+	if svc.IsComplete(ctx) {
+		t.Fatal("a 0-row update must not be cached as complete")
+	}
+}

@@ -9,7 +9,9 @@
 # Plain POSIX sh + sha256sum: runs on the host, in CI, or in any container.
 #
 #   usage: input-hash.sh            prints the hex hash
-#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB
+#   env:   ARCH ALPINE_VERSION CLOUDFLARED_VERSION ALPINE_IMAGE SIZE_MB LUNA_OS_REFRESH
+# Compression knobs (ZSTD_THREADS/ZSTD_LEVEL/ZSTD_LONG) are image-only and
+# tracked in the image's .inputs file, not in this rootfs input hash.
 #
 # Not covered, on purpose: package updates inside Alpine's repository for the
 # pinned release (apk resolves them at build time). Set LUNA_OS_REFRESH=<any
@@ -41,7 +43,7 @@ export LC_ALL=C
 		sha256sum luna/Cargo.toml luna/Cargo.lock luna/VERSION keys/luna.minisign.pub
 	fi
 	cd "$OSDIR"
-	for f in build/Containerfile.os build/rootfs.sh build/image.sh build/validate-rootfs.sh clip/luna-clip.cpp lib/alpine-image.sh \
+	for f in build/Containerfile.os build/rootfs.sh build/image.sh build/validate-rootfs.sh build/kernel-build.sh clip/luna-clip.cpp lib/alpine-image.sh \
 		lib/cloudflared-bake.sh lib/disk.sh lib/build-rootfs.d/*.frag; do
 		printf 'file=%s %s\n' "$f" "$(sha256sum < "$f" | awk '{print $1}')"
 	done

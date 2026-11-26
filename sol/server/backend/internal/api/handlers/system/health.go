@@ -1,8 +1,13 @@
 package system
 
 import (
+	"context"
+	"errors"
+	"io/fs"
+	"log/slog"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/Sol/internal/api/response"
@@ -21,6 +26,11 @@ var (
 type HealthHandler struct {
 	db        *database.DB
 	startTime time.Time
+
+	integrityMu      sync.Mutex
+	integrityRunning bool
+	integrityResult  map[string]any
+	integrityGen     uint64
 }
 
 // NewHealthHandler creates a new HealthHandler
@@ -48,15 +58,29 @@ type VersionResponse struct {
 	GoVersion string `json:"go_version"`
 }
 
+// databaseHealthMessage keeps filesystem paths out of the public health
+// endpoints. DB.HealthCheck logs the detail once per outage; callers only
+// choose the safe wording for the public response.
+func databaseHealthMessage(err error) string {
+	if errors.Is(err, database.ErrDatabaseFileMissing) {
+		return "unhealthy: the database file is missing"
+	}
+	if errors.Is(err, database.ErrDatabaseUnreadable) {
+		return "unhealthy: could not read the database file"
+	}
+	return "unhealthy: could not read the database"
+}
+
 // HealthCheck handles GET /health
 // Returns overall system health including all component checks
 func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	checks := make(map[string]string)
 	overallStatus := "healthy"
 
-	// Check database health
+	// Check database health. These endpoints are public, so only a short
+	// verdict goes out; driver paths stay in the log.
 	if err := h.db.HealthCheck(); err != nil {
-		checks["database"] = "unhealthy: " + err.Error()
+		checks["database"] = databaseHealthMessage(err)
 		overallStatus = "unhealthy"
 	} else {
 		checks["database"] = "healthy"
@@ -86,7 +110,7 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusServiceUnavailable, HealthResponse{
 			Status:    "not ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Checks:    map[string]string{"database": err.Error()},
+			Checks:    map[string]string{"database": databaseHealthMessage(err)},
 		})
 		return
 	}
@@ -95,6 +119,101 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 		Status:    "ready",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// DatabaseIntegrity handles POST /api/v1/system/database/integrity (admin only).
+// A full PRAGMA integrity_check walks every page, so it is an explicit
+// diagnostic instead of part of the short-interval health probes.
+func (h *HealthHandler) DatabaseIntegrity(w http.ResponseWriter, r *http.Request) {
+	// A full page walk can outlive the server's 15 s write timeout, so the
+	// request only starts the check. The card polls DatabaseIntegrityStatus.
+	h.integrityMu.Lock()
+	if h.integrityRunning {
+		h.integrityMu.Unlock()
+		JSON(w, http.StatusAccepted, map[string]any{"status": "running"})
+		return
+	}
+	h.integrityRunning = true
+	h.integrityResult = nil
+	gen := h.integrityGen
+	h.integrityMu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		corrupt, err := h.db.IntegrityCheckContext(ctx)
+		var result map[string]any
+		if err != nil {
+			// Driver errors contain paths and page numbers: log the detail and
+			// tell the card which kind of failure this was, so a timeout is
+			// not reported as a damaged file.
+			slog.Warn("database integrity check could not run", "error", err)
+			corruptResult := map[string]any{
+				"status": "corrupt", "reason": "corrupt", "corrupt": true,
+				"message": "Sol found a problem with the database file. Restore a database backup in Settings → Backups.",
+			}
+			if errors.Is(err, fs.ErrNotExist) {
+				result = map[string]any{
+					"status": "unavailable", "reason": "missing", "corrupt": false,
+					"message": "The database file is missing. Restore a database backup in Settings → Backups.",
+				}
+			} else if errors.Is(err, database.ErrDatabaseCorrupt) {
+				// Same shape as a completed walk that found damage.
+				result = corruptResult
+			} else if ctx.Err() != nil {
+				result = map[string]any{
+					"status": "unavailable", "reason": "timeout", "corrupt": false,
+					"message": "The database check took too long. Please try again.",
+				}
+			} else {
+				result = map[string]any{
+					"status": "unavailable", "reason": "error", "corrupt": false,
+					"message": "Sol couldn't check the database file right now. Please try again.",
+				}
+			}
+		} else if corrupt {
+			result = map[string]any{
+				"status": "corrupt", "reason": "corrupt", "corrupt": true,
+				"message": "Sol found a problem with the database file. Restore a database backup in Settings → Backups.",
+			}
+		} else {
+			result = map[string]any{"status": "ok", "reason": "ok", "corrupt": false}
+		}
+		h.integrityMu.Lock()
+		// A restore/reset during the walk invalidated this generation. Its
+		// verdict describes the old file and must not overwrite the new run.
+		if gen == h.integrityGen {
+			h.integrityResult = result
+			h.integrityRunning = false
+		}
+		h.integrityMu.Unlock()
+	}()
+
+	JSON(w, http.StatusAccepted, map[string]any{"status": "running"})
+}
+
+// InvalidateIntegrity drops a cached verdict when the database file changes.
+func (h *HealthHandler) InvalidateIntegrity() {
+	h.integrityMu.Lock()
+	defer h.integrityMu.Unlock()
+	h.integrityGen++
+	h.integrityResult = nil
+	h.integrityRunning = false
+}
+
+// DatabaseIntegrityStatus returns the result of the last admin integrity check.
+func (h *HealthHandler) DatabaseIntegrityStatus(w http.ResponseWriter, r *http.Request) {
+	h.integrityMu.Lock()
+	defer h.integrityMu.Unlock()
+	if h.integrityRunning {
+		JSON(w, http.StatusOK, map[string]any{"status": "running"})
+		return
+	}
+	if h.integrityResult == nil {
+		JSON(w, http.StatusOK, map[string]any{"status": "idle"})
+		return
+	}
+	JSON(w, http.StatusOK, h.integrityResult)
 }
 
 // LivenessCheck handles GET /health/live

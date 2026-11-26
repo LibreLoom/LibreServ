@@ -50,7 +50,12 @@ function albumRow(w, a, user) {
 
 get("/api/v1/photos/albums", ({ world, user }) => {
   state(world);
-  return world.albums.filter((a) => canSee(world, a, user)).map((a) => albumRow(world, a, user));
+  return world.albums.filter((a) => canSee(world, a, user)).map((a) => {
+    const row = albumRow(world, a, user);
+    // The list never carries the owner; only the single-album answer does.
+    delete row.owner_user_id;
+    return row;
+  });
 });
 
 post("/api/v1/photos/albums", ({ world, user, body }) => {

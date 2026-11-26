@@ -551,7 +551,7 @@ func (h *MonitoringHandlers) runComprehensiveHealthChecks(ctx context.Context) *
 	// System Checks
 	runCheck("database", "system", func() (bool, string, interface{}) {
 		if err := h.db.HealthCheck(); err != nil {
-			return false, "Database connection failed: " + err.Error(), nil
+			return false, databaseHealthMessage(err), nil
 		}
 		return true, "Database connection successful", nil
 	})

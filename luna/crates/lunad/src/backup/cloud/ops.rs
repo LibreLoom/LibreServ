@@ -2115,7 +2115,7 @@ mod tests {
         }
         assert_eq!(
             on_grants_changed(&lock(&s.db), "drive-src"),
-            [shared.clone()]
+            std::slice::from_ref(&shared)
         );
         assert!(on_grants_changed(&lock(&s.db), "drive-src").is_empty());
         let conn = lock(&s.db);

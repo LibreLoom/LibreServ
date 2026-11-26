@@ -1,24 +1,38 @@
-import { DEFAULT_NOW } from "../fake/world.js";
+import { DEFAULT_NOW, healthyPreflight } from "../fake/world.js";
 
-const ok = (message) => ({ status: "passed", message });
-const PASS = {
-  healthy: true,
+// lunad reports every probe on every run, so each sample carries the full set;
+// the scenarios override one or two rows on top of the healthy answer.
+const PASS = healthyPreflight();
+const WARN = {
+  ...PASS,
   checks: {
-    disk_space: ok("12.4 GB free on Luna's system disk."),
-    network: ok("Connected to your router or modem, with a path to the internet."),
-    database: ok("Accounts, sharing, and settings are readable."),
+    ...PASS.checks,
+    video_tools: {
+      ...PASS.checks.video_tools,
+      status: "warning",
+      message: "Videos get no preview pictures or length.",
+      more: "Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded.",
+    },
   },
 };
-const WARN = {
-  healthy: true,
-  checks: { ...PASS.checks, video_tools: { status: "warning", message: "Videos get no preview pictures or length.", more: "Photos shows these for each video, made with video tools that are missing. Videos can still be played and downloaded." } },
-};
 const FAIL = {
+  ...PASS,
   healthy: false,
   checks: {
     ...PASS.checks,
-    disk_space: { status: "failed", message: "Luna's system disk is almost full, so Luna may stop working.", more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks." },
-    network: { status: "warning", message: "Luna can't reach the internet.", more: "Updates, setting the clock, and Luna Connect (remote access and cloud backup) need the internet. Luna still works on your home network; check that your router or modem is online." },
+    disk_space: {
+      ...PASS.checks.disk_space,
+      status: "failed",
+      message: "Luna's system disk is almost full, so Luna may stop working.",
+      more: "This disk holds Luna's accounts and settings, not your files. To clear temporary files, select Free up space in Settings → About → System checks.",
+      details: { free_bytes: 900_000_000, free_human: "0.9 GB" },
+    },
+    network: {
+      ...PASS.checks.network,
+      status: "warning",
+      message: "Luna can't reach the internet.",
+      more: "Updates, setting the clock, and Luna Connect (remote access and cloud backup) need the internet. Luna still works on your home network; check that your router or modem is online.",
+    },
   },
 };
 

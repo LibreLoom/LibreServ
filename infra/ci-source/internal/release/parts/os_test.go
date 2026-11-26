@@ -22,7 +22,7 @@ func TestOSRegistered(t *testing.T) {
 	if strings.Join(names, ",") != "lunad,os,installer" {
 		t.Fatalf("luna parts %v", names)
 	}
-	if OSFile != "luna-os-x86_64.img.xz" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
+	if OSFile != "luna-os-x86_64.img.zst" || InstallerFile != "luna-rapidinstall-x86_64.iso.xz" {
 		t.Fatal(OSFile, InstallerFile)
 	}
 }
@@ -166,6 +166,22 @@ func TestOSImageKeyFollowsPacks(t *testing.T) {
 	}
 }
 
+func TestOSImageKeyFollowsZstdKnobs(t *testing.T) {
+	// Start from the same defaults image.sh uses so the baseline is stable.
+	t.Setenv("ZSTD_THREADS", "")
+	t.Setenv("ZSTD_LEVEL", "")
+	t.Setenv("ZSTD_LONG", "")
+	base := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1")
+	for _, name := range []string{"ZSTD_THREADS", "ZSTD_LEVEL", "ZSTD_LONG"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "77")
+			if got := osImageKey("os1", map[string]string{"eurooffice": "aa"}, "commit1", "0.4.1"); got == base {
+				t.Fatalf("changing %s reused the cached image key", name)
+			}
+		})
+	}
+}
+
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 func TestFinishFile(t *testing.T) {
@@ -276,6 +292,20 @@ func TestOSSpecs(t *testing.T) {
 		got, _ := os.ReadFile(filepath.Join(img.Dir, "Containerfile"))
 		if string(got) != string(want) {
 			t.Errorf("%s differs from luna/os/build/%s", n, cf)
+		}
+	}
+	// luna-os copies kernel-build.sh out of luna/os/build, which is only in
+	// the context: without it podman build fails at the COPY.
+	osImg, err := engine.LoadImage(filepath.Join(repoRoot(t), "infra", "release", "images"), "luna-os")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(osImg.Context) != filepath.Join(repoRoot(t), "luna", "os", "build") {
+		t.Errorf("luna-os build context is %q, want luna/os/build", osImg.Context)
+	}
+	for _, f := range []string{"Containerfile.os", "kernel-build.sh"} {
+		if _, err := os.Stat(filepath.Join(osImg.Context, f)); err != nil {
+			t.Errorf("luna-os context is missing %s: %v", f, err)
 		}
 	}
 }
