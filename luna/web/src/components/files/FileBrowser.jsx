@@ -1538,7 +1538,7 @@ export default function FileBrowser({
         key={slotKey ?? entry.name}
         entry={entry}
         path={path}
-        fileRoot={fileRoot}
+        fullPath={rowPath}
         // Trash and Backups count as the rows above, so the striping stays on
         // the listing's one alternation either way.
         striped={(rowIndex + rowsAboveFiles) % 2 === 1}

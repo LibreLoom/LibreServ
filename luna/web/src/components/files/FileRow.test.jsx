@@ -13,7 +13,7 @@ function renderRow(overrides = {}) {
         <FileRow
           entry={{ name: "a.txt", kind: "file", caps: "" }}
           path=""
-          fileRoot={false}
+          fullPath="a.txt"
           striped={false}
           isSelected={false}
           isDrop={false}

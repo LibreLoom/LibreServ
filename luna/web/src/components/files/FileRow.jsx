@@ -23,13 +23,12 @@ import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { CAP, canSeeLinks } from "../../lib/access.js";
 import { openableKind, isFormFile } from "../../lib/fileKinds.js";
-import { joinPath } from "../../lib/paths.js";
 import FormResponseBadge from "./forms/FormResponseBadge.jsx";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import BackupNotes from "../protect/BackupNotes.jsx";
 import { backupStatus, backupWaitingReason } from "../../lib/backupRows.js";
 import PausedByLockNote from "../protect/PausedByLockNote.jsx";
-import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
+import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
 import { warmTextEditor } from "./editorWarm.js";
 
 /**
@@ -42,7 +41,7 @@ import { warmTextEditor } from "./editorWarm.js";
 function FileRow({
   entry,
   path,
-  fileRoot,
+  fullPath,
   striped,
   isSelected,
   isDrop,
@@ -58,6 +57,7 @@ function FileRow({
   driveId,
   surface,
   dense,
+  isSmUp,
   hasShare,
   hasCopy,
   hasMove,
@@ -75,9 +75,7 @@ function FileRow({
   setSize = undefined,
 }) {
   const source = useFileSource();
-  const isSmUp = useIsSmUp();
   const displayName = displayNameOf(entry);
-  const fullPath = fileRoot ? path : joinPath(path, entry.name);
   const ctx = useMemo(
     () => ({ entry, path, fullPath, displayName }),
     [entry, path, fullPath, displayName],
