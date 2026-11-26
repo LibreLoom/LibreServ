@@ -36,10 +36,10 @@ describe("SqliteDataViewStack", () => {
   it("slides the views along the segment's direction", () => {
     const { rerender, props } = mount();
     expect(pane("table").className).toContain("translate-x-0");
-    expect(pane("query").className).toContain("translate-x-2");
+    expect(pane("query").className).toContain("translate-x-3");
 
     rerender(<SqliteDataViewStack {...props} view="query" />);
-    expect(pane("table").className).toContain("-translate-x-2");
+    expect(pane("table").className).toContain("-translate-x-3");
     expect(pane("table").className).toContain("opacity-0");
     expect(pane("query").className).toContain("translate-x-0");
     expect(pane("query").className).toContain("opacity-100");

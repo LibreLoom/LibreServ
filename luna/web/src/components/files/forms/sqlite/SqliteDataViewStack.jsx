@@ -6,11 +6,33 @@
  * technology, and click-through, so only the visible view is reachable.
  */
 
+import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { cn } from "@libreloom/ui/lib/utils.js";
 
-const MOTION =
-  "transition-[opacity,translate] duration-[var(--motion-duration-short4)] ease-[var(--motion-easing-emphasized-decelerate)] motion-reduce:transition-none";
+// Hand-off, not a cross-fade: the outgoing view clears quickly and the
+// incoming one starts just before it is gone, so the two never show through
+// each other and the white table header never ghosts over the result.
+const BASE =
+  "will-change-[opacity,translate] motion-reduce:transition-none motion-reduce:delay-0";
+const LEAVE = `${BASE} pointer-events-none opacity-0 transition-[opacity,translate] duration-[120ms] ease-[var(--motion-easing-emphasized-accelerate)]`;
+const ENTER = `${BASE} translate-x-0 opacity-100 transition-[opacity,translate] delay-[90ms] duration-[var(--motion-duration-medium1)] ease-[var(--motion-easing-emphasized-decelerate)]`;
+
+/**
+ * A result pane that first appears already selected would mount at its final
+ * state and snap in. Arm it one frame later so it animates like a switch.
+ *
+ * @param {boolean} showing
+ */
+function useArmed(showing) {
+  const [armed, setArmed] = useState(!showing);
+  useEffect(() => {
+    if (armed) return undefined;
+    const id = requestAnimationFrame(() => setArmed(true));
+    return () => cancelAnimationFrame(id);
+  }, [armed]);
+  return armed;
+}
 
 /**
  * @param {{
@@ -27,6 +49,8 @@ export default function SqliteDataViewStack({
   result,
 }) {
   const showingResult = hasResult && view === "query";
+  const resultArmed = useArmed(showingResult);
+  const resultVisible = showingResult && resultArmed;
   return (
     <div className="grid min-h-0 flex-1 grid-rows-1 overflow-hidden px-4 pb-3">
       <div
@@ -35,10 +59,7 @@ export default function SqliteDataViewStack({
         inert={showingResult || undefined}
         className={cn(
           "col-start-1 row-start-1 flex min-h-0 flex-col surface-primary",
-          MOTION,
-          showingResult
-            ? "pointer-events-none -translate-x-2 opacity-0"
-            : "translate-x-0 opacity-100",
+          showingResult ? `${LEAVE} -translate-x-3` : ENTER,
         )}
       >
         {table}
@@ -46,14 +67,11 @@ export default function SqliteDataViewStack({
       {hasResult ? (
         <div
           data-slot="sqlite-result-view"
-          aria-hidden={!showingResult || undefined}
-          inert={!showingResult || undefined}
+          aria-hidden={!resultVisible || undefined}
+          inert={!resultVisible || undefined}
           className={cn(
             "col-start-1 row-start-1 flex min-h-0 flex-col surface-primary",
-            MOTION,
-            showingResult
-              ? "translate-x-0 opacity-100"
-              : "pointer-events-none translate-x-2 opacity-0",
+            resultVisible ? ENTER : `${LEAVE} translate-x-3`,
           )}
         >
           {result}

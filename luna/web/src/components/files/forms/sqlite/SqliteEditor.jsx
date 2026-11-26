@@ -1498,13 +1498,17 @@ export function SqliteEditorSession({
             >
               <TooltipTargets className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 px-4 py-2">
                 {panel === "query" && query ? (
-                  <h2 className="min-w-0 truncate font-mono text-sm text-secondary">
+                  <h2
+                    key="query-title"
+                    className="min-w-0 animate-[fade-in_var(--motion-duration-medium1)_var(--motion-easing-standard)_both] truncate font-mono text-sm text-secondary motion-reduce:animate-none"
+                  >
                     Query result
                   </h2>
                 ) : selected ? (
                   <h2
+                    key="table-title"
                     data-tooltip={selected.name}
-                    className="min-w-0 truncate font-mono text-sm text-secondary"
+                    className="min-w-0 animate-[fade-in_var(--motion-duration-medium1)_var(--motion-easing-standard)_both] truncate font-mono text-sm text-secondary motion-reduce:animate-none"
                   >
                     {selected.name}
                   </h2>
