@@ -387,13 +387,13 @@ export default function Dropdown({
                       role={menu ? "menuitem" : "option"}
                       aria-selected={menu ? undefined : selected}
                       disabled={option.disabled}
+                      data-no-press-scale
                       onMouseEnter={menu && !option.disabled ? () => setActiveIndex(i) : undefined}
                       onClick={() => handleSelect(option.value)}
                       {...extraProps}
                       className={cn(
-                        "w-full text-left px-4 py-2 motion-safe:transition-[background-color,color,translate] motion-safe:duration-150 motion-safe:ease-out",
+                        "group w-full text-left px-4 py-2 motion-safe:transition-[background-color,color,translate] motion-safe:duration-150 motion-safe:ease-out",
                         menu ? "text-sm" : "text-xs",
-                        (option.icon || menu) && "flex items-center gap-2",
                         "cursor-pointer rounded-none",
                         option.disabled
                           ? "cursor-not-allowed opacity-50"
@@ -405,6 +405,13 @@ export default function Dropdown({
                         extraClass,
                       )}
                     >
+                      <span
+                        className={cn(
+                          "block motion-safe:transition-[scale] motion-safe:duration-150",
+                          !option.disabled && "group-active:motion-safe:scale-95",
+                          (option.icon || menu) && "flex items-center gap-2",
+                        )}
+                      >
                       {option.icon ? <option.icon size={ICON_SIZE.sm} aria-hidden="true" className="shrink-0" /> : null}
                       {menu && option.content ? (
                         option.content
@@ -421,6 +428,7 @@ export default function Dropdown({
                       ) : (
                         option.label
                       )}
+                      </span>
                     </button>
                   </li>
                 );
