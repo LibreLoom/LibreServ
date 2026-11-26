@@ -41,52 +41,22 @@
         abortGraceMs: 2000
         verbose: false
 
-# Mistral Vibe provider. Lives here, not in a settings.yaml: dsh imports a
-# legacy settings.yaml only after the loader settles, so the first run in a fresh
-# DSH_HOME resolved the stock deepseek-official route and died on
-# MISSING_CREDENTIAL before the import landed. A patch entry is active from boot.
-# API key: the MISTRAL_VIBE_API_KEY env var (from the bot's env_file), never
-# stored. The headless bundle disables the credential store, so env is the only
-# source.
+# OpenCode Go provider (built into dsh/pi-ai as `opencode-go`). No custom
+# provider block is needed: the built-in provider supplies the base URL, the
+# model catalog, and the required x-opencode-session header. The key comes from
+# OPENCODE_API_KEY (bot env_file); the headless bundle disables the credential
+# store, so env is the only source.
 #
-# Model: deepseek-v4-1-flash-1017 only. The bots run exactly one model — cook.sh
-# calls `dsh --profile headless` with no --model flag, so agent-default-model
-# below is the sole selection and nothing iterates this list. Keeping it to one
-# entry means the provider block cannot drift from what actually runs. Switching
-# model is a deliberate edit here, not a menu choice.
-#
-# Cheap tier by default is a standing directive (2026-09-01). ai-proxy was torn
-# down 2026-11-11; the bots now call Mistral directly.
-#
-# api: openai-responses, not openai-completions: Mistral's chat-completions
-# stream sends reasoning as Mistral-native content arrays, which pi-ai's
-# completions adapter rejects ("text-delta text must be a string"). Mistral also
-# rejects role=developer on chat-completions. The Responses API handles both.
-# Reasoning efforts: the values Mistral accepts for this model (probed
-# 2026-11-11; it rejects minimal/medium with 400).
+# Model: deepseek-v4.1-flash only. cook.sh calls `dsh --profile headless` with
+# no --model flag, so agent-default-model below is the sole selection.
 - id: llm-pi-ai
   config:
     providers:
-      mistral-vibe:
-        displayName: Mistral Vibe
-        apiKeyEnv: MISTRAL_VIBE_API_KEY
-        api: openai-responses
-        baseURL: https://api.mistral.ai/v1
-        models:
-          - id: deepseek-v4-1-flash-1017
-            contextWindow: 1048576
-            maxTokens: 131072
-            input: [text, image]
-            reasoningEfforts:
-              off: none
-              low: low
-              high: high
-              xhigh: xhigh
-              max: max
+      opencode-go:
+        apiKeyEnv: OPENCODE_API_KEY
 
 - id: agent-default-model
   config:
-    provider: mistral-vibe
-    model: deepseek-v4-1-flash-1017
+    provider: opencode-go
+    model: deepseek-v4.1-flash
     reasoningEffort: high
-
