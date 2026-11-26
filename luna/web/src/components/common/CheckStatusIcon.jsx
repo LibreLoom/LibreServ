@@ -13,8 +13,8 @@ const DISCS = {
 
 const SIZES = {
   sm: { disc: "w-5 h-5", icon: "w-3 h-3" },
-  md: { disc: "w-7 h-7", icon: "w-3.5 h-3.5" },
-  lg: { disc: "w-12 h-12 border-2", icon: "w-5 h-5" },
+  md: { disc: "w-7 h-7", icon: "w-4 h-4" },
+  lg: { disc: "w-12 h-12 border-2", icon: "w-6 h-6" },
 };
 
 /** Status disc for a health-check row. */
@@ -31,7 +31,7 @@ export default function CheckStatusIcon({ status, size = "md", className = "" })
       )}
       aria-hidden="true"
     >
-      <Icon className={cn(s.icon, status === "pending" && "animate-spin")} strokeWidth={2.5} />
+      <Icon className={cn(s.icon, status === "pending" && "animate-spin will-change-transform")} strokeWidth={2.5} />
     </span>
   );
 }
