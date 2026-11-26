@@ -1,28 +1,17 @@
 # Luna decisions for the next pass
 
-## Cloud identity
+## Decided
 
-**What should Connect recognize as the same Luna?** Decide what the identity represents before choosing where it lives. For each of these events, say whether Connect should treat the Luna as the same one or as a new one, and what access the resulting Luna should have to earlier backups.
+- **Device token replacement:** the credential rotates on the same box. The UID, device row and cloud identity survive rotation and unbind, and recovery from revoked is started from the account with a password step-up. See [connect-auth design](../connect-auth/DESIGN.md).
+- **Reader removal:** removing a reader deletes their future envelopes and share links, and retained snapshots are not re-encrypted. See [archive model](ARCHIVE_MODEL.md).
+- **Legacy signing seeds on drives:** closed. There are no existing users (early development, per AGENTS.md), so no cleanup path is built and Luna keeps ignoring the legacy copies.
+- **Conflicting public keys stored in Connect:** closed for the same reason. No repair path is built.
+- **Older backups with missing published keys:** closed for the same reason. No recovery flow is built.
 
-| Event | Product behavior to decide |
-| --- | --- |
-| The device token is replaced on the same box | Decide whether token replacement itself is supported and who can authorize it. |
-| A Luna is unlinked, then linked again | Decide whether the answer changes if the account changes. |
-| A box is factory-reset or loses its database | Decide how earlier backups appear on the website and whether they stay associated with the same Luna. |
+## Still open
 
-The backup signing key and recovery phrase already serve different purposes. The current implementation uses a locally generated signing seed to authenticate records and phrase-derived keys to open backup data. These facts do not settle the product meaning of identity. See [the crypto review](REVIEW-crypto.md).
-
-## Drive backups after a reset
-
-**Should the original Luna rediscover its drive backups after a reset or database loss?** The backup spec currently promises paused rediscovery in that case. Cross-Luna import is out of scope. Decide whether to keep the same-box promise when Luna has lost its local record, or to limit discovery to backups the current setup already knows. Ordinary unplug and reconnect works with the existing record. See [the backup spec](SPEC.md).
-
-## Independent Lunas in Connect
-
-**What does a customer see and pay for after unlinking a Luna?** The existing spec keeps paid backups available on Connect while billing continues. The decision is whether the unlink flow should also offer to cancel billing and start retention, or leave cancellation as a separate action. The Multi-Luna plan carries forward the $1 DIY activation credit on that Luna's bill. Any change to the monthly minimum or proration is a pricing decision. See [the Multi-Luna plan](../multi-luna/plan.md).
-
-## Existing backup data
-
-- **Legacy signing seeds already on drives.** Decide whether Luna should remove existing copies automatically when it next mounts a drive, or whether cleanup should be an explicit operation. Luna already ignores the copies and has stopped creating them.
-- **Conflicting public keys already stored in Connect.** Decide whether historical conflicts need a repair path and what evidence support should require before accepting a correction. Routine registration now accepts the same key again and refuses a different key.
-- **Older backups with missing published keys.** Decide whether users need a recovery flow for versions that normal retries cannot repair. If so, decide who may receive a repaired key when the access list has since changed. Limit any repair to people eligible for that version unless the product explicitly changes historical access.
-- **Reader changes.** The current spec starts a fresh key version and re-uploads when the eligible readers change. A policy change should say what history a newly added reader may open and which future data a removed reader must lose access to. Performance work can then follow those rules. See [the backup spec](SPEC.md) and [the flow review](REVIEW-flows.md).
+- **Unlink, then link again under a different account.** [connect-auth DESIGN](../connect-auth/DESIGN.md) says the cloud identity survives unbind, but [multi-Luna Phase 1](../multi-luna/plan.md) says a different entry needs a fresh cloud identity. Decide which rule applies when the account changes.
+- **Earlier cloud backups after a factory reset or database loss.** Decide how Connect groups them on the website. Factory reset currently clears the cloud identity even with Keep Connect, so the grouping question depends on whether that identity should survive.
+- **Drive backup rediscovery after a reset.** Should the original Luna find its drive backups again after a reset or database loss, or only backups its current setup already knows? See [the backup spec](SPEC.md).
+- **Unlink flow and billing.** Decide whether unlinking also offers to cancel billing. See [the Multi-Luna plan](../multi-luna/plan.md).
+- **History a newly added reader can open.** Decide what history a reader added while Luna is alive may open. [ARCHIVE_MODEL.md](ARCHIVE_MODEL.md) does not settle this.

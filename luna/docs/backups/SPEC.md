@@ -15,7 +15,7 @@ This is the canonical description of what Luna's backup system is, what it does,
 | | Drive backup | Cloud backup |
 |---|---|---|
 | Where | `.luna-<uuid>-backups/<backup id>/` on the backup drive: `current/` mirrors the source as plain files readable on any computer, `versions/<time>/` holds earlier copies, `manifest.json` describes the backup | Encrypted packs and signed snapshot records on Luna Connect, under this Luna's cloud identity |
-| Runs | Every 30 minutes, and on "Back up now" | Every 6 hours, and on "Back up now" |
+| Runs | Every 30 minutes, and on "Back up now" | Once a day, and on "Back up now". A daily run with no content changes makes no snapshot (ARCHIVE_MODEL.md) |
 | Needs | Read on the source, Write on the backup drive, a different drive from the source. An encrypted source may only go to an encrypted drive. Both drives connected and unlocked | Read on the source, the starter's own recovery phrase, Luna linked to Luna Connect, a payment card on file. A **shared** backup also needs an Admin with a phrase on its list (section 3) |
 | Checked | A run compares size and modification time. Copies are not read back (**gap** against "Luna proves copies are readable"; see REVIEW F-20) | A random sample of packs is downloaded and verified every day, and on request. The Backups card shows "copies last tested" |
 | Restored from | The Backups folder on the backup drive, inside Luna | The Luna Connect website only |
@@ -45,7 +45,7 @@ A drive backup lives entirely on the backup drive: if the drive moves to another
 
 **Members and the first cloud backup.** The first phrase on a Luna may be anyone's, but a Member's **shared** cloud backup does not upload until an Admin has a phrase, because only an Admin can open key copies in a disaster. The backup shows "Waiting for an Admin to set up the recovery phrase", not a failure. A Member's own private items do not wait for an Admin.
 
-**Deleted user.** Shared backups they started carry on unchanged and show "Started by a deleted user". Their private backups stay listed as "Private items · deleted user"; an Admin can delete them but never open them. Their keys leave every reader list, which starts a new key version (section 9).
+**Deleted user.** Shared backups they started carry on unchanged and show "Started by a deleted user". Their private backups stay listed as "Private items · deleted user"; an Admin can delete them but never open them. Their keys leave every reader list, which removes their future envelopes and share links and does not re-encrypt retained snapshots (section 8; ARCHIVE_MODEL.md).
 
 ## 4. What is included
 
@@ -60,9 +60,9 @@ A drive backup lives entirely on the backup drive: if the drive moves to another
 
 - The **latest** version of every file is always kept, and is never thinned.
 - Earlier versions: at most three, the oldest copy that is at most 1 day old, the oldest at most 7 days old, and the oldest at most 31 days old ("about 1 day, 1 week and 1 month"). Only files that changed have any. Age is measured from the moment the older copy was replaced.
-- **Deleted files** stay restorable for 30 days after the run that noticed the deletion, then are gone. The 30 days are counted on the backup's own clock, which **stops while the source is missing, unreachable or gone**, so an unplugged drive never ages deleted files out. This rule is the same for both destinations: the cloud keeps the newest snapshot that still held each file first found missing, for 30 days on the same frozen clock.
+- **Drive: deleted files** stay restorable for 30 days after the run that noticed the deletion, then are gone. The 30 days are counted on the backup's own clock, which **stops while the source is missing, unreachable or gone**, so an unplugged drive never ages deleted files out. The cloud does not use this clock. Its history is the newest seven snapshots (ARCHIVE_MODEL.md).
 - **Drive:** an updated file's old copy is moved (not copied) into `versions/`. When the backup drive fills up, the oldest versions go first and the run says so in a note; nothing in `current/` is touched. If nothing is left to remove, the backup fails with "<drive> is full".
-- **Cloud:** each run commits a whole-folder snapshot. Chunks are shared between snapshots, so only changed data costs storage. Unused packs wait at least 24 hours after being marked before they are deleted.
+- **Cloud:** each run commits a whole-folder snapshot, and Luna keeps the newest seven, manual ones included. A daily run with no content changes makes none; "Back up now" always makes one. Every run hashes file contents; the size and modification-time shortcut is removed. Chunks are shared between snapshots, so only changed data costs storage. Unused packs wait in Connect's seven-day safety queue before they are deleted (ARCHIVE_MODEL.md).
 - When cloud storage is full, uploads pause and no old data is removed.
 
 ## 6. Status
@@ -109,11 +109,10 @@ The Backups card, "See all backups" and Needs you read these same records. Probl
 - A recovery phrase opens a person's **cloud** backups. Drive backups never need one.
 - **Setup.** There is no setup step and nothing asks at sign-up. The phrase is asked for the first time a person turns on a cloud backup or opens Settings → Cloud backup (shown to everyone; with Connect off it shows the card and a note). It is made in the browser, shown with Print and Download, and confirmed by typing three random positions while still on screen. Luna never sees the phrase or any word of it. A cloud backup cannot be created without one (a 409 `needs_phrase`; the shield opens the phrase dialog first).
 - **Check.** Every 90 days Luna asks the person to type the phrase; the browser proves it by signing a challenge. Nothing secret leaves the browser. A check never changes keys.
-- **Replace.** Two independent questions: do you still have it (decides the proof: old phrase, or your Luna password), and could someone else have it. Every shared key version the person is on is re-sealed to the new phrase. If nobody else could have it, nothing uploads again. If someone might, a new key version starts for new data, old packs move to it in the background, and private history moves with the phrase when the old phrase is available. A lost phrase loses private history only (kept 30 days unless someone might have it). Replacing the last Admin's phrase is allowed; demoting or removing the last Admin who has a phrase is refused while cloud backups exist.
-- **Readers.** A shared backup is sealed to every person on its saved list who has a phrase, Admins included. Any change to that group (someone added, removed, deleted, demoted, promoted) starts a **new key version with a fresh dedup key**, so the next run uploads the whole folder again. Someone added gets only what is backed up from then on; someone removed cannot open anything backed up after, but what they could open before cannot be taken back. A cost to say plainly: every such change re-uploads the whole backup.
-- **Private items** are sealed to the owner alone. Not Luna, not an Admin, not us.
+- **Replace.** Two independent questions: do you still have it (decides the proof: old phrase, or your Luna password), and could someone else have it. Every shared key version the person is on is re-sealed to the new phrase. If nobody else could have it, nothing uploads again. If someone might, fresh envelopes are issued for future access and affected share links are revoked; retained snapshots are not re-encrypted, and background re-encryption is removed (ARCHIVE_MODEL.md). How private history follows a replacement is not settled there. A lost phrase makes archives wrapped only to it inaccessible, and an admin cannot reset it. Replacing the last Admin's phrase is allowed; demoting or removing the last Admin who has a phrase is refused while cloud backups exist.
+- **Readers.** A shared backup is sealed to every person on its saved list who has a phrase, Admins included. Removing a person from that group, by removal or deletion, deletes their future envelopes and share links. It does not re-encrypt retained snapshots, and a removed reader keeps anything already extracted (ARCHIVE_MODEL.md). Adding a reader, and which history they may open, is not settled by ARCHIVE_MODEL.md and is an open question in the [handoff](HANDOFF.md).- **Private items** are sealed to the owner alone. Not Luna, not an Admin, not us.
 - **Identity.** Each Luna has one cloud identity (id plus signing key) minted by Luna at first cloud setup, held only in Luna's system database. It never moves between Lunas or devices and is never copied to a drive. Legacy copies left on old drives are ignored and no longer written (`d4f33955`).
-- A removed Admin's older retained copies can become unopenable by others; the guard only covers new versions.
+- Retained snapshots stay readable by the readers whose envelopes already exist (ARCHIVE_MODEL.md).
 
 ## 9. What happens when…
 
@@ -126,18 +125,18 @@ The Backups card, "See all backups" and Needs you read these same records. Probl
 - **A drive moves to another Luna.** The drive carries its backups' manifests. User ids in them match nobody on the new Luna, so shared backups are Admin-only (the Admins entry) and private ones are ownerless until an Admin gives the private item to a person. They come back paused. Resuming a shared one makes the resumer its keeper; a private one resumes only for its owner. **Gap:** a drive adopted by another Luna (or added again after a reset) gets a new id, so a rebuilt backup still points at its old source id and waits for a drive that never returns.
 - **Luna replacement or migration: out of scope for now** (decided 2026-11-21). The old Luna's cloud backups stay downloadable on Connect; a new Luna starts empty. The multi-Luna plan's replacement flow and Bring back files are deferred, not built. Removing drive identity rebuild (multi-Luna Phase 0) still stands.
 - **A target drive is full.** Drive: oldest versions go first, with a note. Cloud: uploads pause.
-- **Delete a backup.** Drive: the row goes at once; the copies are removed now or the next time the drive is connected (a leftover store is never mistaken for a live backup). Cloud: the copies and key records are removed from Connect first; if Connect cannot be reached, nothing is removed and the person retries. Packs follow the 24-hour wait. "Delete" says what goes: every saved copy and every earlier version; the original files stay.
+- **Delete a backup.** Drive: the row goes at once; the copies are removed now or the next time the drive is connected (a leftover store is never mistaken for a live backup). Cloud: the copies and key records are removed from Connect first; if Connect cannot be reached, nothing is removed and the person retries. Packs follow Connect's seven-day safety queue (ARCHIVE_MODEL.md). "Delete" says what goes: every saved copy and every earlier version; the original files stay.
 
 ## 10. Schedules and limits
 
-Drive backups run every 30 minutes; cloud backups every 6 hours; cloud checks daily on a small random sample; the phrase check is due every 90 days. Runs of one backup never overlap, and a run, restore, delete or key move holds the backup while it works. A first copy that takes hours or days must not stop other backups (**gap**: REVIEW F-07).
+Drive backups run every 30 minutes; cloud backups once a day; cloud checks daily on a small random sample; the phrase check is due every 90 days. Runs of one backup never overlap, and a run, restore, delete or key move holds the backup while it works. A first copy that takes hours or days must not stop other backups (**gap**: REVIEW F-07).
 
 ## 11. Not supported, by design
 
 - Restoring a cloud backup **inside Luna**, in any form. Cloud copies come back only on the Luna Connect website.
 - Moving or replacing a Luna, including carrying cloud backups or their history to another Luna (deferred, section 9).
 - **Members signing in to Connect.** They get files from an Admin's share backup link.
-- **History beyond** the latest plus about one day, one week and one month of earlier versions, and deleted files beyond 30 days.
+- **History beyond** the latest plus about one day, one week and one month of earlier versions, and deleted files beyond 30 days on drives. Cloud keeps only the newest seven snapshots (ARCHIVE_MODEL.md).
 - A private item **inheriting** a parent's backup, being inside a parent's backup, or showing a parent's backup status.
 - **Admins opening** a private cloud backup, or restoring a private drive backup.
 - **Moving a cloud identity between Lunas or devices.** Data is copied, never the identity.
@@ -161,7 +160,7 @@ The user's fixed decisions are: private items never inherit and are never inside
 4. **Private restore when the item is gone.** Protect plan §4 recreates it with `private::create`; the code makes the owner recreate the item. **The code's stricter rule is adopted**: no private item is made up on a restore.
 5. **Admin deleting a private backup.** Protect plan §2 says an Admin can delete one; §7 and the code allow it only once the owner is gone. **The code is adopted.**
 6. **Source gone.** Protect plan says it stops running; the code retries each run and revives if the path comes back. **The code is adopted.**
-7. **Dedup key on a reader change.** Protect §5 says re-wrap; the 2026-10-17 decision says a fresh key; recovery-phrase §4 keeps it for an exposed phrase replacement. All three stand, each for its case (section 8).
+7. **Dedup key on a reader change.** Protect §5 says re-wrap; the 2026-10-17 decision says a fresh key; recovery-phrase §4 keeps it for an exposed phrase replacement. Superseded for reader removal and phrase replacement by ARCHIVE_MODEL.md: both issue fresh envelopes without re-encrypting retained snapshots, and background re-encryption is removed. Adding a reader is not settled there.
 8. **Removed person's copies.** Protect §5 deletes their sealed copies and share links; the later recovery-phrase decision and the code keep copies of the versions they were on. **Later decision adopted.**
 9. **Last Admin and phrase replacement.** Protect §5 step 7 blocks it; recovery-phrase decision 1 allows it. **Allowed**, demote and remove stay guarded.
 10. **Phrase timing.** Protect §5 and the first recovery-phrase doc make it a setup step; 2 Nov 2026 removed it. **Asked at the first cloud backup.**
@@ -169,13 +168,14 @@ The user's fixed decisions are: private items never inherit and are never inside
 12. **Cloud checks.** Protect plan says weekly; the code checks daily. **Daily is adopted.**
 13. **Backup problems on the dashboard.** Protect plan §8 keeps them out of Needs you; the code lists them there too. **The code is adopted**; the UX is settled.
 14. **Factory reset and drive key copies.** Protect plan says the copies go with the marker; multi-Luna §1 says they stay. Moot after Phase 0, which removes the copies.
-15. **Cloud deleted files.** Protect plan §3 promises 30 days for both destinations; the code now keeps them for 30 days on both (section 5). **The plan and the fixed decision win.**
+15. **Cloud deleted files.** Protect plan §3 promises 30 days for both destinations; the code now keeps them for 30 days on both (section 5). **Superseded by ARCHIVE_MODEL.md:** cloud keeps the newest seven snapshots and has no 30-day deleted-file clock.
 16. **Cloud usage.** Protect plan §5 says Admins see total usage in Luna. **Connect shows it; Luna does not** (section 2).
 17. **Quota wording.** Protect plan says "free space or a bigger plan". There are no plans (metered), so the copy never offers one.
+18. **Cloud lifecycle.** ARCHIVE_MODEL.md supersedes the cloud schedule, retention, reader-change, and deletion rules where they differ. Items 7 and 15 and section 13 are updated to say so.
 
 ## 13. Decisions recorded 2026-11-21 (owner)
 - Cloud restore: website only, no exceptions. Luna replacement and migration are out of scope for now.
 - **A folder that contains private items cannot be deleted** while they are inside. For anyone but an Admin, the refusal names nothing: "This folder can't be deleted because it holds items you can't see. An Admin can help." An Admin is told whose private items are inside, each owner in an `InlinePill`, and is still refused. This removes the "restore a private item whose parent folder was deleted" case.
-- **Cloud follows drive rules for deletions:** deleted files are kept 30 days, and the clock is frozen while the source is missing or gone. A vanished source becomes "Original is gone" for both destinations, with one name and one mechanism. "Back up anyway" never commits a near-empty snapshot over a vanished source.
+- **Cloud deletions:** superseded by ARCHIVE_MODEL.md. Cloud keeps the newest seven snapshots and has no 30-day deleted-file clock. A vanished source becomes "Original is gone" for both destinations, with one name and one mechanism. "Back up anyway" never commits a near-empty snapshot over a vanished source.
 - Short version history stays. A per-backup setting is welcome only if it is done well; it is not required.
 - Share links survive the deletion of the account that made them.
