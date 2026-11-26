@@ -89,14 +89,28 @@ for _m in e1000 e1000e igc r8169 virtio_net ahci sd_mod sr_mod ext4 exfat \
 done
 
 # Vendor editor builds Luna can never load, because Luna never serves the page
-# that would load them: the editors run from Luna's own React wrapper, which
-# loads sdk-all-min.js (minified, in validate-rootfs.sh's required list) and
-# never the unminified sdk-all.js; nothing on the box is Internet Explorer, so
-# the _ie.js engines are dead weight; the photo editor is not shipped at all,
-# so is its monaco-for-ie copy; and the per-app mobile directories are the
-# vendor's phone web-apps, not Luna's UI.
+# that would load them: nothing on the box is Internet Explorer, so the _ie.js
+# engines are dead weight; the photo editor is not shipped at all, so is its
+# monaco-for-ie copy; the per-app mobile directories are the vendor's phone
+# web-apps, not Luna's UI; and PDF and Visio files open in Luna's own viewers,
+# so their full engines are never requested. The documents, spreadsheets and
+# slides editors DO need their full engine: sdk-all-min.js only starts the
+# editor, then it fetches sdk-all.js, and without it the editor shows "some of
+# the components could not be loaded" and never opens the file (validate-
+# rootfs.sh checks all three are present).
 EO="$ROOTFS/usr/share/luna/eurooffice"
-rm -f "$EO"/sdkjs/*/sdk-all.js \
+rm -f "$EO"/sdkjs/pdf/sdk-all.js "$EO"/sdkjs/visio/sdk-all.js \
     "$EO"/sdkjs/pdf/src/engine/drawingfile_ie.js \
     "$EO"/sdkjs/common/libfont/engine/fonts_ie.js
 rm -rf "$EO"/web-apps/vendor/monaco/monaco-for-ie "$EO"/web-apps/apps/*/mobile
+
+# The editor downloads about 35 MB of scripts and the converter another 36 MB
+# (x2t.wasm). Luna is plain HTTP on the home network, so the server sends a
+# gzip copy when the browser accepts one: lunad's pack route serves `<file>.gz`
+# next to `<file>` (tower-http precompressed). Fonts and dictionaries stay as
+# they are; they barely compress or are fetched one at a time.
+find "$EO/sdkjs" "$EO/web-apps" "$EO/x2t" -type f \
+    \( -name '*.js' -o -name '*.wasm' -o -name '*.css' -o -name '*.json' -o -name '*.html' \) \
+    -size +16k | while read -r _f; do
+    gzip -9 -n -c "$_f" >"$_f.gz"
+done

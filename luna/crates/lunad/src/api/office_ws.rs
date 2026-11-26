@@ -138,6 +138,15 @@ pub async fn dispatch(
         }
     }
 
+    // The editor asks for its generated fonts at `<version>/fonts/NNN`. Fonts
+    // the image de-duplicated exist only as aliases, which `fonts_dispatch`
+    // rebuilds, so they go there too (not to the plain file server, which
+    // answers 404 for them and stops the editor with a font error).
+    if let Some(font) = tail.strip_prefix("fonts/") {
+        let font = font.to_string();
+        return fonts_dispatch(State(state), Path(font), req).await;
+    }
+
     // Static pack files. The service worker is registered at the versioned
     // root but lives under sdkjs/common/serviceworker/ — same nginx-layout
     // shim DS uses.
@@ -151,7 +160,7 @@ pub async fn dispatch(
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
     }
-    match ServeDir::new(dir).oneshot(req).await {
+    match ServeDir::new(dir).precompressed_gzip().oneshot(req).await {
         Ok(res) => res.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -168,7 +177,7 @@ pub async fn sdkjs_dispatch(
     if let Ok(uri) = format!("/{tail}").parse::<axum::http::Uri>() {
         *req.uri_mut() = uri;
     }
-    match ServeDir::new(dir).oneshot(req).await {
+    match ServeDir::new(dir).precompressed_gzip().oneshot(req).await {
         Ok(res) => res.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }

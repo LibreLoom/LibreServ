@@ -21,6 +21,7 @@
 # The web UI is forwarded to http://localhost:8080. USB_IMG=/path/file.img
 # attaches a virtual USB drive. RES_X / RES_Y set the window size (1024x768).
 # The slow eMMC chip is imitated everywhere except during install.
+# DISK_BUS=virtio|sdhci picks how the eMMC looks to Luna (see below).
 # State lives in os/dist/wyse-vm/; QEMU's monitor is dist/wyse-vm/monitor.sock.
 set -eu
 
@@ -86,6 +87,14 @@ KVM=""
 [ -w /dev/kvm ] && KVM="-enable-kvm"
 # Cherry Trail Atom: SSE4.2, AES, no AVX. Westmere is the closest stock model.
 CPU="Westmere,+aes,+pclmulqdq,+rdrand,+popcnt"
+# DISK_BUS=virtio (default) shows the drive as a fast virtual disk (/dev/vda);
+# DISK_BUS=sdhci shows it as a real eMMC (/dev/mmcblk0), the 3040's own name, but
+# QEMU's SD controller is emulated at only ~2 MB/s, far slower than a real chip.
+case "${DISK_BUS:-virtio}" in
+virtio) DISK_DEVICE="-device virtio-blk-pci,drive=emmc,serial=LUNAEMMC" ;;
+sdhci) DISK_DEVICE="-device sdhci-pci -device sd-card,drive=emmc" ;;
+*) echo "DISK_BUS must be virtio or sdhci" >&2; exit 2 ;;
+esac
 THROTTLE=""
 [ "$MODE" = install ] || THROTTLE=",throttling.bps-read=90000000,throttling.bps-write=30000000"
 
@@ -93,7 +102,7 @@ set -- -machine q35 $KVM -cpu "$CPU" -m 1900 -smp 4 -name wyse3040 \
 	-monitor unix:"$DIR/monitor.sock",server,nowait \
 	-device qemu-xhci,id=xhci \
 	-drive if=none,id=emmc,file="$EMMC",format=raw"$THROTTLE" \
-	-device sdhci-pci -device sd-card,drive=emmc \
+	$DISK_DEVICE \
 	-netdev user,id=n0,hostfwd=tcp:127.0.0.1:8080-:80 -device e1000e,netdev=n0 \
 	-device VGA,edid=on,xres="${RES_X:-1024}",yres="${RES_Y:-768}" -display gtk,zoom-to-fit=on \
 	-device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0

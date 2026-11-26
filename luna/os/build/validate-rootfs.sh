@@ -11,6 +11,9 @@ for f in boot/vmlinuz-lts \
     usr/share/luna/eurooffice/sdkjs/word/sdk-all-min.js \
     usr/share/luna/eurooffice/sdkjs/cell/sdk-all-min.js \
     usr/share/luna/eurooffice/sdkjs/slide/sdk-all-min.js \
+    usr/share/luna/eurooffice/sdkjs/word/sdk-all.js \
+    usr/share/luna/eurooffice/sdkjs/cell/sdk-all.js \
+    usr/share/luna/eurooffice/sdkjs/slide/sdk-all.js \
     usr/share/luna/drawio/pack.json usr/share/luna/drawio/index.html \
     usr/share/luna/models/potion-base-8M/model.safetensors \
     usr/share/luna/models/potion-base-8M/tokenizer.json \

@@ -41,16 +41,22 @@ async function loadFonts() {
   } catch {
     list = [];
   }
-  for (const rel of list) {
-    try {
-      const buf = new Uint8Array(
-        await (await fetch(`${PACK}/${rel}`, { credentials: "same-origin" })).arrayBuffer(),
-      );
-      x2t.FS.writeFile(`/working/fonts/${rel.split("/").pop()}`, buf);
-    } catch {
-      /* skip unreadable font */
+  // Several fonts at once: one at a time left the connection idle between
+  // each of the ~180 files.
+  let next = 0;
+  const pull = async () => {
+    while (next < list.length) {
+      const rel = list[next++];
+      try {
+        const res = await fetch(`${PACK}/${rel}`, { credentials: "same-origin" });
+        if (!res.ok) continue;
+        x2t.FS.writeFile(`/working/fonts/${rel.split("/").pop()}`, new Uint8Array(await res.arrayBuffer()));
+      } catch {
+        /* skip unreadable font */
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: 6 }, pull));
   fontsLoaded = true;
 }
 

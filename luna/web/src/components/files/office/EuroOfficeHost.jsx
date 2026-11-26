@@ -235,13 +235,17 @@ export default function EuroOfficeHost({
         return;
       }
       try {
-        const session = await createEuroOfficeSession(driveId, path, source);
-        if (cancelled) return;
-        // The pack check rides on this load: a missing pack 404s the script
-        // or serves SPA HTML without window.DocsAPI, which loadEuroOfficeDocsApi
-        // reports as EuroOfficeUnavailableError — the outer catch hands those
-        // to the parent's install card instead of the error card.
-        const DocsAPI = await loadEuroOfficeDocsApi();
+        // The session request and the editor script load side by side: one
+        // used to wait for the other.
+        // The pack check rides on the script load: a missing pack 404s the
+        // script or serves SPA HTML without window.DocsAPI, which
+        // loadEuroOfficeDocsApi reports as EuroOfficeUnavailableError — the
+        // outer catch hands those to the parent's install card instead of the
+        // error card.
+        const [session, DocsAPI] = await Promise.all([
+          createEuroOfficeSession(driveId, path, source),
+          loadEuroOfficeDocsApi(),
+        ]);
         if (cancelled) return;
 
         const userName =
