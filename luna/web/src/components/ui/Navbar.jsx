@@ -19,7 +19,8 @@ const navItems = [
 
 const menuItems = [{ to: "/settings#security", icon: UserRound, label: "You" }];
 
-export default function Navbar() {
+/** @param {{ onNavigationIntent?: (to: string) => void }} props */
+export default function Navbar({ onNavigationIntent }) {
   const { user, logout } = useAuth();
   return (
     <SharedNavbar
@@ -27,6 +28,7 @@ export default function Navbar() {
       items={navItems}
       user={user}
       onLogout={logout}
+      onNavigationIntent={onNavigationIntent}
       menuItems={menuItems}
       storageKey="lunaHamburgerPosition"
       editorKey="lunaEditor"

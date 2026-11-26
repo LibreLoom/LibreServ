@@ -104,6 +104,19 @@ describe("settings search", () => {
     expect(extractSettingsItems(doc.body)[0].text).toBe("Off Public address");
   });
 
+  it("indexes nested row text separately without changing the original card", () => {
+    const doc = new DOMParser().parseFromString(
+      '<article data-settings-item="card"><h2>Network</h2><p>Ready</p><section data-settings-item="row"><span data-settings-label>Address</span><p data-settings-description>Local address</p></section></article>',
+      "text/html",
+    );
+    const before = doc.body.innerHTML;
+    expect(extractSettingsItems(doc.body)).toEqual([
+      { kind: "card", title: "Network", cardTitle: "", text: "Ready" },
+      { kind: "row", title: "Address", cardTitle: "Network", text: "Local address" },
+    ]);
+    expect(doc.body.innerHTML).toBe(before);
+  });
+
   it("leaves out cards without a title", () => {
     const doc = new DOMParser().parseFromString(
       '<div data-settings-item="card"><p>no heading</p></div>',

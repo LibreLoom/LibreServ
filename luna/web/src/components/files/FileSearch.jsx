@@ -25,7 +25,6 @@ import {
   MIN_SEARCH_LENGTH,
   OPEN_FILE_SEARCH_EVENT,
   loadSearchKind,
-  openFileSearch,
   saveSearchKind,
 } from "../../lib/fileSearch.js";
 import { apiErrorMessage, deleteJson, getDrives, getJson } from "../../lib/api";
@@ -87,25 +86,6 @@ function prefersReducedMotion() {
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** The header search icon. Opens the all-files search. */
-export function FileSearchButton() {
-  return (
-    <span className="inline-flex" data-slot="file-search-trigger">
-      <Button
-        variant="ghost"
-        surface="secondary"
-        size="icon"
-        aria-label="Search"
-        aria-haspopup="dialog"
-        aria-keyshortcuts="/"
-        onClick={openFileSearch}
-      >
-        <Search size={20} aria-hidden="true" />
-      </Button>
-    </span>
-  );
-}
-
 /**
  * The header search icon on this page. Skips aria-hidden copies — HeaderCard keeps
  * an invisible measuring copy of its buttons pinned to the top left.
@@ -126,7 +106,8 @@ const FolderPickerModal = lazy(() => import("./FolderPickerModal"));
  * Each hit includes the same actions you get on a file row (open, download,
  * share, copy, move, trash) so a match is never just a name you can't use.
  */
-export default function FileSearch() {
+/** @param {{ initialRequest?: { focus: HTMLElement | null } }} props */
+export default function FileSearch({ initialRequest }) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const { user } = useAuth();
@@ -150,9 +131,9 @@ export default function FileSearch() {
   if (copyTarget != null && !pickerUsed) setPickerUsed(true);
   if (accessTarget != null && !shareUsed) setShareUsed(true);
 
-  const [present, setPresent] = useState(false);
+  const [present, setPresent] = useState(Boolean(initialRequest));
   const [isClosing, setIsClosing] = useState(false);
-  const returnFocusRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const returnFocusRef = useRef(initialRequest?.focus ?? null);
   const inputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
   const overlayRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const panelRef = useRef(/** @type {HTMLDivElement | null} */ (null));

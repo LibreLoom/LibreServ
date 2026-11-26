@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../../context/AuthContext";
 import { FileOpsProvider } from "../../context/FileOpsContext.jsx";
-import FileSearch, { FileSearchButton } from "./FileSearch";
+import FileSearch from "./FileSearch";
+import FileSearchButton from "./FileSearchButton.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import { ShortcutsProvider, useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 

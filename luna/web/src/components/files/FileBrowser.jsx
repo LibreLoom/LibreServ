@@ -219,34 +219,34 @@ function extensionOf(name) {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-/** Folders always lead; the chosen key orders within each group. */
-function compareEntries(a, b, sortKey) {
-  const aDir = a.kind === "dir" ? 0 : 1;
-  const bDir = b.kind === "dir" ? 0 : 1;
-  if (aDir !== bDir) return aDir - bDir;
-  // Only a tie-break for most sorts, so compare names lazily.
-  const byName = () => NAME_COLLATOR.compare(displayNameOf(a), displayNameOf(b));
+/** @param {FileEntry[]} entries @param {string} sortKey */
+function sortEntries(entries, sortKey) {
+  const byName = (a, b) => NAME_COLLATOR.compare(displayNameOf(a), displayNameOf(b));
+  let compare = byName;
   switch (sortKey) {
     case "name-desc":
-      return NAME_COLLATOR.compare(displayNameOf(b), displayNameOf(a));
+      compare = (a, b) => byName(b, a);
+      break;
     case "date-desc":
-      return (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName();
+      compare = (a, b) => (Number(b.modified) || 0) - (Number(a.modified) || 0) || byName(a, b);
+      break;
     case "date-asc":
-      return (Number(a.modified) || 0) - (Number(b.modified) || 0) || byName();
+      compare = (a, b) => (Number(a.modified) || 0) - (Number(b.modified) || 0) || byName(a, b);
+      break;
     case "size-desc":
-      return (Number(b.size) || 0) - (Number(a.size) || 0) || byName();
+      compare = (a, b) => (Number(b.size) || 0) - (Number(a.size) || 0) || byName(a, b);
+      break;
     case "size-asc":
-      return (Number(a.size) || 0) - (Number(b.size) || 0) || byName();
+      compare = (a, b) => (Number(a.size) || 0) - (Number(b.size) || 0) || byName(a, b);
+      break;
     case "kind": {
-      const byExtension = NAME_COLLATOR.compare(
-        extensionOf(displayNameOf(a)),
-        extensionOf(displayNameOf(b)),
-      );
-      return byExtension || byName();
+      const extensions = new Map();
+      for (const entry of entries) extensions.set(entry, extensionOf(displayNameOf(entry)));
+      compare = (a, b) => NAME_COLLATOR.compare(extensions.get(a), extensions.get(b)) || byName(a, b);
+      break;
     }
-    default:
-      return byName();
   }
+  return [...entries].sort((a, b) => (Number(b.kind === "dir") - Number(a.kind === "dir")) || compare(a, b));
 }
 
 /**
@@ -745,12 +745,17 @@ export default function FileBrowser({
   // mid-save). Announce the moment it flips; the row keeps saying so after.
   // Optional: the browser also renders outside the app shell (tests, embeds).
   const addToast = useContext(ToastContext)?.addToast;
-  const savingNamesRef = useRef(new Set());
+  const savingRowsRef = useRef(/** @type {{ driveId: string, path: string, source: typeof source, names: Set<string> } | null} */ (null));
   useEffect(() => {
+    if (!listingShown) return;
     const entries = listing.data || [];
-    const wasSaving = savingNamesRef.current;
+    const previous = savingRowsRef.current;
+    const wasSaving = previous?.driveId === driveId && previous.path === path && previous.source === source
+      ? previous.names : null;
+    const names = new Set();
     for (const e of entries) {
-      if (e?.save_failed && wasSaving.has(e.name) && addToast) {
+      if (e?.saving) names.add(e.name);
+      if (e?.save_failed && wasSaving?.has(e.name) && addToast) {
         addToast({
           type: "error",
           message: `"${e.name}" didn't save.`,
@@ -758,8 +763,8 @@ export default function FileBrowser({
         });
       }
     }
-    savingNamesRef.current = new Set(entries.filter((e) => e?.saving).map((e) => e.name));
-  }, [listing.data, addToast]);
+    savingRowsRef.current = { driveId, path, source, names };
+  }, [listingShown, listing.data, driveId, path, source, addToast]);
 
   // Warm the text editor as soon as the folder is on screen. It is the most
   // common file to open, and its chunk landing mid-click is what made the
@@ -857,25 +862,29 @@ export default function FileBrowser({
     }
   }
 
-  // Rows after the view controls: kind filter, name filter, then the sort.
-  // Folders stay grouped on top for every sort — see compareEntries.
-  // Deferred: the input stays instant while a big folder re-filters behind it.
+  // The controls can paint before a big folder re-sorts or re-filters.
+  const deferredSort = useDeferredValue(sortKey);
+  const deferredKind = useDeferredValue(kindFilter);
   const deferredFilterText = useDeferredValue(filterText);
   const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => compareEntries(a, b, sortKey)),
-    [entries, sortKey],
+    () => sortEntries(entries, deferredSort),
+    [entries, deferredSort],
   );
-  const nameKeys = useMemo(
-    () => new Map(entries.map((e) => [e, displayNameOf(e).toLowerCase()])),
-    [entries],
-  );
+  const nameKeys = useMemo(() => new WeakMap(), []);
   const visibleEntries = useMemo(() => {
     const query = deferredFilterText.trim().toLowerCase();
-    return sortedEntries.filter((e) => (
-      (kindFilter === "all" || (kindFilter === "dir" ? e.kind === "dir" : e.kind !== "dir"))
-      && (!query || nameKeys.get(e).includes(query))
-    ));
-  }, [sortedEntries, nameKeys, kindFilter, deferredFilterText]);
+    if (!query && deferredKind === "all") return sortedEntries;
+    return sortedEntries.filter((entry) => {
+      if (deferredKind !== "all" && (deferredKind === "dir") !== (entry.kind === "dir")) return false;
+      if (!query) return true;
+      let name = nameKeys.get(entry);
+      if (name === undefined) {
+        name = displayNameOf(entry).toLowerCase();
+        nameKeys.set(entry, name);
+      }
+      return name.includes(query);
+    });
+  }, [sortedEntries, nameKeys, deferredKind, deferredFilterText]);
 
   const visiblePaths = useMemo(
     () => visibleEntries.map((e) => (fileRoot ? path : joinPath(path, e.name))),

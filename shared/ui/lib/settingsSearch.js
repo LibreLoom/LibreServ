@@ -24,12 +24,29 @@ export function normalize(value) {
     .trim();
 }
 
-/** Readable text of an element: neighbouring elements get a space between them. @param {Element | null | undefined} el */
-function textOf(el) {
+/**
+ * Read text directly from the DOM. Element boundaries contribute whitespace
+ * and excluded subtrees are skipped without cloning cards or their controls.
+ * @param {Element | null | undefined} el
+ * @param {string} [exclude]
+ */
+function textOf(el, exclude) {
   if (!el) return "";
-  const copy = /** @type {Element} */ (el.cloneNode(true));
-  copy.querySelectorAll("*").forEach((node) => node.after(" "));
-  return (copy.textContent || "").replace(/\s+/g, " ").trim();
+  const parts = [];
+  /** @param {Node} node */
+  function visit(node) {
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === Node.TEXT_NODE || child.nodeType === Node.CDATA_SECTION_NODE) {
+        parts.push(child.nodeValue || "");
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (exclude && /** @type {Element} */ (child).matches(exclude)) continue;
+        visit(child);
+        parts.push(" ");
+      }
+    }
+  }
+  visit(el);
+  return parts.join("").replace(/\s+/g, " ").trim();
 }
 
 const CARD = '[data-settings-item="card"]';
@@ -43,15 +60,17 @@ const ROW = '[data-settings-item="row"]';
 export function extractSettingsItems(root) {
   /** @type {{ kind: "card" | "row", title: string, cardTitle: string, text: string }[]} */
   const items = [];
+  /** @type {Map<Element, string>} */
+  const cardTitles = new Map();
   for (const el of root.querySelectorAll(`${CARD}, ${ROW}`)) {
     if (el.matches(CARD)) {
       const title = textOf(el.querySelector("h2"));
-      const body = /** @type {Element} */ (el.cloneNode(true));
-      body.querySelectorAll(`${ROW}, h2`).forEach((n) => n.remove());
-      if (title) items.push({ kind: "card", title, cardTitle: "", text: textOf(body) });
+      cardTitles.set(el, title);
+      if (title) items.push({ kind: "card", title, cardTitle: "", text: textOf(el, `${ROW}, h2`) });
     } else {
       const title = textOf(el.querySelector("[data-settings-label]"));
-      const cardTitle = textOf(el.closest(CARD)?.querySelector("h2"));
+      const card = el.closest(CARD);
+      const cardTitle = cardTitles.get(card) ?? textOf(card?.querySelector("h2"));
       const description = textOf(el.querySelector("[data-settings-description]"));
       if (title) items.push({ kind: "row", title, cardTitle, text: description });
     }

@@ -77,9 +77,12 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
 }
 
 /** Alt+Shift+<position> jumps to that navbar item, so the keys follow what this user can see. */
-function NavShortcut({ item, position, enabled }) {
+function NavShortcut({ item, position, enabled, onNavigationIntent }) {
   const navigate = useNavigate();
-  useShortcut(`Alt+Shift+${position}`, () => navigate(item.to), {
+  useShortcut(`Alt+Shift+${position}`, () => {
+    onNavigationIntent?.(item.to);
+    navigate(item.to);
+  }, {
     label: `Go to ${item.label}`,
     group: "Go to",
     enabled,
@@ -97,6 +100,7 @@ function NavShortcut({ item, position, enabled }) {
  *   Navigation entries in order. `Alt+Shift+<position>` jumps to each visible one.
  * @param {{ username?: string, display_name?: string, role?: string } | null | undefined} props.user The signed-in person.
  * @param {() => unknown} props.onLogout Called from "Sign out".
+ * @param {(to: string) => void} [props.onNavigationIntent] Starts loading a destination on focus, press, or shortcut.
  * @param {{ to: string, icon: React.ElementType, label: string, adminOnly?: boolean }[]} [props.menuItems]
  *   Extra links at the top of the desktop user menu.
  * @param {string} props.storageKey localStorage key remembering where the mobile button was parked.
@@ -104,7 +108,7 @@ function NavShortcut({ item, position, enabled }) {
  * @param {string} [props.editorKey] `document.documentElement.dataset` key an app sets while a
  *   fullscreen editor is open; the mobile button then hides unless parked in the top strip.
  */
-export default function Navbar({ brand, items, user, onLogout, menuItems = [], storageKey, editorKey, showShortcutsHint = true }) {
+export default function Navbar({ brand, items, user, onLogout, onNavigationIntent, menuItems = [], storageKey, editorKey, showShortcutsHint = true }) {
   const logout = onLogout;
   const isAdmin = user?.role === "admin";
   const shortcutsSheet = useShortcutsSheet();
@@ -478,6 +482,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
             end={item.end}
             aria-keyshortcuts={`Alt+Shift+${index + 1}`}
             className={navButtonClasses}
+            onFocus={() => onNavigationIntent?.(item.to)}
+            onPointerDown={(event) => { if (event.button === 0) onNavigationIntent?.(item.to); }}
             onClick={() => haptic("selection")}
           >
             <item.icon size={ICON_SIZE.lg} aria-hidden="true" />
@@ -485,13 +491,13 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
           </NavLink>
         </React.Fragment>
       )),
-    [visibleNav],
+    [visibleNav, onNavigationIntent],
   );
 
   return (
     <div data-slot="navbar">
       {visibleNav.slice(0, 9).map((item, index) => (
-        <NavShortcut key={item.to} item={item} position={index + 1} enabled={!editorOpen} />
+        <NavShortcut key={item.to} item={item} position={index + 1} enabled={!editorOpen} onNavigationIntent={onNavigationIntent} />
       ))}
       <div className="hidden xl:flex">
         <nav
@@ -577,6 +583,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                         key={item.to}
                         to={item.to}
                         role="menuitem"
+                        onFocus={() => onNavigationIntent?.(item.to)}
+                        onPointerDown={(event) => { if (event.button === 0) onNavigationIntent?.(item.to); }}
                         onClick={() => {
                           haptic("selection");
                           setIsUserMenuOpen(false);
@@ -671,6 +679,8 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
                   end={item.end}
                   aria-keyshortcuts={`Alt+Shift+${index + 1}`}
                   className={mobileMenuItemClasses}
+                  onFocus={() => onNavigationIntent?.(item.to)}
+                  onPointerDown={(event) => { if (event.button === 0) onNavigationIntent?.(item.to); }}
                   onClick={() => {
                     haptic("selection");
                     closeMobileMenu();

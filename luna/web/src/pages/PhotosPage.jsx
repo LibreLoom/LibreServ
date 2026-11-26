@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useReducedMotion } from "motion/react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -62,6 +62,8 @@ import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { perfCancel, perfDetailed, perfStart, perfWhenImagesShown } from "../lib/perf.js";
 import { INDEXING_REFRESH_MS, indexingRefreshDelay } from "../lib/photosIndexing.js";
+import lazyWithPreload from "../lib/lazyWithPreload.js";
+import { whenIdleAndStill } from "../lib/whenStill.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
@@ -203,8 +205,11 @@ const placesUrlFor = (listUrl) =>
 /** Shared empty list so an unloaded places query keeps a stable prop identity. */
 const NO_PLACES = [];
 
-const loadPlacesMap = () => import("../components/photos/PlacesMap.jsx");
-const PlacesMap = lazy(loadPlacesMap);
+const PlacesMap = lazyWithPreload(() => import("../components/photos/PlacesMap.jsx"));
+const albumsQuery = {
+  queryKey: ["photos-albums"],
+  queryFn: () => getJson("/api/v1/photos/albums"),
+};
 
 /** @param {{ owner_user_id?: string }|null|undefined} album @param {{ id?: string, role?: string }|null|undefined} user */
 function canManageAlbum(album, user) {
@@ -497,6 +502,11 @@ export default function PhotosPage() {
     /** @type {{ ymd: string, label: string }|null} */ (null),
   );
   const jumpPagesRef = useRef(0);
+  const jumpFrameRef = useRef(0);
+  const cancelJumpScroll = useCallback(() => {
+    if (jumpFrameRef.current) cancelAnimationFrame(jumpFrameRef.current);
+    jumpFrameRef.current = 0;
+  }, []);
   const [columns, setColumns] = useState(readGridCols);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const scrollPosRef = useRef(0);
@@ -669,6 +679,7 @@ export default function PhotosPage() {
   const handleSegmentChange = useCallback(
     (next) => {
       if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
+      if (next === "places") PlacesMap.preload().catch(() => {});
       setPlacesDrawMode(false);
       setAlbumView(null);
       setViewLabel(null);
@@ -691,8 +702,7 @@ export default function PhotosPage() {
   // Members may have shared albums with no folder grants — probe albums before
   // treating an empty drives list as “nothing to open.”
   const albums = useQuery({
-    queryKey: ["photos-albums"],
-    queryFn: () => getJson("/api/v1/photos/albums"),
+    ...albumsQuery,
     enabled:
       activeSegment === "albums" ||
       !!albumPick ||
@@ -700,26 +710,12 @@ export default function PhotosPage() {
       (!isAdmin && drivesEmpty),
   });
 
-  // Warm the map code and Albums while the Library is idle, so switching tabs
-  // doesn't wait on them. Not the Places points: that list is every geotagged
-  // photo (~11 MB for 35,000), and reading it froze the page for ~0.4 s
-  // in the middle of the first screen or a scroll (W7/W8). Places fetches it
-  // when opened.
+  // Get album names only after the Library has stopped scrolling. Places
+  // requests its code and coordinates when the user opens the map.
   useEffect(() => {
-    const warm = () => {
-      loadPlacesMap();
-      queryClient.prefetchQuery({
-        queryKey: ["photos-albums"],
-        queryFn: () => getJson("/api/v1/photos/albums"),
-      });
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      const id = window.requestIdleCallback(warm, { timeout: 3000 });
-      return () => window.cancelIdleCallback?.(id);
-    }
-    const id = window.setTimeout(warm, 1500);
-    return () => window.clearTimeout(id);
-  }, [queryClient]);
+    if (activeSegment !== "library" || /** @type {any} */ (navigator).connection?.saveData) return undefined;
+    return whenIdleAndStill(() => { queryClient.prefetchQuery(albumsQuery); });
+  }, [activeSegment, queryClient]);
 
   // Toolbar / filter sheet dates → unix range. A day click sets a single-day
   // range (`dateFrom === dateTo`), which deep-links back out as `#day/`.
@@ -1447,6 +1443,7 @@ export default function PhotosPage() {
 
   // Date jump: keep fetching pages until the loaded span reaches the target
   // day, then scroll the closest day header into view.
+  useEffect(() => cancelJumpScroll, [activeSegment, filters, search, cancelJumpScroll]);
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
     const target = jumpTarget.ymd;
@@ -1474,12 +1471,14 @@ export default function PhotosPage() {
     // days come first), so wait up to 2 s for the day to appear.
     const giveUp = performance.now() + 2000;
     const scrollToDay = () => {
+      jumpFrameRef.current = 0;
       const el = document.getElementById(`day-${nearest}`);
       if (el) el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-      else if (performance.now() < giveUp) requestAnimationFrame(scrollToDay);
+      else if (performance.now() < giveUp) jumpFrameRef.current = requestAnimationFrame(scrollToDay);
     };
-    requestAnimationFrame(scrollToDay);
-  }, [jumpTarget, photos, loadedDaySpan, photoQuery]);
+    cancelJumpScroll();
+    jumpFrameRef.current = requestAnimationFrame(scrollToDay);
+  }, [jumpTarget, photos, loadedDaySpan, photoQuery, cancelJumpScroll]);
 
   useEffect(() => {
     const id = setTimeout(() => setSearch(q.trim()), 300);
@@ -2557,6 +2556,7 @@ export default function PhotosPage() {
         open={jumpOpen}
         onClose={() => setJumpOpen(false)}
         onJump={(ymd) => {
+          cancelJumpScroll();
           jumpPagesRef.current = 0;
           const bounds = dayBoundsLocal(ymd);
           // Jumping scrolls the timeline — leave single-day/duplicates/month-day

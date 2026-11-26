@@ -25,7 +25,7 @@ import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
 import DriveCard from "../components/drives/DriveCard.jsx";
 import DriveStorageBar from "../components/drives/DriveStorageBar.jsx";
 import useCanProtect from "../hooks/useCanProtect";
-import { FileSearchButton } from "../components/files/FileSearch";
+import FileSearchButton from "../components/files/FileSearchButton.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";

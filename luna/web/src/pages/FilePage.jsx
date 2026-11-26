@@ -9,7 +9,7 @@ import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import useDriveHealth from "../hooks/useDriveHealth.js";
 import { describeDriveHealth } from "../lib/driveHealth.js";
-import { FileSearchButton } from "../components/files/FileSearch";
+import FileSearchButton from "../components/files/FileSearchButton.jsx";
 import DriveFileExplorer from "../components/files/DriveFileExplorer";
 import DriveMenu from "../components/files/DriveMenu";
 import useDriveMove from "../hooks/useDriveMove";
