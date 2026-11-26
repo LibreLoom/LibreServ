@@ -80,7 +80,7 @@ describe("fake pairing-material writes", () => {
 
   it("restores the same pair after only the local Verification code was removed", async () => {
     const world = startFake((w) => {
-      w.connect = { state: "bound", paired: true, connect_active: true, device_uid: UID, verification_code: null };
+      w.connect = { state: "bound", paired: true, connect_active: true, device_uid: UID, verification_code: CODE };
     });
 
     const removed = await window.fetch("/api/v1/connect/device-token", { method: "DELETE" });

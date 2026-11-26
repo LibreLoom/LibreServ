@@ -88,8 +88,9 @@ func TestDomainReservationRejectsExistingOwnerWithoutBackfill(t *testing.T) {
 	if err := ReserveDomain(tx, host, "photos", "dev_b", "acct_b", time.Now().Unix()); !errors.Is(err, ErrDomainReserved) {
 		t.Fatalf("reserve over existing device owner = %v, want ErrDomainReserved", err)
 	}
+	_ = tx.Rollback()
 	var count int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM domain_reservations WHERE hostname = ?`, host).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM domain_reservations WHERE hostname = ?`, host).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {

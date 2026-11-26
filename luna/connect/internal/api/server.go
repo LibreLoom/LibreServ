@@ -98,6 +98,7 @@ func (s *Server) routes() {
 				r.Post("/share/private/open", priv.ShareOpen)
 
 				r.Post("/devices/pair/claim", dev.ClaimPair)
+				r.Post("/devices/pair/cancel", dev.CancelPairClaim)
 				r.Post("/token/refresh", dev.RefreshToken)
 
 				r.Group(func(r chi.Router) {

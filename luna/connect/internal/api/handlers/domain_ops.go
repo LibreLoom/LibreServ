@@ -201,10 +201,12 @@ func ownsDomainReservation(tx *database.Tx, host, deviceID string) bool {
 	return owned
 }
 
-func reserveDomain(tx *database.Tx, sub, deviceID, accountID string) (string, error) {
-	host := domainname.Hostname(sub, config.C.Server.PublicZone)
-	err := database.ReserveDomain(tx, host, sub, deviceID, accountID, time.Now().Unix())
-	return host, err
+func teardownDeviceRemoteFenced(deps Deps, tx *database.Tx, deviceID, subdomain, tunnelID string) {
+	if subdomain != "" && !ownsDomainReservation(tx, domainname.Hostname(subdomain, config.C.Server.PublicZone), deviceID) {
+		slog.Warn("domain: skipped teardown after hostname ownership changed", "device", deviceID, "subdomain", subdomain)
+		return
+	}
+	teardownDeviceRemoteWithConfig(deps, subdomain, tunnelID)
 }
 
 // reserveDeviceDomains takes the device lock first, then every hostname lock in
@@ -224,7 +226,7 @@ func reserveDeviceDomains(tx *database.Tx, deviceID, accountID string, subs ...s
 	}
 	sort.Strings(hosts)
 	for _, host := range hosts {
-		if _, err := database.ReserveDomain(tx, host, byHost[host], deviceID, accountID, time.Now().Unix()); err != nil {
+		if err := database.ReserveDomain(tx, host, byHost[host], deviceID, accountID, time.Now().Unix()); err != nil {
 			return err
 		}
 	}
@@ -438,11 +440,19 @@ func applyDeviceDomain(deps Deps, deviceID, sub string, port int, expected ...De
 	}
 	// Retire the previous remote resources before releasing the device fence, so
 	// a replacement account cannot publish the old hostname into the deletion.
+	oldHost := ""
+	if d.Subdomain != "" && d.Subdomain != sub {
+		oldHost = domainname.Hostname(d.Subdomain, config.C.Server.PublicZone)
+		if !ownsDomainReservation(tx, oldHost, d.ID) {
+			cleanup()
+			return nil, http.StatusConflict, "The address changed while it was being set up. Try again."
+		}
+	}
 	if d.TunnelID != "" && d.TunnelID != tid {
 		_ = deps.Tunnel.DeleteTunnel(cf.AccountID, cf.APIToken, d.TunnelID)
 	}
-	if d.Subdomain != "" && d.Subdomain != sub {
-		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, domainname.Hostname(d.Subdomain, config.C.Server.PublicZone))
+	if oldHost != "" {
+		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, oldHost)
 		if err := releaseDomainReservationForSub(tx, d.Subdomain, d.ID); err != nil {
 			cleanup()
 			return nil, http.StatusInternalServerError, "Could not save the address. Try again."
@@ -535,6 +545,10 @@ func regenerateDeviceTunnel(deps Deps, deviceID string, expected ...Device) (map
 		return nil, http.StatusInternalServerError, "Could not save the secure connection. Try again."
 	}
 	if n != 1 {
+		cleanup()
+		return nil, http.StatusConflict, "The address changed while it was being set up. Try again."
+	}
+	if !ownsDomainReservation(tx, host, d.ID) {
 		cleanup()
 		return nil, http.StatusConflict, "The address changed while it was being set up. Try again."
 	}
@@ -644,6 +658,10 @@ func moveDeviceDomain(deps Deps, expected Device, sub string) (map[string]any, i
 		return nil, http.StatusConflict, "The address changed while it was being set up. Try again."
 	}
 	if d.Subdomain != "" && d.Subdomain != sub {
+		if !ownsDomainReservation(tx, oldHost, d.ID) {
+			restore()
+			return nil, http.StatusConflict, "The address changed while it was being set up. Try again."
+		}
 		_ = deps.DNS.DeleteRecord(cf.APIToken, cf.ZoneID, oldHost)
 		if err := releaseDomainReservationForSub(tx, d.Subdomain, d.ID); err != nil {
 			restore()

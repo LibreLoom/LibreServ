@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 )
@@ -244,6 +245,54 @@ func TestConcurrentSameHostnameProvisioningLosingRollbackPreservesWinnerDNS(t *t
 	assertDomainReservationOwner(t, d, "sharedbox", devA)
 }
 
+func TestFirstTimeRollbackDoesNotDeleteDNSOwnedByAnotherDevice(t *testing.T) {
+	d := testDeps(t)
+	acctH := AccountHandler{Deps: d}
+	devH := DeviceHandler{Deps: d}
+	devA, _ := bindDomainReservationDevice(t, d, acctH, devH, "rollback-a@b.co")
+	devB, _ := bindDomainReservationDevice(t, d, acctH, devH, "rollback-b@b.co")
+
+	tx, err := d.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := database.LockDevice(tx, devB); err != nil {
+		t.Fatal(err)
+	}
+	var accountB string
+	if err := tx.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, devB).Scan(&accountB); err != nil {
+		t.Fatal(err)
+	}
+	if err := reserveDeviceDomains(tx, devB, accountB, "rollbackbox"); err != nil {
+		t.Fatal(err)
+	}
+
+	tunnel := &domainReservationTunnel{Tunnel: d.Tunnel}
+	dns := newDomainReservationDNS()
+	host := domainname.Hostname("rollbackbox", config.C.Server.PublicZone)
+	if err := dns.UpsertCNAME("", "", host, "winner.cfargotunnel.com"); err != nil {
+		t.Fatal(err)
+	}
+	cleanupProvisionedDomain(depsWithProviders(d, tunnel, dns), config.Cloudflare(), tx, devA, host, "operation-tunnel", "", true, true)
+	if got := dns.record(host); got != "winner.cfargotunnel.com" {
+		t.Fatalf("rollback deleted another device's DNS: %q", got)
+	}
+	_, deletes := dns.counts()
+	if len(deletes) != 0 {
+		t.Fatalf("rollback issued DNS deletes after losing ownership: %v", deletes)
+	}
+	_, _, deletedTunnels := tunnel.counts()
+	if len(deletedTunnels) != 1 || deletedTunnels[0] != "operation-tunnel" {
+		t.Fatalf("rollback did not limit tunnel cleanup to its own resource: %v", deletedTunnels)
+	}
+}
+
+func depsWithProviders(d Deps, tunnel providers.Tunnel, dns providers.DNS) Deps {
+	d.Tunnel, d.DNS = tunnel, dns
+	return d
+}
+
 func TestHostnameMoveConflictLeavesBothOwnersDNSIntact(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
@@ -370,8 +419,13 @@ func TestUnbindAndRevokeSerializeHostnameCleanupWithProvisioning(t *testing.T) {
 				t.Fatalf("new owner reached the provider before cleanup committed: creates=%d", creates)
 			}
 			dns.releaseDelete()
-			if err := waitDomainResult(t, cleanupDone); err != nil {
-				t.Fatalf("%s: %v", action, err)
+			select {
+			case err := <-cleanupDone:
+				if err != nil {
+					t.Fatalf("%s: %v", action, err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatalf("%s did not finish", action)
 			}
 			provision := waitDomainResult(t, provisionDone)
 			if provision.code != http.StatusCreated {

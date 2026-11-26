@@ -386,8 +386,12 @@ impl ConnectService {
     pub fn can_unbind(&self) -> bool {
         // Even a credential left beside stale state may still own a remote
         // binding. Let the unbind route ask Connect instead of trusting the
-        // local label blindly.
-        self.unbind_pending() || self.auth_token().is_ok()
+        // local label blindly. A pairing attempt with no credential can also be
+        // cancelled using the saved UID and Verification code.
+        self.unbind_pending()
+            || self.auth_token().is_ok()
+            || (self.connect_state(&self.load(), false) == ConnectState::Pairing
+                && self.has_pairing_material())
     }
 
     pub fn lan_override(&self) -> bool {
@@ -834,6 +838,22 @@ impl ConnectService {
         true
     }
 
+    fn cancel_pairing_claim(&self) -> Result<(), ConnectError> {
+        let uid = self.device_uid()?;
+        let code = self.verification_code()?;
+        self.call_json_status_within(
+            "POST",
+            "/api/v1/devices/pair/cancel",
+            None,
+            Some(json!({
+                "device_uid": group_device_uid(&uid),
+                "verification_code": code,
+            })),
+            CONNECT_HTTP_TIMEOUT,
+        )?;
+        Ok(())
+    }
+
     fn poll_pairing(&self) -> bool {
         if self.unbind_pending() {
             return false;
@@ -1185,7 +1205,18 @@ impl ConnectService {
             Some(ConnectState::Revoked) => return self.mark_revoked_inner(),
             _ => {}
         }
-        let mut token = self.auth_token()?;
+        let mut token = match self.auth_token() {
+            Ok(token) => token,
+            Err(_)
+                if self.connect_state(&self.load(), false) == ConnectState::Pairing
+                    && self.has_pairing_material() =>
+            {
+                self.stop_tunnel();
+                self.cancel_pairing_claim()?;
+                return self.finish_local_auth_state(ConnectState::Unbound);
+            }
+            Err(err) => return Err(err),
+        };
         if !self.unbind_pending() {
             self.mark_unbind_pending_inner(&token)?;
         }
@@ -1358,15 +1389,19 @@ impl ConnectService {
     }
 
     fn clear_to_unbound_inner(&self) -> Result<(), ConnectError> {
-        let token = self.auth_token().ok();
-        self.write_pending_marker(token.as_deref(), Some(ConnectState::Unbound))?;
+        if self.auth.credential_path.exists() {
+            let token = self.auth_token().ok();
+            self.write_pending_marker(token.as_deref(), Some(ConnectState::Unbound))?;
+        }
         self.finish_local_auth_state(ConnectState::Unbound)
     }
 
     fn mark_revoked_inner(&self) -> Result<(), ConnectError> {
         self.set_rejected(true);
-        let token = self.auth_token().ok();
-        self.write_pending_marker(token.as_deref(), Some(ConnectState::Revoked))?;
+        if self.auth.credential_path.exists() {
+            let token = self.auth_token().ok();
+            self.write_pending_marker(token.as_deref(), Some(ConnectState::Revoked))?;
+        }
         self.finish_local_auth_state(ConnectState::Revoked)
     }
 

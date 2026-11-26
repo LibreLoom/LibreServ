@@ -102,7 +102,7 @@ func unbindDevice(deps Deps, d Device, accountID string) error {
 	}
 	// Keep the device fence through provider teardown. Re-pairing cannot publish
 	// the same hostname while the old DNS deletion is still in flight.
-	teardownDeviceRemoteWithConfig(deps, current.subdomain, current.tunnelID)
+	teardownDeviceRemoteFenced(deps, tx, d.ID, current.subdomain, current.tunnelID)
 	if err := releaseDomainReservationForSub(tx, current.subdomain, d.ID); err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func revokeDevice(deps Deps, d Device, accountID string) error {
 	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, d.ID); err != nil {
 		return err
 	}
-	teardownDeviceRemoteWithConfig(deps, current.subdomain, current.tunnelID)
+	teardownDeviceRemoteFenced(deps, tx, d.ID, current.subdomain, current.tunnelID)
 	if err := releaseDomainReservationForSub(tx, current.subdomain, d.ID); err != nil {
 		return err
 	}

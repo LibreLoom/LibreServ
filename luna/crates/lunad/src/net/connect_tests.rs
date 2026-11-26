@@ -447,10 +447,6 @@ fn stale_state_reconciliation_never_falls_back_to_pairing_claims() {
             MockReply::json(403, json!({ "code": "device_revoked" })),
             ConnectState::Revoked,
         ),
-        (
-            MockReply::json(500, json!({ "error": "offline" })),
-            ConnectState::Revoked,
-        ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let mock = MockConnect::new(vec![reply]);
@@ -461,18 +457,29 @@ fn stale_state_reconciliation_never_falls_back_to_pairing_claims() {
             .unwrap();
 
         assert!(!connect.poll_status());
-        if expected == ConnectState::Revoked
-            && mock.calls()[0].path == "/api/v1/token/refresh"
-            && connect.status().connect_unreachable.is_some()
-        {
-            assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
-        } else {
-            assert_eq!(connect.status().state, expected);
-            assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
-        }
+        assert_eq!(connect.status().state, expected);
+        assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
         assert_eq!(mock.calls().len(), 1);
         assert_eq!(mock.calls()[0].path, "/api/v1/token/refresh");
     }
+}
+
+#[test]
+fn an_offline_stale_state_recovery_keeps_the_credential_for_the_next_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockConnect::new(vec![MockReply::json(500, json!({ "error": "offline" }))]);
+    let connect = service(dir.path(), mock.url.clone());
+    write_bound(dir.path(), &connect, TOKEN_ZERO);
+    connect
+        .save(&json!({ "state": "unbound", "bound": false, "paired": false }))
+        .unwrap();
+
+    assert!(!connect.poll_status());
+    assert!(dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
+    assert_eq!(connect.status().state, ConnectState::Unbound);
+    assert!(connect.status().connect_unreachable.is_some());
+    assert_eq!(mock.calls().len(), 1);
+    assert_eq!(mock.calls()[0].path, "/api/v1/token/refresh");
 }
 
 #[test]
@@ -794,6 +801,29 @@ fn a_generic_401_does_not_complete_an_unbind() {
         vec!["/api/v1/unregister", "/api/v1/token/refresh"]
     );
     assert!(connect.prepare_factory_reset(true).is_err());
+}
+
+#[test]
+fn pairing_state_can_cancel_its_claim_without_a_credential() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockConnect::new(vec![MockReply {
+        status: 204,
+        body: String::new(),
+    }]);
+    let connect = service(dir.path(), mock.url.clone());
+    write_pairing(dir.path());
+    connect
+        .save(&json!({ "state": "pairing", "bound": false, "paired": false }))
+        .unwrap();
+
+    assert!(connect.can_unbind());
+    connect.unbind_now().unwrap();
+    assert_eq!(connect.status().state, ConnectState::Unbound);
+    assert!(dir.path().join(DEVICE_UID_FILE).exists());
+    assert!(dir.path().join(PAIRING_CODE_FILE).exists());
+    assert!(!dir.path().join(CONNECT_CREDENTIAL_FILE).exists());
+    assert_eq!(mock.calls().len(), 1);
+    assert_eq!(mock.calls()[0].path, "/api/v1/devices/pair/cancel");
 }
 
 #[test]

@@ -473,6 +473,129 @@ func (h DeviceHandler) ClaimPair(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, out)
 }
 
+// CancelPairClaim lets an unbound/pairing Luna cancel a pending account claim
+// using its own Device ID and Verification code. It cannot touch a bound or
+// revoked device, and a valid no-attempt request is a harmless success.
+func (h DeviceHandler) CancelPairClaim(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	req, valid := decodePairingInput(r)
+	now := time.Now().Unix()
+	rate := pairingContextForRequest(h.DB, req, "", r, now)
+	if !valid {
+		allowed, err := recordInvalidPairingAttempt(h.DB, rate, now)
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "Could not cancel pairing. Try again.")
+			return
+		}
+		if !allowed {
+			writePairingRateLimit(w)
+			return
+		}
+		writeClaimInvalid(w)
+		return
+	}
+	err := cancelPairClaimByDevice(r.Context(), h.DB, req, rate, now)
+	if errors.Is(err, errPairingRateLimited) {
+		writePairingRateLimit(w)
+		return
+	}
+	if errors.Is(err, errPairingInvalid) {
+		writeClaimInvalid(w)
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not cancel pairing. Try again.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func cancelPairClaimByDevice(ctx context.Context, db *database.DB, req pairingInput, rate pairingRateContext, now int64) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	var deviceID string
+	if err := tx.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if err := reservePairingRate(tx, rate, now); err != nil {
+				return err
+			}
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			committed = true
+			return errPairingInvalid
+		}
+		return err
+	}
+	if err := database.LockDevice(tx, deviceID); err != nil {
+		return err
+	}
+	rate = refreshPairingRateContext(tx, deviceID, rate, now)
+	var attemptAccount string
+	_ = tx.QueryRow(`SELECT account_id FROM device_pairings WHERE device_id = ?`, deviceID).Scan(&attemptAccount)
+	rate.accountID = attemptAccount
+	if rate.accountID != "" {
+		if err := database.LockStorageAccount(tx, rate.accountID); err != nil {
+			return err
+		}
+	}
+	if err := reservePairingRate(tx, rate, now); err != nil {
+		return err
+	}
+
+	var state, verificationHash string
+	if err := tx.QueryRow(`SELECT COALESCE(state,'unbound'), COALESCE(verification_code_hash,'')
+FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(verificationHash), []byte(security.HashToken(req.VerificationCode))) != 1 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		committed = true
+		return errPairingInvalid
+	}
+	if state != "unbound" && state != "pairing" {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		committed = true
+		return errPairingInvalid
+	}
+	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, deviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, deviceID); err != nil {
+		return err
+	}
+	if state == "pairing" {
+		if _, err := tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
+  auth_token_hash = NULL, auth_token_sealed = NULL,
+  previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL,
+  subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  WHERE id = ? AND state = 'pairing'`, deviceID); err != nil {
+			return err
+		}
+	}
+	if err := refundPairingRate(tx, rate); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, rate pairingRateContext, clientIP string, now int64) (map[string]any, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

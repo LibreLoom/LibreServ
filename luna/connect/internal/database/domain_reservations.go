@@ -13,17 +13,6 @@ var ErrDomainReserved = errors.New("domain reserved by another device")
 // Callers must lock the device first and acquire multiple hostnames in sorted
 // order.
 func ReserveDomain(tx *Tx, hostname, subdomain, deviceID, accountID string, now int64) error {
-	// The devices row is authoritative for databases created before reservations
-	// existed. Never let a new reservation bypass a current owner merely because
-	// the reservation table has not been backfilled yet.
-	ownerDevice, ownerAccount, assigned, err := assignedDomainDevice(tx, subdomain)
-	if err != nil {
-		return err
-	}
-	if assigned && (ownerDevice != deviceID || ownerAccount != accountID) {
-		return ErrDomainReserved
-	}
-
 	for attempt := 0; attempt < 2; attempt++ {
 		if err := insertDomainReservation(tx, hostname, deviceID, accountID, now); err != nil {
 			return err
@@ -35,6 +24,18 @@ func ReserveDomain(tx *Tx, hostname, subdomain, deviceID, accountID string, now 
 		if err := tx.QueryRow(`SELECT device_id, account_id FROM domain_reservations WHERE hostname = ?`, hostname).
 			Scan(&reservationDevice, &reservationAccount); err != nil {
 			return err
+		}
+
+		// The devices row is authoritative for databases created before
+		// reservations existed. Check it only after taking the reservation lock so
+		// legacy-owner teardown and a new provisioning request still serialize on
+		// the same row on PostgreSQL.
+		ownerDevice, ownerAccount, assigned, err := assignedDomainDevice(tx, subdomain)
+		if err != nil {
+			return err
+		}
+		if assigned && (ownerDevice != deviceID || ownerAccount != accountID) {
+			return ErrDomainReserved
 		}
 		if reservationDevice == deviceID && reservationAccount == accountID {
 			return nil

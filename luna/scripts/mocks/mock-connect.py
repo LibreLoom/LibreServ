@@ -670,6 +670,32 @@ class MockState:
                 self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
             return token, status
 
+    def cancel_pair_attempt(self, uid: str, code: str, client_ip: str, now: int) -> str:
+        """Cancel a pending claim from the device itself; valid no-attempt is a no-op."""
+        with self._lock:
+            account_id, device_limit = self._rate_context_locked(uid, "", client_ip, now)
+            if not valid_uid(uid) or not valid_code(code):
+                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+                return "invalid"
+            if self._rate_blocked_locked(uid, account_id, client_ip, now, device_limit):
+                return "blocked"
+            if normalize_uid(uid) != self.device_uid or code.strip().upper() != self.verification_code:
+                self._rate_failure_locked(uid, account_id, client_ip, now, device_limit)
+                return "invalid"
+            if self.state not in ("unbound", "pairing"):
+                return "invalid"
+            if self.state == "pairing":
+                self.state = "unbound"
+                self.account_id = ""
+                self.pairing_id = ""
+                self.pairing_account_id = ""
+                self.pairing_expires_at = 0
+            self.setup_grant = ""
+            self.setup_grant_expires_at = 0
+            self.setup_grant_used_at = 0
+            self.save()
+            return "ok"
+
     @staticmethod
     def _storage_account_dir(storage_dir: Path, account_id: str) -> Path:
         # Account IDs are not path components. The mock still isolates each
@@ -1352,6 +1378,17 @@ class MockConnectHandler(BaseHTTPRequestHandler):
                 self._send_json(401, {"error": "This Luna is not linked to Luna Connect."})
                 return
             self._send_json(200, {"auth_token": rotated, "refresh_after_seconds": REFRESH_SECONDS})
+            return
+        if path == "/api/v1/devices/pair/cancel":
+            uid, code = self._pairing_input(payload)
+            status = self.state.cancel_pair_attempt(uid, code, self._client_ip(), int(time.time()))
+            if status == "blocked":
+                self._send_json(429, {"error": "Too many pairing attempts. Wait a few minutes, then try again."})
+                return
+            if status != "ok":
+                self._send_json(404, {"error": "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."})
+                return
+            self._send_json(204, {})
             return
         if path == "/api/v1/devices/pair/claim":
             uid, code = self._pairing_input(payload)

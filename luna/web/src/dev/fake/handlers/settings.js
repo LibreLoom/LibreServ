@@ -65,7 +65,8 @@ post("/api/v1/connect/device-token", ({ world, user, body }) => {
   if (!hasExistingUid && state !== "unbound") {
     return fail(400, "This Luna's Device ID is missing. Restore the original Device ID before reconnecting.");
   }
-  if (world.connect.verification_code && String(world.connect.verification_code).trim().toUpperCase() !== verificationCode) {
+  const existingCode = String(world.connect.verification_code ?? "").trim().toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(existingCode) && existingCode !== verificationCode) {
     return fail(400, "That Verification code does not match the one already saved on this Luna. Restore the saved code instead.");
   }
   world.connect = {
