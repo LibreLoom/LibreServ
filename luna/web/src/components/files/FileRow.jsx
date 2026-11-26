@@ -352,12 +352,15 @@ function FileRow({
         // shift). The last row always rounds to hug the card's
         // bottom edge — same geometry whether or not it's the
         // drop target.
+        // Every row, the last included, keeps its 1px bottom border (the last
+        // one's is transparent), so all rows are exactly one height and the
+        // list's total never jumps when the last row is measured.
         isDrop
-          ? "ring-2 ring-accent ring-inset border-b border-transparent last:border-b-0 last:rounded-b-large-element"
-          : "border-b border-primary/15 last:border-b-0 last:rounded-b-large-element",
+          ? "ring-2 ring-accent ring-inset border-b border-transparent last:rounded-b-large-element"
+          : `border-b ${isLast ? "border-transparent" : "border-primary/15 last:border-transparent"} last:rounded-b-large-element`,
         // `last:` can't see the real last row while the list window has a
         // spacer after it, so the flag says it explicitly.
-        isLast ? "border-b-0 rounded-b-large-element" : "",
+        isLast ? "rounded-b-large-element" : "",
         "motion-safe:transition-colors",
         canDragRow ? "cursor-grab active:cursor-grabbing select-none" : "",
       ].filter(Boolean).join(" ")}

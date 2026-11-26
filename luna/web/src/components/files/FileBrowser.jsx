@@ -2312,6 +2312,9 @@ export default function FileBrowser({
               .filter(Boolean)
               .join(" ")}
             aria-label="Files and folders"
+            // The virtualizer corrects scroll itself when rows resize; the
+            // browser's own scroll anchoring on top of that made the list wiggle.
+            style={{ overflowAnchor: "none" }}
             {...(showingStaleListing ? { inert: true } : {})}
           >
                 {showTrashEntry ? (() => {

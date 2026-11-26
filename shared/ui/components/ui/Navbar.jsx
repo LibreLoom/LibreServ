@@ -634,10 +634,13 @@ export default function Navbar({ brand, items, user, onLogout, menuItems = [], s
       </button>
       )}
 
+      {/* The blur exists only while the menu is open: a full-screen backdrop-filter
+          left mounted at opacity 0 still makes the browser blur the page behind
+          it on every frame, which smeared unpainted tiles over long scrolling lists. */}
       <button
         type="button"
         data-no-press-scale=""
-        className={cn("fixed", "inset-0", TRANSITION.base, "bg-secondary/60", "backdrop-blur-sm", "z-999", isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
+        className={cn("fixed", "inset-0", "xl:hidden", TRANSITION.base, "bg-secondary/60", "z-999", isMobileMenuOpen ? "opacity-100 backdrop-blur-sm" : "opacity-0 pointer-events-none")}
         onClick={() => {
           haptic("light");
           closeMobileMenu();
