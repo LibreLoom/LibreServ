@@ -42,7 +42,7 @@ const searchFieldShell =
   "relative flex-1 min-w-0 surface-primary rounded-pill motion-safe:transition-[flex-grow,width] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]";
 
 const searchInputClass =
-  "w-full pl-11 pr-9 py-2 bg-transparent text-secondary focus:outline-none no-focus-outline text-sm";
+  "w-full pl-11 pr-9 py-2 bg-transparent text-secondary focus:outline-none no-focus-outline text-sm [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden";
 
 /**
  * @param {{
