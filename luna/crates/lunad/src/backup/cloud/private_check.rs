@@ -266,7 +266,7 @@ mod tests {
 
     /// Runs a backup and returns the id of the snapshot it made.
     fn backup(db: &crate::Db, src: &Path, store: &dyn CloudStore) -> String {
-        let out = run_with_root(db, "p1", src, store, false, 100).unwrap();
+        let out = run_with_root(db, "p1", src, store, true, 100).unwrap();
         assert_eq!(out.problem, None);
         out.snapshot_id.unwrap()
     }

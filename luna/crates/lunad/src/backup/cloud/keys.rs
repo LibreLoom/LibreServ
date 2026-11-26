@@ -44,16 +44,6 @@ const ROTATE_VALUE: &str = "keep_dedup";
 const RESEAL_META_PREFIX: &str = "cloud_reseal";
 /// Glob that matches every saved reader list in meta.
 const READERS_META_GLOB: &str = "cloud_recipients:*";
-/// Record kind for the signed list of every user's recovery keys on this Luna.
-pub(crate) const USERS_KIND: &str = "users";
-/// Record name for that list. There is one per Luna.
-pub(crate) const USERS_LIST_NAME: &str = "list";
-/// Signature domain for the user list.
-const USERS_DOMAIN: &str = "users";
-
-/// One user as given to `publish_user_list`: `(user id, sealing public key, auth public key, self-sealed signing key)`.
-type UserListEntry = (String, SealPublic, SigPublic, Vec<u8>);
-
 /// The users who may read a shared backup, sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipients {
@@ -177,16 +167,6 @@ fn readers_json(conn: &Connection, recipients: &Recipients) -> Result<serde_json
 
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
-        .collect()
 }
 
 /// Run `f` inside a savepoint: its writes all land, or none do. Works inside a caller's transaction too.
@@ -552,94 +532,6 @@ fn decode_hex_sig(hex: &str) -> Option<SigBytes> {
     Some(out)
 }
 
-/// One user as listed in the signed user list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListedUser {
-    pub user_id: String,
-    pub seal_public: SealPublic,
-    pub auth_public: SigPublic,
-    /// The browser's sealed copy of the user's signing public key.
-    pub self_sealed: Vec<u8>,
-}
-
-/// Signed bytes for the user list: this Luna plus the list as JSON text.
-fn user_list_message(luna_id: &str, users_text: &str) -> Vec<u8> {
-    crypto::canonical(&[
-        ("luna_id", luna_id.as_bytes()),
-        ("users", users_text.as_bytes()),
-    ])
-}
-
-/// Build the signed user list record as bytes. `users` holds `(user id, sealing public key, auth public key, self-sealed signing key)`.
-fn user_list_record(
-    signer: &crypto::Signer,
-    luna_id: &str,
-    users: &[UserListEntry],
-) -> Result<Vec<u8>> {
-    let mut map = serde_json::Map::new();
-    for (user_id, seal_public, auth_public, self_sealed) in users {
-        if self_sealed.is_empty() {
-            bail!("The recovery copy for user {user_id} is empty.");
-        }
-        let key = hex_encode(seal_public);
-        if map.contains_key(&key) {
-            bail!("Two users share the same recovery key.");
-        }
-        map.insert(
-            key,
-            json!({
-                "user_id": user_id,
-                "auth_public": hex_encode(auth_public),
-                "self_sealed": hex_encode(self_sealed),
-            }),
-        );
-    }
-    let users_value = serde_json::Value::Object(map);
-    let message = user_list_message(luna_id, &users_value.to_string());
-    let signature = signer.sign(USERS_DOMAIN, &message);
-    let body = json!({
-        "users": users_value,
-        "signature": hex_encode(&signature),
-    });
-    Ok(body.to_string().into_bytes())
-}
-
-/// Store the signed list of every user's recovery keys, so a browser on Connect can check it.
-/// `users` holds `(user id, sealing public key, auth public key, self-sealed signing key)`.
-/// The list is one record, keyed by each user's sealing public key (X25519 and ML-KEM together).
-/// Signing the list therefore also signs every ML-KEM key in it. Two users may not share one.
-///
-/// Connect keeps this record and the next cloud run republishes it, so a failure here is only
-/// a delay, not a loss.
-pub fn publish_user_list(
-    store: &dyn CloudStore,
-    signer: &crypto::Signer,
-    luna_id: &str,
-    users: &[UserListEntry],
-) -> Result<()> {
-    let body = user_list_record(signer, luna_id, users)?;
-    store.put_record(USERS_KIND, USERS_LIST_NAME, &body)?;
-    Ok(())
-}
-
-/// Every user with a phrase, as the entries the signed user list needs.
-fn listed_users(conn: &Connection) -> Result<Vec<UserListEntry>> {
-    db::list_user_keys(conn)?
-        .into_iter()
-        .map(|user| {
-            let seal_public: SealPublic =
-                user.seal_public.as_slice().try_into().map_err(|_| {
-                    anyhow!("The recovery key for user {} is damaged.", user.user_id)
-                })?;
-            let auth_public: SigPublic =
-                user.auth_public.as_slice().try_into().map_err(|_| {
-                    anyhow!("The recovery key for user {} is damaged.", user.user_id)
-                })?;
-            Ok((user.user_id, seal_public, auth_public, user.self_sealed))
-        })
-        .collect()
-}
-
 /// Queue a re-seal of every version `user_id` is on, to their current phrase. Call this after the
 /// new phrase is saved. Runs retry it until it is done. The value holds the sealing key it is for.
 pub fn queue_reseal(conn: &Connection, user_id: &str) -> Result<()> {
@@ -769,7 +661,7 @@ fn reseal_user_locked(
     store: &dyn CloudStore,
     user_id: &str,
 ) -> Result<ResealReport> {
-    let (records, list, pending) = {
+    let (records, pending) = {
         let conn = db.lock().unwrap_or_else(|p| p.into_inner());
         let Some(pending) = db::get_meta(&conn, &reseal_meta_key(user_id))? else {
             return Ok(ResealReport {
@@ -819,8 +711,7 @@ fn reseal_user_locked(
                 busy: Vec::new(),
             });
         }
-        let list = user_list_record(identity.signer(), identity.luna_id(), &listed_users(&conn)?)?;
-        (records, list, pending)
+        (records, pending)
     };
 
     let copies = records.len();
@@ -829,9 +720,6 @@ fn reseal_user_locked(
             .put_record(KEYS_KIND, name, bytes)
             .map_err(|e| anyhow!("{e}"))?;
     }
-    store
-        .put_record(USERS_KIND, USERS_LIST_NAME, &list)
-        .map_err(|e| anyhow!("{e}"))?;
 
     let conn = db.lock().unwrap_or_else(|p| p.into_inner());
     // A phrase saved while this ran queued a new job with a new value. Keep that one.
@@ -867,41 +755,6 @@ pub(crate) fn reseal_pending_holding(
             .collect(),
         Err(err) => vec![Err(err)],
     }
-}
-
-/// Check a signed user list read back from the store. Returns the listed users, sorted by user id,
-/// if the signature is valid for this Luna and `public`, and `None` otherwise.
-pub fn verify_user_list(
-    bytes: &[u8],
-    public: &SigPublic,
-    luna_id: &str,
-) -> Option<Vec<ListedUser>> {
-    let body: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let users_value = body.get("users")?.clone();
-    let sig = decode_hex_sig(body.get("signature")?.as_str()?)?;
-    let message = user_list_message(luna_id, &users_value.to_string());
-    if !crypto::verify(public, USERS_DOMAIN, &message, &sig) {
-        return None;
-    }
-    let mut listed = Vec::new();
-    for (key, entry) in users_value.as_object()? {
-        let seal_public: SealPublic = hex_decode(key)?.try_into().ok()?;
-        let auth_public: SigPublic = hex_decode(entry.get("auth_public")?.as_str()?)?
-            .try_into()
-            .ok()?;
-        let self_sealed = hex_decode(entry.get("self_sealed")?.as_str()?)?;
-        if self_sealed.is_empty() {
-            return None;
-        }
-        listed.push(ListedUser {
-            user_id: entry.get("user_id")?.as_str()?.to_string(),
-            seal_public,
-            auth_public,
-            self_sealed,
-        });
-    }
-    listed.sort_by(|a, b| a.user_id.cmp(&b.user_id));
-    Some(listed)
 }
 
 #[cfg(test)]
@@ -1287,81 +1140,6 @@ mod tests {
     }
 
     #[test]
-    fn user_list_verifies_and_fails_when_altered() {
-        let store = MemoryStore::new();
-        let signer = crypto::Signer::generate();
-        let alice = user_keys("alice");
-        let bob = user_keys("bob");
-        let users = vec![
-            (
-                "alice".to_string(),
-                alice.seal_public,
-                alice.auth_public,
-                vec![7u8; 48],
-            ),
-            (
-                "bob".to_string(),
-                bob.seal_public,
-                bob.auth_public,
-                vec![8u8; 48],
-            ),
-        ];
-        publish_user_list(&store, &signer, LUNA, &users).unwrap();
-
-        let bytes = store
-            .get_record(USERS_KIND, USERS_LIST_NAME)
-            .unwrap()
-            .unwrap();
-        let listed = verify_user_list(&bytes, &signer.public(), LUNA).unwrap();
-        assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].user_id, "alice");
-        assert_eq!(listed[0].seal_public, alice.seal_public);
-        assert_eq!(listed[0].auth_public, alice.auth_public);
-        assert_eq!(listed[0].self_sealed, vec![7u8; 48]);
-        assert_eq!(listed[1].user_id, "bob");
-
-        // Wrong Luna and wrong key fail.
-        assert!(verify_user_list(&bytes, &signer.public(), "other-luna").is_none());
-        let other = crypto::Signer::generate();
-        assert!(verify_user_list(&bytes, &other.public(), LUNA).is_none());
-
-        // Altered user id, altered sealed copy, and an extra user all fail.
-        let text = String::from_utf8(bytes.clone()).unwrap();
-        let renamed = text.replace("\"alice\"", "\"mallory\"");
-        assert!(verify_user_list(renamed.as_bytes(), &signer.public(), LUNA).is_none());
-        let swapped = text.replace(&hex_encode(&[7u8; 48]), &hex_encode(&[9u8; 48]));
-        assert!(verify_user_list(swapped.as_bytes(), &signer.public(), LUNA).is_none());
-        let mut body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        body["users"]
-            .as_object_mut()
-            .unwrap()
-            .insert(hex_encode(&[1u8; 32]), json!({ "user_id": "eve", "auth_public": hex_encode(&[1u8; 32]), "self_sealed": hex_encode(&[1u8; 48]) }));
-        assert!(verify_user_list(body.to_string().as_bytes(), &signer.public(), LUNA).is_none());
-    }
-
-    #[test]
-    fn user_list_refuses_two_users_with_one_recovery_key() {
-        let store = MemoryStore::new();
-        let signer = crypto::Signer::generate();
-        let alice = user_keys("alice");
-        let users = vec![
-            (
-                "alice".to_string(),
-                alice.seal_public,
-                alice.auth_public,
-                vec![7u8; 48],
-            ),
-            (
-                "alice-again".to_string(),
-                alice.seal_public,
-                alice.auth_public,
-                vec![7u8; 48],
-            ),
-        ];
-        assert!(publish_user_list(&store, &signer, LUNA, &users).is_err());
-    }
-
-    #[test]
     fn unexposed_replacement_keeps_the_same_version() {
         let (_dir, conn) = conn();
         let alice = user_keys("alice");
@@ -1582,15 +1360,6 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        // The user list now carries Bob's new sealing key.
-        let list = store
-            .get_record(USERS_KIND, USERS_LIST_NAME)
-            .unwrap()
-            .unwrap();
-        let listed =
-            verify_user_list(&list, &identity.signer().public(), identity.luna_id()).unwrap();
-        let bob_listed = listed.iter().find(|u| u.user_id == "bob").unwrap();
-        assert_eq!(bob_listed.seal_public, bob_new.seal_public);
         // The job is cleared, and a second run is a no-op.
         assert!(!resealing_pending(&locked(&db), "bob").unwrap());
         let again = reseal_user(&db, &store, "bob").unwrap();
@@ -1651,12 +1420,6 @@ mod tests {
                 "bob"
             )
             .is_ok()
-        );
-        assert!(
-            store
-                .get_record(USERS_KIND, USERS_LIST_NAME)
-                .unwrap()
-                .is_none()
         );
         assert!(resealing_pending(&locked(&db), "bob").unwrap());
 
@@ -1862,12 +1625,6 @@ mod tests {
         let report = reseal_user(&db, &store, "bob").unwrap();
         assert!(report.done);
         assert_eq!(report.copies, 0);
-        assert!(
-            store
-                .get_record(USERS_KIND, USERS_LIST_NAME)
-                .unwrap()
-                .is_none()
-        );
     }
 
     #[test]
@@ -1883,7 +1640,6 @@ mod tests {
         let store = MemoryStore::new();
         let bob = user_keys("bob");
         let carol = user_keys("carol");
-        let identity = identity::load(&locked(&db)).unwrap().unwrap();
         {
             let conn = locked(&db);
             set_phrase(&conn, "bob", &bob);
@@ -1900,11 +1656,6 @@ mod tests {
         assert_eq!(reports, vec!["bob".to_string(), "carol".to_string()]);
         assert!(!resealing_pending(&locked(&db), "bob").unwrap());
         assert!(!resealing_pending(&locked(&db), "carol").unwrap());
-        let list = store
-            .get_record(USERS_KIND, USERS_LIST_NAME)
-            .unwrap()
-            .unwrap();
-        assert!(verify_user_list(&list, &identity.signer().public(), identity.luna_id()).is_some());
     }
 
     #[test]

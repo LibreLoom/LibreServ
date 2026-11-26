@@ -37,7 +37,7 @@ impl Identity {
         self.signer.sign(domain, msg)
     }
 
-    /// The signer itself, for functions that take one (such as `keys::publish_user_list`).
+    /// The signer itself, for functions that take one (such as the key copy writers in `keys`).
     pub fn signer(&self) -> &Signer {
         &self.signer
     }

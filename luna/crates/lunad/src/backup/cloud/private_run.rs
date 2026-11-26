@@ -16,7 +16,7 @@ use super::run::{
     CloudOutcome, RunContext, RunSlot, Sealer, busy_outcome, copy_and_commit, lock,
     problem_outcome, random_id,
 };
-use super::source::{self, CHECK_FAILED, Folder, MASS_DELETE, Walk};
+use super::source::{self, CHECK_FAILED, Folder, Walk};
 use super::store::CloudStore;
 use crate::db;
 
@@ -30,43 +30,41 @@ pub(crate) fn run_with_root(
     protection_id: &str,
     root: &Path,
     store: &dyn CloudStore,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let folder = match Folder::at(root) {
         Ok(folder) => folder,
-        Err(unavailable) => return unavailable.record(db, protection_id, now),
+        Err(unavailable) => return unavailable.record(db, protection_id),
     };
-    run_from_folder(db, protection_id, folder, store, accept_missing, now)
+    run_from_folder(db, protection_id, folder, store, manual, now)
 }
 
+/// `manual` and the snapshot rules are the same as for a shared backup (`run::run_from_folder`).
 pub(super) fn run_from_folder(
     db: &crate::Db,
     protection_id: &str,
     folder: Folder,
     store: &dyn CloudStore,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
         return Ok(busy_outcome());
     };
 
-    let mut walk = match folder.walk() {
+    let walk = match folder.walk() {
         Ok(walk) => walk,
-        Err(unavailable) => return unavailable.record(db, protection_id, now),
+        Err(unavailable) => return unavailable.record(db, protection_id),
     };
     source::revive(db, protection_id)?;
-    match previous_tree(db, protection_id) {
-        Ok(Some((id, tree))) if !walk.compare(&id, &tree, accept_missing) => {
-            return source::hold(db, protection_id, now, MASS_DELETE, true);
-        }
-        Ok(_) => {}
+    let prev = match previous_tree(db, protection_id) {
+        Ok(prev) => prev,
         Err(err) => {
             tracing::warn!(error = %err, protection_id, "could not check the source against the last copy");
-            return source::hold(db, protection_id, now, CHECK_FAILED, false);
+            return Ok(problem_outcome(CHECK_FAILED));
         }
-    }
+    };
 
     // Failing here means no run row was opened, so there is nothing to close.
     let prepared = match prepare(db, protection_id, now) {
@@ -74,7 +72,7 @@ pub(super) fn run_from_folder(
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
 
-    let result = publish_and_copy(db, &prepared, walk, store, now);
+    let result = publish_and_copy(db, &prepared, walk, store, now, prev.as_ref(), manual);
     // The run is over whether or not it committed, so always close it.
     if let Err(e) = db::end_run(&lock(db), &prepared.ctx.run_id, now) {
         return Ok(problem_outcome(&e.to_string()));
@@ -87,7 +85,7 @@ pub(super) fn run_from_folder(
 }
 
 /// The latest private file list is cached locally, so no owner secret is needed.
-fn previous_tree(db: &crate::Db, protection_id: &str) -> Result<Option<(String, Tree)>> {
+fn previous_tree(db: &crate::Db, protection_id: &str) -> Result<Option<Tree>> {
     let conn = lock(db);
     for snap in db::list_cloud_snapshots(&conn, protection_id)? {
         if db::private_scope_of_snapshot(&conn, &snap.id)?.is_none() {
@@ -95,7 +93,7 @@ fn previous_tree(db: &crate::Db, protection_id: &str) -> Result<Option<(String, 
         }
         let bytes = db::get_private_tree(&conn, &snap.id)?
             .ok_or_else(|| anyhow!("The file list for the last copy is missing."))?;
-        return Ok(Some((snap.id, serde_json::from_slice(&bytes)?)));
+        return Ok(Some(serde_json::from_slice(&bytes)?));
     }
     Ok(None)
 }
@@ -218,6 +216,8 @@ fn publish_and_copy(
     walk: Walk,
     store: &dyn CloudStore,
     now: i64,
+    prev: Option<&Tree>,
+    manual: bool,
 ) -> Result<CloudOutcome> {
     private::publish_scope(
         store,
@@ -226,8 +226,8 @@ fn publish_and_copy(
         &prepared.scope,
         &prepared.auth_public,
     )?;
-    // Private trees live in the database as JSON; reading every file keeps this path simple.
-    copy_and_commit(db, &prepared.ctx, walk, store, now, None)
+    // Private trees live in the database as JSON, so the previous file list comes from there.
+    copy_and_commit(db, &prepared.ctx, walk, store, now, prev, manual)
 }
 
 /// Seals a private backup to its scope's key. The scope key is checked before this is built, so the
@@ -348,7 +348,7 @@ mod tests {
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -369,7 +369,7 @@ mod tests {
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let scope = active_scope(&db);
@@ -414,7 +414,7 @@ mod tests {
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(out.problem, None);
         assert!(out.snapshot_id.is_some());
         assert!(store.list_records("keys").unwrap().is_empty());
@@ -426,7 +426,7 @@ mod tests {
         let db = setup(dir.path(), false);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(out.problem.as_deref(), Some(NO_PHRASE));
         assert_eq!(out.snapshot_id, None);
         assert!(store.list_records(PSNAPSHOTS_KIND).unwrap().is_empty());
@@ -438,12 +438,27 @@ mod tests {
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
-        let second = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
+        let second = run_with_root(&db, "p1", &src, &store, true, 200).unwrap();
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes);
+    }
+
+    #[test]
+    fn a_scheduled_private_run_with_no_changes_makes_no_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path(), true);
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let first = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
+        assert!(first.snapshot_id.is_some());
+
+        let second = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
+        assert_eq!(second.problem, None);
+        assert_eq!(second.snapshot_id, None);
+        assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
     }
 
     #[test]
@@ -452,7 +467,7 @@ mod tests {
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
         let old_scope = active_scope(&db);
 
@@ -475,7 +490,7 @@ mod tests {
         }
 
         // The save (not the run) decides what happens to the scope, so the run keeps using it.
-        let second = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
+        let second = run_with_root(&db, "p1", &src, &store, true, 200).unwrap();
         assert_eq!(second.problem, None);
         let conn = lock(&db);
         let still = db::active_private_scope(&conn, "owner").unwrap().unwrap();
@@ -489,16 +504,16 @@ mod tests {
     }
 
     #[test]
-    fn a_vanished_private_folder_cannot_be_forced() {
+    fn a_vanished_private_folder_holds_every_run() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path(), true);
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p1", &src, &store, false, 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
 
         std::fs::rename(&src, src.with_extension("missing")).unwrap();
-        let held = run_with_root(&db, "p1", &src, &store, false, 200).unwrap();
+        let held = run_with_root(&db, "p1", &src, &store, true, 200).unwrap();
         assert!(held.problem.is_some());
         assert!(!held.source_missing);
         assert_eq!(held.snapshot_id, None);
@@ -512,9 +527,9 @@ mod tests {
             .unwrap();
         assert_eq!(open_runs, 0);
 
-        let accepted = run_with_root(&db, "p1", &src, &store, true, 300).unwrap();
-        assert!(accepted.problem.is_some());
-        assert_eq!(accepted.snapshot_id, None);
+        let again = run_with_root(&db, "p1", &src, &store, true, 300).unwrap();
+        assert!(again.problem.is_some());
+        assert_eq!(again.snapshot_id, None);
         assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
     }
 }

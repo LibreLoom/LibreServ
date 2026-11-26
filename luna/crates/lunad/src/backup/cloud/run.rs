@@ -18,8 +18,7 @@ use super::crypto::{self, Signer};
 use super::format::{self, BackupMeta, ChunkRef, PackBuilder, SnapshotRecord, Tree, TreeEntry};
 use super::identity;
 use super::keys::{self, Recipients};
-use super::retention;
-use super::source::{self, CHECK_FAILED, Folder, MASS_DELETE, Walk};
+use super::source::{self, CHECK_FAILED, Folder, Walk};
 use super::store::CloudStore;
 use crate::backup::access_list;
 use crate::db::{self, BackupKey};
@@ -59,8 +58,7 @@ pub struct CloudOutcome {
     pub reused_chunks: u64,
     pub snapshot_id: Option<String>,
     pub problem: Option<String>,
-    /// True when the run was held because most of the source looks gone. A person can
-    /// then choose "Back up anyway", which runs it with `accept_missing`.
+    /// Always false now: a run is no longer held because most of the source looks gone.
     pub source_missing: bool,
     /// True when the backup's lock was taken by another run, a key move or a re-seal. This is not
     /// a failure: nothing is recorded, and the next scheduled run tries again.
@@ -73,32 +71,24 @@ pub(crate) fn run_with_root(
     protection_id: &str,
     root: &Path,
     store: &dyn CloudStore,
-    started_by: &str,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let folder = match Folder::at(root) {
         Ok(folder) => folder,
-        Err(unavailable) => return unavailable.record(db, protection_id, now),
+        Err(unavailable) => return unavailable.record(db, protection_id),
     };
-    run_from_folder(
-        db,
-        protection_id,
-        folder,
-        store,
-        started_by,
-        accept_missing,
-        now,
-    )
+    run_from_folder(db, protection_id, folder, store, manual, now)
 }
 
+/// `manual` is true for a run a person asked for ("Back up now"), which always makes a snapshot.
+/// A scheduled run (`manual` false) makes none when the content has not changed.
 pub(super) fn run_from_folder(
     db: &crate::Db,
     protection_id: &str,
     folder: Folder,
     store: &dyn CloudStore,
-    started_by: &str,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> Result<CloudOutcome> {
     let Some(_slot) = RunSlot::take(db, protection_id) else {
@@ -121,31 +111,26 @@ pub(super) fn run_from_folder(
         }
     }
 
-    let mut walk = match folder.walk() {
+    let walk = match folder.walk() {
         Ok(walk) => walk,
-        Err(unavailable) => return unavailable.record(db, protection_id, now),
+        Err(unavailable) => return unavailable.record(db, protection_id),
     };
     source::revive(db, protection_id)?;
     let prev = match previous_tree(db, protection_id, store) {
         Ok(prev) => prev,
         Err(err) => {
             tracing::warn!(error = %err, protection_id, "could not check the source against the last copy");
-            return source::hold(db, protection_id, now, CHECK_FAILED, false);
+            return Ok(problem_outcome(CHECK_FAILED));
         }
     };
-    if let Some(prev) = &prev
-        && !walk.compare(&prev.snapshot_id, &prev.tree, accept_missing)
-    {
-        return source::hold(db, protection_id, now, MASS_DELETE, true);
-    }
 
     // Failing here means no run row was opened, so there is nothing to close.
-    let (ctx, publish) = match prepare(db, protection_id, started_by, now) {
+    let (ctx, publish) = match prepare(db, protection_id, now) {
         Ok(prepared) => prepared,
         Err(e) => return Ok(problem_outcome(&e.to_string())),
     };
 
-    let result = publish_and_copy(db, &ctx, publish, walk, store, now, prev.as_ref());
+    let result = publish_and_copy(db, &ctx, publish, walk, store, now, prev.as_ref(), manual);
     // The run is over whether or not it committed, so always close it.
     if let Err(e) = db::end_run(&lock(db), &ctx.run_id, now) {
         return Ok(problem_outcome(&e.to_string()));
@@ -157,23 +142,12 @@ pub(super) fn run_from_folder(
     })
 }
 
-/// The previous snapshot's file list, kept so a run can reuse the chunks of files that have not
-/// changed instead of reading them again.
-pub(crate) struct PrevTree {
-    pub(crate) tree: Tree,
-    snapshot_id: String,
-    /// When the previous run started. A file modified at or after this may have changed during
-    /// that run without its size or whole-second mtime changing, so it is always read again.
-    pub(crate) created_at: i64,
-    pub(crate) key_version: u32,
-}
-
-/// Load the latest snapshot using the key version named in its record.
+/// Load the latest snapshot's file list, so a scheduled run can tell whether anything changed.
 fn previous_tree(
     db: &crate::Db,
     protection_id: &str,
     store: &dyn CloudStore,
-) -> Result<Option<PrevTree>> {
+) -> Result<Option<Tree>> {
     let (record, tree_key) = {
         let conn = lock(db);
         let Some(last) = db::list_cloud_snapshots(&conn, protection_id)?
@@ -200,13 +174,7 @@ fn previous_tree(
             .map_err(|_| anyhow!("This backup's key is damaged."))?;
         (record, tree_key)
     };
-    let tree = read_tree(store, &record, &tree_key)?;
-    Ok(Some(PrevTree {
-        tree,
-        snapshot_id: record.snapshot_id,
-        created_at: record.created_at,
-        key_version: record.key_version,
-    }))
+    Ok(Some(read_tree(store, &record, &tree_key)?))
 }
 
 /// How one kind of backup seals what a run writes. Shared backups use the backup key;
@@ -289,12 +257,7 @@ pub(crate) struct RunContext {
 }
 
 /// Reads the key and recipients and opens the run row. Nothing after `start_run` can fail.
-fn prepare(
-    db: &crate::Db,
-    protection_id: &str,
-    _started_by: &str,
-    now: i64,
-) -> Result<(RunContext, Publish)> {
+fn prepare(db: &crate::Db, protection_id: &str, now: i64) -> Result<(RunContext, Publish)> {
     let conn = lock(db);
     let row = db::get_protection(&conn, protection_id)?
         .ok_or_else(|| anyhow!("This backup no longer exists."))?;
@@ -431,7 +394,8 @@ fn publish_and_copy(
     walk: Walk,
     store: &dyn CloudStore,
     now: i64,
-    prev: Option<&PrevTree>,
+    prev: Option<&Tree>,
+    manual: bool,
 ) -> Result<CloudOutcome> {
     let publish_version = |key: &BackupKey, recipients: &Recipients| -> Result<()> {
         keys::publish_key(
@@ -448,7 +412,7 @@ fn publish_and_copy(
     if let Some((key, recipients)) = &publish.current {
         publish_version(key, recipients)?;
     }
-    let outcome = copy_and_commit(db, ctx, walk, store, now, prev);
+    let outcome = copy_and_commit(db, ctx, walk, store, now, prev, manual);
     for (key, recipients) in &publish.older {
         if let Err(error) = publish_version(key, recipients) {
             tracing::warn!(%error, protection_id = %ctx.protection_id, version = key.version,
@@ -548,30 +512,6 @@ impl CopyState<'_> {
         }
     }
 
-    /// The previous snapshot's chunks for a file that has not changed, when every one is still
-    /// stored exactly where that tree says (a pack dropped as damaged or by retention is not).
-    /// `None` means the file must be read again. Takes the DB lock once per file.
-    fn reuse(&mut self, refs: &[ChunkRef]) -> Result<Option<Vec<ChunkRef>>> {
-        {
-            let conn = lock(self.db);
-            for r in refs {
-                match db::find_chunk(&conn, &self.ctx.scope, &r.id)? {
-                    Some((pack, offset, len))
-                        if pack == hex(&r.pack)
-                            && offset == r.offset as i64
-                            && len == i64::from(r.len) => {}
-                    _ => return Ok(None),
-                }
-            }
-        }
-        for r in refs {
-            self.reused_chunks += 1;
-            // Listing the pack keeps retention from deleting it while this snapshot needs it.
-            self.add_pack(hex(&r.pack));
-        }
-        Ok(Some(refs.to_vec()))
-    }
-
     /// The pack and place of a chunk this run has already stored or reused.
     /// Call only after the final `flush`, so every pending chunk has a place.
     fn locate(&self, id: &[u8; 32]) -> Result<ChunkRef> {
@@ -588,24 +528,18 @@ impl CopyState<'_> {
     }
 }
 
-/// A file's chunks before the last pack is flushed: chunk ids read from the file now, or the
-/// previous snapshot's refs for a file that has not changed.
-enum Draft {
-    Read(Vec<[u8; 32]>),
-    Reused(Vec<ChunkRef>),
-}
-
-/// Copies every file under `root`, uploads the tree and a signed snapshot record, and commits.
+/// Reads and hashes every file under the walk, uploads only the chunks that are new, and commits a
+/// snapshot. Every file is read on every run, so an edit that keeps size and mtime is still seen.
 ///
-/// With `prev`, a file whose size and mtime match the previous snapshot reuses that snapshot's
-/// chunks without being read, like the drive-to-drive backup's size-and-mtime check.
+/// Without `manual`, a run whose files match `prev` (same paths, same chunks) commits no snapshot.
 pub(crate) fn copy_and_commit(
     db: &crate::Db,
     ctx: &RunContext,
     walk: Walk,
     store: &dyn CloudStore,
     now: i64,
-    prev: Option<&PrevTree>,
+    prev: Option<&Tree>,
+    manual: bool,
 ) -> Result<CloudOutcome> {
     let _copying = CopyPhase::begin(db, &ctx.protection_id);
     let mut copy = CopyState {
@@ -623,45 +557,17 @@ pub(crate) fn copy_and_commit(
         reused_chunks: 0,
     };
 
-    // Chunk ids are keyed per backup key version, so only a tree sealed under this run's version
-    // can lend its chunks. Files modified at or after the previous run started are left out.
-    let unchanged: HashMap<&str, &TreeEntry> = prev
-        .filter(|p| p.key_version == ctx.key_version)
-        .map(|p| {
-            p.tree
-                .entries
-                .iter()
-                .filter(|e| e.mtime < p.created_at)
-                .map(|e| (e.path.as_str(), e))
-                .collect()
-        })
-        .unwrap_or_default();
-    let mut files_skipped = 0u64;
     let mut bytes_read = 0u64;
 
     // Chunk ids per file; they become `ChunkRef`s once the last pack is flushed.
-    let mut drafts = Vec::new();
+    let mut drafts: Vec<(String, u64, i64, Vec<[u8; 32]>)> = Vec::new();
     let files = &walk.files;
     for entry in files {
-        if let Some(old) = unchanged.get(entry.rel.as_str())
-            && old.size == entry.size
-            && old.mtime == entry.mtime
-            && let Some(refs) = copy.reuse(&old.chunks)?
-        {
-            files_skipped += 1;
-            drafts.push((
-                entry.rel.clone(),
-                entry.size,
-                entry.mtime,
-                Draft::Reused(refs),
-            ));
-            continue;
-        }
         let mut file = match File::open(&entry.abs) {
             Ok(file) => file,
             Err(err) => {
                 tracing::warn!(error = %err, path = %entry.rel, "could not open a cloud backup source file");
-                return walk.read_error(db, &ctx.protection_id, now);
+                return walk.read_error(db, &ctx.protection_id);
             }
         };
         let mut chunk_ids = Vec::new();
@@ -673,35 +579,27 @@ pub(crate) fn copy_and_commit(
         if let Err(err) = read {
             if err.is::<fastcdc::v2020::Error>() {
                 tracing::warn!(error = %err, path = %entry.rel, "could not read a cloud backup source file");
-                return walk.read_error(db, &ctx.protection_id, now);
+                return walk.read_error(db, &ctx.protection_id);
             }
             return Err(err);
         }
-        drafts.push((
-            entry.rel.clone(),
-            entry.size,
-            entry.mtime,
-            Draft::Read(chunk_ids),
-        ));
+        drafts.push((entry.rel.clone(), entry.size, entry.mtime, chunk_ids));
     }
     // Plain debug line, not a perf timer: ops.rs already times the whole D7 run.
     tracing::debug!(
         files = files.len(),
-        files_skipped,
         bytes_read,
         "cloud backup read the source"
     );
     copy.flush()?;
+
     let entries = drafts
         .into_iter()
-        .map(|(path, size, mtime, draft)| {
-            let chunks = match draft {
-                Draft::Reused(refs) => refs,
-                Draft::Read(ids) => ids
-                    .iter()
-                    .map(|id| copy.locate(id))
-                    .collect::<Result<Vec<_>>>()?,
-            };
+        .map(|(path, size, mtime, ids)| {
+            let chunks = ids
+                .iter()
+                .map(|id| copy.locate(id))
+                .collect::<Result<Vec<_>>>()?;
             Ok(TreeEntry {
                 path,
                 size,
@@ -710,6 +608,21 @@ pub(crate) fn copy_and_commit(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+
+    // A scheduled run whose files point at exactly the same stored chunks as the last snapshot
+    // commits nothing. Comparing where each chunk is stored, not just its id, means a chunk whose
+    // stored copy was lost is written again and gets a snapshot.
+    if !manual && prev.is_some_and(|prev| same_content(&prev.entries, &entries)) {
+        if let Err(unavailable) = walk.verify() {
+            return unavailable.record(db, &ctx.protection_id);
+        }
+        return Ok(CloudOutcome {
+            uploaded_bytes: copy.uploaded_bytes,
+            files: files.len() as u64,
+            reused_chunks: copy.reused_chunks,
+            ..Default::default()
+        });
+    }
 
     // The tree goes into a pack of its own, so restores can find it from the snapshot.
     let tree = Tree { entries };
@@ -755,7 +668,7 @@ pub(crate) fn copy_and_commit(
     };
     let (kind, name, signed_bytes) = ctx.sealer.finish_record(record, &ctx.signer);
     if let Err(unavailable) = walk.verify() {
-        return unavailable.record(db, &ctx.protection_id, now);
+        return unavailable.record(db, &ctx.protection_id);
     }
     store
         .put_record(kind, &name, &signed_bytes)
@@ -777,7 +690,6 @@ pub(crate) fn copy_and_commit(
             &copy.pack_ids,
             &tree,
         )?;
-        retention::commit_run(&tx, &ctx.protection_id, now, walk.pin.as_deref())?;
         tx.commit()?;
     }
 
@@ -790,6 +702,20 @@ pub(crate) fn copy_and_commit(
         source_missing: false,
         busy: false,
     })
+}
+
+/// Whether the files are the same as the previous snapshot's: the same paths, each with the same
+/// stored chunks in the same order. Modification times do not count, only what the files contain.
+fn same_content(previous: &[TreeEntry], current: &[TreeEntry]) -> bool {
+    let now: HashMap<&str, &[ChunkRef]> = current
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry.chunks.as_slice()))
+        .collect();
+    previous.len() == now.len()
+        && previous.iter().all(|old| {
+            now.get(old.path.as_str())
+                .is_some_and(|chunks| *chunks == old.chunks.as_slice())
+        })
 }
 
 /// Unwraps a pack's key with any of the backup keys a protection holds, newest version first.
@@ -1046,7 +972,7 @@ mod tests {
 
         // Measure one sealed copy so the quota allows the first put but rejects the signed list.
         let sample = MemoryStore::new();
-        let result = run_with_root(&db, "p2", &root, &sample, "owner", false, 100).unwrap();
+        let result = run_with_root(&db, "p2", &root, &sample, true, 100).unwrap();
         assert_eq!(result.problem, None);
         let sample_name = keys::key_record_name("p2", 1, "owner");
         let copy_size = sample
@@ -1055,7 +981,7 @@ mod tests {
             .unwrap()
             .len();
         let constrained = MemoryStore::with_quota(copy_size as u64);
-        let failed = run_with_root(&db, "p1", &root, &constrained, "owner", false, 100).unwrap();
+        let failed = run_with_root(&db, "p1", &root, &constrained, true, 100).unwrap();
         assert!(failed.problem.is_some());
         assert!(failed.snapshot_id.is_none());
         let key = db::latest_backup_key(&lock(&db), "p1").unwrap().unwrap();
@@ -1074,7 +1000,7 @@ mod tests {
         let db = crate::Db::new(db::open(&dir.path().join("luna.db")).unwrap());
         let recovered = MemoryStore::new();
         recovered.put_record("keys", &copy_name, &copy).unwrap();
-        let result = run_with_root(&db, "p1", &root, &recovered, "owner", false, 200).unwrap();
+        let result = run_with_root(&db, "p1", &root, &recovered, true, 200).unwrap();
         assert_eq!(result.problem, None);
         assert!(result.snapshot_id.is_some());
         let conn = lock(&db);
@@ -1100,12 +1026,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        run_with_root(&db, "p2", &src, &store, "user-1", false, 100).unwrap();
+        run_with_root(&db, "p2", &src, &store, true, 100).unwrap();
         let v1 = db::latest_backup_key(&lock(&db), "p2").unwrap().unwrap();
         keys::mark_rotate(&lock(&db), "p2").unwrap();
 
         // The next run starts version 2 with version 1's dedup key, publishes it, and clears the mark.
-        let rotated = run_with_root(&db, "p2", &src, &store, "user-1", false, 200).unwrap();
+        let rotated = run_with_root(&db, "p2", &src, &store, true, 200).unwrap();
         assert_eq!(rotated.problem, None);
         let v2 = db::latest_backup_key(&lock(&db), "p2").unwrap().unwrap();
         assert_eq!(v2.version, 2);
@@ -1129,13 +1055,13 @@ mod tests {
         let mut data = std::fs::read(src.join("a.bin")).unwrap();
         data[100] ^= 0xff;
         std::fs::write(src.join("a.bin"), data).unwrap();
-        let changed = run_with_root(&db, "p2", &src, &store, "user-1", false, 300).unwrap();
+        let changed = run_with_root(&db, "p2", &src, &store, true, 300).unwrap();
         assert_eq!(changed.problem, None);
         let report = check::check(&db, "p2", &store, Sample::All, 400).unwrap();
         assert_eq!(report.problem, None);
 
         // With the mark gone, the next run keeps version 2.
-        run_with_root(&db, "p2", &src, &store, "user-1", false, 500).unwrap();
+        run_with_root(&db, "p2", &src, &store, true, 500).unwrap();
         assert_eq!(
             db::latest_backup_key(&lock(&db), "p2")
                 .unwrap()
@@ -1190,7 +1116,7 @@ mod tests {
     }
 
     #[test]
-    fn run_is_held_when_most_source_files_are_gone() {
+    fn most_source_files_gone_still_makes_a_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
@@ -1198,7 +1124,7 @@ mod tests {
         for i in 0..18 {
             std::fs::write(src.join(format!("extra-{i}")), b"x").unwrap();
         }
-        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
 
         std::fs::remove_file(src.join("a.bin")).unwrap();
@@ -1206,11 +1132,11 @@ mod tests {
         for i in 0..18 {
             std::fs::remove_file(src.join(format!("extra-{i}"))).unwrap();
         }
-        let held = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(held.problem.as_deref(), Some(MASS_DELETE));
-        assert!(held.source_missing);
-        assert_eq!(held.snapshot_id, None);
-        assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
+        let out = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
+        assert_eq!(out.problem, None);
+        assert!(!out.source_missing);
+        assert!(out.snapshot_id.is_some());
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
         let open_runs: i64 = lock(&db)
             .query_row(
                 "SELECT COUNT(*) FROM cloud_runs WHERE ended_at = 0",
@@ -1219,63 +1145,36 @@ mod tests {
             )
             .unwrap();
         assert_eq!(open_runs, 0);
-
-        let accepted = run_with_root(&db, "p6", &src, &store, "user-1", true, 300).unwrap();
-        assert!(accepted.snapshot_id.is_some());
-        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
     }
 
     #[test]
-    fn deletion_pin_survives_wall_time_while_the_folder_is_gone() {
+    fn a_missing_folder_leaves_existing_snapshots_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p8", &src, &store, true, 100).unwrap();
         let first = first.snapshot_id.unwrap();
-
-        std::fs::remove_file(src.join("a.bin")).unwrap();
-        std::fs::remove_file(src.join("b.bin")).unwrap();
-        let out = run_with_root(&db, "p8", &src, &store, "user-1", false, 200).unwrap();
-        assert!(
-            out.snapshot_id.is_some(),
-            "two files are below the shared hold threshold"
-        );
 
         let missing = src.with_extension("missing");
         std::fs::rename(&src, &missing).unwrap();
-        let held = run_with_root(&db, "p8", &src, &store, "user-1", true, 300).unwrap();
-        assert!(!held.source_missing);
+        let held = run_with_root(&db, "p8", &src, &store, false, 300).unwrap();
+        assert!(held.problem.is_some());
         assert_eq!(held.snapshot_id, None);
         assert_eq!(
             db::get_protection(&lock(&db), "p8").unwrap().unwrap().state,
             db::PROTECTION_SOURCE_GONE
         );
-
-        let scope: String = lock(&db)
-            .query_row(
-                "SELECT scope FROM cloud_runs WHERE protection_id = 'p8' LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        let later = 300 + 60 * 86_400;
-        retention::thin(&db, "p8", &scope, &store, later).unwrap();
-        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
+        assert!(store.get_record("snapshots", &first).unwrap().is_some());
 
         std::fs::rename(&missing, &src).unwrap();
-        let resumed = run_with_root(&db, "p8", &src, &store, "user-1", false, later).unwrap();
-        assert!(resumed.snapshot_id.is_some());
+        let resumed = run_with_root(&db, "p8", &src, &store, false, 400).unwrap();
+        assert_eq!(resumed.problem, None);
         assert_eq!(
             db::get_protection(&lock(&db), "p8").unwrap().unwrap().state,
             db::PROTECTION_ACTIVE
         );
-        let last_day = later + crate::backup::drive_store::DELETED_KEEP_SECS - 100;
-        retention::thin(&db, "p8", &scope, &store, last_day).unwrap();
         assert!(store.get_record("snapshots", &first).unwrap().is_some());
-        assert!(!committed_tree(&db, &store, "p8", &first).entries.is_empty());
-        retention::thin(&db, "p8", &scope, &store, last_day + 1).unwrap();
-        assert!(store.get_record("snapshots", &first).unwrap().is_none());
     }
 
     #[test]
@@ -1284,7 +1183,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
+        run_with_root(&db, "p7", &src, &store, true, 100).unwrap();
 
         lock(&db)
             .execute(
@@ -1292,48 +1191,9 @@ mod tests {
                 [],
             )
             .unwrap();
-        let held = run_with_root(&db, "p7", &src, &store, "user-1", false, 200).unwrap();
+        let held = run_with_root(&db, "p7", &src, &store, true, 200).unwrap();
         assert_eq!(held.problem.as_deref(), Some(CHECK_FAILED));
-        assert!(!held.source_missing);
         assert_eq!(held.snapshot_id, None);
-
-        let forced = run_with_root(&db, "p7", &src, &store, "user-1", true, 300).unwrap();
-        assert_eq!(forced.problem.as_deref(), Some(CHECK_FAILED));
-        assert_eq!(forced.snapshot_id, None);
-    }
-
-    #[test]
-    fn the_check_still_runs_after_the_key_version_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = setup(dir.path());
-        let src = source(dir.path());
-        let store = MemoryStore::new();
-        for i in 0..18 {
-            std::fs::write(src.join(format!("extra-{i}")), b"x").unwrap();
-        }
-        run_with_root(&db, "p9", &src, &store, "user-1", false, 100).unwrap();
-
-        // Someone's access changed, so the newest key is a later version than the last copy's.
-        let newest = db::latest_backup_key(&lock(&db), "p9").unwrap().unwrap();
-        db::insert_backup_key(
-            &lock(&db),
-            &BackupKey {
-                version: newest.version + 1,
-                key: vec![7; 32],
-                dedup_key: vec![8; 32],
-                ..newest
-            },
-        )
-        .unwrap();
-
-        std::fs::remove_file(src.join("a.bin")).unwrap();
-        std::fs::remove_file(src.join("b.bin")).unwrap();
-        for i in 0..18 {
-            std::fs::remove_file(src.join(format!("extra-{i}"))).unwrap();
-        }
-        let held = run_with_root(&db, "p9", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(held.problem.as_deref(), Some(MASS_DELETE));
-        assert!(held.source_missing);
     }
 
     #[test]
@@ -1344,7 +1204,7 @@ mod tests {
         let store = MemoryStore::new();
         lock(&db).execute("DELETE FROM cloud_identity", []).unwrap();
 
-        let out = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
+        let out = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(
             out.problem.as_deref(),
             Some("Luna's cloud identity is missing. Try again.")
@@ -1362,7 +1222,7 @@ mod tests {
         let store = MemoryStore::new();
         db::delete_user_keys(&lock(&db), "owner").unwrap();
 
-        let held = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+        let held = run_with_root(&db, "p8", &src, &store, true, 100).unwrap();
         assert_eq!(held.problem.as_deref(), Some(NO_ADMIN_PHRASE));
         assert_eq!(held.snapshot_id, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
@@ -1382,7 +1242,7 @@ mod tests {
             },
         )
         .unwrap();
-        let done = run_with_root(&db, "p8", &src, &store, "user-1", false, 200).unwrap();
+        let done = run_with_root(&db, "p8", &src, &store, true, 200).unwrap();
         assert_eq!(done.problem, None);
         assert!(done.snapshot_id.is_some());
     }
@@ -1394,13 +1254,13 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::new();
 
-        let first = run_with_root(&db, "p1", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p1", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
         assert!(first.snapshot_id.is_some());
         assert_eq!(first.files, 2);
         assert!(first.uploaded_bytes >= 5 << 20);
 
-        let second = run_with_root(&db, "p1", &src, &store, "user-1", false, 200).unwrap();
+        let second = run_with_root(&db, "p1", &src, &store, true, 200).unwrap();
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
         assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
@@ -1447,55 +1307,100 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_files_reuse_the_last_trees_chunks_without_being_read() {
+    fn a_scheduled_run_with_no_changes_makes_no_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        // Every file was last modified before this run started.
-        let start = db::now_unix() + 60;
-        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, start).unwrap();
-        assert_eq!(first.problem, None);
-        rewrite_keeping_size_and_mtime(&src.join("a.bin"));
+        let first = run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
+        assert!(first.snapshot_id.is_some());
 
-        let second = run_with_root(&db, "p6", &src, &store, "user-1", false, start + 100).unwrap();
+        let second = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
         assert_eq!(second.problem, None);
+        assert_eq!(second.snapshot_id, None);
+        assert_eq!(second.uploaded_bytes, 0);
         assert_eq!(second.files, 2);
-        assert!(second.reused_chunks > 0);
-        let t1 = committed_tree(&db, &store, "p6", first.snapshot_id.as_deref().unwrap());
-        let t2 = committed_tree(&db, &store, "p6", second.snapshot_id.as_deref().unwrap());
-        // a.bin was not read: its old chunks were carried over as they were.
-        assert_eq!(chunks_of(&t1, "a.bin"), chunks_of(&t2, "a.bin"));
-        assert_eq!(chunks_of(&t1, "b.bin"), chunks_of(&t2, "b.bin"));
-        // The reused packs are listed for the new snapshot, so retention keeps them.
-        let conn = lock(&db);
-        let second_id = second.snapshot_id.unwrap();
-        for chunk in chunks_of(&t2, "a.bin") {
-            let listed: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM cloud_snapshot_packs WHERE snapshot_id = ?1 AND pack_id = ?2",
-                    rusqlite::params![second_id, hex(&chunk.pack)],
-                    |r| r.get(0),
-                )
-                .unwrap();
-            assert_eq!(listed, 1);
-        }
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
+        let open_runs: i64 = lock(&db)
+            .query_row(
+                "SELECT COUNT(*) FROM cloud_runs WHERE ended_at = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(open_runs, 0);
     }
 
     #[test]
-    fn files_modified_during_the_last_run_are_read_again() {
+    fn a_scheduled_run_writes_again_a_chunk_whose_stored_copy_is_gone() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        // The files' mtimes are not before this start, so none can be trusted unread.
-        let first = run_with_root(&db, "p6", &src, &store, "user-1", false, 100).unwrap();
-        rewrite_keeping_size_and_mtime(&src.join("a.bin"));
-        let second = run_with_root(&db, "p6", &src, &store, "user-1", false, 200).unwrap();
-        assert_eq!(second.problem, None);
+        let first = run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
         let t1 = committed_tree(&db, &store, "p6", first.snapshot_id.as_deref().unwrap());
-        let t2 = committed_tree(&db, &store, "p6", second.snapshot_id.as_deref().unwrap());
+        let lost = chunks_of(&t1, "a.bin")[0].id;
+        lock(&db)
+            .execute("DELETE FROM cloud_chunks WHERE chunk_id = ?1", [&lost[..]])
+            .unwrap();
+
+        let second = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
+        assert_eq!(second.problem, None);
+        assert!(second.snapshot_id.is_some());
+    }
+
+    #[test]
+    fn a_manual_run_with_no_changes_still_makes_a_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let first = run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
+
+        let second = run_with_root(&db, "p6", &src, &store, true, 200).unwrap();
+        assert_eq!(second.problem, None);
+        assert!(second.snapshot_id.is_some());
+        assert_eq!(store.list_records("snapshots").unwrap().len(), 2);
+        // Only the new snapshot's tree was uploaded: every file chunk was already stored.
+        assert!(second.reused_chunks > 0);
+        assert!(second.uploaded_bytes < first.uploaded_bytes / 10);
+    }
+
+    #[test]
+    fn a_scheduled_run_ignores_a_touched_file_whose_content_is_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        File::options()
+            .write(true)
+            .open(src.join("a.bin"))
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+
+        let second = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
+        assert_eq!(second.snapshot_id, None);
+    }
+
+    #[test]
+    fn a_rewrite_keeping_size_and_mtime_is_read_and_snapshotted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = setup(dir.path());
+        let src = source(dir.path());
+        let store = MemoryStore::new();
+        let first = run_with_root(&db, "p6", &src, &store, true, 100).unwrap();
+        rewrite_keeping_size_and_mtime(&src.join("a.bin"));
+
+        let second = run_with_root(&db, "p6", &src, &store, false, 200).unwrap();
+        assert_eq!(second.problem, None);
+        let second_id = second.snapshot_id.expect("a changed file makes a snapshot");
+        let t1 = committed_tree(&db, &store, "p6", first.snapshot_id.as_deref().unwrap());
+        let t2 = committed_tree(&db, &store, "p6", &second_id);
         assert_ne!(chunks_of(&t1, "a.bin"), chunks_of(&t2, "a.bin"));
+        assert_eq!(chunks_of(&t1, "b.bin"), chunks_of(&t2, "b.bin"));
     }
 
     #[test]
@@ -1504,7 +1409,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p3", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p3", &src, &store, true, 100).unwrap();
         assert_eq!(first.problem, None);
 
         let conn = lock(&db);
@@ -1525,12 +1430,12 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let first = run_with_root(&db, "p2", &src, &store, "user-1", false, 100).unwrap();
+        let first = run_with_root(&db, "p2", &src, &store, true, 100).unwrap();
 
         let mut data = std::fs::read(src.join("a.bin")).unwrap();
         data[100] ^= 0xff;
         std::fs::write(src.join("a.bin"), data).unwrap();
-        let second = run_with_root(&db, "p2", &src, &store, "user-1", false, 200).unwrap();
+        let second = run_with_root(&db, "p2", &src, &store, true, 200).unwrap();
 
         assert_eq!(second.problem, None);
         assert!(second.reused_chunks > 0);
@@ -1544,7 +1449,7 @@ mod tests {
         let src = source(dir.path());
         let store = MemoryStore::with_quota(1024);
 
-        let out = run_with_root(&db, "p7", &src, &store, "user-1", false, 100).unwrap();
+        let out = run_with_root(&db, "p7", &src, &store, true, 100).unwrap();
         assert_eq!(
             out.problem.as_deref(),
             Some(
@@ -1561,7 +1466,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p5", &src, &store, "user-1", false, 100).unwrap();
+        let out = run_with_root(&db, "p5", &src, &store, true, 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -1598,7 +1503,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p8", &src, &store, "user-1", false, 100).unwrap();
+        let out = run_with_root(&db, "p8", &src, &store, true, 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);
@@ -1641,7 +1546,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p8", &src, &store, "user-7", false, 100).unwrap();
+        let out = run_with_root(&db, "p8", &src, &store, true, 100).unwrap();
         assert_eq!(out.problem, None);
         let snapshot_id = out.snapshot_id.unwrap();
 
@@ -1671,7 +1576,7 @@ mod tests {
         let db = setup(dir.path());
         let src = source(dir.path());
         let store = MemoryStore::new();
-        let out = run_with_root(&db, "p4", &src, &store, "user-1", false, 100).unwrap();
+        let out = run_with_root(&db, "p4", &src, &store, true, 100).unwrap();
         let snapshot_id = out.snapshot_id.unwrap();
 
         let conn = lock(&db);

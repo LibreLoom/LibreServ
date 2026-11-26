@@ -1,7 +1,6 @@
-//! Cloud retention (plan §5): which snapshots stay, and how packs that no
+//! Cloud retention: which snapshots stay, and how packs that no
 //! snapshot uses are marked, waited on, and deleted from the cloud.
 
-use std::collections::HashSet;
 use std::sync::MutexGuard;
 
 use anyhow::{anyhow, bail};
@@ -9,11 +8,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::backup::cloud::private::{PSCOPES_KIND, snapshot_record_ref};
 use crate::backup::cloud::store::{CloudStore, StoreError};
-use crate::backup::drive_store::{DELETED_KEEP_SECS, keep_versions};
 use crate::db;
 
 /// Seconds a pack stays `marked` before it may be deleted. Matches `db::deletable_packs`.
 const GRACE_SECS: i64 = 86_400;
+/// How many snapshots an archive keeps, newest first. Manual and scheduled snapshots count alike.
+pub const KEEP_SNAPSHOTS: usize = 7;
 
 /// What one `thin` pass changed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -24,61 +24,7 @@ pub struct Thinned {
     pub bytes_freed: u64,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-struct Clock {
-    paused_at: Option<i64>,
-    paused_secs: i64,
-}
-
-fn clock_key(id: &str) -> String {
-    format!("cloud_retention_clock:{id}")
-}
-
-fn clock(conn: &Connection, id: &str) -> anyhow::Result<Clock> {
-    Ok(match db::get_meta(conn, &clock_key(id))? {
-        Some(json) => serde_json::from_str(&json)?,
-        None => Clock::default(),
-    })
-}
-
-pub(super) fn pause(conn: &Connection, id: &str, now: i64) -> anyhow::Result<()> {
-    let mut clock = clock(conn, id)?;
-    if clock.paused_at.is_none() {
-        clock.paused_at = Some(now);
-        db::set_meta(conn, &clock_key(id), &serde_json::to_string(&clock)?)?;
-    }
-    Ok(())
-}
-
-pub(super) fn forget(conn: &Connection, id: &str) -> anyhow::Result<()> {
-    conn.execute("DELETE FROM meta WHERE key = ?1", [clock_key(id)])?;
-    Ok(())
-}
-
-/// Every file first found missing in this run was present in the previous
-/// snapshot. Keeping that one snapshot also keeps all of their packs.
-pub(super) fn commit_run(
-    conn: &Connection,
-    id: &str,
-    now: i64,
-    previous_with_deletions: Option<&str>,
-) -> anyhow::Result<()> {
-    let mut clock = clock(conn, id)?;
-    if let Some(paused_at) = clock.paused_at.take() {
-        clock.paused_secs += (now - paused_at).max(0);
-        db::set_meta(conn, &clock_key(id), &serde_json::to_string(&clock)?)?;
-    }
-    if let Some(snapshot) = previous_with_deletions {
-        conn.execute(
-            "INSERT INTO cloud_deleted_file_snapshots (snapshot_id, keep_until) VALUES (?1, ?2)
-             ON CONFLICT(snapshot_id) DO UPDATE SET keep_until = MAX(keep_until, excluded.keep_until)",
-            params![snapshot, now - clock.paused_secs + DELETED_KEEP_SECS],
-        )?;
-    }
-    Ok(())
-}
-
-/// Drop the snapshots the retention buckets no longer keep, then mark and delete
+/// Drop every snapshot past the newest `KEEP_SNAPSHOTS`, then mark and delete
 /// packs nothing uses. Safe to run again at any time: a pass that stops part-way
 /// is finished by the next one.
 pub fn thin(
@@ -90,40 +36,18 @@ pub fn thin(
 ) -> anyhow::Result<Thinned> {
     let mut out = Thinned::default();
 
-    // Snapshots, newest first. The latest one is always kept.
-    let (snapshots, pinned) = {
+    // Snapshots, newest first. A source that is gone leaves them untouched.
+    let snapshots = {
         let conn = lock(db)?;
-        let clock = clock(&conn, protection_id)?;
         let gone = db::get_protection(&conn, protection_id)?
             .is_some_and(|row| row.state == db::PROTECTION_SOURCE_GONE);
-        if clock.paused_at.is_some() || gone {
-            (Vec::new(), HashSet::new())
+        if gone {
+            Vec::new()
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT pin.snapshot_id FROM cloud_deleted_file_snapshots pin
-                 JOIN cloud_snapshots snap ON snap.id = pin.snapshot_id
-                 WHERE snap.protection_id = ?1 AND pin.keep_until >= ?2",
-            )?;
-            let pinned = stmt
-                .query_map(params![protection_id, now - clock.paused_secs], |row| {
-                    row.get(0)
-                })?
-                .collect::<rusqlite::Result<HashSet<String>>>()?;
-            (db::list_cloud_snapshots(&conn, protection_id)?, pinned)
+            db::list_cloud_snapshots(&conn, protection_id)?
         }
     };
-    let times: Vec<i64> = snapshots.iter().map(|s| s.created_at).collect();
-    let keep_times: HashSet<i64> = keep_versions(&times, now).into_iter().collect();
-    let mut seen_times = HashSet::new();
-    for (index, snap) in snapshots.iter().enumerate() {
-        // keep_versions works on times, so keep only the first snapshot at each kept time.
-        let first_at_time = seen_times.insert(snap.created_at);
-        let keep = index == 0
-            || pinned.contains(&snap.id)
-            || (first_at_time && keep_times.contains(&snap.created_at));
-        if keep {
-            continue;
-        }
+    for snap in snapshots.iter().skip(KEEP_SNAPSHOTS) {
         // Store first: if it fails, the row stays and the next pass tries again.
         let (kind, name) = {
             let conn = lock(db)?;
@@ -404,6 +328,21 @@ mod tests {
         db::list_packs(&conn, SCOPE, state).unwrap()
     }
 
+    /// Fill the newest `KEEP_SNAPSHOTS` slots, so any snapshot added before them is past the limit.
+    /// The first of them carries `packs`.
+    fn add_newer_snapshots(db: &crate::Db, store: &MemoryStore, packs: &[[u8; 32]]) {
+        for i in 0..KEEP_SNAPSHOTS {
+            let packs = if i == 0 { packs } else { &[] };
+            add_snapshot(
+                db,
+                store,
+                &format!("recent-{i}"),
+                NOW - 10 - i as i64,
+                packs,
+            );
+        }
+    }
+
     #[test]
     fn thin_removes_private_records_by_their_kind() {
         let dir = tempfile::tempdir().unwrap();
@@ -450,7 +389,7 @@ mod tests {
             let mut conn = db.lock().unwrap();
             db::commit_private_snapshot_tx(&mut conn, &snap, &[], PSCOPE, b"{}").unwrap();
         }
-        add_snapshot(&db, &store, "latest", NOW - 10, &[]);
+        add_newer_snapshots(&db, &store, &[]);
 
         let out = thin(&db, "p1", PSCOPE, &store, NOW).unwrap();
 
@@ -465,42 +404,44 @@ mod tests {
             store.get_record("snapshots", "priv-1").unwrap().is_some(),
             "decoy must stay"
         );
-        assert!(store.get_record("snapshots", "latest").unwrap().is_some());
-        assert_eq!(snapshot_ids(&db), ["latest"]);
+        assert!(store.get_record("snapshots", "recent-0").unwrap().is_some());
+        assert!(!snapshot_ids(&db).contains(&"priv-1".to_string()));
     }
 
     #[test]
-    fn old_snapshots_are_thinned_by_bucket_and_latest_is_kept() {
+    fn the_newest_seven_snapshots_are_kept_whatever_their_age() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let store = MemoryStore::new();
-        add_snapshot(&db, &store, "latest", NOW - 10, &[]);
-        add_snapshot(&db, &store, "week-young", NOW - 2 * DAY, &[]);
-        add_snapshot(&db, &store, "week-old", NOW - 3 * DAY, &[]);
-        add_snapshot(&db, &store, "month", NOW - 10 * DAY, &[]);
-        add_snapshot(&db, &store, "too-old", NOW - 40 * DAY, &[]);
+        // Two old snapshots sit past the limit. The seven newer ones are kept, even the oldest of them.
+        add_snapshot(&db, &store, "too-old", NOW - 400 * DAY, &[]);
+        add_snapshot(&db, &store, "old", NOW - 40 * DAY, &[]);
+        for i in 0..KEEP_SNAPSHOTS {
+            add_snapshot(
+                &db,
+                &store,
+                &format!("s{i}"),
+                NOW - 3 * DAY - i as i64 * DAY,
+                &[],
+            );
+        }
 
         let out = thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
         assert_eq!(out.snapshots_removed, 2);
-        // Oldest per bucket survives: week-old (3 days) over week-young, and month.
-        assert_eq!(snapshot_ids(&db), ["latest", "month", "week-old"]);
-        assert!(
-            store
-                .get_record("snapshots", "week-young")
-                .unwrap()
-                .is_none()
-        );
+        let mut kept: Vec<String> = (0..KEEP_SNAPSHOTS).map(|i| format!("s{i}")).collect();
+        kept.sort();
+        assert_eq!(snapshot_ids(&db), kept);
         assert!(store.get_record("snapshots", "too-old").unwrap().is_none());
-        assert!(store.get_record("snapshots", "month").unwrap().is_some());
+        assert!(store.get_record("snapshots", "old").unwrap().is_none());
     }
 
     #[test]
-    fn latest_snapshot_is_kept_even_when_it_is_past_every_bucket() {
+    fn an_old_snapshot_is_kept_while_fewer_than_seven_exist() {
         let dir = tempfile::tempdir().unwrap();
         let db = setup(dir.path());
         let store = MemoryStore::new();
-        add_snapshot(&db, &store, "only", NOW - 40 * DAY, &[]);
+        add_snapshot(&db, &store, "only", NOW - 400 * DAY, &[]);
 
         let out = thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
@@ -515,8 +456,8 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "latest", NOW - 10, &[kept]);
         add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_newer_snapshots(&db, &store, &[kept]);
 
         let out = thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
@@ -532,8 +473,8 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack bytes");
-        add_snapshot(&db, &store, "latest", NOW - 10, &[kept]);
         add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
 
         let early = thin(&db, "p1", SCOPE, &store, NOW + 100).unwrap();
@@ -555,8 +496,8 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "latest", NOW - 10, &[kept]);
         add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         // A run that began before the mark might still be using the pack.
         {
@@ -584,8 +525,8 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let reused = add_pack(&db, &store, b"reused pack");
-        add_snapshot(&db, &store, "latest", NOW - 10, &[kept]);
         add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[reused]);
+        add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         assert_eq!(packs_in_state(&db, "marked"), [hex(&reused)]);
 
@@ -712,8 +653,8 @@ mod tests {
         let store = MemoryStore::new();
         let kept = add_pack(&db, &store, b"kept pack");
         let unused = add_pack(&db, &store, b"unused pack");
-        add_snapshot(&db, &store, "latest", NOW - 10, &[kept]);
         add_snapshot(&db, &store, "gone", NOW - 40 * DAY, &[unused]);
+        add_newer_snapshots(&db, &store, &[kept]);
         thin(&db, "p1", SCOPE, &store, NOW).unwrap();
         store.delete_pack(&unused).unwrap();
 

@@ -126,12 +126,11 @@ async fn create(
     let connect = state.connect.clone();
     let db = state.db.clone();
     let id = row.id.clone();
-    let started_by = user.id.clone();
     drop(tokio::task::spawn_blocking(move || {
         let now = db::now_unix();
         match connect_store(&connect, &db) {
             Some(store) => {
-                ops::run(&db, &id, &store, &connect, &started_by, false, now);
+                ops::run(&db, &id, &store, &connect, true, now);
             }
             // Without Connect, every active cloud backup says why it cannot run.
             None => {
@@ -209,31 +208,18 @@ pub(crate) async fn delete_cloud(state: &AppState, id: &str) -> ApiResult {
     }
 }
 
-/// Options for running a backup now. `accept_missing` is the person's answer to "the source
-/// looks missing": true lets the run go ahead anyway. It may come as a query or in the body.
-#[derive(serde::Deserialize, Default)]
-struct RunOptions {
-    #[serde(default)]
-    accept_missing: bool,
-}
-
 async fn run(
     State(state): State<AppState>,
     Extension(user): Extension<CurrentUser>,
     Path(id): Path<String>,
-    axum::extract::Query(query): axum::extract::Query<RunOptions>,
-    body: Option<Json<RunOptions>>,
 ) -> ApiResult {
-    let wants_accept_missing = query.accept_missing || body.is_some_and(|Json(b)| b.accept_missing);
-    // Only people who may delete the backup may let a run go ahead on a source that looks gone.
-    let accept_missing = {
+    {
         let conn = state.db.lock().unwrap_or_else(|p| p.into_inner());
         let row = find_backup(&conn, &id)?;
         if !ops::visible_to(&row, &user) {
             return Err(not_found());
         }
-        accept_missing_allowed(&conn, &row, &user, wants_accept_missing)
-    };
+    }
     // A run or a check already holds the backup. Say so instead of starting another.
     if drive_backup::is_running(&state.db, &id) {
         return Ok(Json(json!({
@@ -243,18 +229,9 @@ async fn run(
     }
     let connect = state.connect.clone();
     let db = state.db.clone();
-    let started_by = user.id.clone();
     let job = tokio::task::spawn_blocking(move || {
         let store = connect_store(&connect, &db)?;
-        Some(ops::run(
-            &db,
-            &id,
-            &store,
-            &connect,
-            &started_by,
-            accept_missing,
-            db::now_unix(),
-        ))
+        Some(ops::run(&db, &id, &store, &connect, true, db::now_unix()))
     });
     // A big first copy can take hours. Answer when it's quick; otherwise say
     // it's not done and let the backup's state tell the rest.
@@ -351,17 +328,6 @@ fn find_backup(conn: &Connection, id: &str) -> Result<ProtectionRow, ApiError> {
         .map_err(|_| read_failed())?
         .filter(|row| row.kind == db::PROTECTION_CLOUD)
         .ok_or_else(not_found)
-}
-
-/// "Back up anyway" on a source that looks gone is for people who may delete the backup,
-/// the same rule as a drive backup's "Run anyway". Anyone else's request is ignored.
-fn accept_missing_allowed(
-    conn: &Connection,
-    row: &ProtectionRow,
-    user: &CurrentUser,
-    wants: bool,
-) -> bool {
-    wants && can_delete(conn, row, user)
 }
 
 /// Admins may delete any shared backup; anyone else only a backup they made and can see.
@@ -664,25 +630,6 @@ mod tests {
         )
         .await;
         assert_eq!(ids(&body), vec!["c-admin".to_string()]);
-    }
-
-    #[tokio::test]
-    async fn only_people_who_can_delete_may_accept_a_missing_source() {
-        let f = fixture();
-        let both = format!(r#"{{"users":["{}"],"admins":true}}"#, f.member_id);
-        seed(&f.state, "c-both", &both);
-        let conn = f.state.db.lock().unwrap_or_else(|p| p.into_inner());
-        let row = db::get_protection(&conn, "c-both").unwrap().unwrap();
-        let user_of = |role: &str, id: &str| crate::auth::CurrentUser {
-            id: id.to_string(),
-            role: role.to_string(),
-            username: id.to_string(),
-        };
-        let member = user_of("user", &f.member_id);
-        let admin = user_of("admin", "admin-id");
-        assert!(!super::accept_missing_allowed(&conn, &row, &member, true));
-        assert!(super::accept_missing_allowed(&conn, &row, &admin, true));
-        assert!(!super::accept_missing_allowed(&conn, &row, &admin, false));
     }
 
     #[test]

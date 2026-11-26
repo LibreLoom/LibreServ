@@ -277,20 +277,19 @@ fn check_new_backup(
 
 /// Run one cloud backup now, then tidy its old copies. Records the result on
 /// the row and returns what happened. A run already in progress is refused.
-/// `started_by` is the user who asked for the run, or empty for a scheduled one.
-/// `accept_missing` confirms a large deletion on a source that still exists.
+/// `manual` is true for "Back up now", which always makes a snapshot. A scheduled run passes false
+/// and makes none when nothing changed.
 pub fn run(
     db: &crate::Db,
     id: &str,
     store: &dyn CloudStore,
     connect: &ConnectService,
-    started_by: &str,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> CloudOutcome {
     // D7 budgets the nothing-changed run; `uploaded_bytes` tells which one this was.
     let mut perf = crate::perf::Timer::new("D7", "backup.cloud");
-    let out = run_untimed(db, id, store, connect, started_by, accept_missing, now);
+    let out = run_untimed(db, id, store, connect, manual, now);
     if perf.active() {
         perf.field("files", out.files);
         perf.field("uploaded_bytes", out.uploaded_bytes);
@@ -306,8 +305,7 @@ fn run_untimed(
     id: &str,
     store: &dyn CloudStore,
     connect: &ConnectService,
-    started_by: &str,
-    accept_missing: bool,
+    manual: bool,
     now: i64,
 ) -> CloudOutcome {
     let Some(_slot) = drive_backup::try_hold(db, id) else {
@@ -337,7 +335,7 @@ fn run_untimed(
         Ok(root) => root,
         Err(unavailable) => {
             let outcome = unavailable
-                .record(db, id, now)
+                .record(db, id)
                 .unwrap_or_else(|err| problem_outcome(&err.to_string()));
             if let Err(err) = record(db, id, now, &outcome) {
                 tracing::warn!(error = %err, id, "could not record a cloud backup problem");
@@ -347,8 +345,7 @@ fn run_untimed(
     };
     let source_problem = private_source_problem(&lock(db), &row);
     if let Some(problem) = source_problem {
-        return source::hold(db, id, now, &problem, false)
-            .unwrap_or_else(|err| problem_outcome(&err.to_string()));
+        return problem_outcome(&problem);
     }
     // A backup of a parent folder already holds these files. Nothing is recorded, so this
     // backup starts again on its own if that parent backup stops or goes away.
@@ -361,29 +358,26 @@ fn run_untimed(
         }
     }
     // Confirm the signing key once before either kind of backup uploads anything.
-    let identity = match run_identity(db, connect, now) {
-        Ok(identity) => identity,
-        Err(err) => {
-            let outcome = problem_outcome(&err.to_string());
-            if let Err(err) = record(db, id, now, &outcome) {
-                tracing::warn!(error = %err, id, "could not record a cloud backup problem");
-            }
-            return outcome;
+    if let Err(err) = run_identity(db, connect, now) {
+        let outcome = problem_outcome(&err.to_string());
+        if let Err(err) = record(db, id, now, &outcome) {
+            tracing::warn!(error = %err, id, "could not record a cloud backup problem");
         }
-    };
+        return outcome;
+    }
     // Send the current recovery keys first. A failure does not stop the copy; it is reported here.
-    let users_problem = match publish_users_with_identity(db, store, &identity) {
+    let users_problem = match publish_users(db, store) {
         Ok(()) => None,
         Err(err) => {
-            tracing::warn!(error = %err, id, "could not publish the cloud user list");
+            tracing::warn!(error = %err, id, "could not publish the recovery key copies");
             Some(USER_LIST_FAILED)
         }
     };
     let ran = if !row.private_owner.is_empty() {
         // A private item's copy is sealed to its owner's keys, so it has its own run.
-        private_run::run_from_folder(db, id, root, store, accept_missing, now)
+        private_run::run_from_folder(db, id, root, store, manual, now)
     } else {
-        run::run_from_folder(db, id, root, store, started_by, accept_missing, now)
+        run::run_from_folder(db, id, root, store, manual, now)
     };
     // A move or re-seal holds the backup's lock: skip quietly. Nothing is recorded, so the
     // backup is not shown as failing, and the next run tries again.
@@ -438,46 +432,10 @@ fn run_identity(
     Ok(identity)
 }
 
-/// Send the signed user list and each user's self-sealed key copy to `store`, so Connect can
-/// hand them to a browser that needs to check them. Connect keeps the last copy, so a failure
-/// here only delays the update until the next run.
-pub fn publish_users(
-    db: &crate::Db,
-    store: &dyn CloudStore,
-    connect: &ConnectService,
-    now: i64,
-) -> anyhow::Result<()> {
-    // Connect and the drives are reached with no DB lock held.
-    let identity = identity::load_or_create_connected(db, connect, now)?;
-    publish_users_with_identity(db, store, &identity)
-}
-
-fn publish_users_with_identity(
-    db: &crate::Db,
-    store: &dyn CloudStore,
-    identity: &identity::Identity,
-) -> anyhow::Result<()> {
+/// Send each user's self-sealed key copy to `store`, so Connect can hand it to that user's browser.
+/// Connect keeps the last copy, so a failure here only delays the update until the next run.
+pub fn publish_users(db: &crate::Db, store: &dyn CloudStore) -> anyhow::Result<()> {
     let users = db::list_user_keys(&lock(db))?;
-    let listed = users
-        .iter()
-        .map(|user| {
-            let seal_public: super::crypto::SealPublic =
-                user.seal_public.as_slice().try_into().map_err(|_| {
-                    anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
-                })?;
-            let auth: super::crypto::SigPublic =
-                user.auth_public.as_slice().try_into().map_err(|_| {
-                    anyhow::anyhow!("The recovery key for user {} is damaged.", user.user_id)
-                })?;
-            Ok((
-                user.user_id.clone(),
-                seal_public,
-                auth,
-                user.self_sealed.clone(),
-            ))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    keys::publish_user_list(store, identity.signer(), identity.luna_id(), &listed)?;
     for user in &users {
         store.put_record(
             USER_RECORD_KIND,
@@ -510,7 +468,7 @@ pub fn run_all(
                 };
                 let outcome = match source {
                     Some(Err(unavailable)) => unavailable
-                        .record(db, id, now)
+                        .record(db, id)
                         .unwrap_or_else(|err| problem_outcome(&err.to_string())),
                     _ => problem_outcome(NOT_SET_UP),
                 };
@@ -522,7 +480,7 @@ pub fn run_all(
         Some(store) => {
             for (id, _, _) in &before {
                 // Scheduled runs have no user who started them.
-                run(db, id, store, connect, "", false, now);
+                run(db, id, store, connect, false, now);
             }
             sweep(db, store, now);
         }
@@ -684,7 +642,7 @@ fn run_marked_retrying(
         }
         let mut busy = Vec::new();
         for backup in &pending {
-            let outcome = run(db, backup, store, connect, "", false, now);
+            let outcome = run(db, backup, store, connect, false, now);
             if outcome.busy {
                 busy.push(backup.clone());
             } else if let Some(problem) = outcome.problem {
@@ -961,7 +919,6 @@ pub fn delete(db: &crate::Db, id: &str, store: &dyn CloudStore, now: i64) -> any
 
     let conn = lock(db);
     db::delete_protection(&conn, id)?;
-    retention::forget(&conn, id)?;
     rewrap::forget_backup(&conn, id)?;
     db::set_meta(&conn, &deleted_key(id), &now.to_string())?;
     conn.execute(
@@ -1261,7 +1218,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
         assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            run(&s.db, &id, &store, &s.connect, false, NOW).problem,
             None
         );
         assert!(!keys::reader_versions_for_test(&lock(&s.db), "admin").is_empty());
@@ -1290,7 +1247,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
         assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "", false, NOW).problem,
+            run(&s.db, &id, &store, &s.connect, false, NOW).problem,
             None
         );
         delete(&s.db, &id, &store, NOW).unwrap();
@@ -1316,7 +1273,7 @@ mod tests {
         let store = MemoryStore::new();
         let before = db::get_protection(&lock(&s.db), &id).unwrap().unwrap();
         let slot = run::RunSlot::take(&s.db, &id).unwrap();
-        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, false, NOW);
         assert!(outcome.busy);
         drop(slot);
         // Nothing was recorded: no error on the backup, and no card marker.
@@ -1324,7 +1281,7 @@ mod tests {
         assert_eq!(after.last_error, before.last_error);
         assert_eq!(after.failing_since, before.failing_since);
         // Once the lock is free the run goes through.
-        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, false, NOW);
         assert!(!outcome.busy);
         assert_eq!(outcome.problem, None);
     }
@@ -1417,7 +1374,6 @@ mod tests {
             &child.id,
             &MemoryStore::new(),
             &s.connect,
-            "",
             false,
             NOW,
         );
@@ -1496,10 +1452,10 @@ mod tests {
         assert!(!last_run_source_missing(&lock(&s.db), &id));
     }
 
-    /// A store whose user-list writes are refused, to check that the copy still runs.
-    struct ListRefused(MemoryStore);
+    /// A store whose key copy writes are refused, to check that the backup still runs.
+    struct KeyCopyRefused(MemoryStore);
 
-    impl CloudStore for ListRefused {
+    impl CloudStore for KeyCopyRefused {
         fn put_pack(
             &self,
             id: &[u8; 32],
@@ -1515,7 +1471,7 @@ mod tests {
             self.0.delete_pack(id)
         }
         fn put_record(&self, kind: &str, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
-            if kind == "users" || kind == USER_RECORD_KIND {
+            if kind == USER_RECORD_KIND {
                 return Err(StoreError::Unavailable(
                     "Could not reach Luna Connect.".into(),
                 ));
@@ -1545,10 +1501,9 @@ mod tests {
     }
 
     #[test]
-    fn publish_users_sends_the_signed_list_and_each_self_copy() {
+    fn publish_users_sends_each_self_copy() {
         let s = setup();
         let conn = lock(&s.db);
-        let signer = identity::load_or_create(&conn, NOW).unwrap();
         db::set_user_keys(
             &conn,
             &db::UserKeys {
@@ -1565,10 +1520,8 @@ mod tests {
         drop(conn);
         let store = MemoryStore::new();
 
-        publish_users(&s.db, &store, &s.connect, NOW).unwrap();
+        publish_users(&s.db, &store).unwrap();
 
-        let list = store.get_record("users", "list").unwrap().unwrap();
-        assert!(keys::verify_user_list(&list, &signer.public(), signer.luna_id()).is_some());
         let copy = store
             .get_record(USER_RECORD_KIND, &keys::user_record_part("admin"))
             .unwrap();
@@ -1576,12 +1529,12 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_user_list_is_reported_but_the_copy_still_runs() {
+    fn a_refused_key_copy_is_reported_but_the_backup_still_runs() {
         let s = setup();
         let id = make_backup(&s);
-        let store = ListRefused(MemoryStore::new());
+        let store = KeyCopyRefused(MemoryStore::new());
 
-        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, false, NOW);
         assert_eq!(outcome.problem.as_deref(), Some(USER_LIST_FAILED));
         assert_eq!(store.0.list_records("snapshots").unwrap().len(), 1);
     }
@@ -1650,7 +1603,6 @@ mod tests {
             &id,
             &NoCard(MemoryStore::new()),
             &s.connect,
-            "",
             false,
             NOW,
         );
@@ -1674,9 +1626,8 @@ mod tests {
         let outcome = run(
             &s.db,
             &id,
-            &ListRefused(MemoryStore::new()),
+            &KeyCopyRefused(MemoryStore::new()),
             &s.connect,
-            "",
             false,
             NOW,
         );
@@ -1718,7 +1669,7 @@ mod tests {
         let id = make_backup(&s);
         let store = MemoryStore::new();
 
-        let outcome = run(&s.db, &id, &store, &s.connect, "", false, NOW);
+        let outcome = run(&s.db, &id, &store, &s.connect, false, NOW);
         assert_eq!(outcome.problem, None);
         assert_eq!(store.list_records("snapshots").unwrap().len(), 1);
         {
@@ -1997,7 +1948,7 @@ mod tests {
         private_item(&s, "Docs");
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
-        let out = run(&s.db, &id, &store, &s.connect, "owner", false, NOW);
+        let out = run(&s.db, &id, &store, &s.connect, true, NOW);
         assert_eq!(out.problem, None);
         assert!(store.list_records("snapshots").unwrap().is_empty());
         assert_eq!(store.list_records(PSNAPSHOTS_KIND).unwrap().len(), 1);
@@ -2021,7 +1972,7 @@ mod tests {
             .unwrap();
         }
 
-        let out = run(&s.db, &id, &store, &s.connect, "owner", false, NOW);
+        let out = run(&s.db, &id, &store, &s.connect, true, NOW);
 
         assert_eq!(out.problem.as_deref(), Some("You stopped this backup."));
         assert_eq!(out.snapshot_id, None);
@@ -2054,7 +2005,7 @@ mod tests {
         }
         let store = MemoryStore::new();
 
-        let out = run(&s.db, "forged", &store, &s.connect, "owner", false, NOW);
+        let out = run(&s.db, "forged", &store, &s.connect, true, NOW);
 
         assert_eq!(
             out.problem.as_deref(),
@@ -2073,11 +2024,11 @@ mod tests {
         let notes = private_backup(&s, "Notes");
         let store = MemoryStore::new();
         assert_eq!(
-            run(&s.db, &docs, &store, &s.connect, "owner", false, NOW).problem,
+            run(&s.db, &docs, &store, &s.connect, true, NOW).problem,
             None
         );
         assert_eq!(
-            run(&s.db, &notes, &store, &s.connect, "owner", false, NOW + 1).problem,
+            run(&s.db, &notes, &store, &s.connect, true, NOW + 1).problem,
             None
         );
         let scope = active_scope(&s.db);
@@ -2103,18 +2054,12 @@ mod tests {
         private_item(&s, "Docs");
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, NOW).problem, None);
         let old = active_scope(&s.db);
 
         let t2 = NOW + DAY;
         rotate_owner_keys(&s, t2);
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, t2).problem, None);
         assert_ne!(active_scope(&s.db), old);
 
         let retire_at = t2 + OLD_PHRASE_GRACE;
@@ -2146,17 +2091,11 @@ mod tests {
         private_item(&s, "Docs");
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, NOW).problem, None);
         let old = active_scope(&s.db);
         let t2 = NOW + DAY;
         rotate_owner_keys(&s, t2);
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, t2).problem, None);
         assert_eq!(snapshot_count(&s.db, &old), 1);
 
         assert_eq!(
@@ -2177,18 +2116,12 @@ mod tests {
         let id = private_backup(&s, "Docs");
         let store = MemoryStore::new();
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, NOW).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, NOW).problem, None);
         assert_eq!(old_phrase_copies(&lock(&s.db), "owner"), None);
 
         let t2 = NOW + DAY;
         rotate_owner_keys(&s, t2);
-        assert_eq!(
-            run(&s.db, &id, &store, &s.connect, "owner", false, t2).problem,
-            None
-        );
+        assert_eq!(run(&s.db, &id, &store, &s.connect, true, t2).problem, None);
         assert_eq!(
             old_phrase_copies(&lock(&s.db), "owner"),
             Some((1, t2 + OLD_PHRASE_GRACE))

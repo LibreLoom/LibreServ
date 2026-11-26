@@ -213,10 +213,6 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             record BLOB NOT NULL
         );
         CREATE INDEX IF NOT EXISTS cloud_snapshots_protection ON cloud_snapshots (protection_id);
-        CREATE TABLE IF NOT EXISTS cloud_deleted_file_snapshots (
-            snapshot_id TEXT PRIMARY KEY,
-            keep_until INTEGER NOT NULL
-        );
         CREATE TABLE IF NOT EXISTS cloud_snapshot_packs (
             snapshot_id TEXT NOT NULL,
             pack_id TEXT NOT NULL,
@@ -1909,10 +1905,6 @@ pub fn delete_cloud_snapshot(conn: &Connection, id: &str) -> anyhow::Result<()> 
     let tx = conn.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM cloud_snapshot_packs WHERE snapshot_id = ?1",
-        params![id],
-    )?;
-    tx.execute(
-        "DELETE FROM cloud_deleted_file_snapshots WHERE snapshot_id = ?1",
         params![id],
     )?;
     tx.execute("DELETE FROM cloud_snapshots WHERE id = ?1", params![id])?;

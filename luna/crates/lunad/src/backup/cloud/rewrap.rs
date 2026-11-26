@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     fn run_at(db: &crate::Db, src: &Path, store: &dyn CloudStore, now: i64) {
-        let out = run::run_with_root(db, "rw", src, store, "user-1", false, now).unwrap();
+        let out = run::run_with_root(db, "rw", src, store, true, now).unwrap();
         assert_eq!(out.problem, None);
     }
 

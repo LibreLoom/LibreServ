@@ -5,20 +5,16 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::backup::drive_backup::FOLDER_GONE_REASON;
-use crate::backup::{scope, status};
+use crate::backup::scope;
 use crate::db;
 use crate::drives::layout::Layout;
 use crate::files::{self, FilesError};
 
-use super::format::Tree;
-use super::retention;
 use super::run::{CloudOutcome, lock, problem_outcome};
 
 const NOT_CONNECTED: &str = "Waiting: The drive this backup copies isn’t connected.";
 const UNREADABLE: &str = "Luna couldn't read the folder being backed up.";
 
-pub(super) const MASS_DELETE: &str =
-    "Most of the files in this folder are gone. Check the folder before running the backup again.";
 pub(super) const CHECK_FAILED: &str =
     "Luna couldn't compare this folder with the last cloud copy. Try again.";
 
@@ -28,9 +24,8 @@ pub(super) enum Unavailable {
 }
 
 impl Unavailable {
-    pub(super) fn record(self, db: &crate::Db, id: &str, now: i64) -> anyhow::Result<CloudOutcome> {
+    pub(super) fn record(self, db: &crate::Db, id: &str) -> anyhow::Result<CloudOutcome> {
         let conn = lock(db);
-        retention::pause(&conn, id, now)?;
         match self {
             Self::Gone(reason) => {
                 db::set_protection_state(&conn, id, db::PROTECTION_SOURCE_GONE, reason)?;
@@ -121,7 +116,6 @@ impl Folder {
         Ok(Walk {
             folder: self,
             files,
-            pin: None,
         })
     }
 }
@@ -129,7 +123,6 @@ impl Folder {
 pub(crate) struct Walk {
     folder: Folder,
     pub files: Vec<scope::Entry>,
-    pub pin: Option<String>,
 }
 
 impl Walk {
@@ -137,55 +130,12 @@ impl Walk {
         self.folder.verify()
     }
 
-    pub(super) fn read_error(
-        &self,
-        db: &crate::Db,
-        id: &str,
-        now: i64,
-    ) -> anyhow::Result<CloudOutcome> {
+    pub(super) fn read_error(&self, db: &crate::Db, id: &str) -> anyhow::Result<CloudOutcome> {
         match self.verify() {
-            Ok(()) => hold(db, id, now, UNREADABLE, false),
-            Err(unavailable) => unavailable.record(db, id, now),
+            Ok(()) => Ok(problem_outcome(UNREADABLE)),
+            Err(unavailable) => unavailable.record(db, id),
         }
     }
-
-    /// The walk and the previous tree both have paths sorted in normal runs. Use a
-    /// set so the comparison also handles trees written by older versions.
-    pub(super) fn compare(
-        &mut self,
-        snapshot_id: &str,
-        previous: &Tree,
-        accept_missing: bool,
-    ) -> bool {
-        let present: std::collections::HashSet<_> =
-            self.files.iter().map(|file| file.rel.as_str()).collect();
-        let missing = previous
-            .entries
-            .iter()
-            .filter(|entry| !present.contains(entry.path.as_str()))
-            .count();
-        if !accept_missing && status::is_mass_delete(missing, previous.entries.len()) {
-            return false;
-        }
-        if missing != 0 {
-            self.pin = Some(snapshot_id.to_string());
-        }
-        true
-    }
-}
-
-pub(super) fn hold(
-    db: &crate::Db,
-    id: &str,
-    now: i64,
-    reason: &str,
-    confirmable: bool,
-) -> anyhow::Result<CloudOutcome> {
-    retention::pause(&lock(db), id, now)?;
-    Ok(CloudOutcome {
-        source_missing: confirmable,
-        ..problem_outcome(reason)
-    })
 }
 
 pub(super) fn revive(db: &crate::Db, id: &str) -> anyhow::Result<()> {
