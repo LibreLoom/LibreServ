@@ -25,6 +25,10 @@ install | run) ;;
 *) echo "usage: $0 install|run|reset" >&2; exit 2 ;;
 esac
 
+# The slow eMMC chip is only imitated when running; installing goes full speed.
+THROTTLE=""
+[ "$MODE" = run ] && THROTTLE=",throttling.bps-read=90000000,throttling.bps-write=30000000"
+
 [ -f "$EMMC" ] || qemu-img create -f qcow2 "$EMMC" 8G >/dev/null
 [ -f "$VARS" ] || cp /usr/share/OVMF/OVMF_VARS_4M.fd "$VARS"
 
@@ -37,7 +41,7 @@ set -- -machine q35 $KVM -cpu "$CPU" -m 1900 -smp 4 -name wyse3040 \
 	-drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
 	-drive if=pflash,format=raw,file="$VARS" \
 	-device qemu-xhci,id=xhci \
-	-drive if=none,id=emmc,file="$EMMC",format=qcow2,throttling.bps-read=90000000,throttling.bps-write=30000000 \
+	-drive if=none,id=emmc,file="$EMMC",format=qcow2"$THROTTLE" \
 	-device sdhci-pci -device sd-card,drive=emmc \
 	-netdev user,id=n0,hostfwd=tcp:127.0.0.1:8080-:80 -device e1000e,netdev=n0 \
 	-device VGA,edid=on,xres=${RES_X:-1024},yres=${RES_Y:-768} -display gtk,zoom-to-fit=on -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0
