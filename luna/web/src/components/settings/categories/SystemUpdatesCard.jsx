@@ -200,15 +200,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
             <Button
               variant="primary"
               onClick={checkForUpdates}
-              disabled={updating || checking}
-              aria-busy={checking || undefined}
+              disabled={updating}
+              loading={checking}
               className="min-w-[160px]"
             >
               {checking ? (
-                <>
-                  <Spinner decorative size="sm" className="shrink-0" />
-                  Checking…
-                </>
+                "Checking…"
               ) : (
                 <>
                   <RefreshCw size={ICON_SIZE.md} aria-hidden="true" />
