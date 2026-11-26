@@ -647,8 +647,8 @@ textarea::placeholder {
 /* Cascading photo grid entrance — subtle lift + scale */
 @keyframes cascade-in {
     from {
-        opacity: 0;
-        transform: translateY(8px) scale(0.95);
+        opacity: 0.6;
+        transform: translateY(4px) scale(0.98);
     }
     to {
         opacity: 1;
@@ -657,7 +657,7 @@ textarea::placeholder {
 }
 
 .animate-cascade-in {
-    animation: cascade-in 280ms var(--motion-easing-emphasized-decelerate) backwards;
+    animation: cascade-in var(--motion-duration-short3) var(--motion-easing-emphasized-decelerate) backwards;
 }
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
@@ -1252,7 +1252,17 @@ textarea::placeholder {
     }
 }
 
-/* Route change — page content rises in softly */
+/* Start after the routed content mounts, with enough opacity to read right away. */
+@keyframes route-enter {
+    from { opacity: 0.75; }
+    to { opacity: 1; }
+}
+
+@utility animate-route-enter {
+    animation: route-enter var(--motion-duration-short3) var(--motion-easing-standard);
+}
+
+/* File and photo previews rise in softly. */
 @keyframes page-enter {
     from {
         opacity: 0;

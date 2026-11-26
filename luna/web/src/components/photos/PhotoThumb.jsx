@@ -8,7 +8,7 @@ import { canWatchNearViewport, whenNearViewport } from "./nearViewport.js";
 
 const LONG_PRESS_MS = 450;
 /** Cells that fade in one after another when a grid first appears. */
-const CASCADE_CELLS = 30;
+const CASCADE_CELLS = 12;
 
 /**
  * One photos photo as lunad lists it (`member_photo_json` in
@@ -111,16 +111,12 @@ function PhotoThumb({
   const longFired = useRef(false);
   const toggledOnPointerDown = useRef(false);
   const stagger = typeof index === "number" ? index : staggerIndex;
-  const animationStyle =
-    typeof stagger === "number"
-      ? {
-          // Only the first screen cascades. Clamping instead held every
-          // later cell (a page loaded after a scroll) invisible for 1 s.
-          animationDelay: `${stagger < CASCADE_CELLS ? stagger * 35 : 0}ms`,
-          animationFillMode: "backwards",
-          ...style,
-        }
-      : style;
+  // The first rows get a quick entrance. Thumbnails added while scrolling
+  // can paint as soon as their images arrive.
+  const animateEntrance = stagger === undefined || stagger < CASCADE_CELLS;
+  const animationStyle = animateEntrance && stagger !== undefined
+    ? { animationDelay: `${stagger * 8}ms`, ...style }
+    : style;
 
   function clearLong() {
     if (longTimer.current) {
@@ -189,7 +185,7 @@ function PhotoThumb({
       }}
       style={animationStyle}
       aria-pressed={selectMode ? selected : undefined}
-      className={`group relative block w-full aspect-square overflow-hidden surface-secondary animate-cascade-in motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${
+      className={`group relative block w-full aspect-square overflow-hidden surface-secondary motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${animateEntrance ? "animate-cascade-in" : ""} ${
  selected ? "ring-2 ring-accent" : ""
  }`}
       aria-label={photo.private ? `${photo.name}, private` : photo.name}

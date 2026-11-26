@@ -322,7 +322,7 @@ const REST_IDLE_MAX_MS = 300;
  *   columns?: 3|4|5|6,
  * }} props
  */
-export default function PhotoTimeline({
+function PhotoTimeline({
   photos,
   hasMore = false,
   loadingMore = false,
@@ -571,3 +571,5 @@ PhotoTimeline.propTypes = {
   onDeselectDay: PropTypes.func,
   columns: PropTypes.oneOf([3, 4, 5, 6]),
 };
+
+export default memo(PhotoTimeline);

@@ -42,7 +42,7 @@ const readSmUp = () => smUpList()?.matches ?? true;
 
 /**
  * Phones get one action button; a missing matchMedia (tests) counts as desktop.
- * One shared media query for every row, instead of a listener and state each.
+ * The browser subscribes once and passes the result to its rows.
  */
 export function useIsSmUp() {
   return useSyncExternalStore(subscribeSmUp, readSmUp, () => true);

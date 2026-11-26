@@ -35,11 +35,12 @@ export default function useSettingsSearch(categories, query) {
   const [wanted, setWanted] = useState(false);
   const [built, setBuilt] = useState(/** @type {{ key: string, index: import("@libreloom/ui/lib/settingsSearch.js").SettingsHit[] } | null} */ (null));
   const key = categories.map((c) => c.id).join("|");
+  const shouldBuild = wanted || query.trim().length > 0;
 
   const wrap = useMemo(() => settingsIndexWrapper(queryClient), [queryClient]);
 
   useEffect(() => {
-    if (!wanted && !query.trim()) return undefined;
+    if (!shouldBuild) return undefined;
     if (built?.key === key) return undefined;
     let cancelled = false;
     const list = categories
@@ -55,7 +56,7 @@ export default function useSettingsSearch(categories, query) {
     };
     // `categories` is covered by `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, query, key, wrap, built?.key]);
+  }, [shouldBuild, key, wrap, built?.key]);
 
   const index = built?.key === key ? built.index : null;
   const results = useMemo(() => (index ? searchSettings(index, query) : null), [index, query]);

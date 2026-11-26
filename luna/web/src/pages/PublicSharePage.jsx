@@ -116,10 +116,12 @@ function PublicShareSession() {
     [albumPages],
   );
   const selection = useMultiSelect({ items: albumItems });
+  const openAlbumPhoto = useCallback((photo) => setLightbox({ key: photoSelectionKey(photo) }), []);
 
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = album;
   const loadMore = useCallback(() => {
-    if (album.hasNextPage && !album.isFetchingNextPage) album.fetchNextPage();
-  }, [album]);
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   useEffect(() => {
     const el = sentinel.current;
     if (!el || !album.hasNextPage) return undefined;
@@ -297,7 +299,7 @@ function PublicShareSession() {
     return photo?.download || photo?.content || photo?.thumb || "";
   }
   function downloadSelected() {
-    for (const photo of /** @type {PhotosPhoto[]} */ (selection.selectedItems)) {
+    for (const photo of /** @type {PhotosPhoto[]} */ (selection.getSelectedItems())) {
       const href = albumDownloadSrc(photo);
       if (!href) continue;
       const a = document.createElement("a");
@@ -420,11 +422,8 @@ function PublicShareSession() {
                       selectMode={selection.selectMode}
                       selected={selection.selected.has(photoSelectionKey(photo))}
                       onToggle={selection.toggle}
-                      onLongPress={(p) => {
-                        selection.enter();
-                        selection.toggle(p);
-                      }}
-                      onOpen={() => setLightbox({ key: photoSelectionKey(photo) })}
+                      onLongPress={selection.toggle}
+                      onOpen={openAlbumPhoto}
                     />
                   ))}
                 </div>

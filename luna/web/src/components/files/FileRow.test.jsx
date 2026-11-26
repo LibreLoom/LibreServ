@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -26,6 +26,7 @@ function renderRow(overrides = {}) {
           dropEnabled={false}
           trashView={false}
           dense={false}
+          isSmUp
           hasShare={false}
           enableDownload={false}
           renderRowActions={undefined}
@@ -45,8 +46,6 @@ function renderRow(overrides = {}) {
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
-
 describe("FileRow", () => {
   it("shows every action inline on wide screens", () => {
     renderRow();
@@ -55,12 +54,7 @@ describe("FileRow", () => {
   });
 
   it("collapses actions into one three-dot button on phones", async () => {
-    vi.stubGlobal("matchMedia", () => ({
-      matches: false,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }));
-    renderRow();
+    renderRow({ isSmUp: false });
     expect(screen.queryByRole("button", { name: "Copy a.txt" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Actions for a.txt" }));
     expect(await screen.findByText("Rename")).toBeInTheDocument();
@@ -69,12 +63,8 @@ describe("FileRow", () => {
   // The explorer supplies its own action row. On a phone that row used to
   // render in full, squeezing the file name to nothing.
   it("collapses an explorer row's actions into the three-dot button on phones", async () => {
-    vi.stubGlobal("matchMedia", () => ({
-      matches: false,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }));
     renderRow({
+      isSmUp: false,
       renderRowActions: () => <button type="button">Explorer action</button>,
       renderRowSheetActions: (_ctx, close) => (
         <button type="button" onClick={close}>Sheet action</button>

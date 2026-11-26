@@ -13,6 +13,7 @@ import FileSearch from "./components/files/FileSearch";
 import { visibleOps } from "./lib/fileOps/selectors.js";
 import Navbar from "./components/ui/Navbar";
 import LoadingBar from "@libreloom/ui/components/common/LoadingBar.jsx";
+import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import useRecentItemsTracker from "./hooks/useRecentItemsTracker";
 import { perfEndAfterPaint, perfStart } from "./lib/perf.js";
 import lazyWithPreload from "./lib/lazyWithPreload.js";
@@ -81,10 +82,12 @@ function PageOutlet() {
     perfStart("W16", { fromInput: true, keep: true });
   }, [location.pathname]);
   return (
-    <div key={location.pathname} className="grow w-full animate-page-enter">
-      <Suspense fallback={null}>
-        <Outlet />
-        <PageRendered />
+    <div key={location.pathname} className="grow w-full">
+      <Suspense fallback={<div className="grid min-h-[50dvh] place-items-center"><Spinner /></div>}>
+        <div className="motion-safe:animate-route-enter">
+          <Outlet />
+          <PageRendered />
+        </div>
       </Suspense>
     </div>
   );

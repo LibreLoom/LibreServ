@@ -56,7 +56,7 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
       const anchorKey = anchorRef.current;
       setSelected((prev) => {
         const next = new Set(prev);
-        if (range && anchorKey && keys.includes(anchorKey)) {
+        if (range && anchorKey) {
           const a = keys.indexOf(anchorKey);
           const b = keys.indexOf(key);
           if (a >= 0 && b >= 0) {
@@ -110,8 +110,10 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     [keyOf],
   );
 
-  const selectedItems = useMemo(
-    () => items.filter((item) => selected.has(keyOf(item))),
+  // Only bulk actions need the items themselves. Keep the library scan off
+  // the selection path and resolve in view order when an action is invoked.
+  const getSelectedItems = useCallback(
+    () => selected.size ? items.filter((item) => selected.has(keyOf(item))) : [],
     [items, keyOf, selected],
   );
 
@@ -121,7 +123,7 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     selectMode,
     selected,
     selectedCount: selected.size,
-    selectedItems,
+    getSelectedItems,
     isSelected,
     enter,
     exit,

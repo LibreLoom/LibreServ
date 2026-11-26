@@ -11,7 +11,7 @@ import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { CATEGORY_COMPONENTS } from "../components/settings/categoryComponents.js";
 import { settingsIndexWrapper } from "../components/settings/useSettingsSearch.jsx";
-import { buildSettingsIndex } from "@libreloom/ui/lib/settingsSearch.js";
+import * as settingsSearch from "@libreloom/ui/lib/settingsSearch.js";
 
 function stubFetch(role = "admin", connectActive = false) {
   vi.stubGlobal("fetch", vi.fn(async (url) => {
@@ -223,6 +223,23 @@ describe("SettingsPage", () => {
   });
 
   describe("search", () => {
+    it("keeps one index build running while the query changes", async () => {
+      stubFetch("admin");
+      const buildIndex = vi.spyOn(settingsSearch, "buildSettingsIndex");
+      try {
+        renderPage();
+        await screen.findByText("max");
+        const box = screen.getByRole("searchbox", { name: "Search settings" });
+        fireEvent.focus(box);
+        fireEvent.change(box, { target: { value: "hap" } });
+        fireEvent.change(box, { target: { value: "haptics" } });
+        expect(await screen.findByRole("button", { name: /Haptics/ })).toBeInTheDocument();
+        expect(buildIndex).toHaveBeenCalledTimes(1);
+      } finally {
+        buildIndex.mockRestore();
+      }
+    });
+
     it("finds settings in categories that are not open, and jumps to them", async () => {
       stubFetch("admin");
       const user = userEvent.setup();
@@ -293,7 +310,7 @@ describe("SettingsPage", () => {
     const categories = visibleCategories(true, true);
     expect(categories.length).toBeGreaterThan(0);
     const errors = [];
-    const index = await buildSettingsIndex(
+    const index = await settingsSearch.buildSettingsIndex(
       categories.map((c) => ({ id: c.id, label: c.label, Component: CATEGORY_COMPONENTS[c.id] })),
       settingsIndexWrapper(new QueryClient()),
       { onError: (id, error) => errors.push(`${id}: ${error}`) },

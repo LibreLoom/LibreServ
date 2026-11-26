@@ -99,7 +99,7 @@ import { perfSinceNavigation } from "../../lib/perf.js";
 import { whenIdleAndStill } from "../../lib/whenStill.js";
 import usePerfJourney from "../../hooks/usePerfJourney.js";
 import { warmTextEditor } from "./editorWarm.js";
-import { canOpenRow, displayNameOf } from "./fileRowUtils.js";
+import { canOpenRow, displayNameOf, useIsSmUp } from "./fileRowUtils.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import PropertiesSheet, { PropertiesButton } from "./PropertiesSheet.jsx";
 import {
@@ -168,6 +168,8 @@ const ROW_OVERSCAN = 12;
  * overscan comes back once the scroll comes to rest.
  */
 const ROW_OVERSCAN_BEHIND = 3;
+/** While a scroll is moving, rows mounted ahead of it, as a multiple of ROW_OVERSCAN. */
+const ROW_AHEAD_FACTOR = 4;
 /** The same on a folder's first frame (see fullOverscan). */
 const FIRST_FRAME_OVERSCAN = 2;
 /** A row's height: rows have min-h-12 / min-h-11 (FileRow), so this is exact unless a row wraps. */
@@ -301,6 +303,8 @@ function compareEntries(a, b, sortKey) {
  *   count: number,
  *   rowKey: (index: number) => string | number,
  *   dense: boolean,
+ *   cardFill: string,
+ *   stripeFill: string,
  *   fullOverscan: boolean,
  *   scrollMargin: number,
  *   dragIndexRef: import("react").MutableRefObject<number>,
@@ -313,6 +317,8 @@ function VirtualRowWindow({
   count,
   rowKey,
   dense,
+  cardFill,
+  stripeFill,
   fullOverscan,
   scrollMargin,
   dragIndexRef,
@@ -351,8 +357,11 @@ function VirtualRowWindow({
       const instance = instanceRef.current;
       const direction = instance?.isScrolling ? instance.scrollDirection : null;
       const behind = Math.min(range.overscan, ROW_OVERSCAN_BEHIND);
-      const before = direction === "forward" ? behind : range.overscan;
-      const after = direction === "backward" ? behind : range.overscan;
+      // Ahead of a scroll in motion, mount several times the resting headroom: a fast
+      // flick (or a slow frame) must not outrun the mounted rows and show a hole.
+      const ahead = direction ? range.overscan * ROW_AHEAD_FACTOR : range.overscan;
+      const before = direction === "forward" ? behind : direction === "backward" ? ahead : range.overscan;
+      const after = direction === "backward" ? behind : direction === "forward" ? ahead : range.overscan;
       const base = defaultRangeExtractor({
         ...range,
         startIndex: Math.max(0, range.startIndex - before),
@@ -395,15 +404,27 @@ function VirtualRowWindow({
     if (/** @type {HTMLElement} */ (row).dataset.filePath !== focused) active.blur();
   });
   useEffect(() => slots.trackFocus(), [slots]);
+  // The spacers wear the card's row stripes, so a stretch that is not mounted
+  // yet looks like rows still to draw instead of a hole in the page.
+  const rowH = dense ? DENSE_ROW_HEIGHT_GUESS : ROW_HEIGHT_GUESS;
+  const stripes = (firstIndex) => {
+    const [first, second] = firstIndex % 2 === 0 ? [cardFill, stripeFill] : [stripeFill, cardFill];
+    return {
+      backgroundImage: `repeating-linear-gradient(to bottom, ${first} 0 ${rowH}px, ${second} ${rowH}px ${rowH * 2}px)`,
+    };
+  };
   const topPad = items.length ? Math.max(0, items[0].start - scrollMargin) : 0;
   const bottomPad = items.length
     ? Math.max(0, virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin))
     : 0;
   return (
     <>
-      <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad }} />
+      <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad, ...stripes(0) }} />
       {rows}
-      <li aria-hidden="true" style={{ height: bottomPad }} />
+      <li
+        aria-hidden="true"
+        style={{ height: bottomPad, ...stripes(items.length ? items[items.length - 1].index + 1 : 0) }}
+      />
     </>
   );
 }
@@ -657,6 +678,7 @@ export default function FileBrowser({
   const navigate = useNavigate();
   const source = useFileSource();
   const queryClient = useQueryClient();
+  const isSmUp = useIsSmUp();
 
   const isControlled = controlledPath !== undefined;
   const path = isControlled ? controlledPath : innerPath;
@@ -1510,7 +1532,7 @@ export default function FileBrowser({
    */
   const renderRow = (rowIndex, measureRef = undefined, slotKey = undefined) => {
     const entry = visibleEntries[rowIndex];
-    const rowPath = fileRoot ? path : joinPath(path, entry.name);
+    const rowPath = visiblePaths[rowIndex];
     return (
       <FileRow
         key={slotKey ?? entry.name}
@@ -1535,6 +1557,7 @@ export default function FileBrowser({
         driveId={driveId}
         surface={surface}
         dense={dense}
+        isSmUp={isSmUp}
         hasShare={Boolean(onShare)}
         hasCopy={Boolean(onCopy)}
         hasMove={Boolean(onMove)}
@@ -1554,7 +1577,8 @@ export default function FileBrowser({
   };
 
   const padY = dense ? "py-2 min-h-11" : "py-2.5 min-h-12";
-  const allSelected = visiblePaths.length > 0 && visiblePaths.every((p) => selectedSet.has(p));
+  const allSelected = visiblePaths.length > 0 && selectedSet.size >= visibleIndex.size
+    && visiblePaths.every((p) => selectedSet.has(p));
   const selectedCount = selectedPaths.length;
   const showSelectionToolbar = !isPicker && multiSelect && selectedCount > 0;
   // The single-item Sharing button: only when exactly one item is selected and
@@ -2459,6 +2483,10 @@ export default function FileBrowser({
                     count={visibleEntries.length}
                     rowKey={rowKey}
                     dense={dense}
+                    cardFill={surface === "primary" ? "var(--primary)" : "var(--secondary)"}
+                    stripeFill={surface === "primary"
+                      ? "color-mix(in oklab, var(--primary) 92%, var(--secondary))"
+                      : "color-mix(in oklab, var(--secondary) 92%, var(--primary))"}
                     fullOverscan={fullOverscan}
                     scrollMargin={scrollMargin}
                     dragIndexRef={dragIndexRef}

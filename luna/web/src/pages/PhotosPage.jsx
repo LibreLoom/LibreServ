@@ -1437,11 +1437,16 @@ export default function PhotosPage() {
     ? Math.max(0, lightboxPhotos.findIndex((p) => photoSelectionKey(p) === lightbox.key))
     : 0;
 
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = photoQuery;
   const loadMore = useCallback(() => {
-    if (photoQuery.hasNextPage && !photoQuery.isFetchingNextPage) {
-      photoQuery.fetchNextPage();
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
     }
-  }, [photoQuery]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const selectDayFilter = useCallback((ymd) => {
+    if (!dayBoundsLocal(ymd)) return;
+    setFilters((prev) => ({ ...prev, dateFrom: ymd, dateTo: ymd, undated: false }));
+  }, []);
 
   // Date jump: keep fetching pages until the loaded span reaches the target
   // day, then scroll the closest day header into view.
@@ -2250,16 +2255,10 @@ export default function PhotosPage() {
           selectMode={selection.selectMode}
           selectedKeys={selection.selected}
           onToggle={selection.toggle}
-          onLongPress={(photo) => {
-            selection.enter();
-            selection.toggle(photo);
-          }}
-          onDayClick={(ymd) => {
-            if (!dayBoundsLocal(ymd)) return;
-            setFilters((prev) => ({ ...prev, dateFrom: ymd, dateTo: ymd, undated: false }));
-          }}
-          onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
-          onDeselectDay={(dayPhotos) => selection.deselectItems(dayPhotos)}
+          onLongPress={selection.toggle}
+          onDayClick={selectDayFilter}
+          onSelectDay={selection.selectItems}
+          onDeselectDay={selection.deselectItems}
           columns={/** @type {3|4|5|6} */ (columns)}
         />
       )}
@@ -2307,10 +2306,7 @@ export default function PhotosPage() {
                     selectMode={selection.selectMode}
                     onOpen={selection.selectMode ? undefined : openPhoto}
                     onToggle={selection.toggle}
-                    onLongPress={(p) => {
-                      selection.enter();
-                      selection.toggle(p);
-                    }}
+                    onLongPress={selection.toggle}
                   />
                 ))}
               </div>
@@ -2333,30 +2329,31 @@ export default function PhotosPage() {
           applyAlbumPick.isPending
         }
         onClear={selection.clear}
-        onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
-        onAddToAlbum={() => setAlbumPick(selection.selectedItems)}
+        onFavorite={() => bulkFavorite.mutate(selection.getSelectedItems())}
+        onAddToAlbum={() => setAlbumPick(selection.getSelectedItems())}
         onNewAlbum={() => {
           setShareAfterCreate(false);
-          setNewAlbumSeed(selection.selectedItems);
+          setNewAlbumSeed(selection.getSelectedItems());
           setNewAlbumOpen(true);
         }}
         onRemoveFromAlbum={
           albumView
-            ? () => removeFromAlbum.mutate(selection.selectedItems)
+            ? () => removeFromAlbum.mutate(selection.getSelectedItems())
             : undefined
         }
         onShare={() => {
+          const picked = selection.getSelectedItems();
           setShareAfterCreate(true);
-          setNewAlbumSeed(selection.selectedItems);
+          setNewAlbumSeed(picked);
           setNewAlbumName(
             selection.selectedCount === 1
-              ? /** @type {PhotosPhoto|undefined} */ (selection.selectedItems[0])?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
+              ? /** @type {PhotosPhoto|undefined} */ (picked[0])?.name?.replace(/\.[^.]+$/, "") || "Shared photos"
               : `Shared ${selection.selectedCount} photos`,
           );
           setNewAlbumOpen(true);
         }}
-        onDownload={() => downloadSelected(selection.selectedItems)}
-        onTrash={() => setTrashBulk(selection.selectedItems)}
+        onDownload={() => downloadSelected(selection.getSelectedItems())}
+        onTrash={() => setTrashBulk(selection.getSelectedItems())}
       />
 
       {lightbox && (
@@ -2719,14 +2716,12 @@ function AlbumsPanel({
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           {sorted.map((album, index) => {
             const manage = canManageAlbum(album, currentUser);
+            const animateEntrance = index < 12;
             return (
             <div
               key={`${album.home_drive_id}-${album.id}`}
-              className="rounded-large-element surface-secondary overflow-hidden animate-cascade-in motion-reduce:animate-none"
-              style={{
-                animationDelay: `${Math.min(index, 30) * 35}ms`,
-                animationFillMode: "backwards",
-              }}
+              className={`rounded-large-element surface-secondary overflow-hidden motion-reduce:animate-none ${animateEntrance ? "animate-cascade-in" : ""}`}
+              style={animateEntrance ? { animationDelay: `${index * 8}ms` } : undefined}
               data-slot="album-card"
             >
               <button

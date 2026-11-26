@@ -31,6 +31,13 @@ describe("useMultiSelect", () => {
     ]);
   });
 
+  it("resolves bulk actions in view order even when items were picked in reverse", () => {
+    const { result } = renderHook(() => useMultiSelect({ items: photos }));
+    act(() => result.current.toggle(photos[2]));
+    act(() => result.current.toggle(photos[0]));
+    expect(result.current.getSelectedItems()).toEqual([photos[0], photos[2]]);
+  });
+
   it("clears on exit and selectAllInView fills the set", () => {
     const { result } = renderHook(() => useMultiSelect({ items: photos }));
     act(() => result.current.selectAllInView());

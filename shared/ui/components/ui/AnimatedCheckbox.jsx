@@ -44,14 +44,14 @@ export default function AnimatedCheckbox({
     >
       <span
         className={cn(
-          "size-5 rounded-full border-2 flex items-center justify-center motion-safe:transition-all duration-200 shrink-0",
+          "size-5 rounded-full border-2 flex items-center justify-center motion-safe:transition-[background-color,border-color] duration-100 shrink-0",
           checked ? checkedFill : uncheckedBorder,
         )}
         aria-hidden="true"
       >
         <svg
           className={cn(
-            "size-3 motion-safe:transition-all duration-200",
+            "size-3 motion-safe:transition-[scale,opacity] duration-100",
             tickColor,
             checked ? "scale-100 opacity-100" : "scale-0 opacity-0",
           )}
