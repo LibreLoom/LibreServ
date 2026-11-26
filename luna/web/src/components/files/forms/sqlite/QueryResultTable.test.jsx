@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import QueryResultTable from "./QueryResultTable.jsx";
+import { GRID_PAGE_SIZE } from "./sqliteModel.js";
 
 describe("QueryResultTable", () => {
   it("renders every column and value from the result set", () => {
@@ -67,5 +68,26 @@ describe("QueryResultTable", () => {
     expect(
       screen.getByText(/Showing the first 3 rows/),
     ).toBeInTheDocument();
+  });
+
+  it("only renders the current page and resets to page one for a new result", async () => {
+    const user = userEvent.setup();
+    const result = {
+      columns: ["name"],
+      rows: Array.from({ length: GRID_PAGE_SIZE + 1 }, (_, index) => [`Record ${index}`]),
+      rowCount: GRID_PAGE_SIZE + 1,
+      truncated: false,
+    };
+    const view = (data) => <div className="surface-primary"><QueryResultTable result={data} /></div>;
+    const { rerender } = render(view(result));
+    expect(screen.getByText("Record 0")).toBeInTheDocument();
+    expect(screen.queryByText(`Record ${GRID_PAGE_SIZE}`)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next result page" }));
+    expect(screen.queryByText("Record 0")).not.toBeInTheDocument();
+    expect(screen.getByText(`Record ${GRID_PAGE_SIZE}`)).toBeInTheDocument();
+
+    rerender(view({ ...result, rows: [["New result"]], rowCount: 1 }));
+    expect(screen.getByText("New result")).toBeInTheDocument();
   });
 });

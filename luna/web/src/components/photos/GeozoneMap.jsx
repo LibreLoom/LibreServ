@@ -29,10 +29,17 @@ function FitPlaces({ points }) {
       map.setView([points[0].lat, points[0].lon], 8);
       return;
     }
-    map.fitBounds(
-      points.map((p) => [p.lat, p.lon]),
-      { padding: [24, 24], maxZoom: 10 },
-    );
+    let south = points[0].lat;
+    let north = south;
+    let west = points[0].lon;
+    let east = west;
+    for (const { lat, lon } of points) {
+      south = Math.min(south, lat);
+      north = Math.max(north, lat);
+      west = Math.min(west, lon);
+      east = Math.max(east, lon);
+    }
+    map.fitBounds([[south, west], [north, east]], { padding: [24, 24], maxZoom: 10 });
   }, [map, points]);
   return null;
 }

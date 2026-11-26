@@ -7,7 +7,7 @@
  * backs a form's answers database and an ordinary `.sqlite` file.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   ChevronDown,
@@ -44,13 +44,13 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
+import lazyWithPreload from "../../../../lib/lazyWithPreload.js";
 import FullscreenEditorFrame from "../../FullscreenEditorFrame.jsx";
 import EditorLoadingScreen, {
   EditorMountedSignal,
 } from "../../EditorLoadingScreen.jsx";
 import QueryResultTable from "./QueryResultTable.jsx";
 import SqliteDataViewStack from "./SqliteDataViewStack.jsx";
-import SqlEditor from "./SqlEditor.jsx";
 import SqliteColumnDialog from "./SqliteColumnDialog.jsx";
 import SqliteRenameTableDialog from "./SqliteRenameTableDialog.jsx";
 import SqliteTableDialog from "./SqliteTableDialog.jsx";
@@ -143,6 +143,8 @@ const RUN_SHORTCUT =
   /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
     ? "⌘Enter"
     : "Ctrl+Enter";
+
+const SqlEditor = lazyWithPreload(() => import("./SqlEditor.jsx"));
 
 const EMPTY_GRID = {
   rows: [],
@@ -266,6 +268,7 @@ export function SqliteEditorSession({
   );
   const [tablesOpen, setTablesOpen] = useState(true);
   const [sqlOpen, setSqlOpen] = useState(false);
+  const [sqlUsed, setSqlUsed] = useState(false);
   const collapseTablesRef = useRef(
     /** @type {HTMLButtonElement | null} */ (null),
   );
@@ -327,7 +330,19 @@ export function SqliteEditorSession({
   const workingRef = useRef(false);
   const runningRef = useRef(false);
   const reloadingRef = useRef(false);
-  const sqlRef = useRef("");
+  const sqlRef = useRef(/** @type {import("@codemirror/state").Text | null} */ (null));
+  const countCache = useRef(/** @type {WeakMap<object, Map<string, { version: number, total: number }>>} */ (new WeakMap()));
+  const updateSql = useCallback((/** @type {import("@codemirror/state").Text} */ doc) => {
+    sqlRef.current = doc;
+    const lines = doc.iterLines();
+    let hasInput = false;
+    for (let line = lines.next(); !line.done; line = lines.next()) {
+      if (!/\S/.test(line.value)) continue;
+      hasInput = true;
+      break;
+    }
+    setHasSql(hasInput);
+  }, []);
   const gridRef = useRef(grid);
   const tablesRef = useRef(tables);
   const selectedTableRef = useRef(selectedTable);
@@ -404,14 +419,20 @@ export function SqliteEditorSession({
           limit: GRID_PAGE_SIZE,
           offset: Math.max(0, (page - 1) * GRID_PAGE_SIZE),
         });
-        const countQuery = buildCountQuery(table.name);
-        const [rowsResult, countResult] = await Promise.all([
-          client.exec(rowsQuery.sql, rowsQuery.params),
-          client.exec(countQuery.sql),
-        ]);
+        const version = mutationVersionRef.current;
+        let counts = countCache.current.get(client);
+        if (!counts) {
+          counts = new Map();
+          countCache.current.set(client, counts);
+        }
+        const previous = counts.get(table.name);
+        const count = previous?.version === version
+          ? Promise.resolve(previous.total)
+          : client.exec(buildCountQuery(table.name).sql).then((result) => Number(result.rows?.[0]?.[0] ?? 0));
+        const [rowsResult, total] = await Promise.all([client.exec(rowsQuery.sql, rowsQuery.params), count]);
         if (token !== gridTokenRef.current) return;
         if (selectedTableRef.current !== table.name) return;
-        const total = Number(countResult.rows?.[0]?.[0] ?? 0);
+        if (version === mutationVersionRef.current) counts.set(table.name, { total, version });
         setGrid({
           rows: rowsResult.rows,
           total,
@@ -755,7 +776,7 @@ export function SqliteEditorSession({
 
   const runSql = useCallback(async () => {
     const client = clientRef.current;
-    const sql = sqlRef.current.trim();
+    const sql = sqlRef.current?.toString().trim();
     if (
       !client ||
       !sql ||
@@ -1456,7 +1477,10 @@ export function SqliteEditorSession({
                   aria-controls="sqlite-sql-editor-body"
                   aria-expanded={sqlOpen}
                   tooltip={sqlOpen ? "Hide SQL editor" : "Show SQL editor"}
-                  onClick={() => setSqlOpen((open) => !open)}
+                  onClick={() => {
+                    setSqlUsed(true);
+                    setSqlOpen((open) => !open);
+                  }}
                 >
                   {sqlOpen ? (
                     <ChevronUp size={ICON_SIZE.sm} aria-hidden="true" />
@@ -1472,17 +1496,15 @@ export function SqliteEditorSession({
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <div className="min-h-0 flex-1 overflow-hidden border-t border-secondary/15">
-                  <SqlEditor
-                    schema={schemaCompletions}
-                    onChange={(sql) => {
-                      sqlRef.current = sql;
-                      const next = sql.trim().length > 0;
-                      setHasSql((current) =>
-                        current === next ? current : next,
-                      );
-                    }}
-                    onRun={() => void runSql()}
-                  />
+                  {sqlUsed && (
+                    <Suspense fallback={<div className="grid h-full place-items-center"><Spinner /></div>}>
+                      <SqlEditor
+                        schema={schemaCompletions}
+                        onChange={updateSql}
+                        onRun={() => void runSql()}
+                      />
+                    </Suspense>
+                  )}
                 </div>
                 {sqlError ? (
                   <div className="border-t border-secondary/15 px-4 py-2">

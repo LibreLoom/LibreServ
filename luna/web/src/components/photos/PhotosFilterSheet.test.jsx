@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as renderWithTestingLibrary, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PhotosFilterSheet, {
   EMPTY_FILTERS,
@@ -8,6 +9,13 @@ import PhotosFilterSheet, {
   filterChipList,
   monthDayLabel,
 } from "./PhotosFilterSheet.jsx";
+
+function render(element) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderWithTestingLibrary(element, {
+    wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+  });
+}
 
 vi.mock("../../lib/api", () => ({
   getJson: vi.fn(async (url) => {
@@ -61,7 +69,7 @@ describe("PhotosFilterSheet", () => {
     expect(screen.getByRole("heading", { name: /^Look$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /^Time of day$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /^Saved filters$/i })).toBeInTheDocument();
-    expect(screen.getByTestId("geozone-map")).toBeInTheDocument();
+    expect(await screen.findByTestId("geozone-map")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Apply$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Clear all/i })).toBeInTheDocument();
   });

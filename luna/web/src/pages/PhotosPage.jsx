@@ -64,6 +64,7 @@ import { perfCancel, perfDetailed, perfStart, perfWhenImagesShown } from "../lib
 import { INDEXING_REFRESH_MS, indexingRefreshDelay } from "../lib/photosIndexing.js";
 import lazyWithPreload from "../lib/lazyWithPreload.js";
 import { whenIdleAndStill } from "../lib/whenStill.js";
+import { photosPlacesQuery } from "../lib/photosPlaces.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
@@ -204,6 +205,7 @@ const placesUrlFor = (listUrl) =>
   listUrl.replace("/api/v1/photos?", "/api/v1/photos/places?");
 /** Shared empty list so an unloaded places query keeps a stable prop identity. */
 const NO_PLACES = [];
+const ALBUM_NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: "base" });
 
 const PlacesMap = lazyWithPreload(() => import("../components/photos/PlacesMap.jsx"));
 const albumsQuery = {
@@ -457,8 +459,12 @@ export default function PhotosPage() {
   const [error, setError] = useState(null);
   const { addToast } = useToast();
   const fileOps = useFileOps();
-  const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
+  const [queryCommand, setQueryCommand] = useState({ text: "", reset: 0 });
+  const replaceSearch = useCallback((text) => {
+    setQueryCommand((previous) => ({ text, reset: previous.reset + 1 }));
+    setSearch(text);
+  }, []);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterFocus, setFilterFocus] = useState("");
@@ -838,10 +844,9 @@ export default function PhotosPage() {
     photosUrl({ ...listOpts, place: undefined, placeBbox: undefined }),
   );
   const places = useQuery({
-    queryKey: ["photos-places", placesUrl],
-    queryFn: () => getJson(placesUrl),
+    ...photosPlacesQuery(placesUrl),
     placeholderData: keepPreviousData,
-    enabled: activeSegment === "places" || filtersOpen,
+    enabled: activeSegment === "places",
   });
 
   const photoQuery = useInfiniteQuery({
@@ -1480,11 +1485,6 @@ export default function PhotosPage() {
     jumpFrameRef.current = requestAnimationFrame(scrollToDay);
   }, [jumpTarget, photos, loadedDaySpan, photoQuery, cancelJumpScroll]);
 
-  useEffect(() => {
-    const id = setTimeout(() => setSearch(q.trim()), 300);
-    return () => clearTimeout(id);
-  }, [q]);
-
   // Stable handlers so the memoized toolbar skips re-rendering on page updates.
   const { enter: enterSelect, exit: exitSelect } = selection;
   const handleSelectModeChange = useCallback(
@@ -1514,15 +1514,10 @@ export default function PhotosPage() {
   const rescanAsync = rescan.mutateAsync;
   const handleRescan = useCallback(() => rescanAsync(), [rescanAsync]);
 
-  const handleQueryChange = useCallback(
-    (e) => {
-      const next = e.target.value;
-      setQ(next);
-      if (!next.trim()) return;
-      if (activeSegment === "places") handleSegmentChange("library");
-    },
-    [activeSegment, handleSegmentChange, setQ],
-  );
+  const handleQueryInput = useCallback((text) => {
+    if (activeSegment === "places" && text.trim()) handleSegmentChange("library");
+  }, [activeSegment, handleSegmentChange]);
+  const handleQueryChange = useCallback((event) => setSearch(event.target.value.trim()), []);
 
   // Page-level drag-drop upload on library.
   useEffect(() => {
@@ -1769,7 +1764,10 @@ export default function PhotosPage() {
         segments={SEGMENTS}
         segment={activeSegment}
         onSegmentChange={handleSegmentChange}
-        query={q}
+        query={queryCommand.text}
+        queryReset={queryCommand.reset}
+        queryDelay={300}
+        onQueryInput={handleQueryInput}
         onQueryChange={handleQueryChange}
         searchOpen={searchOpen}
         onSearchOpenChange={setSearchOpen}
@@ -1873,8 +1871,7 @@ export default function PhotosPage() {
                 setViewLabel(null);
                 setDuplicatesView(false);
                 setFilters({ ...EMPTY_FILTERS });
-                setQ("");
-                setSearch("");
+                replaceSearch("");
               }}
             >
               <ArrowLeft size={14} /> Back
@@ -2072,8 +2069,7 @@ export default function PhotosPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setQ("");
-                  setSearch("");
+                  replaceSearch("");
                 }}
               >
                 Clear search
@@ -2124,8 +2120,7 @@ export default function PhotosPage() {
           }}
           onSmart={(smart, saved) => {
             setAlbumView(null);
-            setQ("");
-            setSearch("");
+            replaceSearch("");
             setSearchOpen(false);
             if (smart === "duplicates") {
               setViewLabel(null);
@@ -2161,8 +2156,7 @@ export default function PhotosPage() {
             }
             if (smart === "screenshots") {
               setFilters({ ...EMPTY_FILTERS });
-              setQ("Screenshot");
-              setSearch("Screenshot");
+              replaceSearch("Screenshot");
               setSearchOpen(true);
             }
             if (smart === "last30") {
@@ -2585,7 +2579,7 @@ export default function PhotosPage() {
       <PhotosFilterSheet
         open={filtersOpen}
         value={filters}
-        places={places.data || NO_PLACES}
+        placesUrl={placesUrl}
         focusSection={filterFocus}
         onClose={handleCloseFilters}
         onOpenDates={handleFiltersToDates}
@@ -2630,7 +2624,7 @@ function AlbumsPanel({
     const list = [...(albums || [])];
     if (sort === "oldest") list.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
     else if (sort === "name") {
-      list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+      list.sort((a, b) => ALBUM_NAME_COLLATOR.compare(String(a.name || ""), String(b.name || "")));
     } else if (sort === "most") {
       list.sort((a, b) => (b.item_count || 0) - (a.item_count || 0));
     } else {

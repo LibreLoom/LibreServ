@@ -5,14 +5,12 @@
  * folder is settling and when the pointer reaches a file that will use it;
  * the module system caches the result, so the click only mounts it.
  */
-let warming = null;
+import lazyWithPreload from "../../lib/lazyWithPreload.js";
+
+export const TextFileEditor = lazyWithPreload(() => import("./TextFileEditor.jsx"));
 
 export function warmTextEditor() {
-  if (!warming) {
-    warming = import("./TextFileEditor.jsx").catch(() => {
-      // A failed warm-up is harmless: the real open will try again.
-      warming = null;
-    });
-  }
-  return warming;
+  return TextFileEditor.preload().catch(() => {
+    // A failed warm-up is harmless: the real open will try again.
+  });
 }

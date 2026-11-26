@@ -16,7 +16,8 @@ import { officeConversionFor } from "../../lib/officeConvert.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
 import { perfStart } from "../../lib/perf.js";
-import { whenIdleAndStill } from "../../lib/whenStill.js";
+import lazyWithPreload from "../../lib/lazyWithPreload.js";
+import { TextFileEditor } from "./editorWarm.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
@@ -24,37 +25,24 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 
 // Heavy viewers and editors (CodeMirror, forms, diagrams, whiteboard, office)
 // load only when a file of that kind is opened.
-const loadTextFileEditor = () => import("./TextFileEditor.jsx");
-const loadFormBuilder = () => import("./forms/FormBuilder.jsx");
-const loadOfficeEditor = () => import("./office/OfficeEditor.jsx");
-const loadDiagramEditor = () => import("./diagram/DiagramEditor.jsx");
-const loadWhiteboardEditor = () => import("./whiteboard/WhiteboardEditor.jsx");
-const loadSqliteFileEditor = () => import("./SqliteFileEditor.jsx");
-const TextFileEditor = lazy(loadTextFileEditor);
-const FormBuilder = lazy(loadFormBuilder);
+const FormBuilder = lazyWithPreload(() => import("./forms/FormBuilder.jsx"));
 const KindViewer = lazy(() => import("./viewers/KindViewer.jsx"));
-const OfficeEditor = lazy(loadOfficeEditor);
-const DiagramEditor = lazy(loadDiagramEditor);
-const WhiteboardEditor = lazy(loadWhiteboardEditor);
-const SqliteFileEditor = lazy(loadSqliteFileEditor);
+const OfficeEditor = lazyWithPreload(() => import("./office/OfficeEditor.jsx"));
+const DiagramEditor = lazyWithPreload(() => import("./diagram/DiagramEditor.jsx"));
+const WhiteboardEditor = lazyWithPreload(() => import("./whiteboard/WhiteboardEditor.jsx"));
+const SqliteFileEditor = lazyWithPreload(() => import("./SqliteFileEditor.jsx"));
 
 // The frame holds back the editor until its opening fade is over, so the
 // editor's code is fetched the moment a file is opened instead of when the
 // editor finally mounts.
-const loadEditorFor = (kind) =>
-  kind === "office" ? loadOfficeEditor
-    : kind === "form" ? loadFormBuilder
-      : kind === "diagram" ? loadDiagramEditor
-        : kind === "whiteboard" ? loadWhiteboardEditor
-          : kind === "sqlite" ? loadSqliteFileEditor
-            : loadTextFileEditor;
-
-// Text and Markdown are the commonest files to open. Fetch their editor while
-// the browser is idle so the first open doesn't wait on the download, but not
-// mid-scroll: its ~100 ms parse froze a long folder's scroll (W6).
-if (typeof window !== "undefined") {
-  whenIdleAndStill(() => void loadTextFileEditor().catch(() => {}), { timeout: 4000 });
-}
+const EDITOR_BY_KIND = {
+  office: OfficeEditor,
+  form: FormBuilder,
+  diagram: DiagramEditor,
+  whiteboard: WhiteboardEditor,
+  sqlite: SqliteFileEditor,
+  text: TextFileEditor,
+};
 
 function ViewerFallback() {
   return (
@@ -177,6 +165,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const [expandedScope, setExpandedScope] = useState(previewKey);
   const exitButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const fullViewButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const previewVideoRef = useRef(/** @type {HTMLVideoElement|null} */ (null));
   const wasExpandedRef = useRef(false);
   // Snapshot of officeMissing for the exit animation — see below.
   const officeMissingViewRef = useRef(false);
@@ -313,7 +302,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   }, [previewKey, onClose]);
 
   const editorActive = open && fullscreenEditor && !dismissed;
-  // Start the editor's download as soon as the file opens (see loadEditorFor).
+  // Start the editor's download as soon as the file opens.
   const editorKindKey = isOffice
     ? "office"
     : isForm
@@ -326,7 +315,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             ? "sqlite"
             : "text";
   useEffect(() => {
-    if (editorActive) void loadEditorFor(editorKindKey)().catch(() => {});
+    if (editorActive) void EDITOR_BY_KIND[editorKindKey].preload().catch(() => {});
   }, [editorActive, editorKindKey]);
   // Fullscreen shells animate out after `open`/`expanded` drop — keep them
   // mounted until the exit keyframes finish.
@@ -473,7 +462,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
               ) : (
                 <div className="rounded-large-element surface-primary p-2">
                   <video
+                    ref={previewVideoRef}
                     controls
+                    preload="metadata"
                     className="w-full max-h-[65vh] rounded-large-element"
                     src={source.contentHref(driveId, path)}
                     onError={() => setMediaFailed(true)}
@@ -520,6 +511,9 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
                   ref={fullViewButtonRef}
                   onClick={() => {
                     haptic("light");
+                    if (previewVideoRef.current && !previewVideoRef.current.paused) {
+                      previewVideoRef.current.pause();
+                    }
                     setExpanded(true);
                   }}
                 >

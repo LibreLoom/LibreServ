@@ -1,14 +1,31 @@
 /* eslint-disable react-refresh/only-export-components -- filter sheet exports helpers used by PhotosPage */
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check } from "lucide-react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Dropdown from "@libreloom/ui/components/common/Dropdown.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { getJson } from "../../lib/api";
+import { photosPlacesQuery } from "../../lib/photosPlaces.js";
 
 const GeozoneMap = lazy(() => import("./GeozoneMap.jsx"));
+const EMPTY_LIST = [];
+const mapPlaceholder = <div className="h-64 rounded-large-element surface-primary border-2 border-secondary/30" aria-hidden="true" />;
+
+function FilterPlacesMap({ url, open, value, onChange }) {
+  const { data } = useQuery({
+    ...photosPlacesQuery(url),
+    enabled: open,
+    placeholderData: keepPreviousData,
+  });
+  return (
+    <Suspense fallback={mapPlaceholder}>
+      <GeozoneMap places={data || EMPTY_LIST} value={value} onChange={onChange} />
+    </Suspense>
+  );
+}
 
 export const SAVED_FILTERS_KEY = "luna.photos.savedFilters";
 
@@ -363,6 +380,7 @@ const sectionClass = "space-y-3 rounded-large-element surface-primary p-4";
  *   onApply: (filters: PhotosFilters) => void,
  *   onOpenDates?: () => void,
  *   places?: PhotosPlace[],
+ *   placesUrl?: string,
  *   focusSection?: ""|"when"|"where"|"camera"|"look"|string,
  * }} props
  */
@@ -372,16 +390,49 @@ function PhotosFilterSheet({
   onClose,
   onApply,
   onOpenDates,
-  places = [],
+  places = EMPTY_LIST,
+  placesUrl,
   focusSection = "",
 }) {
   const [draft, setDraft] = useState(() => ({ ...EMPTY_FILTERS, ...value }));
-  const [cameras, setCameras] = useState(/** @type {Array<{make:string,model:string,count:number}>} */ ([]));
-  const [facets, setFacets] = useState(/** @type {PhotosFacets|null} */ (null));
+  const camerasQuery = useQuery({
+    queryKey: ["photos-cameras"],
+    queryFn: ({ signal }) => getJson("/api/v1/photos/cameras", { signal }),
+    enabled: open,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const facetsQuery = useQuery({
+    queryKey: ["photos-filter-facets"],
+    queryFn: ({ signal }) => getJson("/api/v1/photos/filter-facets", { signal }),
+    enabled: open,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const cameras = Array.isArray(camerasQuery.data?.cameras) ? camerasQuery.data.cameras : EMPTY_LIST;
+  const facets = /** @type {PhotosFacets|null} */ (facetsQuery.data && typeof facetsQuery.data === "object" ? facetsQuery.data : null);
   const [saved, setSaved] = useState(readSavedFilters);
   const [saveName, setSaveName] = useState("");
   const [justCleared, setJustCleared] = useState(false);
   const clearedTimer = useRef(0);
+  const [mapNear, setMapNear] = useState(false);
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
+    if (open) setMapNear(false);
+  }
+  const showMap = !placesUrl || mapNear || focusSection === "where" || typeof IntersectionObserver === "undefined";
+
+  const observeMap = useCallback((/** @type {HTMLDivElement|null} */ target) => {
+    if (!open || showMap || !target) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      setMapNear(true);
+    }, { rootMargin: "120px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [open, showMap]);
 
   useEffect(() => () => window.clearTimeout(clearedTimer.current), []);
 
@@ -413,28 +464,6 @@ function PhotosFilterSheet({
     }, 80);
     return () => clearTimeout(t);
   }, [open, focusSection]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getJson("/api/v1/photos/cameras");
-        if (!cancelled) setCameras(Array.isArray(data?.cameras) ? data.cameras : []);
-      } catch {
-        if (!cancelled) setCameras([]);
-      }
-      try {
-        const data = await getJson("/api/v1/photos/filter-facets");
-        if (!cancelled) setFacets(data && typeof data === "object" ? data : null);
-      } catch {
-        if (!cancelled) setFacets(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   const cameraOptions = useMemo(() => {
     const opts = [{ value: "", label: "Any camera" }];
@@ -480,6 +509,10 @@ function PhotosFilterSheet({
 
   function patch(partial) {
     setDraft((prev) => ({ ...prev, ...partial }));
+  }
+
+  function changeArea(bbox) {
+    patch(bbox ? { placeBbox: bbox, place: null } : { placeBbox: null });
   }
 
   function applyTimePreset(key) {
@@ -660,15 +693,17 @@ function PhotosFilterSheet({
               }
             />
           </h3>
-          <Suspense fallback={null}>
-            <GeozoneMap
-              places={places}
-              value={draft.placeBbox || null}
-              onChange={(bbox) =>
-                patch(bbox ? { placeBbox: bbox, place: null } : { placeBbox: null })
-              }
-            />
-          </Suspense>
+          <div ref={observeMap}>
+            {showMap ? (
+              placesUrl ? (
+                <FilterPlacesMap url={placesUrl} open={open} value={draft.placeBbox || null} onChange={changeArea} />
+              ) : (
+                <Suspense fallback={mapPlaceholder}>
+                  <GeozoneMap places={places} value={draft.placeBbox || null} onChange={changeArea} />
+                </Suspense>
+              )
+            ) : mapPlaceholder}
+          </div>
         </section>
 
         <section className={sectionClass} aria-labelledby="filter-camera">
@@ -1071,5 +1106,6 @@ PhotosFilterSheet.propTypes = {
   onApply: PropTypes.func.isRequired,
   onOpenDates: PropTypes.func,
   places: PropTypes.arrayOf(PropTypes.object),
+  placesUrl: PropTypes.string,
   focusSection: PropTypes.string,
 };

@@ -110,6 +110,12 @@ function PhotoThumb({
   const longTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const longFired = useRef(false);
   const toggledOnPointerDown = useRef(false);
+  useLayoutEffect(() => () => {
+    if (longTimer.current !== null) clearTimeout(longTimer.current);
+    longTimer.current = null;
+    longFired.current = false;
+    toggledOnPointerDown.current = false;
+  }, [photo]);
   const stagger = typeof index === "number" ? index : staggerIndex;
   // The first rows get a quick entrance. Thumbnails added while scrolling
   // can paint as soon as their images arrive.
@@ -126,19 +132,23 @@ function PhotoThumb({
   }
 
   function startLong(e) {
+    clearLong();
+    longFired.current = false;
+    toggledOnPointerDown.current = false;
     // Desktop drag-to-select: primary button down starts a range drag.
     if (selectMode && e.button === 0 && onDragSelectStart) {
       haptic("selection");
       onDragSelectStart(photo);
       onToggle?.(photo, { range: false });
       toggledOnPointerDown.current = true;
+      return;
     }
-    clearLong();
-    longFired.current = false;
+    if (!onLongPress) return;
     longTimer.current = setTimeout(() => {
+      longTimer.current = null;
       longFired.current = true;
       haptic("rigid");
-      onLongPress?.(photo);
+      onLongPress(photo);
     }, LONG_PRESS_MS);
   }
 
@@ -173,10 +183,7 @@ function PhotoThumb({
       onPointerLeave={clearLong}
       onPointerCancel={clearLong}
       onPointerEnter={() => {
-        if (selectMode && onDragSelectEnter) {
-          haptic("selection");
-          onDragSelectEnter(photo);
-        }
+        if (selectMode) onDragSelectEnter?.(photo);
       }}
       onContextMenu={(e) => {
         e.preventDefault();

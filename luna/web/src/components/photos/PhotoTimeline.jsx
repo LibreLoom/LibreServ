@@ -500,7 +500,9 @@ function PhotoTimeline({
     dragSelecting.current = true;
   }, []);
   const dragEnter = useCallback((p) => {
-    if (dragSelecting.current) latest.current.onToggle?.(p, { range: true });
+    if (!dragSelecting.current) return;
+    haptic("selection");
+    latest.current.onToggle?.(p, { range: true });
   }, []);
 
   const gridClass = COL_CLASS[columns] || COL_CLASS[6];
@@ -544,7 +546,7 @@ function PhotoTimeline({
           onDeselectDay={deselectDay}
           onOpen={open}
           onToggle={toggle}
-          onLongPress={longPress}
+          onLongPress={onLongPress ? longPress : undefined}
           onDragStart={dragStart}
           onDragEnter={dragEnter}
         />

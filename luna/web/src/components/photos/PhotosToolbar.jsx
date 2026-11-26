@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -124,6 +124,9 @@ PhotosSearchInput.propTypes = {
  *   onSegmentChange: (v: string) => void,
  *   query: string,
  *   onQueryChange: (e: any) => void,
+ *   queryReset?: number,
+ *   queryDelay?: number,
+ *   onQueryInput?: (value: string) => void,
  *   searchOpen?: boolean,
  *   onSearchOpenChange?: (open: boolean) => void,
  *   selectMode?: boolean,
@@ -146,6 +149,9 @@ function PhotosToolbar({
   onSegmentChange,
   query,
   onQueryChange,
+  queryReset = 0,
+  queryDelay = 0,
+  onQueryInput,
   selectMode = false,
   onSelectModeChange,
   onOpenDates,
@@ -161,6 +167,30 @@ function PhotosToolbar({
 }) {
   const isDesktopAuto = useIsDesktop();
   const isDesktop = isDesktopProp !== undefined ? isDesktopProp : isDesktopAuto;
+  const [draft, setDraft] = useState({ reset: queryReset, text: query });
+  if (draft.reset !== queryReset) setDraft({ reset: queryReset, text: query });
+  const queryInput = queryDelay && draft.reset === queryReset ? draft.text : query;
+  const queryTimer = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
+  const commitQuery = useRef(onQueryChange);
+  commitQuery.current = onQueryChange;
+  useLayoutEffect(() => () => {
+    if (queryTimer.current != null) clearTimeout(queryTimer.current);
+    queryTimer.current = null;
+  }, [queryReset, queryDelay]);
+  const changeQuery = (event) => {
+    if (!queryDelay) {
+      onQueryChange(event);
+      return;
+    }
+    const text = event.target.value;
+    setDraft({ reset: queryReset, text });
+    onQueryInput?.(text);
+    if (queryTimer.current != null) clearTimeout(queryTimer.current);
+    queryTimer.current = setTimeout(() => {
+      queryTimer.current = null;
+      commitQuery.current({ target: { value: text } });
+    }, queryDelay);
+  };
   const [rescanState, setRescanState] = useState("idle");
   const rescanTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
 
@@ -399,7 +429,7 @@ function PhotosToolbar({
   );
 
   const clearQuery = () => {
-    onQueryChange({ target: { value: "" } });
+    changeQuery({ target: { value: "" } });
   };
 
   if (isDesktop) {
@@ -408,8 +438,8 @@ function PhotosToolbar({
         <div className={cn(pillShell, "flex items-center whitespace-nowrap")}>
           <PhotosSearchInput
             id="photo-search"
-            value={query}
-            onChange={onQueryChange}
+            value={queryInput}
+            onChange={changeQuery}
             placeholder="Search photos, for example “september 19” or “last summer”…"
             onClear={clearQuery}
           />
@@ -433,8 +463,8 @@ function PhotosToolbar({
       <div className={cn(pillShell, "flex items-center")}>
         <PhotosSearchInput
           id="photo-search-mobile"
-          value={query}
-          onChange={onQueryChange}
+          value={queryInput}
+          onChange={changeQuery}
           placeholder="Search photos, for example “september 19” or “last summer”…"
           onClear={clearQuery}
         />
@@ -481,5 +511,8 @@ PhotosToolbar.propTypes = {
   onRescan: PropTypes.func,
   rescanPending: PropTypes.bool,
   onOpenShortcuts: PropTypes.func,
+  queryReset: PropTypes.number,
+  queryDelay: PropTypes.number,
+  onQueryInput: PropTypes.func,
   isDesktop: PropTypes.bool,
 };

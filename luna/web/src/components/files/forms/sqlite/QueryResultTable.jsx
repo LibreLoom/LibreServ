@@ -2,13 +2,15 @@
  * Read-only result set for a SQL run, using the shared table shape.
  */
 
+import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { Table2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Table2 } from "lucide-react";
+import Button from "@libreloom/ui/components/ui/Button.jsx";
 import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import Table from "@libreloom/ui/components/common/Table.jsx";
 import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
-import { formatCellValue, formatCount } from "./sqliteModel.js";
+import { GRID_PAGE_SIZE, formatCellValue, formatCount } from "./sqliteModel.js";
 
 /**
  * @param {{ value: unknown }} props
@@ -45,22 +47,23 @@ ResultValue.propTypes = {
  * }} props
  */
 export default function QueryResultTable({ result }) {
-  const columns = result.columns.map((name, index) => ({
+  const [position, setPosition] = useState({ result, page: 0 });
+  const page = result === position.result ? position.page : 0;
+  if (position.result !== result) setPosition({ result, page: 0 });
+  const start = page * GRID_PAGE_SIZE;
+  const end = Math.min(start + GRID_PAGE_SIZE, result.rows.length);
+  const columns = useMemo(() => result.columns.map((name, index) => ({
     key: `c${index}`,
     label: name || `Column ${index + 1}`,
     render: (/** @type {any} */ row) => (
-      <ResultValue value={row[`c${index}`]} />
+      <ResultValue value={row.values[index]} />
     ),
     noRowClick: true,
-  }));
-  const data = result.rows.map((values, rowIndex) => {
-    /** @type {Record<string, any>} */
-    const row = { __row: rowIndex };
-    values.forEach((value, index) => {
-      row[`c${index}`] = value;
-    });
-    return row;
-  });
+  })), [result.columns]);
+  const data = useMemo(
+    () => result.rows.slice(start, end).map((values, index) => ({ index: start + index, values })),
+    [result.rows, start, end],
+  );
 
   return (
     <TooltipTargets className="flex min-h-0 flex-1 flex-col gap-2">
@@ -71,6 +74,33 @@ export default function QueryResultTable({ result }) {
             : `Showing the first ${formatCount(result.rows.length)} rows. Add a filter or a LIMIT to see the rest.`}
         </PageNotice>
       ) : null}
+      {result.rows.length > GRID_PAGE_SIZE && (
+        <nav aria-label="Query result pages" className="flex shrink-0 items-center justify-end gap-2">
+          <span className="text-xs" role="status">
+            {formatCount(start + 1)}–{formatCount(end)} of {formatCount(result.rows.length)}
+          </span>
+          <Button
+            variant="outline"
+            surface="primary"
+            size="iconSm"
+            aria-label="Previous result page"
+            disabled={start === 0}
+            onClick={() => setPosition({ result, page: page - 1 })}
+          >
+            <ChevronLeft size={16} />
+          </Button>
+          <Button
+            variant="outline"
+            surface="primary"
+            size="iconSm"
+            aria-label="Next result page"
+            disabled={end === result.rows.length}
+            onClick={() => setPosition({ result, page: page + 1 })}
+          >
+            <ChevronRight size={16} />
+          </Button>
+        </nav>
+      )}
       {result.rows.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <EmptyState
@@ -85,7 +115,7 @@ export default function QueryResultTable({ result }) {
             className="h-full min-h-0 min-w-max"
             columns={columns}
             data={data}
-            rowKey="__row"
+            rowKey="index"
             scrollable
             maxHeight="100%"
           />

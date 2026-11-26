@@ -96,7 +96,7 @@ function sqlLanguage(schema) {
  * @param {{
  *   schema?: Record<string, string[]> | null,
  *   initialSql?: string,
- *   onChange?: (sql: string) => void,
+ *   onChange?: (doc: import("@codemirror/state").Text) => void,
  *   onRun?: () => void,
  * }} props
  */
@@ -167,7 +167,7 @@ export default function SqlEditor({
           }),
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return;
-            onChangeRef.current?.(update.state.doc.toString());
+            onChangeRef.current?.(update.state.doc);
           }),
         ],
       }),

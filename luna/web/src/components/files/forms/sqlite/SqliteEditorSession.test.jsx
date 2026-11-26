@@ -131,6 +131,7 @@ describe("SqliteEditorSession table switching", () => {
     const body = document.getElementById("sqlite-sql-editor-body");
     expect(body).toHaveAttribute("aria-hidden", "true");
     expect(body).toHaveAttribute("inert");
+    expect(body?.querySelector(".cm-content")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Run" }),
     ).not.toBeInTheDocument();
@@ -140,6 +141,7 @@ describe("SqliteEditorSession table switching", () => {
     fireEvent.click(show);
     expect(body).not.toHaveAttribute("aria-hidden");
     expect(body).not.toHaveAttribute("inert");
+    await waitFor(() => expect(body?.querySelector(".cm-content")).toBeInTheDocument());
     expect(
       screen.getByRole("button", { name: "Run" }),
     ).toBeInTheDocument();
