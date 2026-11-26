@@ -73,16 +73,19 @@ export default function StorageBreakdown({ enabled = true }) {
   const canClear = removable.length > 0;
 
   return (
-    <div className="mt-3" data-slot="storage-breakdown">
-      <p className="text-xs text-primary">
+    <div className="mt-3 surface-primary rounded-large-element p-4 space-y-3" data-slot="storage-breakdown">
+      <p className="text-sm text-secondary">
         {formatBytes(free)} free of {formatBytes(total)} on Luna&apos;s own disk.{" "}
         <InfoHint content="Luna keeps its software, its settings, and the editors for documents and diagrams on this disk. Your files are on your drives." />
       </p>
 
       {items.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <ul className="space-y-1.5">
           {items.map((item) => (
-            <li key={item.id} className="flex items-baseline justify-between gap-3 text-xs">
+            <li
+              key={item.id}
+              className="surface-secondary rounded-pill px-4 py-2 flex items-baseline justify-between gap-3 text-xs"
+            >
               <span className="min-w-0 break-words">{item.label}</span>
               <span className="shrink-0 tabular-nums">{formatBytes(item.bytes)}</span>
             </li>
@@ -91,17 +94,17 @@ export default function StorageBreakdown({ enabled = true }) {
       )}
 
       {canClear && (
-        <div className="mt-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="outline"
-            surface="secondary"
+            surface="primary"
             size="sm"
             onClick={() => cleanup.mutate()}
             disabled={cleanup.isPending}
           >
             {cleanup.isPending ? "Clearing…" : "Free up space"}
           </Button>
-          <p className="text-xs mt-1.5">
+          <p className="min-w-0 flex-1 text-xs text-secondary">
             Clears temporary copies of closed documents and old update downloads. Files on your
             drives do not change.
           </p>
