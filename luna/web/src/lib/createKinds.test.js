@@ -29,12 +29,12 @@ describe("createKinds", () => {
     expect(createKindsFor(null)).toEqual(CREATE_KINDS.filter((kind) => !kind.private));
   });
 
-  it("groups kinds under Organize, Files, and Office, with private folders in Organize", () => {
+  it("groups kinds under Organize, Office, and Files, with private folders in Organize", () => {
     const groups = groupedCreateKinds();
-    expect(groups.map((group) => group.label)).toEqual(["Organize", "Files", "Office"]);
+    expect(groups.map((group) => group.label)).toEqual(["Organize", "Office", "Files"]);
     expect(groups[0].items.map((kind) => kind.id)).toEqual(["folder", "private-folder"]);
-    expect(groups[1].items.map((kind) => kind.id)).toEqual(["text", "database"]);
-    expect(groups[2].items.map((kind) => kind.id)).toEqual([
+    expect(groups[2].items.map((kind) => kind.id)).toEqual(["text", "database"]);
+    expect(groups[1].items.map((kind) => kind.id)).toEqual([
       "document",
       "spreadsheet",
       "presentation",
