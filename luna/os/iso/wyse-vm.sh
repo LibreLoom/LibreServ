@@ -12,6 +12,9 @@
 #   iso/wyse-vm.sh install
 #        Erase the virtual eMMC and run the real rapidinstall ISO from a virtual
 #        USB stick (keyboard layout: KEYMAP, default colemak).
+#   iso/wyse-vm.sh usb add [IMAGE]    plug a virtual USB drive into the running VM
+#   iso/wyse-vm.sh usb remove [NAME]  pull it out again (the name `usb add` printed)
+#        With no IMAGE a blank 16 GB image is made (dist/wyse-vm/usb-blank.img).
 #   iso/wyse-vm.sh reset
 #        Delete the virtual eMMC.
 #
@@ -28,7 +31,41 @@ EMMC="$DIR/emmc.img"
 MODE="${1:-start}"
 mkdir -p "$DIR"
 
+# Send monitor commands to the running VM (no socat needed).
+monitor() {
+	[ -S "$DIR/monitor.sock" ] || { echo "the VM is not running" >&2; exit 1; }
+	python3 -I - "$DIR/monitor.sock" "$@" <<'PY'
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+time.sleep(0.3)
+for c in sys.argv[2:]:
+    s.send((c + "\n").encode())
+    time.sleep(0.5)
+PY
+}
+
 case "$MODE" in
+usb)
+	case "${2:-}" in
+	add)
+		IMG="${3:-$DIR/usb-blank.img}"
+		[ -f "$IMG" ] || truncate -s 16G "$IMG"
+		IMG="$(readlink -f "$IMG")"
+		NAME="usb$(date +%s)"
+		monitor "drive_add 0 if=none,id=$NAME,file=$IMG,format=raw" \
+			"device_add usb-storage,id=dev-$NAME,drive=$NAME,bus=xhci.0,removable=on"
+		echo "plugged in $IMG as $NAME"
+		;;
+	remove)
+		[ -n "${3:-}" ] || { echo "usage: $0 usb remove NAME" >&2; exit 2; }
+		monitor "device_del dev-$3" && sleep 1 && monitor "drive_del $3"
+		echo "pulled $3"
+		;;
+	*) echo "usage: $0 usb add [IMAGE] | usb remove NAME" >&2; exit 2 ;;
+	esac
+	exit 0
+	;;
 reset) rm -f "$EMMC"; echo "virtual Wyse 3040 reset"; exit 0 ;;
 start)
 	[ "$#" -le 3 ] || { echo "usage: $0 [start] [DEVICE_ID CODE]" >&2; exit 2; }
