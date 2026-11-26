@@ -236,7 +236,7 @@ pub fn help_lines(snap: &ConsoleSnapshot) -> Vec<String> {
     );
     lines.push("  Local shell: type root, press Enter at password.".into());
     lines.push(
-        "  Forgot the Luna password? Start Luna with a USB flash drive that holds only luna-recover.luna.".into(),
+        "  Forgot your Luna password? On the Luna login page, choose Forgot your password.".into(),
     );
     lines.push("============================================================".into());
     lines.push(String::new());
@@ -524,8 +524,8 @@ mod tests {
         assert!(text.contains("http://luna.local"));
         assert!(text.contains("ABCD-EFGH"));
         assert!(text.contains(BANNER_OK));
-        assert!(text.contains("luna-recover.luna"));
-        assert!(!text.contains("luna-recover-<"));
+        assert!(text.contains("Forgot your Luna password?"));
+        assert!(!text.contains("luna-recover"));
         assert!(!text.contains("169.254.42.42"));
         assert!(!text.contains("Luna Setup"));
     }
