@@ -8,13 +8,13 @@ support call later.
 - 1× x86_64 PC to flash (mini PC, Wyse 3040, or similar) + its PSU
 - 1× USB stick for the rapidinstall ISO (8 GB is plenty; includes LUNAASSETS)
 - Ethernet patch cable (in the box)
-- Official quick-start card with a Device ID and Verification code
+- Official quick-start card with a device token
 
 ## 1. Flash
 - [ ] `os/build-rootfs.sh` + `os/make-image.sh` produced `os/dist/luna-os-x86_64.img.zst`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
-- [ ] Factory stick: mount `LUNAASSETS`; each `TOKENS` line is exactly `<20-character Crockford Device ID> <6-hex Verification code>`, such as `7K4M2Q9XR8N36T5W1PZH A3F91C`; each flash peels the first line and writes `device-uid` and `pairing-code` separately
+- [ ] Factory stick: mount `LUNAASSETS`; each `TOKENS` line is exactly one 20-character Crockford device token, such as `7K4M2Q9XR8N36T5W1PZH`; each flash peels the first line and writes `device-token`
 - [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
 - [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
 - [ ] Waited 5s (or pressed a number to pick another disk); typed INSTALL and pressed Enter; installer finished; USB removed; reboot from internal disk
@@ -26,7 +26,7 @@ support call later.
 - [ ] `ping luna.local` answers from the LAN
 - [ ] On the console, `cat /etc/resolv.conf` lists a `nameserver` and `ping -c1 example.com` answers (root is read-only; the file is a link to `/run/resolv.conf`)
 - [ ] `http://luna.local` opens the setup wizard (maybe)
-- [ ] HDMI shows the current IPv4 (or waiting-for-address); the Device token section shows the Device ID and Verification code (including after setup / Connect claim)
+- [ ] HDMI shows the current IPv4 (or waiting-for-address); the Device token section shows whether a device token is set (including after setup / Connect claim)
 
 ## 3. Setup wizard
 - [ ] Ethernet cable detected; no Luna Setup network; no Wi-Fi scan required
@@ -45,7 +45,7 @@ support call later.
 - [ ] Public link with password works; wrong password is refused
 
 ## 6. Remote access
-- [ ] A verified Luna Connect account pairs with the Device ID and Verification code; Luna claims the pairing and receives its hidden rolling credential
+- [ ] A verified Luna Connect account pairs with the device token; Luna claims the pairing and receives its hidden rolling credential
 - [ ] Luna Connect assigns {name}.luna.servers.libreloom.org and serves the device URL
 - [ ] Turn off → URL stops; turn on again → URL returns
 

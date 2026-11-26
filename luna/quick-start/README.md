@@ -10,9 +10,8 @@ npm install
 npm run dev
 ```
 
-Open the local URL, enter the **Device ID** and **Verification code** for each
-guide, and choose **Print two guides**. The Device ID is shown in five groups of
-four; the Verification code is six hexadecimal characters.
+Open the local URL, enter the **device token** for each guide, and choose
+**Print two guides**. The device token is shown in five groups of four.
 
 ## Print and fold
 

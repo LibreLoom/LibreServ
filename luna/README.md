@@ -4,11 +4,11 @@ Luna is the $49 file box. Local-first, no subscription, drives served as-is.
 
 Setup is Ethernet-only: plug the included RJ45 (ethernet) cable into a router or modem. There is no setup Wi-Fi access point.
 
-**Setup** is open on the local network (loopback, `luna.local`, private IPs). **First registration over the public hostname** (the Connect name) requires a one-time setup grant from Luna Connect; the daemon verifies and consumes it before creating the first Admin. The grant is carried in the `#setup_grant=` fragment, never a query string. The Device ID, Verification code, and rolling credential are not accepted as first-Admin proof.
+**Setup** is open on the local network (loopback, `luna.local`, private IPs). **First registration over the public hostname** (the Connect name) requires the full **device token**; the daemon compares it with its own `device-token` file before creating the first Admin, and refuses a missing or wrong token. Connect's onboarding prefills it through the `#token=` fragment, never a query string. The rolling credential is not accepted as first-Admin proof.
 
-Luna Connect pairing uses a public 20-character Crockford **Device ID** and a reusable six-hex **Verification code**. While unbound, Luna claims a pending pairing; once bound, it uses an invisible rolling credential refreshed every five minutes and after reconnect. The credential never expires on its own, rotates on unbind/reset/revocation, and is never shown in the UI.
+Luna Connect pairing uses one 20-character Crockford **device token**, which only Connect staff and the DIY $1 flow mint. While unbound, Luna claims a pending pairing with it; once bound, it uses an invisible rolling credential refreshed every five minutes and after reconnect. The credential never expires on its own, is replaced on refresh, and is never shown in the UI. The device token stays on the Luna through unbind and factory reset and is never rotated.
 
-Factory reset asks **Keep Connect** or **Disconnect**. Keep retains the rolling credential and bound configuration; Disconnect revokes it and leaves the Luna ready to pair again. Local USB password recovery is separate and uses the same recovery file whether Connect is on or off.
+Factory reset asks **Keep Connect** or **Disconnect**. Keep retains the rolling credential and bound configuration; Disconnect revokes it and leaves the Luna ready to pair again. Either way the device token stays. Local USB password recovery is separate and uses the same recovery file whether Connect is on or off.
 
 ## Layout
 - `crates/luna-core` — storage model: drive states, `.luna` marker, safe paths
@@ -73,7 +73,7 @@ Inspect and control mock status while the server is running (or configure state 
 # View current status, domain, active mode, and cloud backup usage
 make mock-connect ARGS="status"
 
-# Mint a Device ID, Verification code, and mock rolling credential into dev/
+# Mint a device token and mock rolling credential into dev/
 make mock-connect ARGS="mint-device --write"
 
 # Change subdomain (e.g. photos -> photos.luna.servers.libreloom.org)

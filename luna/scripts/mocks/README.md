@@ -10,16 +10,16 @@ Start the mock in the background:
 bash scripts/mocks/mock-connect.sh serve --daemon --mode unbound
 ```
 
-Create a Device ID, reusable Verification code, and rolling credential, then
-pair and claim them through the mock:
+Create a device token and a rolling credential, then pair and claim them
+through the mock:
 
 ```bash
 bash scripts/mocks/mock-connect.sh mint-device --write
 ```
 
-That writes `dev/device-uid`, `dev/pairing-code`, and
-`dev/connect-credential`. Secret files are mode `0600`. The removed
-`mint-token` command and permanent `device-token` file are not used.
+That writes `dev/device-token` and `dev/connect-credential`. Secret files are
+mode `0600`. The removed `mint-token` command is not used, and `device-token`
+is the single pairing token, not the old permanent bearer.
 
 For the usual paired development setup with an address and cloud backup:
 
@@ -28,7 +28,7 @@ bash scripts/mocks/seed-mock-connect.sh
 ```
 
 The seed script checks that the local credential actually authenticates and
-that the local Device ID matches the mock before reusing either. It replaces
+that the local device token matches the mock before reusing either. It replaces
 stale local pairing material when the mock was unbound or recreated.
 
 Inspect and control the mock:
@@ -106,8 +106,8 @@ seconds only.
 
 `scripts/e2e-setup-flow.sh` runs against a real Connect instance and a fresh
 lunad. It pairs through an authenticated verified Connect account, waits for
-lunad to claim, assigns the domain, creates a setup grant, and checks the
-exact `/setup#setup_grant=<grant>` fragment before first-Admin registration.
+lunad to claim, assigns the domain, and checks the exact `/setup#token=<token>` fragment
+before first-Admin registration with the device token.
 See the required environment variables at the top of the script.
 
 The mock contract test script is available as:
