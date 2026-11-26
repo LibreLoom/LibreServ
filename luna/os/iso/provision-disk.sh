@@ -6,6 +6,9 @@
 # calls it through sudo.
 #
 #   sudo iso/provision-disk.sh DISK.raw [DEVICE_ID VERIFICATION_CODE]
+#
+# KEEP_DATA_FROM=OLD.raw copies the old disk's data partition (accounts, files
+# index, settings) onto the new one, so only the operating system is replaced.
 set -eu
 
 [ "$#" -ge 1 ] || { echo "usage: $0 DISK.raw [DEVICE_ID VERIFICATION_CODE]" >&2; exit 2; }
@@ -28,7 +31,11 @@ IMG="${LUNA_OS_IMAGE:-$ROOT/os/dist/luna-os-x86_64.img.zst}"
 truncate -s 8G "$DISK"
 LOOP="$(losetup --find --show --partscan "$DISK")"
 MNT=""
+OLD_LOOP=""
+OLD_MNT=""
 cleanup() {
+	[ -z "$OLD_MNT" ] || { umount "$OLD_MNT" 2>/dev/null || true; rmdir "$OLD_MNT" 2>/dev/null || true; }
+	[ -z "$OLD_LOOP" ] || losetup -d "$OLD_LOOP" 2>/dev/null || true
 	[ -z "$MNT" ] || { umount "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true; }
 	losetup -d "$LOOP" 2>/dev/null || true
 }
@@ -45,6 +52,16 @@ trap cleanup EXIT
 
 MNT="$(mktemp -d /tmp/luna-prov.XXXXXX)"
 mount -o rw "$(partition_data "$LOOP")" "$MNT"
+if [ -n "${KEEP_DATA_FROM:-}" ]; then
+	[ -f "$KEEP_DATA_FROM" ] || { echo "no old disk at $KEEP_DATA_FROM" >&2; exit 2; }
+	OLD_LOOP="$(losetup --find --show --partscan --read-only "$KEEP_DATA_FROM")"
+	OLD_MNT="$(mktemp -d /tmp/luna-old.XXXXXX)"
+	# noload: the old disk may not have been shut down cleanly; never replay its journal.
+	mount -o ro,noload "$(partition_node "$OLD_LOOP" 5)" "$OLD_MNT"
+	echo "==> keeping the old data partition"
+	(cd "$OLD_MNT" && tar --numeric-owner --xattrs --acls -cf - --exclude=./os-image.sha256 --exclude=./lost+found .) |
+		(cd "$MNT" && tar --numeric-owner --xattrs --acls -xpf -)
+fi
 _record_os_image_hash "$MNT" "$_os_hash"
 if [ -n "$UID_" ]; then
 	factory_write_pairing_material "$MNT" "$UID_" "$CODE" || {

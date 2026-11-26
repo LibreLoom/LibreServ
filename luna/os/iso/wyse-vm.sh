@@ -15,6 +15,10 @@
 #   iso/wyse-vm.sh usb add [IMAGE]    plug a virtual USB drive into the running VM
 #   iso/wyse-vm.sh usb remove [NAME]  pull it out again (the name `usb add` printed)
 #        With no IMAGE a blank 16 GB image is made (dist/wyse-vm/usb-blank.img).
+#   iso/wyse-vm.sh refresh
+#        With the VM closed: put the latest OS image on the virtual eMMC and keep
+#        everything on it (accounts, settings, files). The old disk is kept as
+#        emmc.before-refresh.img.
 #   iso/wyse-vm.sh reset
 #        Delete the virtual eMMC.
 #
@@ -79,8 +83,21 @@ start)
 		mv "$EMMC.new" "$EMMC"
 	fi
 	;;
+refresh)
+	[ -f "$EMMC" ] || { echo "no virtual eMMC yet: run $0 first" >&2; exit 2; }
+	if pgrep -x qemu-system-x86 >/dev/null; then
+		echo "close the VM window first (a running disk can't be copied safely)" >&2; exit 1
+	fi
+	echo "==> new OS image, keeping the data partition (sudo needed for a loop device)"
+	if ! sudo env KEEP_DATA_FROM="$EMMC" "$OSDIR/iso/provision-disk.sh" "$EMMC.new"; then
+		rm -f "$EMMC.new"; exit 1
+	fi
+	sudo chown "$(id -u):$(id -g)" "$EMMC.new"
+	mv "$EMMC" "$DIR/emmc.before-refresh.img"
+	mv "$EMMC.new" "$EMMC"
+	;;
 install) rm -f "$EMMC"; truncate -s 8G "$EMMC" ;;
-*) echo "usage: $0 [start|install|reset]" >&2; exit 2 ;;
+*) echo "usage: $0 [start|install|refresh|reset]" >&2; exit 2 ;;
 esac
 
 KVM=""
