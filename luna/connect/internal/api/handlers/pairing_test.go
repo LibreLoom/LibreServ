@@ -15,23 +15,16 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
-func startPairRequest(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, uid, code string) *httptest.ResponseRecorder {
+func startPairRequest(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, deviceToken string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: code})
+	body, _ := json.Marshal(pairingInput{DeviceToken: deviceToken})
 	req := httptest.NewRequest(http.MethodPost, "/devices/pair", bytes.NewReader(body))
 	req.AddCookie(cookie)
 	return withVerifiedAccount(acctH, devH.StartPair, req)
 }
 
-func differentVerificationCode(code string) string {
-	if code == "000000" {
-		return "FFFFFF"
-	}
-	return "000000"
-}
-
-func claimPairRequest(devH DeviceHandler, uid, code string) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: code})
+func claimPairRequest(devH DeviceHandler, deviceToken string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(pairingInput{DeviceToken: deviceToken})
 	rec := httptest.NewRecorder()
 	devH.ClaimPair(rec, httptest.NewRequest(http.MethodPost, "/devices/pair/claim", bytes.NewReader(body)))
 	return rec
@@ -53,19 +46,19 @@ func TestPairingStateTransitionsExpiryCancellationAndFirstClaim(t *testing.T) {
 	cookie2 := registerAccount(t, acctH, "pair-two@b.co")
 	verifyEmailFor(t, acctH, "pair-one@b.co")
 	verifyEmailFor(t, acctH, "pair-two@b.co")
-	devID, uid, code := mintDevice(t, d, "official")
+	devID, uid := mintDevice(t, d, "official")
 
-	start1 := startPairRequest(t, acctH, devH, cookie1, uid, code)
+	start1 := startPairRequest(t, acctH, devH, cookie1, uid)
 	if start1.Code != http.StatusOK {
 		t.Fatalf("start one %d %s", start1.Code, start1.Body.String())
 	}
 	var started map[string]any
 	_ = json.Unmarshal(start1.Body.Bytes(), &started)
 	pairingID := started["pairing_id"].(string)
-	if again := startPairRequest(t, acctH, devH, cookie1, uid, code); again.Code != http.StatusOK || !strings.Contains(again.Body.String(), pairingID) {
+	if again := startPairRequest(t, acctH, devH, cookie1, uid); again.Code != http.StatusOK || !strings.Contains(again.Body.String(), pairingID) {
 		t.Fatalf("same-account retry must retain live attempt: %d %s", again.Code, again.Body.String())
 	}
-	if other := startPairRequest(t, acctH, devH, cookie2, uid, code); other.Code != http.StatusBadRequest {
+	if other := startPairRequest(t, acctH, devH, cookie2, uid); other.Code != http.StatusBadRequest {
 		t.Fatalf("live attempt displaced for another account: %d %s", other.Code, other.Body.String())
 	}
 	if status := pairingStatusRequest(t, acctH, devH, cookie1, pairingID); status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"waiting"`) {
@@ -83,7 +76,7 @@ func TestPairingStateTransitionsExpiryCancellationAndFirstClaim(t *testing.T) {
 		t.Fatalf("expired attempt did not return to unbound: state=%s account=%v", state, account)
 	}
 
-	start2 := startPairRequest(t, acctH, devH, cookie2, uid, code)
+	start2 := startPairRequest(t, acctH, devH, cookie2, uid)
 	if start2.Code != http.StatusOK {
 		t.Fatalf("replacement start %d %s", start2.Code, start2.Body.String())
 	}
@@ -96,21 +89,21 @@ func TestPairingStateTransitionsExpiryCancellationAndFirstClaim(t *testing.T) {
 	if cancelRec.Code != http.StatusOK {
 		t.Fatalf("cancel %d %s", cancelRec.Code, cancelRec.Body.String())
 	}
-	if rec := claimPairRequest(devH, uid, code); rec.Code != http.StatusNotFound {
+	if rec := claimPairRequest(devH, uid); rec.Code != http.StatusNotFound {
 		t.Fatalf("cancelled attempt claimed: %d %s", rec.Code, rec.Body.String())
 	}
 
-	start3 := startPairRequest(t, acctH, devH, cookie1, uid, code)
+	start3 := startPairRequest(t, acctH, devH, cookie1, uid)
 	if start3.Code != http.StatusOK {
 		t.Fatalf("final start %d %s", start3.Code, start3.Body.String())
 	}
 	_ = json.Unmarshal(start3.Body.Bytes(), &started)
 	pairingID = started["pairing_id"].(string)
-	claim := claimPairRequest(devH, uid, code)
+	claim := claimPairRequest(devH, uid)
 	if claim.Code != http.StatusOK {
 		t.Fatalf("first claim %d %s", claim.Code, claim.Body.String())
 	}
-	if replay := claimPairRequest(devH, uid, code); replay.Code != http.StatusNotFound {
+	if replay := claimPairRequest(devH, uid); replay.Code != http.StatusNotFound {
 		t.Fatalf("second claim %d %s", replay.Code, replay.Body.String())
 	}
 	if status := pairingStatusRequest(t, acctH, devH, cookie1, pairingID); status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"bound"`) || !strings.Contains(status.Body.String(), devID) {
@@ -124,12 +117,12 @@ func TestPairingErrorsAreGeneric(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "generic@b.co")
 	verifyEmailFor(t, acctH, "generic@b.co")
-	_, uid, actualCode := mintDevice(t, d, "official")
+	_, uid := mintDevice(t, d, "official")
 
-	unknown := startPairRequest(t, acctH, devH, cookie, security.DeviceUID(), "A3F91C")
-	wrong := startPairRequest(t, acctH, devH, cookie, uid, differentVerificationCode(actualCode))
-	if unknown.Code != http.StatusBadRequest || wrong.Code != unknown.Code || unknown.Body.String() != wrong.Body.String() {
-		t.Fatalf("pairing errors differ: unknown=%d %s wrong=%d %s", unknown.Code, unknown.Body.String(), wrong.Code, wrong.Body.String())
+	unknown := startPairRequest(t, acctH, devH, cookie, security.DeviceToken())
+	malformed := startPairRequest(t, acctH, devH, cookie, "A3F91C")
+	if unknown.Code != http.StatusBadRequest || malformed.Code != unknown.Code || unknown.Body.String() != malformed.Body.String() {
+		t.Fatalf("pairing errors differ: unknown=%d %s malformed=%d %s", unknown.Code, unknown.Body.String(), malformed.Code, malformed.Body.String())
 	}
 	if strings.Contains(unknown.Body.String(), "not found") || strings.Contains(unknown.Body.String(), uid) {
 		t.Fatalf("generic error leaked device existence: %s", unknown.Body.String())
@@ -140,18 +133,17 @@ func TestClaimPairRepeatedNoAttemptPollingDoesNotCountAsFailure(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
-	_, uid, code := mintDevice(t, d, "official")
+	_, uid := mintDevice(t, d, "official")
 
-	for i := 0; i < pairingDeviceFailures*2+1; i++ {
-		rec := claimPairRequest(devH, uid, code)
+	for i := 0; i < pairingIPFailures*2+1; i++ {
+		rec := claimPairRequest(devH, uid)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("no-attempt poll %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 	}
 	ip := ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))
 	var failures int
-	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM guess_attempts WHERE key IN (?, ?)`,
-		"pair-device:"+uid, "pair-ip:"+ip).Scan(&failures); err != nil {
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM guess_attempts WHERE key = ?`, "pair-ip:"+ip).Scan(&failures); err != nil {
 		t.Fatal(err)
 	}
 	if failures != 0 {
@@ -160,48 +152,45 @@ func TestClaimPairRepeatedNoAttemptPollingDoesNotCountAsFailure(t *testing.T) {
 
 	cookie := registerAccount(t, acctH, "no-attempt@b.co")
 	verifyEmailFor(t, acctH, "no-attempt@b.co")
-	_, _ = pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, _ = pairDeviceForAccount(t, acctH, devH, cookie, uid)
 }
 
-func TestClaimPairInvalidCodeIsGenericAndThrottled(t *testing.T) {
+func TestClaimPairInvalidTokenIsGenericAndThrottled(t *testing.T) {
 	d := testDeps(t)
 	devH := DeviceHandler{Deps: d}
-	_, uid, code := mintDevice(t, d, "official")
+	_, uid := mintDevice(t, d, "official")
 
-	noAttempt := claimPairRequest(devH, uid, code)
+	noAttempt := claimPairRequest(devH, uid)
 	if noAttempt.Code != http.StatusNotFound {
 		t.Fatalf("no-attempt response %d %s", noAttempt.Code, noAttempt.Body.String())
 	}
-	wrongCode := differentVerificationCode(code)
-	for i := 0; i < pairingDeviceFailures; i++ {
-		rec := claimPairRequest(devH, uid, wrongCode)
+	for i := 0; i < pairingIPFailures; i++ {
+		rec := claimPairRequest(devH, security.DeviceToken())
 		if rec.Code != http.StatusNotFound || rec.Body.String() != noAttempt.Body.String() {
-			t.Fatalf("invalid-code response %d: %d %s", i+1, rec.Code, rec.Body.String())
+			t.Fatalf("invalid-token response %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := claimPairRequest(devH, uid, wrongCode); rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("invalid code was not throttled: %d %s", rec.Code, rec.Body.String())
+	if rec := claimPairRequest(devH, security.DeviceToken()); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("invalid token was not throttled: %d %s", rec.Code, rec.Body.String())
 	}
+	ip := ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))
 	var failures int
-	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-device:"+uid).Scan(&failures); err != nil {
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+ip).Scan(&failures); err != nil {
 		t.Fatal(err)
 	}
-	if failures != pairingDeviceFailures {
-		t.Fatalf("invalid-code failures=%d, want %d", failures, pairingDeviceFailures)
+	if failures != pairingIPFailures {
+		t.Fatalf("invalid-token failures=%d, want %d", failures, pairingIPFailures)
 	}
 }
 
-func TestPairingDeviceLimitAndTrustedIPRelaxation(t *testing.T) {
+func TestPairingLimitsUseTrustedClientIPAndSurviveRestart(t *testing.T) {
 	d := testDeps(t)
 	devH := DeviceHandler{Deps: d}
-	_, uid, actualCode := mintDevice(t, d, "official")
-	wrongCode := differentVerificationCode(actualCode)
-	now := time.Now().Unix()
-	const trustedIP = "203.0.113.77"
-	_, _ = d.DB.Exec(`UPDATE devices SET last_public_ip = ?, last_public_ip_at = ? WHERE device_uid = ?`, trustedIP, now, uid)
+	const forwarded = "203.0.113.77"
+	const peer = "198.51.100.10"
 
 	claimWrong := func(remote, cf string) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: wrongCode})
+		body, _ := json.Marshal(pairingInput{DeviceToken: security.DeviceToken()})
 		req := httptest.NewRequest(http.MethodPost, "/devices/pair/claim", bytes.NewReader(body))
 		req.RemoteAddr = remote
 		if cf != "" {
@@ -211,24 +200,28 @@ func TestPairingDeviceLimitAndTrustedIPRelaxation(t *testing.T) {
 		devH.ClaimPair(rec, req)
 		return rec
 	}
-	for i := 0; i < pairingDeviceFailures; i++ {
-		if rec := claimWrong("198.51.100.10:1234", trustedIP); rec.Code != http.StatusNotFound {
-			t.Fatalf("untrusted header trusted on failure %d: %d %s", i+1, rec.Code, rec.Body.String())
-		}
-	}
-	// Five failures fill the ordinary device bucket. A trusted proxy resolving
-	// to the Luna's recent public IP raises that same bucket's limit to twenty.
-	for i := pairingDeviceFailures; i < pairingDeviceIPFailures; i++ {
-		if rec := claimWrong("127.0.0.1:1234", trustedIP); rec.Code != http.StatusNotFound {
-			t.Fatalf("trusted-IP failure %d: %d %s", i+1, rec.Code, rec.Body.String())
-		}
-	}
-	if rec := claimWrong("127.0.0.1:1234", trustedIP); rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("over relaxed device limit: %d %s", rec.Code, rec.Body.String())
+	// A forwarding header from an untrusted peer never names the client.
+	if rec := claimWrong(peer+":1234", forwarded); rec.Code != http.StatusNotFound {
+		t.Fatalf("untrusted header request: %d %s", rec.Code, rec.Body.String())
 	}
 	var count int
-	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-device:"+uid).Scan(&count); err != nil || count != pairingDeviceIPFailures {
-		t.Fatalf("persisted device failures=%d err=%v", count, err)
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+peer).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("peer bucket count=%d err=%v", count, err)
+	}
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+forwarded).Scan(&count); err == nil {
+		t.Fatalf("client-supplied header was trusted: count=%d", count)
+	}
+	// A trusted proxy (loopback) speaks for the forwarded client.
+	for i := 0; i < pairingIPFailures; i++ {
+		if rec := claimWrong("127.0.0.1:1234", forwarded); rec.Code != http.StatusNotFound {
+			t.Fatalf("trusted-proxy failure %d: %d %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := claimWrong("127.0.0.1:1234", forwarded); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("over IP limit: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+forwarded).Scan(&count); err != nil || count != pairingIPFailures {
+		t.Fatalf("persisted IP failures=%d err=%v", count, err)
 	}
 	var sequence int
 	var databaseName, path string
@@ -244,8 +237,8 @@ func TestPairingDeviceLimitAndTrustedIPRelaxation(t *testing.T) {
 	if err := database.Migrate(reopened); err != nil {
 		t.Fatal(err)
 	}
-	if err := reopened.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-device:"+uid).Scan(&count); err != nil || count != pairingDeviceIPFailures {
-		t.Fatalf("device failures did not survive reopen: count=%d err=%v", count, err)
+	if err := reopened.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+forwarded).Scan(&count); err != nil || count != pairingIPFailures {
+		t.Fatalf("IP failures did not survive reopen: count=%d err=%v", count, err)
 	}
 }
 
@@ -255,28 +248,42 @@ func TestPairingAccountAndIPLimits(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "limits@b.co")
 	verifyEmailFor(t, acctH, "limits@b.co")
+	ipKey := "pair-ip:" + ClientIP(httptest.NewRequest(http.MethodPost, "/", nil))
 	for i := 0; i < pairingAccountFailures; i++ {
-		uid := security.DeviceUID()
-		rec := startPairRequest(t, acctH, devH, cookie, uid, "A3F91C")
+		rec := startPairRequest(t, acctH, devH, cookie, security.DeviceToken())
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("account failure %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 		// Keep the shared IP bucket below its independent cap.
-		_, _ = d.DB.Exec(`DELETE FROM guess_attempts WHERE key = ?`, "pair-ip:"+ClientIP(httptest.NewRequest(http.MethodPost, "/", nil)))
+		_, _ = d.DB.Exec(`DELETE FROM guess_attempts WHERE key = ?`, ipKey)
 	}
-	if rec := startPairRequest(t, acctH, devH, cookie, security.DeviceUID(), "A3F91C"); rec.Code != http.StatusTooManyRequests {
+	if rec := startPairRequest(t, acctH, devH, cookie, security.DeviceToken()); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("account cap: %d %s", rec.Code, rec.Body.String())
 	}
+	var count int
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-account:"+accountIDForEmail(t, d, "limits@b.co")).Scan(&count); err != nil || count != pairingAccountFailures {
+		t.Fatalf("persisted account failures=%d err=%v", count, err)
+	}
 
+	_, _ = d.DB.Exec(`DELETE FROM guess_attempts`)
 	for i := 0; i < pairingIPFailures; i++ {
-		rec := claimPairRequest(devH, security.DeviceUID(), "A3F91C")
+		rec := claimPairRequest(devH, security.DeviceToken())
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("IP failure %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := claimPairRequest(devH, security.DeviceUID(), "A3F91C"); rec.Code != http.StatusTooManyRequests {
+	if rec := claimPairRequest(devH, security.DeviceToken()); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("IP cap: %d %s", rec.Code, rec.Body.String())
 	}
+}
+
+func accountIDForEmail(t *testing.T, d Deps, email string) string {
+	t.Helper()
+	var id string
+	if err := d.DB.QueryRow(`SELECT id FROM accounts WHERE email = ?`, email).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestPairingRequiresVerifiedAccount(t *testing.T) {
@@ -284,18 +291,16 @@ func TestPairingRequiresVerifiedAccount(t *testing.T) {
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
 	cookie := registerUnverifiedAccount(t, acctH, "unverified@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	if rec := startPairRequest(t, acctH, devH, cookie, uid, code); rec.Code != http.StatusForbidden {
+	_, uid := mintDevice(t, d, "official")
+	if rec := startPairRequest(t, acctH, devH, cookie, uid); rec.Code != http.StatusForbidden {
 		t.Fatalf("unverified pair %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestConcurrentInvalidClaimsCannotExceedDeviceFailureLimit(t *testing.T) {
+func TestConcurrentInvalidClaimsCannotExceedIPFailureLimit(t *testing.T) {
 	d := testDeps(t)
 	devH := DeviceHandler{Deps: d}
-	_, uid, code := mintDevice(t, d, "official")
-	wrong := differentVerificationCode(code)
-	const attempts = 24
+	const attempts = 60
 	recs := make([]*httptest.ResponseRecorder, attempts)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -304,7 +309,7 @@ func TestConcurrentInvalidClaimsCannotExceedDeviceFailureLimit(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			recs[i] = claimPairRequest(devH, uid, wrong)
+			recs[i] = claimPairRequest(devH, security.DeviceToken())
 		}(i)
 	}
 	close(start)
@@ -321,24 +326,23 @@ func TestConcurrentInvalidClaimsCannotExceedDeviceFailureLimit(t *testing.T) {
 			t.Fatalf("attempt %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 	}
-	if invalid != pairingDeviceFailures || limited != attempts-pairingDeviceFailures {
-		t.Fatalf("invalid=%d limited=%d, want %d and %d", invalid, limited, pairingDeviceFailures, attempts-pairingDeviceFailures)
+	if invalid != pairingIPFailures || limited != attempts-pairingIPFailures {
+		t.Fatalf("invalid=%d limited=%d, want %d and %d", invalid, limited, pairingIPFailures, attempts-pairingIPFailures)
 	}
 	var count int
-	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-device:"+uid).Scan(&count); err != nil || count != pairingDeviceFailures {
+	ip := ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))
+	if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, "pair-ip:"+ip).Scan(&count); err != nil || count != pairingIPFailures {
 		t.Fatalf("persisted failures=%d err=%v", count, err)
 	}
 }
 
-func TestConcurrentStartPairInvalidGuessesCannotExceedDeviceFailureLimit(t *testing.T) {
+func TestConcurrentStartPairInvalidGuessesCannotExceedAccountFailureLimit(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "parallel-start@b.co")
 	verifyEmailFor(t, acctH, "parallel-start@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	wrong := differentVerificationCode(code)
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: wrong})
+	body, _ := json.Marshal(pairingInput{DeviceToken: security.DeviceToken()})
 	const attempts = 24
 	recs := make([]*httptest.ResponseRecorder, attempts)
 	start := make(chan struct{})
@@ -367,15 +371,15 @@ func TestConcurrentStartPairInvalidGuessesCannotExceedDeviceFailureLimit(t *test
 			t.Fatalf("attempt %d: %d %s", i+1, rec.Code, rec.Body.String())
 		}
 	}
-	if invalid != pairingDeviceFailures || limited != attempts-pairingDeviceFailures {
-		t.Fatalf("invalid=%d limited=%d, want %d and %d", invalid, limited, pairingDeviceFailures, attempts-pairingDeviceFailures)
+	if invalid != pairingAccountFailures || limited != attempts-pairingAccountFailures {
+		t.Fatalf("invalid=%d limited=%d, want %d and %d", invalid, limited, pairingAccountFailures, attempts-pairingAccountFailures)
 	}
 }
 
 func TestConcurrentValidNoAttemptPollsAreAllRefunded(t *testing.T) {
 	d := testDeps(t)
 	devH := DeviceHandler{Deps: d}
-	_, uid, code := mintDevice(t, d, "official")
+	_, uid := mintDevice(t, d, "official")
 	const attempts = 24
 	recs := make([]*httptest.ResponseRecorder, attempts)
 	start := make(chan struct{})
@@ -385,7 +389,7 @@ func TestConcurrentValidNoAttemptPollsAreAllRefunded(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			recs[i] = claimPairRequest(devH, uid, code)
+			recs[i] = claimPairRequest(devH, uid)
 		}(i)
 	}
 	close(start)
@@ -396,8 +400,8 @@ func TestConcurrentValidNoAttemptPollsAreAllRefunded(t *testing.T) {
 		}
 	}
 	var rows int
-	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM guess_attempts WHERE key IN (?, ?)`,
-		"pair-device:"+uid, "pair-ip:"+ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))).Scan(&rows); err != nil {
+	if err := d.DB.QueryRow(`SELECT COUNT(*) FROM guess_attempts WHERE key = ?`,
+		"pair-ip:"+ClientIP(httptest.NewRequest(http.MethodPost, "/devices/pair/claim", nil))).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 0 {
@@ -411,8 +415,8 @@ func TestConcurrentValidClaimsHaveOneWinner(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "parallel-claim@b.co")
 	verifyEmailFor(t, acctH, "parallel-claim@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: code})
+	_, uid := mintDevice(t, d, "official")
+	body, _ := json.Marshal(pairingInput{DeviceToken: uid})
 	startReq := httptest.NewRequest(http.MethodPost, "/devices/pair", bytes.NewReader(body))
 	startReq.AddCookie(cookie)
 	if rec := withVerifiedAccount(acctH, devH.StartPair, startReq); rec.Code != http.StatusOK {
@@ -428,7 +432,7 @@ func TestConcurrentValidClaimsHaveOneWinner(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			recs[i] = claimPairRequest(devH, uid, code)
+			recs[i] = claimPairRequest(devH, uid)
 		}(i)
 	}
 	close(start)
@@ -452,7 +456,7 @@ func TestLockedPairingStatusAndCancelIgnoreStaleIDs(t *testing.T) {
 	d := testDeps(t)
 	insertBareAccount(t, d, "acct_pair_old")
 	insertBareAccount(t, d, "acct_pair_new")
-	devID, _, _ := mintDevice(t, d, "official")
+	devID, _ := mintDevice(t, d, "official")
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO device_pairings (id, device_id, account_id, created_at, expires_at)
 VALUES ('pair_stale', ?, 'acct_pair_old', ?, ?)`, devID, now, now-1)

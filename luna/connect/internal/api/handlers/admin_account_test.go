@@ -17,7 +17,7 @@ func TestAdminGetAccount(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_detail', 'detail@b.co', 'x', 1, 'active', 1, ?)`, now)
 
-	id, _, _, err := insertDeviceIdentity(d.DB, "official", "order-detail")
+	id, _, err := insertDeviceIdentity(d.DB, "official", "order-detail")
 	if err != nil {
 		t.Fatal(err)
 	}

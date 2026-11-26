@@ -172,8 +172,8 @@ func bindDomainReservationDevice(t *testing.T, d Deps, acctH AccountHandler, dev
 	t.Helper()
 	cookie := registerAccount(t, acctH, email)
 	verifyEmailFor(t, acctH, email)
-	_, uid, code := mintDevice(t, d, "official")
-	return pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	return pairDeviceForAccount(t, acctH, devH, cookie, uid)
 }
 
 func assertDomainReservationOwner(t *testing.T, d Deps, subdomain, deviceID string) {
@@ -299,8 +299,8 @@ func TestHostnameMoveConflictLeavesBothOwnersDNSIntact(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookieA := registerAccount(t, acctH, "move-a@b.co")
 	verifyEmailFor(t, acctH, "move-a@b.co")
-	_, uidA, codeA := mintDevice(t, d, "official")
-	devA, tokenA := pairDeviceForAccount(t, acctH, devH, cookieA, uidA, codeA)
+	_, uidA := mintDevice(t, d, "official")
+	devA, tokenA := pairDeviceForAccount(t, acctH, devH, cookieA, uidA)
 	devB, _ := bindDomainReservationDevice(t, d, acctH, devH, "move-b@b.co")
 	if rec := setAddress(t, acctH, devH, cookieA, devA, "oldbox"); rec.Code != http.StatusCreated {
 		t.Fatalf("initial address %d %s", rec.Code, rec.Body.String())
@@ -371,8 +371,8 @@ func TestUnbindAndRevokeSerializeHostnameCleanupWithProvisioning(t *testing.T) {
 			devH := DeviceHandler{Deps: d}
 			cookieA := registerAccount(t, acctH, "cleanup-a-"+action+"@b.co")
 			verifyEmailFor(t, acctH, "cleanup-a-"+action+"@b.co")
-			_, uidA, codeA := mintDevice(t, d, "official")
-			devA, tokenA := pairDeviceForAccount(t, acctH, devH, cookieA, uidA, codeA)
+			_, uidA := mintDevice(t, d, "official")
+			devA, tokenA := pairDeviceForAccount(t, acctH, devH, cookieA, uidA)
 			devB, _ := bindDomainReservationDevice(t, d, acctH, devH, "cleanup-b-"+action+"@b.co")
 			if rec := setAddress(t, acctH, devH, cookieA, devA, "cleanupbox"); rec.Code != http.StatusCreated {
 				t.Fatalf("initial address %d %s", rec.Code, rec.Body.String())

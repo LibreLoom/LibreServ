@@ -91,8 +91,7 @@ func TestAdminSeedLoginAndMint(t *testing.T) {
 	}
 	for _, raw := range tokens {
 		line, _ := raw.(string)
-		fields := strings.Fields(line)
-		if len(fields) != 2 || !security.IsDeviceUIDShape(fields[0]) || !security.IsVerificationCodeShape(fields[1]) {
+		if strings.ContainsAny(line, " -") || !security.IsDeviceTokenShape(line) {
 			t.Fatalf("factory line shape %q", line)
 		}
 		if line != toUpperASCII(line) {

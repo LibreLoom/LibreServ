@@ -35,7 +35,7 @@ func (h DeviceHandler) Available(w http.ResponseWriter, r *http.Request) {
 }
 
 // Unbind invalidates the rolling credential and clears the account link. The
-// device row, public UID, and reusable verification code remain. A revoked Luna
+// device row and the device token's hash remain. A revoked Luna
 // also requires the account password so a stolen session cannot finish the
 // emergency disconnect that revocation deliberately left linked to its owner.
 func (h DeviceHandler) Unbind(w http.ResponseWriter, r *http.Request) {
@@ -383,27 +383,20 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// insertDeviceIdentity provisions a factory or DIY identity. The UID is public;
-// the reusable verification code is sealed at rest and returned only by the
-// provisioning endpoint or a password-stepped-up reveal.
-func insertDeviceIdentity(db *database.DB, kind, orderRef string) (id, uid, verificationCode string, err error) {
-	uid = security.DeviceUID()
-	verificationCode = security.VerificationCode()
-	sealed, err := security.SealString(verificationCode)
-	if err != nil {
-		return "", "", "", err
-	}
+// insertDeviceIdentity mints a factory or DIY device token. Only its hash and a
+// short non-secret hint are stored, so the token is returned here once and
+// Connect can never show it again.
+func insertDeviceIdentity(db *database.DB, kind, orderRef string) (id, token string, err error) {
+	token = security.DeviceToken()
 	id = security.NewID("dev")
 	_, err = db.Exec(`INSERT INTO devices (
- id, code_hash, code_hint, code_sealed, device_uid, verification_code_hash,
- verification_code_sealed, state, kind, order_ref, local_port, created_at
-) VALUES (?, ?, ?, '', ?, ?, ?, 'unbound', ?, ?, 8090, ?)`,
-		id, security.HashToken(uid), security.TokenHint(uid), uid,
-		security.HashToken(verificationCode), sealed, kind, nullIfEmpty(orderRef), time.Now().Unix())
+ id, code_hash, code_hint, state, kind, order_ref, local_port, created_at
+) VALUES (?, ?, ?, 'unbound', ?, ?, 8090, ?)`,
+		id, security.HashToken(token), security.TokenHint(token), kind, nullIfEmpty(orderRef), time.Now().Unix())
 	if err != nil {
-		return "", "", "", err
+		return "", "", err
 	}
-	return id, uid, verificationCode, nil
+	return id, token, nil
 }
 
 func nullIfEmpty(s string) any {

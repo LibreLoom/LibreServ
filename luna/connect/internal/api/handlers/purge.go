@@ -57,7 +57,7 @@ FROM devices WHERE id = ?`, deviceID).
 }
 
 // unlinkDeviceFromAccount frees a Luna from its account and tears down its
-// tunnel and address, but keeps its UID and verification code.
+// tunnel and address, but keeps its device token.
 func unlinkDeviceFromAccount(deps Deps, deviceID string) error {
 	var account sql.NullString
 	var sub, tunnelID, name string
@@ -135,7 +135,7 @@ func deleteCustomerAccount(deps Deps, accountID string) error {
 	rows.Close()
 
 	// A device identity belongs to the Luna, not the account: unlink each Luna
-	// (tunnel, DNS, account link) but keep its UID and verification code.
+	// (tunnel, DNS, account link) but keep its device token.
 	for _, id := range deviceIDs {
 		if err := unlinkDeviceFromAccount(deps, id); err != nil {
 			return err

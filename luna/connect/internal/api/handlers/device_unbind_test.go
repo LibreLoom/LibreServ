@@ -45,7 +45,7 @@ func assertAccountDeviceUnbound(t *testing.T, d Deps, deviceID string) {
 	if state != "unbound" || account.Valid || revoked != 0 {
 		t.Fatalf("device not unbound: state=%q account=%v revoked=%d", state, account, revoked)
 	}
-	for _, table := range []string{"device_pairings", "device_setup_grants"} {
+	for _, table := range []string{"device_pairings"} {
 		var count int
 		if err := d.DB.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE device_id = ?`, deviceID).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -75,9 +75,9 @@ func TestAccountUnbindCancelsPairing(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "cancel-pair@b.co")
 	verifyEmailFor(t, acctH, "cancel-pair@b.co")
-	deviceID, uid, code := mintDevice(t, d, "official")
+	deviceID, uid := mintDevice(t, d, "official")
 
-	started := startPairRequest(t, acctH, devH, cookie, uid, code)
+	started := startPairRequest(t, acctH, devH, cookie, uid)
 	if started.Code != http.StatusOK {
 		t.Fatalf("start pairing %d %s", started.Code, started.Body.String())
 	}
@@ -96,10 +96,10 @@ func TestAccountUnbindCancelsPairing(t *testing.T) {
 	if status := pairingStatusRequest(t, acctH, devH, cookie, startBody.PairingID); status.Code != http.StatusNotFound {
 		t.Fatalf("cancelled pairing status %d %s", status.Code, status.Body.String())
 	}
-	if claim := claimPairRequest(devH, uid, code); claim.Code != http.StatusNotFound {
+	if claim := claimPairRequest(devH, uid); claim.Code != http.StatusNotFound {
 		t.Fatalf("cancelled pairing was claimed: %d %s", claim.Code, claim.Body.String())
 	}
-	if _, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code); !security.ValidAuthToken(token) {
+	if _, token := pairDeviceForAccount(t, acctH, devH, cookie, uid); !security.ValidAuthToken(token) {
 		t.Fatal("cancelled identity could not be paired again")
 	}
 }
@@ -110,8 +110,8 @@ func TestAccountUnbindRevokedRequiresPassword(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "revoked-step-up@b.co")
 	verifyEmailFor(t, acctH, "revoked-step-up@b.co")
-	deviceID, uid, code := mintDevice(t, d, "official")
-	_, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	deviceID, uid := mintDevice(t, d, "official")
+	_, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	if rec := accountRevokeRequest(acctH, devH, cookie, deviceID); rec.Code != http.StatusOK {
 		t.Fatalf("revoke %d %s", rec.Code, rec.Body.String())
 	}
@@ -151,8 +151,8 @@ func TestAccountUnbindRevokedWithPassword(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "revoked-disconnect@b.co")
 	verifyEmailFor(t, acctH, "revoked-disconnect@b.co")
-	deviceID, uid, code := mintDevice(t, d, "official")
-	_, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	deviceID, uid := mintDevice(t, d, "official")
+	_, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	if rec := accountRevokeRequest(acctH, devH, cookie, deviceID); rec.Code != http.StatusOK {
 		t.Fatalf("revoke %d %s", rec.Code, rec.Body.String())
 	}
@@ -172,11 +172,11 @@ func TestAccountUnbindRevokedWithPassword(t *testing.T) {
 	}
 
 	// The reusable identity survives both revocation and the stepped-up unbind.
-	started := startPairRequest(t, acctH, devH, cookie, uid, code)
+	started := startPairRequest(t, acctH, devH, cookie, uid)
 	if started.Code != http.StatusOK {
 		t.Fatalf("re-pair after revoked disconnect %d %s", started.Code, started.Body.String())
 	}
-	if claim := claimPairRequest(devH, uid, code); claim.Code != http.StatusOK {
+	if claim := claimPairRequest(devH, uid); claim.Code != http.StatusOK {
 		t.Fatalf("claim after revoked disconnect %d %s", claim.Code, claim.Body.String())
 	}
 }
@@ -189,8 +189,8 @@ func TestAccountUnbindOtherAccountCannotDisconnect(t *testing.T) {
 	other := registerAccount(t, acctH, "unbind-other@b.co")
 	verifyEmailFor(t, acctH, "unbind-owner@b.co")
 	verifyEmailFor(t, acctH, "unbind-other@b.co")
-	deviceID, uid, code := mintDevice(t, d, "official")
-	_, token := pairDeviceForAccount(t, acctH, devH, owner, uid, code)
+	deviceID, uid := mintDevice(t, d, "official")
+	_, token := pairDeviceForAccount(t, acctH, devH, owner, uid)
 
 	rec := accountUnbindRequest(acctH, devH, other, deviceID, "")
 	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), `"status":"unbound"`) {
@@ -207,8 +207,8 @@ func TestAccountUnbindRevokedPasswordResponseIsNotCacheable(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "revoked-cache@b.co")
 	verifyEmailFor(t, acctH, "revoked-cache@b.co")
-	deviceID, uid, code := mintDevice(t, d, "official")
-	pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	deviceID, uid := mintDevice(t, d, "official")
+	pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	if rec := accountRevokeRequest(acctH, devH, cookie, deviceID); rec.Code != http.StatusOK {
 		t.Fatalf("revoke %d %s", rec.Code, rec.Body.String())
 	}

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,15 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func TestAdminStatsAndDevices(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	devID, uid, code, err := insertDeviceIdentity(d.DB, "official", "order-1")
+	_, token, err := insertDeviceIdentity(d.DB, "official", "order-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,74 +50,18 @@ VALUES ('acct_1', 'a@b.co', 'x', 0, 'none', 1, ?)`, time.Now().Unix())
 		t.Fatalf("expected tokens, got %v", tokBody)
 	}
 	row, _ := tokens[0].(map[string]any)
-	// The list must never ship the full device token — only hint, prefix, and
-	// a flag telling the UI a reveal endpoint exists.
-	if _, has := row["code"]; has {
-		t.Fatalf("list row leaked full code: %v", row)
+	// Connect keeps only a hash of the token, so no list row can carry it or
+	// offer to reveal it.
+	if strings.Contains(rec2.Body.String(), token) {
+		t.Fatalf("list leaked the full device token: %v", row)
 	}
-	if row["can_reveal"] != true {
-		t.Fatalf("expected can_reveal on list row: %v", row)
-	}
-	if row["device_code_prefix"] != security.DeviceCodePrefix(uid) {
-		t.Fatalf("device_code_prefix %v want %v", row["device_code_prefix"], security.DeviceCodePrefix(uid))
-	}
-	if row["hint"] == nil || row["hint"] == "" {
-		t.Fatalf("expected hint on list row: %v", row)
-	}
-
-	hash, err := auth.HashPassword("staff-password-123")
-	if err != nil {
-		t.Fatal(err)
-	}
-	const email = "staff@example.com"
-	now := time.Now().Unix()
-	if _, err := d.DB.Exec(`INSERT INTO admin_accounts (id, email, password_hash, is_active, created_at, updated_at)
-VALUES ('admin_1', ?, ?, 1, ?, ?)`, email, hash, now, now); err != nil {
-		t.Fatal(err)
-	}
-
-	reveal := func(adminID, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/admin/device-codes/"+devID+"/reveal", strings.NewReader(body))
-		rctx := chi.NewRouteContext()
-		rctx.URLParams.Add("codeID", devID)
-		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
-		rec := httptest.NewRecorder()
-		h.RevealDeviceCode(rec, req.WithContext(WithAdminID(ctx, adminID)))
-		return rec
-	}
-	for _, tt := range []struct {
-		adminID, body string
-		status        int
-	}{
-		{"", `{"password":"staff-password-123"}`, http.StatusForbidden},
-		{"admin_1", `{}`, http.StatusBadRequest},
-		{"admin_1", `{"password":"incorrect"}`, http.StatusForbidden},
-	} {
-		rec := reveal(tt.adminID, tt.body)
-		if rec.Code != tt.status || strings.Contains(rec.Body.String(), code) {
-			t.Fatalf("expected status %d with no token, got %d", tt.status, rec.Code)
+	for _, leaked := range []string{"code", "device_token", "device_uid", "verification_code", "can_reveal", "device_code_prefix"} {
+		if _, has := row[leaked]; has {
+			t.Fatalf("list row has %q: %v", leaked, row)
 		}
 	}
-	for _, key := range []string{
-		adminLoginNetworkKey(httptest.NewRequest(http.MethodPost, "/", nil)),
-		signInAccountKey("admin", email),
-	} {
-		var count int
-		if err := d.DB.QueryRow(`SELECT count FROM guess_attempts WHERE key = ?`, key).Scan(&count); err != nil || count != 1 {
-			t.Fatalf("expected one attempt in %q, got %d (%v)", key, count, err)
-		}
-	}
-
-	rev := reveal("admin_1", `{"password":"staff-password-123"}`)
-	if rev.Code != http.StatusOK || rev.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("unexpected reveal response %d with cache control %q", rev.Code, rev.Header().Get("Cache-Control"))
-	}
-	var revealBody map[string]any
-	if err := json.Unmarshal(rev.Body.Bytes(), &revealBody); err != nil {
-		t.Fatal(err)
-	}
-	if revealBody["verification_code"] != code || security.NormalizeDeviceUID(revealBody["device_uid"].(string)) != uid {
-		t.Fatalf("reveal did not return the expected pairing details: %v", revealBody)
+	if row["hint"] != security.TokenHint(token) {
+		t.Fatalf("hint %v want %v", row["hint"], security.TokenHint(token))
 	}
 }
 
@@ -129,11 +70,11 @@ func TestDeviceCodesPaginationAndSearch(t *testing.T) {
 	h := AdminConsoleHandler{Deps: d}
 
 	// Insert 5 identities: 2 unbound, 2 bound, 1 revoked.
-	id1, uid1, _, _ := insertDeviceIdentity(d.DB, "official", "order-alpha")
-	id2, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-beta")
-	id3, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-gamma")
-	id4, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-delta")
-	id5, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-epsilon")
+	id1, tok1, _ := insertDeviceIdentity(d.DB, "official", "order-alpha")
+	id2, _, _ := insertDeviceIdentity(d.DB, "official", "order-beta")
+	id3, _, _ := insertDeviceIdentity(d.DB, "official", "order-gamma")
+	id4, _, _ := insertDeviceIdentity(d.DB, "official", "order-delta")
+	id5, _, _ := insertDeviceIdentity(d.DB, "official", "order-epsilon")
 
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
@@ -161,14 +102,14 @@ VALUES ('acct_search', 'tester@example.com', 'x', 0, 'none', 1, ?)`, now)
 		t.Fatalf("unexpected pagination: %+v", pag1)
 	}
 
-	// Test 2: Search by full Device ID (uid1).
+	// Test 2: Search by the hint (last four characters of the token).
 	rec = httptest.NewRecorder()
-	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q="+uid1, nil))
+	h.DeviceCodes(rec, httptest.NewRequest(http.MethodGet, "/admin/device-codes?q="+tok1[16:], nil))
 	var searchRes map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &searchRes)
 	stList := searchRes["tokens"].([]any)
 	if len(stList) != 1 || stList[0].(map[string]any)["id"] != id1 {
-		t.Fatalf("expected to find id1 for full token search, got %v", searchRes)
+		t.Fatalf("expected to find id1 for the hint search, got %v", searchRes)
 	}
 
 	// Test 3: Search by subdomain ("myluna")
@@ -238,7 +179,7 @@ VALUES ('acct_p1', 'alpha@domain.com', 'x', 0, 'none', 1, ?),
        ('acct_p3', 'gamma@domain.com', 'x', 0, 'none', 1, ?)`, now, now+1, now+2)
 
 	// Link a device to acct_p2 with subdomain 'box2'
-	devID, _, _, _ := insertDeviceIdentity(d.DB, "official", "order-acc")
+	devID, _, _ := insertDeviceIdentity(d.DB, "official", "order-acc")
 	_, _ = d.DB.Exec(`UPDATE devices SET state = 'bound', account_id = 'acct_p2', subdomain = 'box2' WHERE id = ?`, devID)
 
 	// Test 1: Pagination (limit=2, offset=0)

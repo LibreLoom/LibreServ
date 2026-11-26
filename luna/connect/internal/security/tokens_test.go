@@ -6,29 +6,22 @@ import (
 	"testing"
 )
 
-func TestDeviceUIDIsTwentyCrockfordCharacters(t *testing.T) {
-	uid := DeviceUID()
-	if len(uid) != 20 || !IsDeviceUIDShape(uid) {
-		t.Fatalf("invalid Device UID %q", uid)
+func TestDeviceTokenIsTwentyCrockfordCharacters(t *testing.T) {
+	token := DeviceToken()
+	if len(token) != 20 || !IsDeviceTokenShape(token) {
+		t.Fatalf("invalid device token %q", token)
 	}
-	if got := NormalizeDeviceUID(GroupCrockford(uid)); got != uid {
-		t.Fatalf("grouped UID normalized to %q, want %q", got, uid)
+	if got := NormalizeDeviceToken(GroupCrockford(token)); got != token {
+		t.Fatalf("grouped token normalized to %q, want %q", got, token)
 	}
-	if IsDeviceUIDShape("A1B2C3") || IsDeviceUIDShape("0123456789ABCDEFGHJKMNPQRSTVWXYZ0") {
-		t.Fatal("wrong-length Crockford value accepted as Device UID")
+	if got := NormalizeDeviceToken(" 7k4m-2q9x-r8n3-6t5w-1pzh "); got != "7K4M2Q9XR8N36T5W1PZH" {
+		t.Fatalf("lowercase grouped token normalized to %q", got)
 	}
-}
-
-func TestVerificationCodeShape(t *testing.T) {
-	code := VerificationCode()
-	if len(code) != 6 || !IsVerificationCodeShape(code) {
-		t.Fatalf("invalid verification code %q", code)
+	if got := NormalizeDeviceToken("OIL"); got != "011" {
+		t.Fatalf("lookalikes normalized to %q", got)
 	}
-	if NormalizeVerificationCode(" a3f91c ") != "A3F91C" {
-		t.Fatal("verification code did not normalize")
-	}
-	if IsVerificationCodeShape("A3F91") || IsVerificationCodeShape("A3F91G") {
-		t.Fatal("malformed verification code accepted")
+	if IsDeviceTokenShape("A1B2C3") || IsDeviceTokenShape("0123456789ABCDEFGHJKMNPQRSTVWXYZ0") {
+		t.Fatal("wrong-length Crockford value accepted as a device token")
 	}
 }
 

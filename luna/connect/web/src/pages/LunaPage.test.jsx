@@ -6,8 +6,6 @@ import { api } from "../api.js";
 
 const refreshMe = vi.fn();
 const authState = vi.hoisted(() => ({ me: { email: "owner@example.com", email_verified: true } }));
-const UID = "7K4M2Q9XR8N36T5W1PZH";
-const CODE = "A3F91C";
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -39,7 +37,6 @@ function boundDevice(overrides = {}) {
     state: "bound",
     hostname: "photos.luna.servers.libreloom.org",
     online: true,
-    device_uid: UID,
     ...overrides,
   };
 }
@@ -137,7 +134,6 @@ describe("LunaPage one Luna", () => {
     expect(screen.queryByRole("link", { name: "stale.luna.servers.libreloom.org" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Disconnect/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Show pairing details/i })).toBeNull();
   });
 
   it("recovers a revoked Luna with account password step-up", async () => {
@@ -198,34 +194,17 @@ describe("LunaPage one Luna", () => {
     expect(screen.queryByRole("link", { name: "photos.luna.servers.libreloom.org" })).toBeNull();
   });
 
-  it("reveals Device ID and Verification code only after account password step-up", async () => {
-    api.mockImplementation(async (path, opts) => {
+  it("never shows or asks the server for the device token", async () => {
+    api.mockImplementation(async (path) => {
       if (path === "/api/v1/account/devices") return { devices: [boundDevice()] };
-      if (path === "/api/v1/account/devices/dev_1/code" && opts?.method === "POST") {
-        return { device_uid: "7K4M-2Q9X-R8N3-6T5W-1PZH", verification_code: CODE };
-      }
       return {};
     });
     mount();
 
-    expect(await screen.findByRole("button", { name: "Show pairing details" })).toBeTruthy();
-    expect(screen.queryByText(CODE)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Show pairing details" }));
-    expect(api.mock.calls.some(([path]) => String(path).endsWith("/code"))).toBe(false);
-    fireEvent.change(screen.getByLabelText("Luna Connect password"), { target: { value: "hunter22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Reveal pairing details" }));
-
-    expect(await screen.findByText(CODE)).toBeTruthy();
-    const pairingDetails = screen.getByTestId("account-pairing-details");
-    expect(within(pairingDetails).getByText("7K4M-2Q9X-R8N3-6T5W-1PZH")).toBeTruthy();
-    expect(screen.getByText(/Settings → Luna Connect → Device token/)).toBeTruthy();
-    expect(api).toHaveBeenCalledWith("/api/v1/account/devices/dev_1/code", {
-      method: "POST",
-      body: JSON.stringify({ password: "hunter22" }),
-      cache: "no-store",
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Hide pairing details" }));
-    expect(screen.queryByText(CODE)).toBeNull();
+    expect(await screen.findByTestId("luna-device-status")).toBeTruthy();
+    expect(screen.queryByText(/Device ID|Verification code/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /pairing details/i })).toBeNull();
+    expect(api.mock.calls.some(([path]) => String(path).includes("/code") || String(path).includes("/reveal"))).toBe(false);
   });
 
   it("confirms a reversible Disconnect without exposing a permanent token", async () => {
@@ -239,7 +218,7 @@ describe("LunaPage one Luna", () => {
     fireEvent.click(within(await screen.findByTestId("luna-device-toolbar")).getByRole("button", { name: /Disconnect/i }));
     const confirm = screen.getByTestId("luna-disconnect-confirm");
     expect(within(confirm).getByText(/pair it again later/i)).toBeTruthy();
-    expect(within(confirm).getByText(/Device ID and Verification code/i)).toBeTruthy();
+    expect(within(confirm).getByText(/device token/i)).toBeTruthy();
     expect(api.mock.calls.some(([path]) => String(path).includes("/code"))).toBe(false);
     fireEvent.click(within(confirm).getByRole("button", { name: /Disconnect/i }));
 

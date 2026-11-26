@@ -1,15 +1,15 @@
-export const SETUP_GRANT_FRAGMENT = "setup_grant";
+export const SETUP_TOKEN_FRAGMENT = "token";
 
 /**
  * Build the Luna setup link shown at the end of Connect onboarding.
- * Display is hostname-only. The one-time grant goes in the fragment so it is
- * never sent to a web server in the URL.
+ * Display is hostname-only. The device token goes in the URL fragment (never
+ * the query string) so it is never sent to a web server.
  *
  * @param {string} hostname Public hostname or absolute URL for the Luna
- * @param {string} [setupGrant] One-time grant for off-LAN first-Admin setup
+ * @param {string} [deviceToken] Device token that prefills off-LAN first-Admin setup
  * @returns {{ display: string, href: string }}
  */
-export function buildLunaSetupLink(hostname, setupGrant = "") {
+export function buildLunaSetupLink(hostname, deviceToken = "") {
   const raw = String(hostname || "").trim();
   if (!raw) return { display: "", href: "" };
 
@@ -44,9 +44,9 @@ export function buildLunaSetupLink(hostname, setupGrant = "") {
     /* keep the string fallback for an incomplete hostname */
   }
 
-  const grant = String(setupGrant || "").trim();
-  const href = grant
-    ? `${setupUrl}#${SETUP_GRANT_FRAGMENT}=${encodeURIComponent(grant)}`
+  const token = String(deviceToken || "").trim();
+  const href = token
+    ? `${setupUrl}#${SETUP_TOKEN_FRAGMENT}=${encodeURIComponent(token)}`
     : setupUrl;
 
   return { display, href };

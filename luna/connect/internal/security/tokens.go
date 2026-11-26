@@ -11,33 +11,15 @@ import (
 // Crockford base32 without I, L, O, U.
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-// DeviceUID is the public, ungrouped identifier printed on a Luna.
-func DeviceUID() string {
+// DeviceToken is the single 20-character Crockford token that identifies a
+// Luna, pairs it to an account, and proves an off-LAN first-Admin setup. Only
+// its hash is stored by Connect, so it is shown once, when it is minted.
+func DeviceToken() string {
 	return randomCrockford(20)
-}
-
-// VerificationCode is the reusable six-hex-character pairing code.
-func VerificationCode() string {
-	b := make([]byte, 3)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		panic(err)
-	}
-	const hex = "0123456789ABCDEF"
-	out := make([]byte, 6)
-	for i, v := range b {
-		out[2*i] = hex[v>>4]
-		out[2*i+1] = hex[v&0x0f]
-	}
-	return string(out)
 }
 
 // AuthToken is Luna's rolling 256-bit Connect credential.
 func AuthToken() string {
-	return randomURLToken(32)
-}
-
-// SetupGrant is a separate, one-time credential for remote first-Admin setup.
-func SetupGrant() string {
 	return randomURLToken(32)
 }
 
@@ -116,34 +98,19 @@ func NormalizeToken(s string) string {
 	return b.String()
 }
 
-// NormalizeDeviceUID accepts the grouped display form and returns the
-// ungrouped uppercase identifier stored locally and in Connect.
-func NormalizeDeviceUID(s string) string {
+// NormalizeDeviceToken accepts the grouped display form and returns the
+// ungrouped uppercase token that is hashed and compared.
+func NormalizeDeviceToken(s string) string {
 	return NormalizeToken(s)
 }
 
-func IsDeviceUIDShape(norm string) bool {
+// IsDeviceTokenShape reports whether norm is 20 Crockford characters.
+func IsDeviceTokenShape(norm string) bool {
 	if len(norm) != 20 {
 		return false
 	}
 	for _, c := range norm {
 		if !strings.ContainsRune(crockford, c) {
-			return false
-		}
-	}
-	return true
-}
-
-func NormalizeVerificationCode(s string) string {
-	return strings.ToUpper(strings.TrimSpace(s))
-}
-
-func IsVerificationCodeShape(code string) bool {
-	if len(code) != 6 {
-		return false
-	}
-	for _, c := range code {
-		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}
@@ -160,14 +127,4 @@ func TokenHint(norm string) string {
 		return norm
 	}
 	return "…" + norm[len(norm)-4:]
-}
-
-// DeviceCodePrefix returns the first two Crockford groups (8 chars) of the
-// public Device ID. It is an identifier hint, never authentication proof.
-func DeviceCodePrefix(normOrGrouped string) string {
-	norm := NormalizeToken(normOrGrouped)
-	if len(norm) < 8 {
-		return ""
-	}
-	return GroupCrockford(norm[:8])
 }

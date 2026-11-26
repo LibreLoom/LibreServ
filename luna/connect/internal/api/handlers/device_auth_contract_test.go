@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -62,8 +61,8 @@ func TestRollingTokenRotationAndLostResponseOverlap(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "rotate@b.co")
 	verifyEmailFor(t, acctH, "rotate@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	_, first := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	_, first := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	now := time.Now().Unix()
 
 	second, err := refreshDeviceToken(context.Background(), d.DB, first, now)
@@ -97,7 +96,7 @@ func TestRollingTokenRotationAndLostResponseOverlap(t *testing.T) {
 	if rec := statusWithToken(devH, third); rec.Code != http.StatusOK {
 		t.Fatalf("latest token failed status: %d", rec.Code)
 	}
-	_, _ = d.DB.Exec(`UPDATE devices SET previous_auth_token_valid_until = ? WHERE device_uid = ?`, now-1, uid)
+	_, _ = d.DB.Exec(`UPDATE devices SET previous_auth_token_valid_until = ? WHERE code_hash = ?`, now-1, security.HashToken(uid))
 	if _, err := refreshDeviceToken(context.Background(), d.DB, second, now); err == nil {
 		t.Fatal("expired overlap token was accepted")
 	}
@@ -109,8 +108,8 @@ func TestUnbindAndRevokeInvalidateImmediatelyAndRecoveryRequiresPassword(t *test
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "recover@b.co")
 	verifyEmailFor(t, acctH, "recover@b.co")
-	devID, uid, code := mintDevice(t, d, "official")
-	_, first := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	devID, uid := mintDevice(t, d, "official")
+	_, first := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	rotated, err := refreshDeviceToken(context.Background(), d.DB, first, time.Now().Unix())
 	if err != nil || rotated == first {
 		t.Fatalf("rotation before unbind token=%q err=%v", rotated, err)
@@ -132,7 +131,7 @@ func TestUnbindAndRevokeInvalidateImmediatelyAndRecoveryRequiresPassword(t *test
 		t.Fatalf("unbound current token refresh error=%v", err)
 	}
 
-	_, second := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, second := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	revokeReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/revoke", nil)
 	revokeReq.AddCookie(cookie)
 	revokeReq = withChiParam(revokeReq, "deviceID", devID)
@@ -169,7 +168,7 @@ func TestUnbindAndRevokeInvalidateImmediatelyAndRecoveryRequiresPassword(t *test
 	if status := pairingStatusRequest(t, acctH, devH, cookie, pairingID); status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"waiting"`) {
 		t.Fatalf("recovery pairing status %d %s", status.Code, status.Body.String())
 	}
-	claim := claimPairRequest(devH, uid, code)
+	claim := claimPairRequest(devH, uid)
 	if claim.Code != http.StatusOK {
 		t.Fatalf("recovery claim %d %s", claim.Code, claim.Body.String())
 	}
@@ -181,10 +180,10 @@ func TestLegacyPermanentTokenRejectedOnEveryDeviceRoute(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "legacy@b.co")
 	verifyEmailFor(t, acctH, "legacy@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	_, current := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
-	legacy := security.DeviceUID()
-	_, _ = d.DB.Exec(`UPDATE devices SET code_hash = ? WHERE device_uid = ?`, security.HashToken(legacy), uid)
+	_, uid := mintDevice(t, d, "official")
+	_, current := pairDeviceForAccount(t, acctH, devH, cookie, uid)
+	// The device token is never accepted as a bearer credential.
+	legacy := uid
 
 	status := httptest.NewRequest(http.MethodGet, "/status", nil)
 	status.Header.Set("Authorization", "Bearer "+legacy)
@@ -224,72 +223,7 @@ func TestLegacyPermanentTokenRejectedOnEveryDeviceRoute(t *testing.T) {
 	}
 }
 
-func issueGrant(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, deviceID string) map[string]any {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/devices/"+deviceID+"/setup-grant", nil)
-	req.AddCookie(cookie)
-	req = withChiParam(req, "deviceID", deviceID)
-	rec := withVerifiedAccount(acctH, devH.IssueSetupGrant, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("issue grant %d %s", rec.Code, rec.Body.String())
-	}
-	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	return out
-}
-
-func consumeGrant(devH DeviceHandler, token, grant string) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(map[string]string{"setup_grant": grant})
-	req := httptest.NewRequest(http.MethodPost, "/devices/setup-grant/consume", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	devH.DeviceAuth(http.HandlerFunc(devH.ConsumeSetupGrant)).ServeHTTP(rec, req)
-	return rec
-}
-
-func TestSetupGrantSingleUseReplacementExpiryAndFragmentURL(t *testing.T) {
-	d := testDeps(t)
-	acctH := AccountHandler{Deps: d}
-	devH := DeviceHandler{Deps: d}
-	cookie := registerAccount(t, acctH, "grant@b.co")
-	verifyEmailFor(t, acctH, "grant@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
-
-	first := issueGrant(t, acctH, devH, cookie, devID)
-	grant1, _ := first["setup_grant"].(string)
-	if !security.ValidAuthToken(grant1) {
-		t.Fatalf("invalid grant %q", grant1)
-	}
-	second := issueGrant(t, acctH, devH, cookie, devID)
-	grant2, _ := second["setup_grant"].(string)
-	if grant2 == grant1 || consumeGrant(devH, token, grant1).Code != http.StatusBadRequest {
-		t.Fatal("issuing a new grant did not invalidate the previous one")
-	}
-	if rec := consumeGrant(devH, token, grant2); rec.Code != http.StatusOK {
-		t.Fatalf("consume %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := consumeGrant(devH, token, grant2); rec.Code != http.StatusBadRequest {
-		t.Fatalf("grant replay %d %s", rec.Code, rec.Body.String())
-	}
-
-	third := issueGrant(t, acctH, devH, cookie, devID)
-	grant3, _ := third["setup_grant"].(string)
-	_, _ = d.DB.Exec(`UPDATE device_setup_grants SET expires_at = ? WHERE device_id = ?`, time.Now().Unix()-1, devID)
-	if rec := consumeGrant(devH, token, grant3); rec.Code != http.StatusBadRequest {
-		t.Fatalf("expired grant %d %s", rec.Code, rec.Body.String())
-	}
-
-	_, _ = d.DB.Exec(`UPDATE devices SET subdomain = 'grantbox' WHERE id = ?`, devID)
-	withURL := issueGrant(t, acctH, devH, cookie, devID)
-	setupURL, _ := withURL["setup_url"].(string)
-	parsed, err := url.Parse(setupURL)
-	if err != nil || parsed.Path != "/setup" || parsed.RawQuery != "" || parsed.Fragment != "setup_grant="+withURL["setup_grant"].(string) {
-		t.Fatalf("setup grant leaked into query or wrong fragment: %q", setupURL)
-	}
-}
-
-func TestProvisioningOutputsUIDAndVerificationCode(t *testing.T) {
+func TestProvisioningOutputsOneDeviceTokenAndStoresOnlyItsHash(t *testing.T) {
 	d := testDeps(t)
 	onb := OnboardingHandler{Deps: d}
 	single := httptest.NewRecorder()
@@ -302,8 +236,24 @@ func TestProvisioningOutputsUIDAndVerificationCode(t *testing.T) {
 	}
 	var one map[string]any
 	_ = json.Unmarshal(single.Body.Bytes(), &one)
-	if !security.IsDeviceUIDShape(security.NormalizeDeviceUID(one["device_uid"].(string))) || !security.IsVerificationCodeShape(one["verification_code"].(string)) {
+	token, _ := one["device_token"].(string)
+	if !security.IsDeviceTokenShape(security.NormalizeDeviceToken(token)) || token != security.GroupCrockford(token) {
 		t.Fatalf("single provisioning output: %v", one)
+	}
+	for _, gone := range []string{"device_uid", "verification_code", "code"} {
+		if _, has := one[gone]; has {
+			t.Fatalf("single mint still returns %q: %v", gone, one)
+		}
+	}
+	var storedHash, storedHint string
+	if err := d.DB.QueryRow(`SELECT code_hash, code_hint FROM devices WHERE id = ?`, one["id"]).Scan(&storedHash, &storedHint); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash != security.HashToken(security.NormalizeDeviceToken(token)) || storedHint != security.TokenHint(token) {
+		t.Fatalf("stored hash/hint do not match the minted token: %q %q", storedHash, storedHint)
+	}
+	if strings.Contains(storedHash, security.NormalizeDeviceToken(token)) {
+		t.Fatal("device token stored in the clear")
 	}
 
 	bulk := httptest.NewRecorder()
@@ -321,9 +271,9 @@ func TestProvisioningOutputsUIDAndVerificationCode(t *testing.T) {
 		t.Fatalf("bulk lines: %v", lines)
 	}
 	for _, raw := range lines {
-		fields := strings.Fields(raw.(string))
-		if len(fields) != 2 || !security.IsDeviceUIDShape(fields[0]) || !security.IsVerificationCodeShape(fields[1]) {
-			t.Fatalf("factory TOKENS line %q", raw)
+		line := raw.(string)
+		if line != security.NormalizeDeviceToken(line) || !security.IsDeviceTokenShape(line) {
+			t.Fatalf("factory TOKENS line %q must be one ungrouped token", raw)
 		}
 	}
 }

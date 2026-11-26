@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/database"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 type AdminConsoleHandler struct {
@@ -85,7 +83,7 @@ func (h AdminConsoleHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	totalPtr := total
 
 	rows, err := h.DB.Query(`
-SELECT d.id, COALESCE(d.device_uid, ''), COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), d.account_id, COALESCE(a.email, ''), d.created_at,
+SELECT d.id, COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), d.account_id, COALESCE(a.email, ''), d.created_at,
   COALESCE(d.code_hint, ''), d.kind, COALESCE(d.last_seen_at, 0)
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
@@ -100,10 +98,10 @@ LIMIT ? OFFSET ?`, limit, offset)
 	now := time.Now().Unix()
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, uid, state, name, sub, email, hint, kind string
+		var id, state, name, sub, email, hint, kind string
 		var accountID sql.NullString
 		var created, lastSeen int64
-		if err := rows.Scan(&id, &uid, &state, &name, &sub, &accountID, &email, &created, &hint, &kind, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &state, &name, &sub, &accountID, &email, &created, &hint, &kind, &lastSeen); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not list devices.")
 			return
 		}
@@ -117,7 +115,6 @@ LIMIT ? OFFSET ?`, limit, offset)
 		}
 		list = append(list, map[string]any{
 			"id":            id,
-			"device_uid":    security.GroupCrockford(uid),
 			"state":         state,
 			"name":          name,
 			"subdomain":     sub,
@@ -315,7 +312,7 @@ func (h AdminConsoleHandler) AddAccountCredit(w http.ResponseWriter, r *http.Req
 
 func (h AdminConsoleHandler) listAccountDevices(accountID string) ([]map[string]any, error) {
 	rows, err := h.DB.Query(`
-SELECT d.id, COALESCE(d.device_uid, ''), COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''), d.kind,
+SELECT d.id, COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''), d.kind,
   COALESCE(d.last_seen_at, 0), d.created_at, COALESCE(d.order_ref, '')
 FROM devices d
 WHERE d.account_id = ?
@@ -329,12 +326,12 @@ ORDER BY d.created_at DESC`, accountID)
 	now := time.Now().Unix()
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, uid, state, name, sub, tunnelID, hint, kind, orderRef string
+		var id, state, name, sub, tunnelID, hint, kind, orderRef string
 		var lastSeen, created int64
-		if err := rows.Scan(&id, &uid, &state, &name, &sub, &tunnelID, &hint, &kind, &lastSeen, &created, &orderRef); err != nil {
+		if err := rows.Scan(&id, &state, &name, &sub, &tunnelID, &hint, &kind, &lastSeen, &created, &orderRef); err != nil {
 			return nil, err
 		}
-		list = append(list, deviceListFields(id, uid, name, sub, tunnelID, hint, kind, orderRef, lastSeen, created, state, zone, now))
+		list = append(list, deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef, lastSeen, created, state, zone, now))
 	}
 	return list, nil
 }
@@ -348,9 +345,8 @@ func (h AdminConsoleHandler) DeviceCodes(w http.ResponseWriter, r *http.Request)
 	limit, offset := parseListPage(r)
 
 	query := `
-SELECT d.id, d.kind, COALESCE(d.state, 'unbound'), COALESCE(d.device_uid, ''),
-  COALESCE(d.code_hint, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.subdomain, ''), COALESCE(d.order_ref, ''), d.created_at,
-  COALESCE(d.verification_code_sealed, '')
+SELECT d.id, d.kind, COALESCE(d.state, 'unbound'),
+  COALESCE(d.code_hint, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.subdomain, ''), COALESCE(d.order_ref, ''), d.created_at
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 WHERE 1=1`
@@ -367,19 +363,11 @@ WHERE 1=1`
 	}
 
 	if q != "" {
-		norm := security.NormalizeToken(q)
 		like := "%" + q + "%"
-		if norm != "" && len(norm) >= 8 {
-			filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ? OR d.subdomain LIKE ? OR d.device_uid = ?)`
-			query += filter
-			countQuery += filter
-			args = append(args, like, like, like, like, like, norm)
-		} else {
-			filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ? OR d.subdomain LIKE ?)`
-			query += filter
-			countQuery += filter
-			args = append(args, like, like, like, like, like)
-		}
+		filter := ` AND (d.code_hint LIKE ? OR d.order_ref LIKE ? OR a.email LIKE ? OR d.id LIKE ? OR d.subdomain LIKE ?)`
+		query += filter
+		countQuery += filter
+		args = append(args, like, like, like, like, like)
 	}
 	query += ` ORDER BY d.created_at DESC`
 	var total int
@@ -398,10 +386,10 @@ WHERE 1=1`
 	zone := config.C.Server.PublicZone
 	list := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, kind, status, uid, hint, email, subdomain, orderRef, sealed string
+		var id, kind, status, hint, email, subdomain, orderRef string
 		var accountID sql.NullString
 		var created int64
-		if err := rows.Scan(&id, &kind, &status, &uid, &hint, &accountID, &email, &subdomain, &orderRef, &created, &sealed); err != nil {
+		if err := rows.Scan(&id, &kind, &status, &hint, &accountID, &email, &subdomain, &orderRef, &created); err != nil {
 			JSONError(w, http.StatusInternalServerError, "Could not list device identities.")
 			return
 		}
@@ -414,27 +402,16 @@ WHERE 1=1`
 			hostname = subdomain + "." + zone
 		}
 		item := map[string]any{
-			"id":                 id,
-			"device_uid":         security.GroupCrockford(uid),
-			"kind":               kind,
-			"status":             status,
-			"hint":               hint,
-			"account_id":         acctID,
-			"account_email":      email,
-			"device_hostname":    hostname,
-			"order_ref":          orderRef,
-			"created_at":         created,
-			"can_revoke":         status == "unbound",
-			"can_reveal":         false,
-			"device_code_prefix": "",
-		}
-		// The verification code never ships in a list response; reveal goes
-		// through POST /admin/device-codes/{id}/reveal for a single row.
-		if sealed != "" && uid != "" {
-			if code, err := security.OpenString(sealed); err == nil && security.IsVerificationCodeShape(code) {
-				item["can_reveal"] = true
-				item["device_code_prefix"] = security.DeviceCodePrefix(uid)
-			}
+			"id":              id,
+			"kind":            kind,
+			"status":          status,
+			"hint":            hint,
+			"account_id":      acctID,
+			"account_email":   email,
+			"device_hostname": hostname,
+			"order_ref":       orderRef,
+			"created_at":      created,
+			"can_revoke":      status == "unbound",
 		}
 		list = append(list, item)
 	}
@@ -450,87 +427,6 @@ WHERE 1=1`
 		out["pagination"] = buildListPage(limit, offset, len(list), &totalPtr)
 	}
 	JSON(w, http.StatusOK, out)
-}
-
-// RevealDeviceCode opens the sealed verification code for one row after staff
-// password step-up. The rolling credential is never revealed.
-func (h AdminConsoleHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	adminID := AdminIDFrom(r.Context())
-	if adminID == "" {
-		JSONError(w, http.StatusForbidden, "Sign in with a staff account to see the pairing details.")
-		return
-	}
-	var req struct {
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "Enter your staff password to see the pairing details.")
-		return
-	}
-	loginKey := adminLoginNetworkKey(r)
-	if guessBlocked(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow) {
-		JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
-		return
-	}
-	var email, hash string
-	err := h.DB.QueryRowContext(r.Context(), `SELECT email, password_hash FROM admin_accounts WHERE id = ? AND is_active = 1`, adminID).
-		Scan(&email, &hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		JSONError(w, http.StatusForbidden, "Sign in with an active staff account to see the pairing details.")
-		return
-	}
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not check your password. Try again.")
-		return
-	}
-	// Share the sign-in limits so moving between endpoints cannot reset them.
-	accountKey := signInAccountKey("admin", email)
-	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
-	if auth.VerifyPassword(hash, req.Password) != nil {
-		if accountCapped ||
-			!allowGuess(h.DB, loginKey, adminLoginAttemptMax, adminLoginAttemptWindow) ||
-			!allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow) {
-			JSONError(w, http.StatusTooManyRequests, adminLoginThrottled)
-			return
-		}
-		JSONError(w, http.StatusForbidden, revealWrongPassword)
-		return
-	}
-	clearSignInAccountAttempts(h.DB, accountKey)
-
-	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
-	if id == "" {
-		JSONError(w, http.StatusBadRequest, "Device id is required.")
-		return
-	}
-	var uid, hint, sealed string
-	err = h.DB.QueryRowContext(r.Context(), `SELECT COALESCE(device_uid,''), COALESCE(code_hint,''), COALESCE(verification_code_sealed,'') FROM devices WHERE id = ?`, id).
-		Scan(&uid, &hint, &sealed)
-	if err == sql.ErrNoRows {
-		JSONError(w, http.StatusNotFound, "That device identity was not found.")
-		return
-	}
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not read the pairing details. Try again.")
-		return
-	}
-	if sealed == "" || uid == "" {
-		JSONError(w, http.StatusConflict, "This Luna needs new pairing details from support.")
-		return
-	}
-	code, err := security.OpenString(sealed)
-	if err != nil || !security.IsVerificationCodeShape(code) {
-		JSONError(w, http.StatusInternalServerError, "Could not read the pairing details. Try again.")
-		return
-	}
-	slog.Info("device pairing details revealed by support", "admin_id", adminID, "device_id", id)
-	JSON(w, http.StatusOK, map[string]any{
-		"device_uid":         security.GroupCrockford(uid),
-		"verification_code":  code,
-		"code_hint":          hint,
-		"device_code_prefix": security.DeviceCodePrefix(uid),
-	})
 }
 
 func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Request) {
@@ -570,14 +466,14 @@ func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if account.Valid && account.String != "" {
-		JSONError(w, http.StatusConflict, "Unlink this Luna from its account before revoking its pairing details.")
+		JSONError(w, http.StatusConflict, "Unlink this Luna from its account before revoking its device token.")
 		return
 	}
 	// Preserve any latest credential hashes as tombstones so DeviceAuth can
 	// distinguish this revocation from an unknown token.
 	_, err = tx.Exec(`UPDATE devices SET state = 'revoked', revoked = 1,
  subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
- last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL,
+ last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL,
  auth_token_sealed = NULL, previous_auth_token_valid_until = NULL
  WHERE id = ? AND COALESCE(account_id,'') = ''`, id)
 	if err != nil {
@@ -585,10 +481,6 @@ func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, id); err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not revoke that Luna. Try again.")
-		return
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, id); err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not revoke that Luna. Try again.")
 		return
 	}
@@ -601,7 +493,7 @@ func (h AdminConsoleHandler) RevokeDeviceCode(w http.ResponseWriter, r *http.Req
 }
 
 // UnlinkDeviceCode detaches a Luna from its customer account and stops its remote
-// access, but keeps the Device ID and verification code so it can be paired again.
+// access, but keeps its device token so it can be paired again.
 func (h AdminConsoleHandler) UnlinkDeviceCode(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "codeID"))
 	if id == "" {

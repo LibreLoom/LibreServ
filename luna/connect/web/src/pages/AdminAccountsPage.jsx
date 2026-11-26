@@ -5,7 +5,6 @@ import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { PaginationControls } from "../components/ui/pagination.jsx";
-import TokenReveal from "../components/TokenReveal.jsx";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 import { ChevronDown, ChevronUp, ExternalLink, RefreshCw, Search, Shield, Trash2, Users, Wallet, X } from "lucide-react";
 
@@ -306,15 +305,13 @@ function LinkedLunaRow({ device, onRefresh }) {
                 <dt className="text-muted-foreground">Last seen</dt>
                 <dd className="font-mono">{formatWhen(detail.last_seen_at, "Never")}</dd>
               </div>
-              <div className="flex justify-between gap-4 items-start">
-                <dt className="text-muted-foreground shrink-0 pt-1">Pairing details</dt>
-                <dd className="text-right max-w-[min(100%,20rem)]">
-                  <TokenReveal
-                    hint={detail.device_uid || device.device_uid || detail.hint || device.hint}
-                    deviceId={detail.can_reveal ? device.id : null}
-                    compact
-                  />
-                </dd>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Order reference</dt>
+                <dd className="font-mono break-all text-right">{detail.order_ref || device.order_ref || "None"}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Token hint</dt>
+                <dd className="font-mono break-all text-right">{detail.hint || device.hint || "None"}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Status</dt>
@@ -426,7 +423,7 @@ export default function AdminAccountsPage() {
 
   const deleteAccount = async () => {
     if (!selectedId || !detail) return;
-    const msg = `Delete ${detail.email}? This charges the month so far, deletes every cloud backup, disconnects its Lunas (their pairing details stay), and removes the account. This can't be undone.`;
+    const msg = `Delete ${detail.email}? This charges the month so far, deletes every cloud backup, disconnects its Lunas (their device tokens stay valid), and removes the account. This can't be undone.`;
     if (!window.confirm(msg)) return;
     setDeleteBusy(true);
     setDetailError("");
@@ -600,7 +597,7 @@ export default function AdminAccountsPage() {
                       <Trash2 className="h-4 w-4" /> Delete account
                     </h3>
                     <p className="text-sm text-muted-foreground mb-3">
-                      Remove this customer account and all its cloud backups. Its Lunas are disconnected, but their pairing details stay. Stripe charges the month so far.
+                      Remove this customer account and all its cloud backups. Its Lunas are disconnected, but their device tokens stay valid. Stripe charges the month so far.
                     </p>
                     <Button variant="destructive" loading={deleteBusy} onClick={deleteAccount}>
                       Delete account

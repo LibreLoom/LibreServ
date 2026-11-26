@@ -27,7 +27,6 @@ var migrateTables = []string{
 	"devices",
 	"device_pairings",
 	"domain_reservations",
-	"device_setup_grants",
 	"sessions",
 	"register_attempts",
 	"guess_attempts",

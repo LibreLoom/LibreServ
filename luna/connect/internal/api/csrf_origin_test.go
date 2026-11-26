@@ -12,7 +12,7 @@ import (
 func TestPairingClaimDoesNotRequireBrowserCSRF(t *testing.T) {
 	h := testServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/pair/claim", strings.NewReader(
-		`{"device_uid":"7K4M2Q9XR8N36T5W1PZH","verification_code":"A3F91C"}`))
+		`{"device_token":"7K4M-2Q9X-R8N3-6T5W-1PZH"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {

@@ -18,7 +18,7 @@ func TestAdminGetAccountIncludesTunnelFields(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_tunnel', 'tunnel@b.co', 'x', 1, 'active', 1, ?)`, now)
 
-	id, _, _, err := insertDeviceIdentity(d.DB, "official", "order-tunnel")
+	id, _, err := insertDeviceIdentity(d.DB, "official", "order-tunnel")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,8 @@ func TestAdminRegenerateTunnel(t *testing.T) {
 
 	cookie := registerAccount(t, acctH, "regen@b.co")
 	verifyEmailFor(t, acctH, "regen@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	domReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"regenbox"}`))
 	domReq.AddCookie(cookie)
@@ -113,8 +113,8 @@ func TestAdminSetDeviceDomain(t *testing.T) {
 
 	cookie := registerAccount(t, acctH, "admindom@b.co")
 	verifyEmailFor(t, acctH, "admindom@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	first := httptest.NewRequest(http.MethodPost, "/admin/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"firstbox"}`))
 	first = withChiParam(first, "deviceID", devID)
@@ -150,7 +150,7 @@ func TestAdminGetDeviceDetail(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	id, uid, _, err := insertDeviceIdentity(d.DB, "official", "")
+	id, token, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,15 +177,14 @@ VALUES ('acct_view', 'view@b.co', 'x', 0, 'none', 1, ?)`, now)
 	if _, has := body["code"]; has {
 		t.Fatalf("device detail must not ship the full token: %v", body["code"])
 	}
-	if body["can_reveal"] != true {
-		t.Fatalf("expected can_reveal on detail: %v", body["can_reveal"])
-	}
-	if body["device_code_prefix"] != security.DeviceCodePrefix(uid) {
-		t.Fatalf("device_code_prefix %v want %v", body["device_code_prefix"], security.DeviceCodePrefix(uid))
+	for _, leaked := range []string{"device_token", "device_uid", "verification_code", "can_reveal", "device_code_prefix"} {
+		if _, has := body[leaked]; has {
+			t.Fatalf("device detail has %q: %v", leaked, body)
+		}
 	}
 	hint, _ := body["hint"].(string)
-	if hint == "" {
-		t.Fatalf("expected hint, got %v", body["hint"])
+	if hint != security.TokenHint(token) {
+		t.Fatalf("expected hint %q, got %v", security.TokenHint(token), body["hint"])
 	}
 }
 
@@ -196,7 +195,7 @@ func TestAdminRegenerateTunnelRequiresSubdomain(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_nosub', 'nosub@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	id, _, _, err := insertDeviceIdentity(d.DB, "official", "")
+	id, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}

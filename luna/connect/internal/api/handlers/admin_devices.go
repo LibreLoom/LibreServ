@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/domainname"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 func (h AdminConsoleHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
@@ -67,18 +66,17 @@ func (h AdminConsoleHandler) SetDeviceDomain(w http.ResponseWriter, r *http.Requ
 }
 
 func (h AdminConsoleHandler) loadDeviceDetail(deviceID string) (map[string]any, error) {
-	var id, uid, state, name, sub, tunnelID, hint, kind, orderRef, sealed string
+	var id, state, name, sub, tunnelID, hint, kind, orderRef string
 	var accountID sql.NullString
 	var accountEmail sql.NullString
 	var lastSeen, created int64
 	err := h.DB.QueryRow(`
-SELECT d.id, COALESCE(d.device_uid, ''), COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''),
-  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.created_at,
-  COALESCE(d.verification_code_sealed, '')
+SELECT d.id, COALESCE(d.state, 'unbound'), COALESCE(d.name, ''), COALESCE(d.subdomain, ''), COALESCE(d.tunnel_id, ''), COALESCE(d.code_hint, ''),
+  d.kind, COALESCE(d.order_ref, ''), d.account_id, COALESCE(a.email, ''), COALESCE(d.last_seen_at, 0), d.created_at
 FROM devices d
 LEFT JOIN accounts a ON a.id = d.account_id
 WHERE d.id = ?`, deviceID).
-		Scan(&id, &uid, &state, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &created, &sealed)
+		Scan(&id, &state, &name, &sub, &tunnelID, &hint, &kind, &orderRef, &accountID, &accountEmail, &lastSeen, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -104,39 +102,28 @@ WHERE d.id = ?`, deviceID).
 	hasTunnel := tunnelID != ""
 
 	out := map[string]any{
-		"id":                 id,
-		"device_uid":         security.GroupCrockford(uid),
-		"name":               name,
-		"subdomain":          sub,
-		"device_hostname":    hostname,
-		"hostname":           hostname,
-		"tunnel_id":          tunnelID,
-		"has_tunnel":         hasTunnel,
-		"hint":               hint,
-		"kind":               kind,
-		"status":             state,
-		"order_ref":          orderRef,
-		"account_id":         acctID,
-		"account_email":      email,
-		"last_seen_at":       lastSeen,
-		"online":             online,
-		"revoked":            state == "revoked",
-		"created_at":         created,
-		"can_reveal":         false,
-		"device_code_prefix": "",
-	}
-	// The verification code never ships in a detail response; reveal goes
-	// through POST /admin/device-codes/{id}/reveal like the list rows.
-	if sealed != "" && uid != "" {
-		if code, err := security.OpenString(sealed); err == nil && security.IsVerificationCodeShape(code) {
-			out["can_reveal"] = true
-			out["device_code_prefix"] = security.DeviceCodePrefix(uid)
-		}
+		"id":              id,
+		"name":            name,
+		"subdomain":       sub,
+		"device_hostname": hostname,
+		"hostname":        hostname,
+		"tunnel_id":       tunnelID,
+		"has_tunnel":      hasTunnel,
+		"hint":            hint,
+		"kind":            kind,
+		"status":          state,
+		"order_ref":       orderRef,
+		"account_id":      acctID,
+		"account_email":   email,
+		"last_seen_at":    lastSeen,
+		"online":          online,
+		"revoked":         state == "revoked",
+		"created_at":      created,
 	}
 	return out, nil
 }
 
-func deviceListFields(id, uid, name, sub, tunnelID, hint, kind, orderRef string, lastSeen, created int64, state, zone string, now int64) map[string]any {
+func deviceListFields(id, name, sub, tunnelID, hint, kind, orderRef string, lastSeen, created int64, state, zone string, now int64) map[string]any {
 	if state == "" {
 		state = "unbound"
 	}
@@ -148,7 +135,6 @@ func deviceListFields(id, uid, name, sub, tunnelID, hint, kind, orderRef string,
 	online := state == "bound" && lastSeen > 0 && now-lastSeen <= OnlineWithinSec
 	return map[string]any{
 		"id":              id,
-		"device_uid":      security.GroupCrockford(uid),
 		"name":            name,
 		"subdomain":       sub,
 		"device_hostname": hostname,

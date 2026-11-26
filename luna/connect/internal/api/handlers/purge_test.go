@@ -20,7 +20,7 @@ func TestPurgeDeviceCodeBoundDevice(t *testing.T) {
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_purge', 'purge@b.co', 'x', 0, 'none', 1, ?)`, now)
 
-	devID, uid, _, err := insertDeviceIdentity(d.DB, "official", "order-purge")
+	devID, uid, err := insertDeviceIdentity(d.DB, "official", "order-purge")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ VALUES (?, 'bucket-test', 'bid', 'https://b2.example', 'kid', 'sealed', ?)`, dev
 func TestPurgeDeviceCodeUnboundRevokesInsteadOfConflict(t *testing.T) {
 	d := testDeps(t)
 	h := AdminConsoleHandler{Deps: d}
-	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
+	devID, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ VALUES ('acct_del', 'del@b.co', 'x', 0, 'none', 1, ?)`, now)
 	_, _ = d.DB.Exec(`INSERT INTO sessions (token_hash, account_id, expires_at) VALUES ('hash1', 'acct_del', ?)`, now+3600)
 	_, _ = d.DB.Exec(`INSERT INTO billing_storage_samples (account_id, period_ym, sampled_at, stored_bytes) VALUES ('acct_del', '2026-01', ?, 100)`, now)
 
-	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
+	devID, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestUnlinkDeviceCodeKeepsToken(t *testing.T) {
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, has_card, billing_status, email_verified, created_at)
 VALUES ('acct_unlink', 'unlink@b.co', 'x', 0, 'none', 1, ?)`, now)
-	devID, _, _, err := insertDeviceIdentity(d.DB, "official", "")
+	devID, _, err := insertDeviceIdentity(d.DB, "official", "")
 	if err != nil {
 		t.Fatal(err)
 	}

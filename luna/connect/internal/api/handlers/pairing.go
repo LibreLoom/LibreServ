@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -15,17 +14,14 @@ import (
 )
 
 const (
-	pairingLifetime          = 10 * time.Minute
-	pairingDeviceFailures    = 5
-	pairingAccountFailures   = 20
-	pairingIPFailures        = 50
-	pairingDeviceIPFailures  = 20
-	pairingFailureWindow     = 10 * time.Minute
-	pairingAccountWindow     = time.Hour
-	pairingPublicIPRecentFor = 10 * time.Minute
+	pairingLifetime        = 10 * time.Minute
+	pairingAccountFailures = 20
+	pairingIPFailures      = 50
+	pairingIPWindow        = 10 * time.Minute
+	pairingAccountWindow   = time.Hour
 )
 
-const genericPairingError = "That Device ID or verification code is wrong or is no longer pairing. Check both and try again."
+const genericPairingError = "That device token is wrong or is no longer pairing. Check it and try again."
 
 var (
 	errPairingInvalid     = errors.New("invalid pairing")
@@ -35,69 +31,51 @@ var (
 )
 
 type pairingInput struct {
-	DeviceUID        string `json:"device_uid"`
-	VerificationCode string `json:"verification_code"`
+	DeviceToken string `json:"device_token"`
 }
 
+// decodePairingInput normalizes the token (grouping, case, lookalike letters)
+// and reports whether it has the right shape. A wrong-shaped token still counts
+// as a failed attempt for the caller's account and client IP.
 func decodePairingInput(r *http.Request) (pairingInput, bool) {
 	var req pairingInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return pairingInput{}, false
 	}
-	req.DeviceUID = security.NormalizeDeviceUID(req.DeviceUID)
-	req.VerificationCode = security.NormalizeVerificationCode(req.VerificationCode)
-	if !security.IsDeviceUIDShape(req.DeviceUID) || !security.IsVerificationCodeShape(req.VerificationCode) {
+	req.DeviceToken = security.NormalizeDeviceToken(req.DeviceToken)
+	if !security.IsDeviceTokenShape(req.DeviceToken) {
 		return pairingInput{}, false
 	}
 	return req, true
 }
 
-type pairingRateContext struct {
-	deviceUID      string
-	accountID      string
-	ip             string
-	deviceFailures int
+// tokenHash is the lookup and comparison value stored in devices.code_hash.
+func (p pairingInput) tokenHash() string {
+	return security.HashToken(p.DeviceToken)
 }
 
-func pairingContextForRequest(db *database.DB, req pairingInput, accountID string, r *http.Request, now int64) pairingRateContext {
-	ctx := pairingRateContext{
-		deviceUID:      req.DeviceUID,
-		accountID:      accountID,
-		ip:             ClientIP(r),
-		deviceFailures: pairingDeviceFailures,
-	}
-	if db == nil || req.DeviceUID == "" {
+// pairingRateContext names the persisted failure buckets one request charges.
+// An invalid token cannot be attributed to a device, so only the account (when
+// known) and the trusted client IP are limited.
+type pairingRateContext struct {
+	accountID string
+	ip        string
+}
+
+func pairingContextForRequest(db *database.DB, req pairingInput, accountID string, r *http.Request) pairingRateContext {
+	ctx := pairingRateContext{accountID: accountID, ip: ClientIP(r)}
+	if db == nil || ctx.accountID != "" || req.DeviceToken == "" {
 		return ctx
 	}
-	var lastIP string
-	var lastIPAt sql.NullInt64
-	_ = db.QueryRow(`SELECT COALESCE(last_public_ip,''), last_public_ip_at FROM devices WHERE device_uid = ?`, req.DeviceUID).
-		Scan(&lastIP, &lastIPAt)
-	if ctx.ip != "" && lastIP != "" && lastIP == ctx.ip && lastIPAt.Valid &&
-		lastIPAt.Int64 > 0 && now-lastIPAt.Int64 <= int64(pairingPublicIPRecentFor/time.Second) {
-		ctx.deviceFailures = pairingDeviceIPFailures
-	}
-	if ctx.accountID == "" {
-		_ = db.QueryRow(`SELECT account_id FROM device_pairings WHERE device_id = (
-  SELECT id FROM devices WHERE device_uid = ?)`, req.DeviceUID).Scan(&ctx.accountID)
-	}
+	_ = db.QueryRow(`SELECT p.account_id FROM device_pairings p JOIN devices d ON d.id = p.device_id
+WHERE d.code_hash = ?`, req.tokenHash()).Scan(&ctx.accountID)
 	return ctx
 }
 
-// refreshPairingRateContext runs after the device lock. The account bucket and
-// trusted-IP relaxation therefore describe the attempt being verified, not a
-// pairing that existed when the request entered.
-func refreshPairingRateContext(tx *database.Tx, deviceID string, rate pairingRateContext, now int64) pairingRateContext {
-	var lastIP string
-	var lastIPAt sql.NullInt64
-	if err := tx.QueryRow(`SELECT COALESCE(last_public_ip,''), last_public_ip_at FROM devices WHERE id = ?`, deviceID).
-		Scan(&lastIP, &lastIPAt); err == nil {
-		rate.deviceFailures = pairingDeviceFailures
-		if rate.ip != "" && lastIP != "" && lastIP == rate.ip && lastIPAt.Valid &&
-			lastIPAt.Int64 > 0 && now-lastIPAt.Int64 <= int64(pairingPublicIPRecentFor/time.Second) {
-			rate.deviceFailures = pairingDeviceIPFailures
-		}
-	}
+// refreshPairingRateContext runs after the device lock, so the account bucket
+// describes the attempt being verified, not a pairing that existed when the
+// request entered.
+func refreshPairingRateContext(tx *database.Tx, deviceID string, rate pairingRateContext) pairingRateContext {
 	if rate.accountID == "" {
 		_ = tx.QueryRow(`SELECT account_id FROM device_pairings WHERE device_id = ?`, deviceID).Scan(&rate.accountID)
 	}
@@ -111,11 +89,6 @@ type pairingRateLimit struct {
 
 func pairingRateLimits(rate pairingRateContext) map[string]pairingRateLimit {
 	limits := map[string]pairingRateLimit{}
-	if rate.deviceUID != "" {
-		limits["pair-device:"+rate.deviceUID] = pairingRateLimit{
-			max: rate.deviceFailures, window: int64(pairingFailureWindow / time.Second),
-		}
-	}
 	if rate.accountID != "" {
 		limits["pair-account:"+rate.accountID] = pairingRateLimit{
 			max: pairingAccountFailures, window: int64(pairingAccountWindow / time.Second),
@@ -123,7 +96,7 @@ func pairingRateLimits(rate pairingRateContext) map[string]pairingRateLimit {
 	}
 	if rate.ip != "" {
 		limits["pair-ip:"+rate.ip] = pairingRateLimit{
-			max: pairingIPFailures, window: int64(pairingFailureWindow / time.Second),
+			max: pairingIPFailures, window: int64(pairingIPWindow / time.Second),
 		}
 	}
 	return limits
@@ -131,9 +104,6 @@ func pairingRateLimits(rate pairingRateContext) map[string]pairingRateLimit {
 
 func pairingRateKeys(rate pairingRateContext) []string {
 	keys := []string{}
-	if rate.deviceUID != "" {
-		keys = append(keys, "pair-device:"+rate.deviceUID)
-	}
 	if rate.accountID != "" {
 		keys = append(keys, "pair-account:"+rate.accountID)
 	}
@@ -144,7 +114,7 @@ func pairingRateKeys(rate pairingRateContext) []string {
 }
 
 // reservePairingRate locks and increments every applicable bucket before the
-// verification code is compared. The reservation is refunded for valid pairing
+// device token is compared. The reservation is refunded for valid pairing
 // polls and successful claims, and rolls back with the surrounding transaction
 // on any error. Invalid guesses commit the increments.
 func reservePairingRate(tx *database.Tx, rate pairingRateContext, now int64) error {
@@ -256,7 +226,7 @@ func (h DeviceHandler) StartPair(w http.ResponseWriter, r *http.Request) {
 	}
 	req, valid := decodePairingInput(r)
 	now := time.Now().Unix()
-	rate := pairingContextForRequest(h.DB, req, acct.ID, r, now)
+	rate := pairingContextForRequest(h.DB, req, acct.ID, r)
 	if !valid {
 		allowed, err := recordInvalidPairingAttempt(h.DB, rate, now)
 		if err != nil {
@@ -295,7 +265,7 @@ func startDevicePairing(ctx context.Context, db *database.DB, accountID string, 
 	// write, makes SQLite fail the lock upgrade under concurrent claims
 	// instead of waiting. The transaction below starts with LockDevice.
 	var deviceID string
-	err := db.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID)
+	err := db.QueryRow(`SELECT id FROM devices WHERE code_hash = ?`, req.tokenHash()).Scan(&deviceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		allowed, err := recordInvalidPairingAttempt(db, rate, now)
 		if err != nil {
@@ -327,7 +297,7 @@ func startDevicePairing(ctx context.Context, db *database.DB, accountID string, 
 		}
 		return "", err
 	}
-	rate = refreshPairingRateContext(tx, deviceID, rate, now)
+	rate = refreshPairingRateContext(tx, deviceID, rate)
 	if err := database.LockStorageAccount(tx, accountID); err != nil {
 		return "", err
 	}
@@ -335,18 +305,11 @@ func startDevicePairing(ctx context.Context, db *database.DB, accountID string, 
 		return "", err
 	}
 
-	var state, verificationHash string
-	err = tx.QueryRow(`SELECT COALESCE(state,'unbound'), COALESCE(verification_code_hash,'')
-FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash)
+	var state string
+	err = tx.QueryRow(`SELECT COALESCE(state,'unbound')
+FROM devices WHERE id = ?`, deviceID).Scan(&state)
 	if err != nil {
 		return "", err
-	}
-	if subtle.ConstantTimeCompare([]byte(verificationHash), []byte(security.HashToken(req.VerificationCode))) != 1 {
-		if err := tx.Commit(); err != nil {
-			return "", err
-		}
-		committed = true
-		return "", errPairingInvalid
 	}
 	if state != "unbound" && state != "pairing" {
 		if err := tx.Commit(); err != nil {
@@ -402,7 +365,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash)
   auth_token_hash = NULL, auth_token_sealed = NULL,
   previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND state = ?`, accountID, deviceID, state)
 	if err != nil {
 		return "", err
@@ -415,9 +378,6 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash)
 		return "", errPairingInvalid
 	}
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, deviceID); err != nil {
-		return "", err
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, deviceID); err != nil {
 		return "", err
 	}
 	_, err = tx.Exec(`INSERT INTO device_pairings (id, device_id, account_id, created_at, expires_at)
@@ -437,12 +397,12 @@ VALUES (?, ?, ?, ?, ?)`, pairingID, deviceID, accountID, now, now+int64(pairingL
 }
 
 // ClaimPair is Luna's unauthenticated polling/claim route. Possession of the
-// reusable code is useful only while an account has a live pairing attempt.
+// device token is useful only while an account has a live pairing attempt.
 func (h DeviceHandler) ClaimPair(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	req, valid := decodePairingInput(r)
 	now := time.Now().Unix()
-	rate := pairingContextForRequest(h.DB, req, "", r, now)
+	rate := pairingContextForRequest(h.DB, req, "", r)
 	if !valid {
 		allowed, err := recordInvalidPairingAttempt(h.DB, rate, now)
 		if err != nil {
@@ -480,13 +440,13 @@ func (h DeviceHandler) ClaimPair(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelPairClaim lets an unbound/pairing Luna cancel a pending account claim
-// using its own Device ID and Verification code. It cannot touch a bound or
+// using its own device token. It cannot touch a bound or
 // revoked device, and a valid no-attempt request is a harmless success.
 func (h DeviceHandler) CancelPairClaim(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	req, valid := decodePairingInput(r)
 	now := time.Now().Unix()
-	rate := pairingContextForRequest(h.DB, req, "", r, now)
+	rate := pairingContextForRequest(h.DB, req, "", r)
 	if !valid {
 		allowed, err := recordInvalidPairingAttempt(h.DB, rate, now)
 		if err != nil {
@@ -528,7 +488,7 @@ func cancelPairClaimByDevice(ctx context.Context, db *database.DB, req pairingIn
 		}
 	}()
 	var deviceID string
-	if err := tx.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID); err != nil {
+	if err := tx.QueryRow(`SELECT id FROM devices WHERE code_hash = ?`, req.tokenHash()).Scan(&deviceID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if err := reservePairingRate(tx, rate, now); err != nil {
 				return err
@@ -544,7 +504,7 @@ func cancelPairClaimByDevice(ctx context.Context, db *database.DB, req pairingIn
 	if err := database.LockDevice(tx, deviceID); err != nil {
 		return err
 	}
-	rate = refreshPairingRateContext(tx, deviceID, rate, now)
+	rate = refreshPairingRateContext(tx, deviceID, rate)
 	var attemptAccount string
 	_ = tx.QueryRow(`SELECT account_id FROM device_pairings WHERE device_id = ?`, deviceID).Scan(&attemptAccount)
 	rate.accountID = attemptAccount
@@ -557,17 +517,10 @@ func cancelPairClaimByDevice(ctx context.Context, db *database.DB, req pairingIn
 		return err
 	}
 
-	var state, verificationHash string
-	if err := tx.QueryRow(`SELECT COALESCE(state,'unbound'), COALESCE(verification_code_hash,'')
-FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != nil {
+	var state string
+	if err := tx.QueryRow(`SELECT COALESCE(state,'unbound')
+FROM devices WHERE id = ?`, deviceID).Scan(&state); err != nil {
 		return err
-	}
-	if subtle.ConstantTimeCompare([]byte(verificationHash), []byte(security.HashToken(req.VerificationCode))) != 1 {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-		committed = true
-		return errPairingInvalid
 	}
 	if state != "unbound" && state != "pairing" {
 		if err := tx.Commit(); err != nil {
@@ -579,15 +532,12 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, deviceID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, deviceID); err != nil {
-		return err
-	}
 	if state == "pairing" {
 		if _, err := tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
   auth_token_hash = NULL, auth_token_sealed = NULL,
   previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
   WHERE id = ? AND state = 'pairing'`, deviceID); err != nil {
 			return err
 		}
@@ -607,7 +557,7 @@ func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, 
 	// first statement is the write lock (LockDevice); SQLite cannot upgrade a
 	// read snapshot to a writer while another claim holds it.
 	var deviceID string
-	err := db.QueryRow(`SELECT id FROM devices WHERE device_uid = ?`, req.DeviceUID).Scan(&deviceID)
+	err := db.QueryRow(`SELECT id FROM devices WHERE code_hash = ?`, req.tokenHash()).Scan(&deviceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		allowed, err := recordInvalidPairingAttempt(db, rate, now)
 		if err != nil {
@@ -637,7 +587,7 @@ func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, 
 		}
 		return nil, err
 	}
-	rate = refreshPairingRateContext(tx, deviceID, rate, now)
+	rate = refreshPairingRateContext(tx, deviceID, rate)
 	var attemptAccount string
 	_ = tx.QueryRow(`SELECT account_id FROM device_pairings WHERE device_id = ?`, deviceID).Scan(&attemptAccount)
 	rate.accountID = attemptAccount
@@ -650,17 +600,10 @@ func claimDevicePairing(ctx context.Context, db *database.DB, req pairingInput, 
 		return nil, err
 	}
 
-	var state, verificationHash string
-	if err := tx.QueryRow(`SELECT COALESCE(state,'unbound'), COALESCE(verification_code_hash,'')
-FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != nil {
+	var state string
+	if err := tx.QueryRow(`SELECT COALESCE(state,'unbound')
+FROM devices WHERE id = ?`, deviceID).Scan(&state); err != nil {
 		return nil, err
-	}
-	if subtle.ConstantTimeCompare([]byte(verificationHash), []byte(security.HashToken(req.VerificationCode))) != 1 {
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
-		committed = true
-		return nil, errPairingInvalid
 	}
 	var accountID string
 	var expiresAt int64
@@ -670,10 +613,10 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 		if state == "pairing" {
 			_, _ = tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND state = 'pairing'`, deviceID)
 		}
-		if state == "unbound" || state == "pairing" {
+		if state == "unbound" || state == "pairing" || state == "bound" {
 			if err := refundPairingRate(tx, rate); err != nil {
 				return nil, err
 			}
@@ -692,7 +635,19 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 	if err != nil {
 		return nil, err
 	}
-	if state == "bound" || state == "revoked" {
+	if state == "bound" {
+		// A bound device ignores its token. Nothing was guessed, so the answer is
+		// the generic one without a failed-attempt charge.
+		if err := refundPairingRate(tx, rate); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		committed = true
+		return nil, errPairingNoAttempt
+	}
+	if state == "revoked" {
 		if err := tx.Commit(); err != nil {
 			return nil, err
 		}
@@ -703,7 +658,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 		_, _ = tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, deviceID)
 		_, _ = tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND state = ?`, deviceID, state)
 		if err := refundPairingRate(tx, rate); err != nil {
 			return nil, err
@@ -745,10 +700,10 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
   auth_token_hash = ?, auth_token_sealed = ?,
   previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = ?, last_public_ip = ?, last_public_ip_at = ?, setup_secret = NULL
- WHERE id = ? AND account_id = ? AND state = 'pairing' AND verification_code_hash = ?`,
+  last_seen_at = ?, last_public_ip = ?, last_public_ip_at = ?
+ WHERE id = ? AND account_id = ? AND state = 'pairing'`,
 		accountID, security.HashToken(token), sealed, now, nullIfEmpty(publicClientIP(clientIP)), now,
-		deviceID, accountID, verificationHash)
+		deviceID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -758,9 +713,6 @@ FROM devices WHERE id = ?`, deviceID).Scan(&state, &verificationHash); err != ni
 	}
 	if n != 1 {
 		return nil, errPairingInvalid
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, deviceID); err != nil {
-		return nil, err
 	}
 	_, _ = tx.Exec(`UPDATE accounts SET onboarding_step = CASE
   WHEN onboarding_step IS NULL OR onboarding_step IN ('verify','bind','diy-code','code','pair') THEN 'domain'
@@ -827,7 +779,7 @@ func clearUnboundPairing(tx *database.Tx, deviceID string, pairing lockedPairing
 	}
 	_, err := tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND account_id = ? AND state = 'pairing'`, deviceID, pairing.accountID)
 	return err
 }
@@ -928,7 +880,7 @@ func lockedCancelPairing(tx *database.Tx, deviceID, pairingID, accountID string)
 	}
 	_, err = tx.Exec(`UPDATE devices SET state = 'unbound', account_id = NULL, revoked = 0,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
-  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+  last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND account_id = ? AND state = 'pairing'`, deviceID, pairing.accountID)
 	return true, err
 }

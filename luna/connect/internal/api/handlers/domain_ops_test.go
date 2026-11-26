@@ -17,7 +17,7 @@ func TestSyncDeviceLocalPortUpdatesIngress(t *testing.T) {
 	config.C.Cloudflare.APIToken = "token"
 	config.C.Cloudflare.ZoneID = "zone"
 
-	devID, _, _ := mintDevice(t, d, "official")
+	devID, _ := mintDevice(t, d, "official")
 	insertBareAccount(t, d, "acct_sync")
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(
@@ -43,8 +43,8 @@ func TestStatusSyncsLocalPortFromHeader(t *testing.T) {
 	cookie := registerAccount(t, acctH, "port@b.co")
 	verifyEmailFor(t, acctH, "port@b.co")
 
-	_, uid, code := mintDevice(t, d, "official")
-	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	now := time.Now().Unix()
 	_, _ = d.DB.Exec(

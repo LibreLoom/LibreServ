@@ -172,9 +172,9 @@ func seedDomainDevice(t *testing.T, db *DB, id, account, subdomain string) {
 		account, account+"@example.test", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO devices (id, code_hash, device_uid, state, account_id, subdomain, created_at)
-		VALUES (?, ?, ?, 'bound', ?, NULLIF(?, ''), ?)`,
-		id, "code-"+id, "uid-"+id, account, subdomain, now); err != nil {
+	if _, err := db.Exec(`INSERT INTO devices (id, code_hash, state, account_id, subdomain, created_at)
+		VALUES (?, ?, 'bound', ?, NULLIF(?, ''), ?)`,
+		id, "code-"+id, account, subdomain, now); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -16,8 +16,8 @@ func domainChangeFixture(t *testing.T, email string) (AccountHandler, DeviceHand
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, email)
 	verifyEmailFor(t, acctH, email)
-	_, uid, code := mintDevice(t, d, "official")
-	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	return acctH, devH, cookie, devID, token
 }
 

@@ -50,7 +50,7 @@ export default function AdminDashboardPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground">Device identities</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Device tokens</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="font-mono text-2xl">{stats.devices}</p>

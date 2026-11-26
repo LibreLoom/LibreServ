@@ -57,7 +57,7 @@ export default function AdminLogin() {
           <CardDescription>
             {needs2FA
               ? "Enter your authenticator code to continue."
-              : "Sign in to create device identities and manage Luna Connect."}
+              : "Sign in to create device tokens and manage Luna Connect."}
           </CardDescription>
         </CardHeader>
         <CardContent>

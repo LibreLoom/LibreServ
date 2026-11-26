@@ -3,13 +3,11 @@ import { AlertCircle, Check, Copy, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api.js";
-import AccountPairingDetails from "../components/AccountPairingDetails.jsx";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { Input } from "../components/ui/input.jsx";
 import ShakeTarget from "../components/ui/shake-target.jsx";
-import { formatDeviceUid } from "../lib/devicePairing.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const PUBLIC_ZONE = "luna.servers.libreloom.org";
@@ -89,8 +87,7 @@ function ChangeAddressForm({ deviceId, hostname, onSaved, onCancel }) {
   );
 }
 
-function DeviceStatusRow({ online, deviceUid, status }) {
-  const uid = formatDeviceUid(deviceUid || "");
+function DeviceStatusRow({ online, status }) {
   const label = status === "pairing"
     ? "Pairing"
     : status === "revoked"
@@ -114,11 +111,6 @@ function DeviceStatusRow({ online, deviceUid, status }) {
       >
         {label}
       </span>
-      {uid ? (
-        <span className="font-mono text-xs">
-          Device ID <span className="text-foreground">{uid}</span>
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -305,7 +297,7 @@ export default function LunaPage() {
   }
 
   const description = !luna
-    ? "One Luna on this account. Pair it with its Device ID and Verification code, then Luna picks up its address when it comes online."
+    ? "One Luna on this account. Pair it with its device token, then Luna picks up its address when it comes online."
     : state === "pairing"
       ? "Luna is waiting to finish pairing."
       : state === "revoked"
@@ -393,7 +385,7 @@ export default function LunaPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              <DeviceStatusRow online={luna.online} deviceUid={luna.device_uid} status={state} />
+              <DeviceStatusRow online={luna.online} status={state} />
 
               {publicHostname ? (
                 <HostnameHero
@@ -422,10 +414,6 @@ export default function LunaPage() {
                   </p>
                 </div>
               )}
-
-              {state === "pairing" || state === "bound" || state === "revoked" ? (
-                <AccountPairingDetails key={luna.id} deviceId={luna.id} />
-              ) : null}
 
               <DeviceToolbar
                 hostname={publicHostname}
@@ -462,10 +450,10 @@ export default function LunaPage() {
                 >
                   <p className="text-sm leading-relaxed text-foreground">
                     {disconnectState === "pairing"
-                      ? "This cancels the pairing attempt. Luna keeps its Device ID and Verification code, and you can pair it again later."
+                      ? "This cancels the pairing attempt. Luna keeps its device token, and you can pair it again later."
                       : paysForBackups
                         ? "Disconnecting keeps your cloud backups and your payment going unless you cancel billing here. Canceling billing charges this month so far and deletes every cloud backup right away."
-                        : "This disconnects Luna from your account, and you can pair it again later with its Device ID and Verification code."}
+                        : "This disconnects Luna from your account, and you can pair it again later with its device token."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button variant="destructive" loading={disconnecting} onClick={() => disconnect(false)}>
@@ -490,7 +478,7 @@ export default function LunaPage() {
                   onSubmit={recover}
                 >
                   <p className="text-sm leading-relaxed text-foreground">
-                    Enter your Luna Connect account password to start pairing again. If Luna&apos;s Verification code was removed, restore it in Settings → Luna Connect → Device token first.
+                    Enter your Luna Connect account password to start pairing again.
                   </p>
                   <label htmlFor="luna-recover-password" className="block text-sm">
                     Luna Connect password

@@ -25,7 +25,8 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 }
 
-// MintDIY creates an unbound DIY device identity after the $1 human check.
+// MintDIY creates one unbound DIY device token after the $1 human check. The
+// token is shown once; Connect keeps only its hash.
 func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
@@ -41,20 +42,19 @@ func (h OnboardingHandler) MintDIY(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowGuess(h.DB, "diy-mint:"+acct.ID, 5, 3600) {
-		JSONError(w, http.StatusTooManyRequests, "Too many new device identities on this account. Wait an hour, then try again.")
+		JSONError(w, http.StatusTooManyRequests, "Too many new device tokens on this account. Wait an hour, then try again.")
 		return
 	}
-	id, uid, code, err := insertDeviceIdentity(h.DB, "diy", "")
+	id, token, err := insertDeviceIdentity(h.DB, "diy", "")
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Could not create a device identity. Try again.")
+		JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
 		return
 	}
 	_, _ = h.DB.Exec(`UPDATE accounts SET onboarding_path = 'diy', onboarding_step = 'diy-code' WHERE id = ?`, acct.ID)
 	JSON(w, http.StatusCreated, map[string]any{
-		"device_id":         id,
-		"device_uid":        security.GroupCrockford(uid),
-		"verification_code": code,
-		"message":           "Enter this Device ID and verification code on Luna, then pair them on this website.",
+		"device_id":    id,
+		"device_token": security.GroupCrockford(token),
+		"message":      "Save this device token now. It is shown only once. Enter it on Luna, then pair it on this website.",
 	})
 }
 
@@ -72,25 +72,23 @@ func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 		req.Count = 100
 	}
 	type minted struct {
-		ID               string `json:"id"`
-		UID              string `json:"device_uid"`
-		VerificationCode string `json:"verification_code"`
+		ID    string `json:"id"`
+		Token string `json:"device_token"`
 	}
 	out := make([]minted, 0, req.Count)
 	for i := 0; i < req.Count; i++ {
-		id, uid, code, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
+		id, token, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create a device identity. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create a device token. Try again.")
 			return
 		}
-		out = append(out, minted{ID: id, UID: security.GroupCrockford(uid), VerificationCode: code})
+		out = append(out, minted{ID: id, Token: security.GroupCrockford(token)})
 	}
 	if len(out) == 1 {
 		JSON(w, http.StatusCreated, map[string]any{
-			"id":                out[0].ID,
-			"device_uid":        out[0].UID,
-			"verification_code": out[0].VerificationCode,
-			"message":           "Print this Device ID and verification code on the quick-start card.",
+			"id":           out[0].ID,
+			"device_token": out[0].Token,
+			"message":      "Print this device token on the quick-start card. It is shown only once.",
 		})
 		return
 	}
@@ -108,23 +106,23 @@ func (h OnboardingHandler) AdminMintBulk(w http.ResponseWriter, r *http.Request)
 		req.Count = 1
 	}
 	if req.Count > 500 {
-		JSONError(w, http.StatusBadRequest, "Ask for 500 device identities or fewer at a time.")
+		JSONError(w, http.StatusBadRequest, "Ask for 500 device tokens or fewer at a time.")
 		return
 	}
 	var lines []string
 	for i := 0; i < req.Count; i++ {
-		_, uid, code, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
+		_, token, err := insertDeviceIdentity(h.DB, "official", req.OrderRef)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "Could not create device identities. Try again.")
+			JSONError(w, http.StatusInternalServerError, "Could not create device tokens. Try again.")
 			return
 		}
-		lines = append(lines, uid+" "+code)
+		lines = append(lines, token)
 	}
 	JSON(w, http.StatusCreated, map[string]any{
 		"filename": "TOKENS",
 		"tokens":   lines,
 		"count":    len(lines),
-		"message":  "One Device ID and verification code per line, separated by a space.",
+		"message":  "One device token per line, shown only once.",
 	})
 }
 

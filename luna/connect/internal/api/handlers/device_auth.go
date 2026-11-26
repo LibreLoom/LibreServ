@@ -76,13 +76,13 @@ func loadDeviceByAuthToken(db *database.DB, token string) (Device, error) {
 	var lastSeen sql.NullInt64
 	hash := security.HashToken(token)
 	err := db.QueryRow(`
-SELECT id, COALESCE(device_uid,''), COALESCE(state,''), account_id,
+SELECT id, COALESCE(state,''), account_id,
        COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,''), COALESCE(kind,'official'),
        COALESCE(auth_token_hash,''), last_seen_at
 FROM devices
 WHERE auth_token_hash = ? OR previous_auth_token_hash = ?
 LIMIT 1`, hash, hash).
-		Scan(&dev.ID, &dev.UID, &state, &account, &sub, &tunnelID, &name, &kind, &currentHash, &lastSeen)
+		Scan(&dev.ID, &state, &account, &sub, &tunnelID, &name, &kind, &currentHash, &lastSeen)
 	if err != nil {
 		return Device{}, errInvalidDeviceCredential
 	}
@@ -121,11 +121,11 @@ func loadCurrentDeviceAuth(exec deviceAuthQueryer, deviceID string) (Device, err
 	var account, sub, tunnelID, name, kind, state sql.NullString
 	var lastSeen sql.NullInt64
 	err := exec.QueryRow(`
-SELECT id, COALESCE(device_uid,''), COALESCE(state,''), account_id,
+SELECT id, COALESCE(state,''), account_id,
        COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(name,''), COALESCE(kind,'official'),
        COALESCE(auth_token_hash,''), last_seen_at
 FROM devices WHERE id = ?`, deviceID).
-		Scan(&dev.ID, &dev.UID, &state, &account, &sub, &tunnelID, &name, &kind, &dev.AuthTokenHash, &lastSeen)
+		Scan(&dev.ID, &state, &account, &sub, &tunnelID, &name, &kind, &dev.AuthTokenHash, &lastSeen)
 	if err != nil {
 		return Device{}, errInvalidDeviceCredential
 	}

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stripe/stripe-go/v87"
 	"golang.org/x/crypto/bcrypt"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/auth"
@@ -398,7 +397,7 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	rows, err := h.DB.Query(`SELECT id, COALESCE(device_uid,''), COALESCE(state,'unbound'), COALESCE(name,''), COALESCE(subdomain,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
+	rows, err := h.DB.Query(`SELECT id, COALESCE(state,'unbound'), COALESCE(name,''), COALESCE(subdomain,''), COALESCE(code_hint,''), COALESCE(last_seen_at,0), kind FROM devices WHERE account_id = ?`, acct.ID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "Could not load this Luna.")
 		return
@@ -407,12 +406,11 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, uid, state, name, sub, hint, kind string
+		var id, state, name, sub, hint, kind string
 		var lastSeen int64
-		_ = rows.Scan(&id, &uid, &state, &name, &sub, &hint, &lastSeen, &kind)
+		_ = rows.Scan(&id, &state, &name, &sub, &hint, &lastSeen, &kind)
 		item := map[string]any{
 			"id":           id,
-			"device_uid":   security.GroupCrockford(uid),
 			"state":        state,
 			"name":         name,
 			"kind":         kind,
@@ -427,81 +425,6 @@ func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 		out = append(out, item)
 	}
 	JSON(w, http.StatusOK, map[string]any{"devices": out})
-}
-
-// revealWrongPassword is the answer when the step-up password does not match.
-const revealWrongPassword = "That password is wrong. The pairing details were not shown."
-
-// RevealDeviceCode returns the public Device ID and reusable verification code
-// for a Luna on this account. The rolling credential is never returned. The
-// request is a POST (so CSRF and Origin checks apply) and carries the account's
-// current password; wrong passwords share sign-in's persisted limits.
-func (h AccountHandler) RevealDeviceCode(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	acct, ok := AccountFrom(r.Context())
-	if !ok {
-		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
-		return
-	}
-	var req struct {
-		Password string `json:"password"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "Enter your password to see the pairing details.")
-		return
-	}
-	email := strings.ToLower(strings.TrimSpace(acct.Email))
-	ip := ClientIP(r)
-	if authBlocked(h.DB, ip, email, authAttemptMax, authAttemptWindow) {
-		JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
-		return
-	}
-	accountKey := signInAccountKey("customer", email)
-	accountCapped := guessBlocked(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
-	var hash string
-	err := h.DB.QueryRow(`SELECT password_hash FROM accounts WHERE id = ?`, acct.ID).Scan(&hash)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		JSONError(w, http.StatusInternalServerError, "Could not check your password. Try again.")
-		return
-	}
-	if err != nil {
-		// The session's account row is gone. Spend the same bcrypt time as a
-		// real check so the answer looks like a wrong password.
-		_ = auth.VerifyDummyPassword(req.Password)
-	}
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
-		if accountCapped {
-			JSONError(w, http.StatusTooManyRequests, "Too many tries from this network. Wait a few minutes, then try again.")
-			return
-		}
-		_ = allowAuthAttempt(h.DB, ip, email, authAttemptMax, authAttemptWindow)
-		_ = allowGuess(h.DB, accountKey, signInAccountAttemptMax, signInAccountAttemptWindow)
-		// 403, not 401: 401 means "signed out" to the web app.
-		JSONError(w, http.StatusForbidden, revealWrongPassword)
-		return
-	}
-	clearSignInAccountAttempts(h.DB, accountKey)
-
-	id := chi.URLParam(r, "deviceID")
-	var hint, sealed, uid string
-	var account sql.NullString
-	err = h.DB.QueryRow(`SELECT COALESCE(code_hint,''), COALESCE(verification_code_sealed,''), COALESCE(device_uid,''), account_id FROM devices WHERE id = ?`, id).Scan(&hint, &sealed, &uid, &account)
-	if err != nil || !account.Valid || account.String != acct.ID {
-		JSONError(w, http.StatusNotFound, "That Luna is not on this account.")
-		return
-	}
-	if sealed == "" || uid == "" {
-		JSONError(w, http.StatusConflict, "This Luna needs new pairing details from support.")
-		return
-	}
-	code, err := security.OpenString(sealed)
-	if err != nil || !security.IsVerificationCodeShape(code) {
-		JSONError(w, http.StatusInternalServerError, "Could not read the pairing details. Contact support.")
-		return
-	}
-	slog.Info("device pairing details revealed", "account_id", acct.ID, "device_id", id)
-	JSON(w, http.StatusOK, map[string]any{"device_uid": security.GroupCrockford(uid), "verification_code": code, "code_hint": hint})
 }
 
 func (h AccountHandler) setSession(w http.ResponseWriter, accountID string) {

@@ -30,7 +30,6 @@ const OnlineWithinSec = 10 * 60
 
 type Device struct {
 	ID            string
-	UID           string
 	State         string
 	AccountID     sql.NullString
 	AuthTokenHash string

@@ -55,7 +55,7 @@ func accountDeviceUpdateFence(d Device, accountID string) (string, []any) {
 }
 
 // unbindDevice invalidates the rolling credential before tearing down remote
-// access. The public UID and reusable verification code stay on the device row.
+// access. The device token's hash stays on the device row, so the Luna can pair again.
 func unbindDevice(deps Deps, d Device, accountID string) error {
 	providers.RefreshCloudflare()
 	tx, err := deps.DB.Begin()
@@ -83,7 +83,7 @@ func unbindDevice(deps Deps, d Device, accountID string) error {
 	res, err := tx.Exec(`UPDATE devices SET state = ?, revoked = ?, account_id = NULL,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL,
   local_port = 8090, last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL,
-  setup_secret = NULL, auth_token_sealed = NULL, previous_auth_token_valid_until = NULL`+fence, args...)
+  auth_token_sealed = NULL, previous_auth_token_valid_until = NULL`+fence, args...)
 	if err != nil {
 		return err
 	}
@@ -95,9 +95,6 @@ func unbindDevice(deps Deps, d Device, accountID string) error {
 		return sql.ErrNoRows
 	}
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, d.ID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, d.ID); err != nil {
 		return err
 	}
 	// Keep the device fence through provider teardown. Re-pairing cannot publish
@@ -141,7 +138,7 @@ func revokeDevice(deps Deps, d Device, accountID string) error {
 	res, err := tx.Exec(`UPDATE devices SET state = ?, revoked = 1,
   subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL,
   local_port = 8090, last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL,
-  setup_secret = NULL, auth_token_sealed = NULL, previous_auth_token_valid_until = NULL`+fence, args...)
+  auth_token_sealed = NULL, previous_auth_token_valid_until = NULL`+fence, args...)
 	if err != nil {
 		return err
 	}
@@ -153,9 +150,6 @@ func revokeDevice(deps Deps, d Device, accountID string) error {
 		return sql.ErrNoRows
 	}
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, d.ID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, d.ID); err != nil {
 		return err
 	}
 	teardownDeviceRemoteFenced(deps, tx, d.ID, current.subdomain, current.tunnelID)

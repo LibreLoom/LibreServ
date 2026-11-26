@@ -19,9 +19,7 @@ function setStripe(enabled) {
 }
 
 const CHECKOUT = "/api/v1/billing/checkout";
-const DEVICE_UID = "7K4M-2Q9X-R8N3-6T5W-1PZH";
-const VERIFICATION_CODE = "A3F91C";
-const SETUP_GRANT = "one-time-setup-grant";
+const DEVICE_TOKEN = "7K4M-2Q9X-R8N3-6T5W-1PZH";
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -75,8 +73,7 @@ async function createDiyAccount() {
 }
 
 async function fillPairingDetails() {
-  fireEvent.change(await screen.findByLabelText(/^Device ID$/i), { target: { value: DEVICE_UID } });
-  fireEvent.change(screen.getByLabelText(/^Verification code$/i), { target: { value: VERIFICATION_CODE } });
+  fireEvent.change(await screen.findByLabelText(/^Device token$/i), { target: { value: DEVICE_TOKEN } });
 }
 
 describe("OnboardingPage DIY verify", () => {
@@ -94,7 +91,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -165,14 +162,14 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
     });
     await createDiyAccount();
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(refresh).toHaveBeenCalled();
   });
 
@@ -187,7 +184,7 @@ describe("OnboardingPage DIY verify", () => {
       }
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -195,7 +192,7 @@ describe("OnboardingPage DIY verify", () => {
     await createDiyAccount();
     expect(await screen.findByRole("heading", { name: /Check your inbox/i })).toBeTruthy();
 
-    expect(await screen.findByLabelText(/^Device ID$/i, {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i, {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it("auto-advances when verification completes in another tab", async () => {
@@ -206,7 +203,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -222,7 +219,7 @@ describe("OnboardingPage DIY verify", () => {
       }),
     );
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
   });
 
   it("advances when Check again finds the email already verified", async () => {
@@ -237,7 +234,7 @@ describe("OnboardingPage DIY verify", () => {
       }
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -247,7 +244,7 @@ describe("OnboardingPage DIY verify", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Check again/i }));
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByText(/already verified/i)).toBeNull();
   });
 
@@ -261,7 +258,7 @@ describe("OnboardingPage DIY verify", () => {
       }
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -271,7 +268,7 @@ describe("OnboardingPage DIY verify", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Resend the email/i }));
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByText(/already verified/i)).toBeNull();
   });
 
@@ -287,7 +284,7 @@ describe("OnboardingPage DIY verify", () => {
       }
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -297,7 +294,7 @@ describe("OnboardingPage DIY verify", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Resend the email/i }));
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByText(/already verified/i)).toBeNull();
   });
 
@@ -313,7 +310,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: true };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -321,7 +318,7 @@ describe("OnboardingPage DIY verify", () => {
 
     mount("/diyonboarding");
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
   });
 
@@ -341,7 +338,7 @@ describe("OnboardingPage DIY verify", () => {
 
     mount("/onboarding");
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /Check your inbox/i })).toBeNull();
   });
 
@@ -357,7 +354,7 @@ describe("OnboardingPage DIY verify", () => {
     mount("/diyonboarding");
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
     expect(api.mock.calls.map((call) => call[0])).not.toContain(CHECKOUT);
   });
 
@@ -381,7 +378,7 @@ describe("OnboardingPage DIY verify", () => {
     mount("/onboarding");
 
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/^Device ID$/i)).toBeNull();
+    expect(screen.queryByLabelText(/^Device token$/i)).toBeNull();
     expect(screen.queryByText(/already has a Luna/i)).toBeNull();
   });
 
@@ -473,7 +470,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/onboarding/progress") return { ok: true };
       return {};
@@ -553,7 +550,7 @@ describe("OnboardingPage DIY verify", () => {
         body: JSON.stringify({ kind: "card_check", return_to: "diyonboarding" }),
       });
     });
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
   });
 
   it("finishes the $1 check when Stripe sends the browser back", async () => {
@@ -563,7 +560,7 @@ describe("OnboardingPage DIY verify", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/billing/checkout/complete") return { ok: true, done: true, kind: "card_check" };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       return {};
     });
@@ -575,10 +572,10 @@ describe("OnboardingPage DIY verify", () => {
         body: JSON.stringify({ session_id: "cs_test_123" }),
       });
     });
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
   });
 
-  it("skips the card step when Stripe is not configured and asks for pairing details", async () => {
+  it("skips the card step when Stripe is not configured and asks for the device token", async () => {
     setStripe(false);
     await createDiyAccount();
 
@@ -588,15 +585,16 @@ describe("OnboardingPage DIY verify", () => {
         body: JSON.stringify({ kind: "card_check", return_to: "diyonboarding" }),
       });
     });
-    expect(await screen.findByLabelText(/^Device ID$/i)).toBeTruthy();
-    expect(screen.getByText(/Enter both values on Luna in Settings → Luna Connect → Device token/i)).toBeTruthy();
-    expect(screen.getByLabelText(/^Verification code$/i)).toHaveValue(VERIFICATION_CODE);
+    expect(await screen.findByLabelText(/^Device token$/i)).toBeTruthy();
+    expect(screen.getByText(/Enter it on Luna in Settings → Luna Connect → Device token/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^Device token$/i)).toHaveValue(DEVICE_TOKEN);
+    expect(screen.queryByLabelText(/Verification code/i)).toBeNull();
     expect(api).toHaveBeenCalledWith("/api/v1/account/diy-token", {
       method: "POST",
       body: "{}",
       cache: "no-store",
     });
-    expect(screen.getByRole("button", { name: /Copy Verification code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Copy device token/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pay \$1 on Stripe/i })).toBeNull();
   });
 
@@ -606,7 +604,7 @@ describe("OnboardingPage DIY verify", () => {
       if (path === "/api/v1/account/verification-status") return { email_verified: false };
       if (path === CHECKOUT) return { ok: true, done: true, dev: true };
       if (path === "/api/v1/account/diy-token") {
-        return { device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE, device_id: "dev_diy" };
+        return { device_token: DEVICE_TOKEN, device_id: "dev_diy" };
       }
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_diy" };
       if (path === "/api/v1/devices/pair/pair_diy") return { status: "bound", device_id: "dev_diy" };
@@ -614,14 +612,14 @@ describe("OnboardingPage DIY verify", () => {
       return {};
     });
     await createDiyAccount();
-    expect(await screen.findByLabelText(/^Verification code$/i)).toHaveValue(VERIFICATION_CODE);
+    expect(await screen.findByLabelText(/^Device token$/i)).toHaveValue(DEVICE_TOKEN);
 
     fireEvent.click(screen.getByRole("button", { name: /Pair Luna/i }));
 
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/devices/pair", {
         method: "POST",
-        body: JSON.stringify({ device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE }),
+        body: JSON.stringify({ device_token: DEVICE_TOKEN }),
       });
     });
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
@@ -645,7 +643,7 @@ describe("OnboardingPage DIY verify", () => {
     await fillAccount("owner@example.com", "password1234");
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device ID$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
     expect(screen.getByText(/card in Luna's box/i)).toBeTruthy();
     await fillPairingDetails();
@@ -654,7 +652,7 @@ describe("OnboardingPage DIY verify", () => {
     await waitFor(() => {
       expect(api).toHaveBeenCalledWith("/api/v1/devices/pair", {
         method: "POST",
-        body: JSON.stringify({ device_uid: DEVICE_UID, verification_code: VERIFICATION_CODE }),
+        body: JSON.stringify({ device_token: DEVICE_TOKEN }),
       });
     });
     expect(api.mock.calls.map((c) => c[0])).not.toContain(CHECKOUT);
@@ -662,14 +660,13 @@ describe("OnboardingPage DIY verify", () => {
     expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy();
   });
 
-  it("keeps both pairing values required and rejects invalid Device ID letters", async () => {
+  it("requires a valid device token and rejects invalid letters", async () => {
     mount("/onboarding?step=code");
     const pair = screen.getByRole("button", { name: /Pair Luna/i });
     expect(pair).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/^Device ID$/i), { target: { value: "7K4M2Q9XR8N36T5W1PZU" } });
-    fireEvent.change(screen.getByLabelText(/^Verification code$/i), { target: { value: "A3F91C" } });
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), { target: { value: "7K4M2Q9XR8N36T5W1PZU" } });
     expect(pair).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/^Device ID$/i), { target: { value: DEVICE_UID } });
+    fireEvent.change(screen.getByLabelText(/^Device token$/i), { target: { value: DEVICE_TOKEN } });
     expect(pair).toBeEnabled();
   });
 
@@ -731,7 +728,7 @@ describe("OnboardingPage DIY verify", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cancel pairing/i }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/v1/devices/pair/pair_cancel", { method: "DELETE" }));
     expect(await screen.findByRole("button", { name: /Pair Luna/i })).toBeEnabled();
-    expect(screen.getByLabelText(/^Device ID$/i)).not.toBeDisabled();
+    expect(screen.getByLabelText(/^Device token$/i)).not.toBeDisabled();
   });
 
   it("never unlinks the Luna: no Back from the name step once it is linked", async () => {
@@ -764,7 +761,7 @@ describe("OnboardingPage DIY verify", () => {
     authState.me = { email: "owner@example.com", email_verified: true };
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device ID$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
     await fillPairingDetails();
     fireEvent.click(screen.getByRole("button", { name: /Pair Luna/i }));
@@ -782,7 +779,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device ID$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
     await fillPairingDetails();
     fireEvent.click(screen.getByRole("button", { name: /Pair Luna/i }));
@@ -813,7 +810,6 @@ describe("OnboardingPage finish flow", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_1" };
       if (path === "/api/v1/devices/pair/pair_1") return { status: "bound", device_id: "dev_1" };
-      if (path === "/api/v1/devices/dev_1/setup-grant") return { setup_grant: SETUP_GRANT };
       if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
@@ -850,7 +846,7 @@ describe("OnboardingPage finish flow", () => {
       name: "kitchen.luna.servers.libreloom.org",
     });
     expect(lunaLink.getAttribute("href")).toBe(
-      "https://kitchen.luna.servers.libreloom.org/setup#setup_grant=one-time-setup-grant",
+      "https://kitchen.luna.servers.libreloom.org/setup#token=7K4M-2Q9X-R8N3-6T5W-1PZH",
     );
     expect(lunaLink.textContent).not.toMatch(/\/setup/i);
     expect(lunaLink.getAttribute("target")).toBe("_blank");
@@ -862,53 +858,22 @@ describe("OnboardingPage finish flow", () => {
     expect(screen.queryByText(/one-time code/i)).toBeNull();
     expect(document.body.textContent).not.toMatch(/\?token=/);
     expect(document.body.textContent).not.toMatch(/\?setup=/);
-    expect(document.body.textContent).not.toContain(SETUP_GRANT);
-    expect(api).toHaveBeenCalledWith("/api/v1/devices/dev_1/setup-grant", {
-      method: "POST",
-      body: "{}",
-      cache: "no-store",
-    });
+    expect(new URL(lunaLink.getAttribute("href")).search).toBe("");
+    expect(api.mock.calls.some(([path]) => String(path).includes("setup-grant"))).toBe(false);
+    expect(localStorage.getItem("luna-connect-onboarding-progress") || "").not.toContain("7K4M");
 
     fireEvent.click(screen.getByRole("button", { name: /Copy setup link/i }));
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        "https://kitchen.luna.servers.libreloom.org/setup#setup_grant=one-time-setup-grant",
+        "https://kitchen.luna.servers.libreloom.org/setup#token=7K4M-2Q9X-R8N3-6T5W-1PZH",
       );
     });
-  });
-
-  it("explains a failed setup grant and can make a fresh setup link", async () => {
-    const original = api.getMockImplementation();
-    let grantCalls = 0;
-    api.mockImplementation(async (path, options) => {
-      if (path === "/api/v1/devices/dev_1/setup-grant") {
-        grantCalls += 1;
-        if (grantCalls === 1) throw new Error("Luna Connect could not make a setup link. Try again.");
-        return { setup_grant: grantCalls === 2 ? SETUP_GRANT : "new-setup-grant" };
-      }
-      return original(path, options);
-    });
-    await advanceToBackupStep();
-    fireEvent.click(screen.getByRole("button", { name: /^Skip for now$/i }));
-
-    expect(await screen.findByText(/could not make a setup link/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Try again/i }));
-    const link = await screen.findByRole("link", { name: "kitchen.luna.servers.libreloom.org" });
-    expect(link).toHaveAttribute("href", `https://kitchen.luna.servers.libreloom.org/setup#setup_grant=${SETUP_GRANT}`);
-
-    fireEvent.click(screen.getByRole("button", { name: /Get a new setup link/i }));
-    await waitFor(() => expect(screen.getByRole("link", { name: "kitchen.luna.servers.libreloom.org" })).toHaveAttribute(
-      "href",
-      "https://kitchen.luna.servers.libreloom.org/setup#setup_grant=new-setup-grant",
-    ));
-    expect(grantCalls).toBe(3);
   });
 
   it("shows the plug-in step when Luna is offline after backup", async () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_1" };
       if (path === "/api/v1/devices/pair/pair_1") return { status: "bound", device_id: "dev_1" };
-      if (path === "/api/v1/devices/dev_1/setup-grant") return { setup_grant: SETUP_GRANT };
       if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
@@ -949,7 +914,6 @@ describe("OnboardingPage finish flow", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_1" };
       if (path === "/api/v1/devices/pair/pair_1") return { status: "bound", device_id: "dev_1" };
-      if (path === "/api/v1/devices/dev_1/setup-grant") return { setup_grant: SETUP_GRANT };
       if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
@@ -987,7 +951,6 @@ describe("OnboardingPage finish flow", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_1" };
       if (path === "/api/v1/devices/pair/pair_1") return { status: "bound", device_id: "dev_1" };
-      if (path === "/api/v1/devices/dev_1/setup-grant") return { setup_grant: SETUP_GRANT };
       if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
@@ -1028,7 +991,6 @@ describe("OnboardingPage finish flow", () => {
     api.mockImplementation(async (path) => {
       if (path === "/api/v1/devices/pair") return { pairing_id: "pair_1" };
       if (path === "/api/v1/devices/pair/pair_1") return { status: "bound", device_id: "dev_1" };
-      if (path === "/api/v1/devices/dev_1/setup-grant") return { setup_grant: SETUP_GRANT };
       if (path === "/api/v1/devices/dev_1/domain") {
         return {
           device_id: "dev_1",
@@ -1068,7 +1030,7 @@ describe("OnboardingPage finish flow", () => {
     expect(
       (await screen.findByRole("link", { name: "kitchen.luna.servers.libreloom.org" }))
         .getAttribute("href"),
-    ).toBe("https://kitchen.luna.servers.libreloom.org/setup#setup_grant=one-time-setup-grant");
+    ).toBe("https://kitchen.luna.servers.libreloom.org/setup#token=7K4M-2Q9X-R8N3-6T5W-1PZH");
     expect(document.body.textContent).not.toMatch(/\/setup/i);
     expect(document.body.textContent).not.toMatch(/\?token=/);
     vi.useRealTimers();
@@ -1080,7 +1042,7 @@ describe("OnboardingPage finish flow", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/^Device ID$/i)).toBeTruthy();
+      expect(screen.getByLabelText(/^Device token$/i)).toBeTruthy();
     });
     await fillPairingDetails();
     fireEvent.click(screen.getByRole("button", { name: /Pair Luna/i }));

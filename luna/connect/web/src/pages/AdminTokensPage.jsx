@@ -8,11 +8,12 @@ import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { PaginationControls } from "../components/ui/pagination.jsx";
 import TokenReveal from "../components/TokenReveal.jsx";
+import { normalizeDeviceToken } from "../lib/devicePairing.js";
 import { adminApi } from "../context/AdminAuthContext.jsx";
 import { Search, X } from "lucide-react";
 
 function downloadTokensFile(tokens) {
-  const body = `${tokens.join("\n")}\n`;
+  const body = `${tokens.map(normalizeDeviceToken).join("\n")}\n`;
   const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -41,7 +42,9 @@ function kindLabel(kind) {
 }
 
 export default function AdminTokensPage() {
-  const [minted, setMinted] = useState(null);
+  const [minted, setMinted] = useState("");
+  const [orderRef, setOrderRef] = useState("");
+  const [bulkOrderRef, setBulkOrderRef] = useState("");
   const [error, setError] = useState("");
   const [bulkCount, setBulkCount] = useState("100");
   const [bulkTokens, setBulkTokens] = useState([]);
@@ -122,8 +125,8 @@ export default function AdminTokensPage() {
   };
 
   const unlink = async (row) => {
-    const label = row.device_hostname || row.device_uid || row.id;
-    if (!window.confirm(`Disconnect ${label} from ${row.account_email || "its account"}? Remote access stops, the pairing details stay, and the Luna can be paired again.`)) return;
+    const label = row.device_hostname || row.order_ref || row.hint || row.id;
+    if (!window.confirm(`Disconnect ${label} from ${row.account_email || "its account"}? Remote access stops, the device token stays valid, and the Luna can be paired again.`)) return;
     setUnlinkBusy(row.id);
     setError("");
     try {
@@ -137,11 +140,11 @@ export default function AdminTokensPage() {
   };
 
   const purge = async (row) => {
-    const label = row.device_hostname || row.device_uid || row.id;
+    const label = row.device_hostname || row.order_ref || row.hint || row.id;
     const bound = row.status === "bound";
     const msg = bound
-      ? `Purge ${label}? This disconnects the Luna, stops remote access, and deletes its pairing details. Cloud backups stay in storage.`
-      : `Purge ${label}? This deletes the pairing details permanently, and this Luna can no longer be paired.`;
+      ? `Purge ${label}? This disconnects the Luna, stops remote access, and deletes it. Cloud backups stay in storage.`
+      : `Purge ${label}? This deletes the device token permanently, and this Luna can no longer be paired.`;
     if (!window.confirm(msg)) return;
     setPurgeBusy(row.id);
     setError("");
@@ -157,28 +160,41 @@ export default function AdminTokensPage() {
 
   return (
     <AdminLayout>
-      <h2 className="font-mono text-2xl mb-2">Device identities</h2>
+      <h2 className="font-mono text-2xl mb-2">Device tokens</h2>
       <p className="text-muted-foreground mb-8">
-        Each Luna has a Device ID and Verification code. Create them here for factory USB sticks, retail boxes, or support.
+        Each Luna has one device token. Create them here for factory USB sticks, retail boxes, or support.
       </p>
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Single device identity</CardTitle>
-          <CardDescription>Create one for a retail box or support. To see it again later, use Show pairing details in the table.</CardDescription>
+          <CardTitle>Single device token</CardTitle>
+          <CardDescription>Create one for a retail box or support. Each token is shown once, so find a device later by its order reference or hint.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="max-w-xs">
+            <Label htmlFor="order-ref">Order reference (optional)</Label>
+            <Input
+              id="order-ref"
+              value={orderRef}
+              onChange={(e) => setOrderRef(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
           <Button
             loading={singleBusy}
             onClick={async () => {
               setError("");
               setSingleBusy(true);
               try {
-                const data = await adminApi("/admin/device-codes", { method: "POST", body: "{}", cache: "no-store" });
-                if (!data.device_uid || !data.verification_code) {
-                  throw new Error("Luna Connect did not return the Device ID and Verification code. Try again.");
+                const data = await adminApi("/admin/device-codes", {
+                  method: "POST",
+                  body: JSON.stringify(orderRef.trim() ? { order_ref: orderRef.trim() } : {}),
+                  cache: "no-store",
+                });
+                if (!data.device_token) {
+                  throw new Error("Luna Connect did not return a device token. Try again.");
                 }
-                setMinted({ deviceUid: data.device_uid, verificationCode: data.verification_code });
+                setMinted(data.device_token);
                 await loadTokens();
               } catch (err) {
                 setError(err.message);
@@ -187,24 +203,17 @@ export default function AdminTokensPage() {
               }
             }}
           >
-            New identity
+            New token
           </Button>
-          {minted ? (
-            <div className="space-y-2 rounded-large-element bg-muted border border-border p-4">
-              <p className="text-sm text-muted-foreground">Device ID</p>
-              <p className="font-mono text-xl tracking-widest break-all">{minted.deviceUid}</p>
-              <p className="text-sm text-muted-foreground">Verification code</p>
-              <p className="font-mono text-xl tracking-widest break-all">{minted.verificationCode}</p>
-            </div>
-          ) : null}
+          {minted ? <TokenReveal token={minted} /> : null}
         </CardContent>
       </Card>
 
       <Card className="mb-6" data-testid="bulk-tokens">
         <CardHeader>
-          <CardTitle>Bulk factory identities</CardTitle>
+          <CardTitle>Bulk factory tokens</CardTitle>
           <CardDescription>
-            Create up to 500 for the installer USB. Each TOKENS line has a Device ID and Verification code separated by a space.
+            Create up to 500 for the installer USB. Each TOKENS line is one device token, and the list is shown only once.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -222,6 +231,15 @@ export default function AdminTokensPage() {
               />
             </ShakeTarget>
           </div>
+          <div className="max-w-xs">
+            <Label htmlFor="bulk-order-ref">Order reference (optional)</Label>
+            <Input
+              id="bulk-order-ref"
+              value={bulkOrderRef}
+              onChange={(e) => setBulkOrderRef(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
           <div className="flex flex-wrap gap-3">
             <Button
               loading={bulkBusy}
@@ -232,7 +250,7 @@ export default function AdminTokensPage() {
                   const n = Number.parseInt(bulkCount, 10);
                   const data = await adminApi("/admin/device-codes/bulk", {
                     method: "POST",
-                    body: JSON.stringify({ count: n }),
+                    body: JSON.stringify(bulkOrderRef.trim() ? { count: n, order_ref: bulkOrderRef.trim() } : { count: n }),
                     cache: "no-store",
                   });
                   setBulkTokens(data.tokens || []);
@@ -269,9 +287,9 @@ export default function AdminTokensPage() {
 
       <Card data-testid="device-tokens-table">
         <CardHeader>
-          <CardTitle>All device identities</CardTitle>
+          <CardTitle>All device tokens</CardTitle>
           <CardDescription>
-            Every Luna on this site. Identities in use show the customer account and the Luna&apos;s address.
+            Every Luna on this site. Tokens in use show the customer account and the Luna&apos;s address.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -302,7 +320,7 @@ export default function AdminTokensPage() {
               <div className="relative flex-1 sm:w-72">
                 <Input
                   type="text"
-                  placeholder="Search Device ID, email, address…"
+                  placeholder="Search order reference, hint, email, address…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pr-8"
@@ -327,19 +345,20 @@ export default function AdminTokensPage() {
           </div>
 
           {listLoading ? (
-            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device identities…</p>
+            <p className="font-mono text-sm text-muted-foreground animate-pulse">Loading device tokens…</p>
           ) : listError ? (
             <p className="text-sm text-error">{listError}</p>
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {appliedQuery ? "No device identities match your search." : "No device identities in this filter."}
+              {appliedQuery ? "No device tokens match your search." : "No device tokens in this filter."}
             </p>
           ) : (
             <div className="overflow-x-auto rounded-large-element border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-card border-b border-border">
                   <tr className="text-left font-mono text-xs text-muted-foreground">
-                    <th className="px-3 py-2">Device ID</th>
+                    <th className="px-3 py-2">Order reference</th>
+                    <th className="px-3 py-2">Token hint</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Account</th>
@@ -352,10 +371,10 @@ export default function AdminTokensPage() {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-b border-border last:border-0 align-top">
                       <td className="px-3 py-2">
-                        <TokenReveal
-                          hint={r.device_uid || r.hint}
-                          deviceId={r.can_reveal ? r.id : null}
-                        />
+                        <span className="font-mono break-all">{r.order_ref || "None"}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono break-all">{r.hint || "None"}</span>
                       </td>
                       <td className="px-3 py-2">
                         <Badge variant="outline">{kindLabel(r.kind)}</Badge>

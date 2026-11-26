@@ -106,7 +106,6 @@ func (s *Server) routes() {
 					r.Get("/status", dev.Status)
 					r.Post("/domain", dev.Domain)
 					r.Post("/unregister", dev.Unregister)
-					r.Post("/devices/setup-grant/consume", dev.ConsumeSetupGrant)
 				})
 
 				r.Group(func(r chi.Router) {
@@ -124,7 +123,6 @@ func (s *Server) routes() {
 						r.Post("/billing/checkout/complete", acct.CompleteCheckout)
 						r.Post("/billing/cancel", acct.CancelBilling)
 						r.Get("/account/devices", acct.Devices)
-						r.Post("/account/devices/{deviceID}/code", acct.RevealDeviceCode)
 						r.Get("/account/devices/{deviceID}/setup-readiness", acct.DeviceSetupReadiness)
 						r.Get("/cloud/lunas", cloud.ListLunas)
 						r.Get("/cloud/lunas/{lunaID}/records/{kind}", cloud.ListRecords)
@@ -140,7 +138,6 @@ func (s *Server) routes() {
 						r.Delete("/devices/{deviceID}", dev.Unbind)
 						r.Post("/devices/{deviceID}/revoke", dev.Revoke)
 						r.Post("/devices/{deviceID}/recover", dev.Recover)
-						r.Post("/devices/{deviceID}/setup-grant", dev.IssueSetupGrant)
 						r.Post("/devices/{deviceID}/domain", dev.SetDomain)
 						r.Get("/onboarding/status", onb.Status)
 						r.Post("/onboarding/backups", onb.Backups)
@@ -194,7 +191,6 @@ func (s *Server) routes() {
 			r.With(handlers.LimitJSONBody).Post("/admin/accounts/{accountID}/credits", console.AddAccountCredit)
 			r.Delete("/admin/accounts/{accountID}", console.DeleteAccount)
 			r.Get("/admin/device-codes", console.DeviceCodes)
-			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/{codeID}/reveal", console.RevealDeviceCode)
 			r.Post("/admin/device-codes", onb.AdminMint)
 			r.With(handlers.LimitJSONBody).Post("/admin/device-codes/bulk", onb.AdminMintBulk)
 			r.Delete("/admin/device-codes/{codeID}", console.RevokeDeviceCode)

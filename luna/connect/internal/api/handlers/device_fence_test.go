@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +12,6 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 )
 
 type fenceTunnel struct {
@@ -100,8 +98,8 @@ func TestDomainFinalFenceFailureCleansProviderResources(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "domain-fence@b.co")
 	verifyEmailFor(t, acctH, "domain-fence@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	if rec := setAddress(t, acctH, devH, cookie, devID, "oldbox"); rec.Code != http.StatusCreated {
 		t.Fatalf("initial address %d %s", rec.Code, rec.Body.String())
 	}
@@ -152,8 +150,8 @@ func TestDomainProvisioningIsFencedAcrossUnbindRevokeAndRepair(t *testing.T) {
 			cookieB := registerAccount(t, acctH, "fence-b-"+actionName+"@b.co")
 			verifyEmailFor(t, acctH, "fence-a-"+actionName+"@b.co")
 			verifyEmailFor(t, acctH, "fence-b-"+actionName+"@b.co")
-			_, uid, code := mintDevice(t, d, "official")
-			devID, _ := pairDeviceForAccount(t, acctH, devH, cookieA, uid, code)
+			_, uid := mintDevice(t, d, "official")
+			devID, _ := pairDeviceForAccount(t, acctH, devH, cookieA, uid)
 
 			tunnel := &fenceTunnel{Tunnel: d.Tunnel, started: make(chan struct{}), release: make(chan struct{})}
 			dns := &fenceDNS{DNS: d.DNS}
@@ -214,7 +212,7 @@ func TestDomainProvisioningIsFencedAcrossUnbindRevokeAndRepair(t *testing.T) {
 					t.Fatalf("unbind revoked device %d %s", rec.Code, rec.Body.String())
 				}
 			}
-			_, _ = pairDeviceForAccount(t, acctH, devH, cookieB, uid, code)
+			_, _ = pairDeviceForAccount(t, acctH, devH, cookieB, uid)
 			var state, accountID, subdomain, tunnelID, tunnelToken string
 			if err := d.DB.QueryRow(`SELECT state, account_id, COALESCE(subdomain,''), COALESCE(tunnel_id,''), COALESCE(tunnel_token,'')
 FROM devices WHERE id = ?`, devID).Scan(&state, &accountID, &subdomain, &tunnelID, &tunnelToken); err != nil {
@@ -235,7 +233,7 @@ FROM devices WHERE id = ?`, devID).Scan(&state, &accountID, &subdomain, &tunnelI
 	}
 }
 
-func relinkDeviceForTest(t *testing.T, d Deps, acctH AccountHandler, devH DeviceHandler, oldToken string, cookie *http.Cookie, uid, code, subdomain string) (string, string) {
+func relinkDeviceForTest(t *testing.T, d Deps, acctH AccountHandler, devH DeviceHandler, oldToken string, cookie *http.Cookie, uid, subdomain string) (string, string) {
 	t.Helper()
 	old, err := loadDeviceByAuthToken(d.DB, oldToken)
 	if err != nil {
@@ -244,7 +242,7 @@ func relinkDeviceForTest(t *testing.T, d Deps, acctH AccountHandler, devH Device
 	if err := unbindDevice(d, old, old.AccountID.String); err != nil {
 		t.Fatal(err)
 	}
-	_, newToken := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, newToken := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	rec := setAddress(t, acctH, devH, cookie, old.ID, subdomain)
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("replacement domain %d %s", rec.Code, rec.Body.String())
@@ -268,8 +266,8 @@ func TestStatusAndDomainRejectBearerAdmittedBeforeRelink(t *testing.T) {
 			cookieB := registerAccount(t, acctH, "relink-b-"+route+"@b.co")
 			verifyEmailFor(t, acctH, "relink-a-"+route+"@b.co")
 			verifyEmailFor(t, acctH, "relink-b-"+route+"@b.co")
-			_, uid, code := mintDevice(t, d, "official")
-			_, oldToken := pairDeviceForAccount(t, acctH, devH, cookieA, uid, code)
+			_, uid := mintDevice(t, d, "official")
+			_, oldToken := pairDeviceForAccount(t, acctH, devH, cookieA, uid)
 			if rec := setAddress(t, acctH, devH, cookieA, oldTokenDeviceID(t, d, oldToken), "oldbox"); rec.Code != http.StatusCreated {
 				t.Fatalf("old domain %d %s", rec.Code, rec.Body.String())
 			}
@@ -281,7 +279,7 @@ func TestStatusAndDomainRejectBearerAdmittedBeforeRelink(t *testing.T) {
 				path = "/api/v1/domain"
 			}
 			handler := devH.DeviceAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = relinkDeviceForTest(t, d, acctH, devH, oldToken, cookieB, uid, code, "newbox")
+				_, _ = relinkDeviceForTest(t, d, acctH, devH, oldToken, cookieB, uid, "newbox")
 				next.ServeHTTP(w, r)
 			}))
 			body := []byte(nil)
@@ -314,54 +312,14 @@ func oldTokenDeviceID(t *testing.T, d Deps, token string) string {
 	return dev.ID
 }
 
-func TestSetupGrantConsumeRejectsBearerAdmittedBeforeRelink(t *testing.T) {
-	d := testDeps(t)
-	acctH := AccountHandler{Deps: d}
-	devH := DeviceHandler{Deps: d}
-	cookieA := registerAccount(t, acctH, "grant-relink-a@b.co")
-	cookieB := registerAccount(t, acctH, "grant-relink-b@b.co")
-	verifyEmailFor(t, acctH, "grant-relink-a@b.co")
-	verifyEmailFor(t, acctH, "grant-relink-b@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, oldToken := pairDeviceForAccount(t, acctH, devH, cookieA, uid, code)
-	grant := security.SetupGrant()
-	handler := devH.DeviceAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = relinkDeviceForTest(t, d, acctH, devH, oldToken, cookieB, uid, code, "grantbox")
-		var accountID string
-		if err := d.DB.QueryRow(`SELECT account_id FROM devices WHERE id = ?`, devID).Scan(&accountID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := d.DB.Exec(`INSERT INTO device_setup_grants (device_id, account_id, token_hash, expires_at, used_at)
-VALUES (?, ?, ?, ?, NULL)`, devID, accountID, security.HashToken(grant), time.Now().Unix()+300); err != nil {
-			t.Fatal(err)
-		}
-		devH.ConsumeSetupGrant(w, r)
-	}))
-	body, _ := json.Marshal(map[string]string{"setup_grant": grant})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/devices/setup-grant/consume", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+oldToken)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("stale grant consume %d %s", rec.Code, rec.Body.String())
-	}
-	var usedAt sql.NullInt64
-	if err := d.DB.QueryRow(`SELECT used_at FROM device_setup_grants WHERE device_id = ?`, devID).Scan(&usedAt); err != nil {
-		t.Fatal(err)
-	}
-	if usedAt.Valid {
-		t.Fatalf("stale bearer consumed replacement grant at %d", usedAt.Int64)
-	}
-}
-
 func TestStatusRejectsBearerAdmittedBeforeTokenRotation(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "rotate-race@b.co")
 	verifyEmailFor(t, acctH, "rotate-race@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 	if rec := setAddress(t, acctH, devH, cookie, devID, "rotatebox"); rec.Code != http.StatusCreated {
 		t.Fatalf("domain %d %s", rec.Code, rec.Body.String())
 	}

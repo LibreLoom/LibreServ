@@ -21,7 +21,6 @@ type storageRelinkFixture struct {
 	cookieA  *http.Cookie
 	cookieB  *http.Cookie
 	uid      string
-	code     string
 	oldToken string
 }
 
@@ -35,11 +34,11 @@ func newStorageRelinkFixture(t *testing.T, name string) storageRelinkFixture {
 	verifyEmailFor(t, acctH, name+"-a@s.co")
 	verifyEmailFor(t, acctH, name+"-b@s.co")
 	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active'`)
-	_, uid, code := mintDevice(t, d, "official")
-	_, oldToken := pairDeviceForAccount(t, acctH, devH, cookieA, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	_, oldToken := pairDeviceForAccount(t, acctH, devH, cookieA, uid)
 	return storageRelinkFixture{
 		deps: d, acctH: acctH, devH: devH, cookieA: cookieA, cookieB: cookieB,
-		uid: uid, code: code, oldToken: oldToken,
+		uid: uid, oldToken: oldToken,
 	}
 }
 
@@ -52,7 +51,7 @@ func (f storageRelinkFixture) relink(t *testing.T) string {
 	if err := unbindDevice(f.deps, dev, dev.AccountID.String); err != nil {
 		t.Fatal(err)
 	}
-	_, token := pairDeviceForAccount(t, f.acctH, f.devH, f.cookieB, f.uid, f.code)
+	_, token := pairDeviceForAccount(t, f.acctH, f.devH, f.cookieB, f.uid)
 	return token
 }
 

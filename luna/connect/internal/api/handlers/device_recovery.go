@@ -72,7 +72,7 @@ func loadAccountDevice(db *database.DB, deviceID, accountID string) (Device, boo
 }
 
 // Recover moves a revoked device back to pairing after the account owner enters
-// their current password. Luna still has to claim with its UID and code.
+// their current password. Luna still has to claim with its device token.
 func (h DeviceHandler) Recover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	acct, ok := AccountFrom(r.Context())
@@ -145,9 +145,9 @@ func recoverDevicePairing(ctx context.Context, db *database.DB, deviceID, accoun
 		}
 		return "", 0, err
 	}
-	var owner, state, verificationHash string
-	err = tx.QueryRow(`SELECT COALESCE(account_id,''), COALESCE(state,''), COALESCE(verification_code_hash,'')
-FROM devices WHERE id = ?`, deviceID).Scan(&owner, &state, &verificationHash)
+	var owner, state, tokenHash string
+	err = tx.QueryRow(`SELECT COALESCE(account_id,''), COALESCE(state,''), COALESCE(code_hash,'')
+FROM devices WHERE id = ?`, deviceID).Scan(&owner, &state, &tokenHash)
 	if errors.Is(err, sql.ErrNoRows) || owner != accountID {
 		return "", http.StatusNotFound, nil
 	}
@@ -157,7 +157,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&owner, &state, &verificationHash)
 	if state != "revoked" {
 		return "", http.StatusConflict, nil
 	}
-	if verificationHash == "" {
+	if tokenHash == "" {
 		return "", http.StatusConflict, nil
 	}
 	pairingID := security.NewID("pair")
@@ -165,7 +165,7 @@ FROM devices WHERE id = ?`, deviceID).Scan(&owner, &state, &verificationHash)
  auth_token_hash = NULL, auth_token_sealed = NULL,
  previous_auth_token_hash = NULL, previous_auth_token_valid_until = NULL,
  subdomain = NULL, tunnel_id = NULL, tunnel_token = NULL, name = NULL, local_port = 8090,
- last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL, setup_secret = NULL
+ last_seen_at = NULL, last_public_ip = NULL, last_public_ip_at = NULL
  WHERE id = ? AND account_id = ? AND state = 'revoked'`, deviceID, accountID)
 	if err != nil {
 		return "", 0, err
@@ -178,9 +178,6 @@ FROM devices WHERE id = ?`, deviceID).Scan(&owner, &state, &verificationHash)
 		return "", http.StatusConflict, nil
 	}
 	if _, err := tx.Exec(`DELETE FROM device_pairings WHERE device_id = ?`, deviceID); err != nil {
-		return "", 0, err
-	}
-	if _, err := tx.Exec(`DELETE FROM device_setup_grants WHERE device_id = ?`, deviceID); err != nil {
 		return "", 0, err
 	}
 	_, err = tx.Exec(`INSERT INTO device_pairings (id, device_id, account_id, created_at, expires_at)

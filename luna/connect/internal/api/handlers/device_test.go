@@ -42,18 +42,18 @@ func testDeps(t *testing.T) Deps {
 	}
 }
 
-func mintDevice(t *testing.T, d Deps, kind string) (id, uid, code string) {
+func mintDevice(t *testing.T, d Deps, kind string) (id, deviceToken string) {
 	t.Helper()
-	id, uid, code, err := insertDeviceIdentity(d.DB, kind, "")
+	id, deviceToken, err := insertDeviceIdentity(d.DB, kind, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return id, uid, code
+	return id, deviceToken
 }
 
-func pairDeviceForAccount(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, uid, code string) (deviceID, authToken string) {
+func pairDeviceForAccount(t *testing.T, acctH AccountHandler, devH DeviceHandler, cookie *http.Cookie, deviceToken string) (deviceID, authToken string) {
 	t.Helper()
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: code})
+	body, _ := json.Marshal(pairingInput{DeviceToken: deviceToken})
 	startReq := httptest.NewRequest(http.MethodPost, "/devices/pair", bytes.NewReader(body))
 	startReq.AddCookie(cookie)
 	startRec := withVerifiedAccount(acctH, devH.StartPair, startReq)
@@ -89,17 +89,17 @@ func TestPairClaimStatusUnbindAndIdentityReuse(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "owner@b.co")
 	verifyEmailFor(t, acctH, "owner@b.co")
-	devID, uid, code := mintDevice(t, d, "official")
+	devID, deviceToken := mintDevice(t, d, "official")
 
 	legacy := httptest.NewRequest(http.MethodGet, "/status", nil)
-	legacy.Header.Set("Authorization", "Bearer "+uid)
+	legacy.Header.Set("Authorization", "Bearer "+deviceToken)
 	legacyRec := httptest.NewRecorder()
 	devH.DeviceAuth(http.HandlerFunc(devH.Status)).ServeHTTP(legacyRec, legacy)
 	if legacyRec.Code != http.StatusUnauthorized {
-		t.Fatalf("public UID must not authenticate: %d %s", legacyRec.Code, legacyRec.Body.String())
+		t.Fatalf("the device token must not authenticate as the rolling credential: %d %s", legacyRec.Code, legacyRec.Body.String())
 	}
 
-	_, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, token := pairDeviceForAccount(t, acctH, devH, cookie, deviceToken)
 	status := func(token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/status", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -111,8 +111,8 @@ func TestPairClaimStatusUnbindAndIdentityReuse(t *testing.T) {
 		t.Fatalf("bound status %d %s", rec.Code, rec.Body.String())
 	}
 
-	// UID and code remain provisioned but cannot claim again while bound.
-	body, _ := json.Marshal(pairingInput{DeviceUID: uid, VerificationCode: code})
+	// The token is ignored while bound, so a replay cannot claim again.
+	body, _ := json.Marshal(pairingInput{DeviceToken: deviceToken})
 	reclaim := httptest.NewRequest(http.MethodPost, "/devices/pair/claim", bytes.NewReader(body))
 	reclaimRec := httptest.NewRecorder()
 	devH.ClaimPair(reclaimRec, reclaim)
@@ -129,16 +129,16 @@ func TestPairClaimStatusUnbindAndIdentityReuse(t *testing.T) {
 	}
 	assertAccountDeviceUnbound(t, d, devID)
 	assertDeviceCredentialError(t, status(token), http.StatusForbidden, deviceUnboundCode)
-	var state, storedUID, storedCode string
-	if err := d.DB.QueryRow(`SELECT state, device_uid, verification_code_hash FROM devices WHERE id = ?`, devID).
-		Scan(&state, &storedUID, &storedCode); err != nil {
+	var state, storedHash string
+	if err := d.DB.QueryRow(`SELECT state, code_hash FROM devices WHERE id = ?`, devID).
+		Scan(&state, &storedHash); err != nil {
 		t.Fatal(err)
 	}
-	if state != "unbound" || storedUID != uid || storedCode == "" {
-		t.Fatalf("identity not retained: state=%s uid=%s code_hash=%s", state, storedUID, storedCode)
+	if state != "unbound" || storedHash != security.HashToken(deviceToken) {
+		t.Fatalf("device token not retained across unbind: state=%s code_hash=%s", state, storedHash)
 	}
 
-	_, nextToken := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, nextToken := pairDeviceForAccount(t, acctH, devH, cookie, deviceToken)
 	if nextToken == token {
 		t.Fatal("re-pairing must issue a new credential")
 	}
@@ -156,8 +156,8 @@ func TestSetDomainFailsWithoutAtRestKey(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "seal@b.co")
 	verifyEmailFor(t, acctH, "seal@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	config.C.Server.AtRestKey = ""
 	t.Setenv("LUNACONNECT_DEV", "")
@@ -176,8 +176,8 @@ func TestSetDomainFailsWithoutCloudflareInProduction(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "cf@b.co")
 	verifyEmailFor(t, acctH, "cf@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	prev := config.C.Cloudflare
 	t.Cleanup(func() { config.C.Cloudflare = prev })
@@ -208,8 +208,8 @@ func TestSetDomainWithDBCloudflareCreds(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "dbcf@b.co")
 	verifyEmailFor(t, acctH, "dbcf@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	svc := providers.NewService(d.DB)
 	_, err := svc.Create("cloudflare", "Cloudflare", map[string]string{
@@ -235,8 +235,8 @@ func TestSetDomainSkipsWhenSubdomainAlreadySet(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "named@b.co")
 	verifyEmailFor(t, acctH, "named@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, _ := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	set := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"photos"}`))
@@ -264,8 +264,8 @@ func TestDeviceDomainSameSubdomainReturnsTunnelToken(t *testing.T) {
 	devH := DeviceHandler{Deps: d}
 	cookie := registerAccount(t, acctH, "domain-same@b.co")
 	verifyEmailFor(t, acctH, "domain-same@b.co")
-	_, uid, code := mintDevice(t, d, "official")
-	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+	_, uid := mintDevice(t, d, "official")
+	devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 
 	setReq := httptest.NewRequest(http.MethodPost, "/devices/"+devID+"/domain", bytes.NewBufferString(`{"subdomain":"yaya"}`))
 	setReq.AddCookie(cookie)
@@ -309,8 +309,8 @@ func TestUnlinkKeepsPaidCloudCopies(t *testing.T) {
 			verifyEmailFor(t, acctH, "paid@b.co")
 			var accountID string
 			_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = 'paid@b.co'`).Scan(&accountID)
-			_, uid, code := mintDevice(t, d, "official")
-			devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid, code)
+			_, uid := mintDevice(t, d, "official")
+			devID, token := pairDeviceForAccount(t, acctH, devH, cookie, uid)
 			_, _ = d.DB.Exec(`UPDATE accounts SET billing_status = 'active' WHERE id = ?`, accountID)
 			seedLunaWithPack(t, d, accountID, "paid-luna", devID, 0, strings.Repeat("a", 64))
 			var rec *httptest.ResponseRecorder
@@ -335,5 +335,15 @@ func TestUnlinkKeepsPaidCloudCopies(t *testing.T) {
 				t.Fatal("paid storage must remain")
 			}
 		})
+	}
+}
+
+// insertBareAccount adds an account row directly for tests that only need an id.
+func insertBareAccount(t *testing.T, d Deps, id string) {
+	t.Helper()
+	_, err := d.DB.Exec(`INSERT INTO accounts (id, email, password_hash, created_at) VALUES (?, ?, 'x', ?)`,
+		id, id+"@b.co", time.Now().Unix())
+	if err != nil {
+		t.Fatal(err)
 	}
 }

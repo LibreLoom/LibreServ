@@ -30,13 +30,13 @@ func storageFixture(t *testing.T, name string, quota int64) (http.Handler, Deps,
 	_ = d.DB.QueryRow(`SELECT id FROM accounts WHERE email = ?`, name+"@s.co").Scan(&acctID)
 	_, _ = d.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', backup_quota_bytes = ? WHERE id = ?`, quota, acctID)
 	tok := security.AuthToken()
-	uid := security.DeviceUID()
+	uid := security.DeviceToken()
 	sealed, err := security.SealString(tok)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, device_uid, state, auth_token_hash, auth_token_sealed, name, subdomain, local_port, created_at)
-VALUES (?, ?, ?, ?, 'bound', ?, ?, 'Luna', ?, 8090, ?)`, "dev_"+name, acctID, security.HashToken(uid), uid, security.HashToken(tok), sealed, name, time.Now().Unix())
+	_, err = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, state, auth_token_hash, auth_token_sealed, name, subdomain, local_port, created_at)
+VALUES (?, ?, ?, 'bound', ?, ?, 'Luna', ?, 8090, ?)`, "dev_"+name, acctID, security.HashToken(uid), security.HashToken(tok), sealed, name, time.Now().Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,13 +74,13 @@ func addStorageDevice(t *testing.T, d Deps, name, tok string) string {
 		t.Fatal(err)
 	}
 	tok2 := security.AuthToken()
-	uid := security.DeviceUID()
+	uid := security.DeviceToken()
 	sealed, err := security.SealString(tok2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, device_uid, state, auth_token_hash, auth_token_sealed, name, subdomain, local_port, created_at)
-VALUES (?, ?, ?, ?, 'bound', ?, ?, 'Second Luna', ?, 8091, ?)`, "dev_"+name+"-2", acctID, security.HashToken(uid), uid, security.HashToken(tok2), sealed, name+"-2", time.Now().Unix())
+	_, err = d.DB.Exec(`INSERT INTO devices (id, account_id, code_hash, state, auth_token_hash, auth_token_sealed, name, subdomain, local_port, created_at)
+VALUES (?, ?, ?, 'bound', ?, ?, 'Second Luna', ?, 8091, ?)`, "dev_"+name+"-2", acctID, security.HashToken(uid), security.HashToken(tok2), sealed, name+"-2", time.Now().Unix())
 	if err != nil {
 		t.Fatal(err)
 	}

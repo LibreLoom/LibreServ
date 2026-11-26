@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlertCircle,
   ArrowRight,
   Check,
   ChevronLeft,
@@ -47,10 +46,8 @@ import {
 import { listenForEmailVerifiedCrossTab } from "../lib/emailVerifiedSync.js";
 import { buildLunaSetupLink } from "../lib/lunaSetupLink.js";
 import {
-  formatDeviceUid,
-  isValidDeviceUid,
-  isValidVerificationCode,
-  normalizeVerificationCode,
+  formatDeviceToken,
+  isValidDeviceToken,
 } from "../lib/devicePairing.js";
 import { cn } from "../lib/utils.js";
 
@@ -90,12 +87,10 @@ function loadProgress() {
 
 function saveProgress(data) {
   try {
-    // Pairing proofs and setup grants are credentials: keep them in component
-    // state only. The public Device ID and Connect device row may be resumed.
+    // The device token is a credential: keep it in component state only.
+    // The Connect device row may be resumed.
     const {
-      verificationCode: _verificationCode,
-      setupGrant: _setupGrant,
-      setupUrl: _setupUrl,
+      deviceToken: _deviceToken,
       pairingId: _pairingId,
       ...rest
     } = data || {};
@@ -335,9 +330,8 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
   const { outerRef, innerRef } = useAnimatedHeight();
 
-  // Pairing proofs are never restored from storage — the user re-enters them.
-  const [deviceUid, setDeviceUid] = useState(saved.current?.deviceUid || "");
-  const [verificationCode, setVerificationCode] = useState("");
+  // The device token is never restored from storage — the user re-enters it.
+  const [deviceToken, setDeviceToken] = useState("");
   // Prefill from the signed-in account on first paint when available; later seeding is step-entry only.
   const [email, setEmail] = useState(() => saved.current?.email || me?.email || "");
   const accountEmailVisitSeededRef = useRef(false);
@@ -349,10 +343,6 @@ export default function OnboardingPage() {
   const [pairingId, setPairingId] = useState("");
   const [pairingPhase, setPairingPhase] = useState("idle");
   const pairingStartedAtRef = useRef(0);
-  const [setupGrant, setSetupGrant] = useState("");
-  const [setupUrl, setSetupUrl] = useState("");
-  const [setupGrantLoading, setSetupGrantLoading] = useState(false);
-  const [setupGrantError, setSetupGrantError] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(false);
   const [authSubStep, setAuthSubStep] = useState(0);
   const [authSubDir, setAuthSubDir] = useState("right");
@@ -437,20 +427,16 @@ export default function OnboardingPage() {
   );
 
   useEffect(() => {
-    if (step === "welcome" && !email && !deviceUid) return;
+    if (step === "welcome" && !email) return;
     saveProgress({
       step,
       path,
       email,
       name,
-      deviceUid,
       deviceId,
       hostname,
-      verificationCode,
-      setupGrant,
-      pairingId,
     });
-  }, [step, path, email, name, deviceUid, deviceId, hostname, verificationCode, setupGrant, pairingId]);
+  }, [step, path, email, name, deviceId, hostname]);
 
   useEffect(() => {
     if (step === "welcome" || step === "account" || step === "verify" || step === "plug-in") return;
@@ -532,13 +518,10 @@ export default function OnboardingPage() {
   async function startPairing() {
     const res = await api("/api/v1/devices/pair", {
       method: "POST",
-      body: JSON.stringify({
-        device_uid: formatDeviceUid(deviceUid),
-        verification_code: normalizeVerificationCode(verificationCode),
-      }),
+      body: JSON.stringify({ device_token: formatDeviceToken(deviceToken) }),
     });
     if (!res.pairing_id) throw new Error("Luna Connect could not start pairing. Try again.");
-    setDeviceUid(formatDeviceUid(deviceUid));
+    setDeviceToken(formatDeviceToken(deviceToken));
     setPairingId(res.pairing_id);
     pairingStartedAtRef.current = Date.now();
     setPairingPhase("waiting");
@@ -559,13 +542,12 @@ export default function OnboardingPage() {
     }
   }
 
-  async function mintDiyIdentity() {
+  async function mintDiyToken() {
     const minted = await api("/api/v1/account/diy-token", { method: "POST", body: "{}", cache: "no-store" });
-    if (!minted.device_uid || !minted.verification_code) {
-      throw new Error("Luna Connect could not make pairing details. Try again.");
+    if (!minted.device_token) {
+      throw new Error("Luna Connect could not make a device token. Try again.");
     }
-    setDeviceUid(formatDeviceUid(minted.device_uid));
-    setVerificationCode(normalizeVerificationCode(minted.verification_code));
+    setDeviceToken(formatDeviceToken(minted.device_token));
     if (minted.device_id) setDeviceId(minted.device_id);
     setPairingId("");
     setPairingPhase("idle");
@@ -579,11 +561,11 @@ export default function OnboardingPage() {
       goTo(stepAfterBind(account, path));
       return;
     }
-    if (deviceUid && verificationCode) {
+    if (deviceToken) {
       goTo("diy-code");
       return;
     }
-    await mintDiyIdentity();
+    await mintDiyToken();
   }
 
   async function afterDiyAccount(account) {
@@ -710,7 +692,7 @@ export default function OnboardingPage() {
   }, [step, emailVerified, refresh]);
 
   // The account starts the attempt; Luna claims it when it sees the same
-  // Device ID and Verification code. Keep this page open until that claim lands.
+  // device token. Keep this page open until that claim lands.
   useEffect(() => {
     const pairingStep = step === "code" || step === "diy-code" || step === "bind";
     if (!pairingId || pairingPhase !== "waiting" || !pairingStep) return undefined;
@@ -726,7 +708,7 @@ export default function OnboardingPage() {
     const poll = async () => {
       if (cancelled) return;
       if (Date.now() - pairingStartedAtRef.current >= PAIRING_TIMEOUT_MS) {
-        failPairing("This pairing expired. Check the details and start again.");
+        failPairing("This pairing expired. Check the device token and start again.");
         return;
       }
       try {
@@ -744,7 +726,7 @@ export default function OnboardingPage() {
           return;
         }
         if (status.status === "unbound") {
-          failPairing("This pairing expired. Check the details and start again.");
+          failPairing("This pairing expired. Check the device token and start again.");
           return;
         }
         if (status.status !== "waiting") {
@@ -768,48 +750,6 @@ export default function OnboardingPage() {
       if (timer) clearTimeout(timer);
     };
   }, [pairingId, pairingPhase, step, refresh, goTo]);
-
-  const setupGrantRequestRef = useRef(0);
-  const setupGrantAutoRequestedRef = useRef("");
-  const requestSetupGrant = useCallback(async () => {
-    if (!deviceId) return "";
-    const request = ++setupGrantRequestRef.current;
-    setSetupGrantLoading(true);
-    setSetupGrantError("");
-    try {
-      const res = await api(`/api/v1/devices/${encodeURIComponent(deviceId)}/setup-grant`, {
-        method: "POST",
-        body: "{}",
-        cache: "no-store",
-      });
-      if (request !== setupGrantRequestRef.current) return "";
-      if (!res.setup_grant) throw new Error("Luna Connect could not make a setup link. Try again.");
-      setSetupGrant(res.setup_grant);
-      setSetupUrl(res.setup_url || "");
-      return res.setup_grant;
-    } catch (err) {
-      if (request === setupGrantRequestRef.current) {
-        setSetupGrantError(err.message || "Luna Connect could not make a setup link. Try again.");
-      }
-      return "";
-    } finally {
-      if (request === setupGrantRequestRef.current) setSetupGrantLoading(false);
-    }
-  }, [deviceId]);
-
-  useEffect(() => {
-    if (step !== "done" || !deviceId) {
-      setupGrantAutoRequestedRef.current = "";
-      return;
-    }
-    if (setupGrantAutoRequestedRef.current === deviceId) return;
-    setupGrantAutoRequestedRef.current = deviceId;
-    requestSetupGrant();
-  }, [step, deviceId, requestSetupGrant]);
-
-  useEffect(() => () => {
-    setupGrantRequestRef.current += 1;
-  }, []);
 
   const authFields = isLoginMode
     ? [
@@ -1267,16 +1207,16 @@ export default function OnboardingPage() {
 
   const renderPairing = () => {
     const waiting = pairingPhase === "waiting" || pairingPhase === "bound";
-    const diyGenerated = path === "diy" && Boolean(deviceUid && verificationCode);
-    const detailsValid = isValidDeviceUid(deviceUid) && isValidVerificationCode(verificationCode);
+    const diyGenerated = path === "diy" && Boolean(deviceToken);
+    const detailsValid = isValidDeviceToken(deviceToken);
     return (
       <StepShell icon={Key} title="Pair this Luna">
         <p className="text-muted-foreground text-sm leading-relaxed mb-5 text-pretty">
           {path === "diy"
             ? diyGenerated
-              ? "Enter both values on Luna in Settings → Luna Connect → Device token. Then select Pair Luna here."
-              : "Enter the Device ID and Verification code shown on Luna."
-            : "Enter the Device ID and Verification code from the card in Luna's box."}
+              ? "Copy this device token now, because Luna Connect cannot show it again. Enter it on Luna in Settings → Luna Connect → Device token, then select Pair Luna here."
+              : "Enter the device token you saved for this Luna."
+            : "Enter the device token from the card in Luna's box."}
         </p>
         <form
           className="space-y-5 text-left"
@@ -1298,20 +1238,20 @@ export default function OnboardingPage() {
         >
           <ShakeTarget shake={error} loading={loading} className="space-y-5">
             <div>
-              <label htmlFor="device-uid" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-                Device ID
+              <label htmlFor="device-token" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
+                Device token
               </label>
               <Input
-                id="device-uid"
+                id="device-token"
                 className="font-mono"
-                value={deviceUid}
+                value={deviceToken}
                 onChange={(e) => {
-                  setDeviceUid(e.target.value.toUpperCase());
+                  setDeviceToken(e.target.value.toUpperCase());
                   setError("");
                   if (pairingPhase === "error") setPairingPhase("idle");
                 }}
                 onBlur={() => {
-                  if (isValidDeviceUid(deviceUid)) setDeviceUid(formatDeviceUid(deviceUid));
+                  if (isValidDeviceToken(deviceToken)) setDeviceToken(formatDeviceToken(deviceToken));
                 }}
                 placeholder="7K4M-2Q9X-R8N3-6T5W-1PZH"
                 autoComplete="off"
@@ -1320,7 +1260,7 @@ export default function OnboardingPage() {
                 autoFocus
                 disabled={waiting}
                 readOnly={diyGenerated}
-                aria-invalid={Boolean(error && !isValidDeviceUid(deviceUid))}
+                aria-invalid={Boolean(error && !isValidDeviceToken(deviceToken))}
               />
               {diyGenerated ? (
                 <Button
@@ -1328,45 +1268,10 @@ export default function OnboardingPage() {
                   variant="outline"
                   size="sm"
                   className="mt-3"
-                  onClick={() => handleCopy("device-id", formatDeviceUid(deviceUid))}
+                  onClick={() => handleCopy("device-token", formatDeviceToken(deviceToken))}
                 >
-                  {copied === "device-id" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied === "device-id" ? "Copied" : "Copy Device ID"}
-                </Button>
-              ) : null}
-            </div>
-            <div>
-              <label htmlFor="verification-code" className="block font-mono text-xl text-card-foreground mb-3 leading-snug">
-                Verification code
-              </label>
-              <Input
-                id="verification-code"
-                className="font-mono"
-                value={verificationCode}
-                onChange={(e) => {
-                  setVerificationCode(e.target.value.toUpperCase());
-                  setError("");
-                  if (pairingPhase === "error") setPairingPhase("idle");
-                }}
-                placeholder="A3F91C"
-                maxLength={6}
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                disabled={waiting}
-                readOnly={diyGenerated}
-                aria-invalid={Boolean(error && !isValidVerificationCode(verificationCode))}
-              />
-              {diyGenerated ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => handleCopy("verification-code", verificationCode)}
-                >
-                  {copied === "verification-code" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied === "verification-code" ? "Copied" : "Copy Verification code"}
+                  {copied === "device-token" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied === "device-token" ? "Copied" : "Copy device token"}
                 </Button>
               ) : null}
             </div>
@@ -1416,7 +1321,7 @@ export default function OnboardingPage() {
               if (id) setDeviceId(id);
             }
             if (!id) {
-              setError("We could not find a paired Luna yet. Go back and enter both values again.");
+              setError("We could not find a paired Luna yet. Go back and enter the device token again.");
               return;
             }
             const created = await api(`/api/v1/devices/${id}/domain`, {
@@ -1561,9 +1466,9 @@ export default function OnboardingPage() {
   };
 
   const renderDone = () => {
-    const built = buildLunaSetupLink(hostname, setupGrant);
+    const built = buildLunaSetupLink(hostname, deviceToken);
     const setupDisplay = built.display;
-    const setupHref = setupUrl || built.href;
+    const setupHref = built.href;
     const hasSetupLink = Boolean(setupHref);
     return (
       <StepShell icon={Check} title="You're connected">
@@ -1573,9 +1478,7 @@ export default function OnboardingPage() {
           </p>
           <div>
             <p className="text-sm text-foreground mb-2">Open this link to finish setup on Luna.</p>
-            {setupGrantLoading ? (
-              <p className="text-sm text-muted-foreground" role="status">Preparing your setup link…</p>
-            ) : hasSetupLink ? (
+            {hasSetupLink ? (
               <div className="rounded-large-element bg-muted border border-border p-4 flex items-center gap-3">
                 <a
                   href={setupHref}
@@ -1595,34 +1498,15 @@ export default function OnboardingPage() {
                 </Button>
               </div>
             ) : null}
-            {hasSetupLink && (
+            {hasSetupLink && deviceToken ? (
               <p className="text-xs text-muted-foreground mt-2">
-                This link can create the first Admin account and expires after 10 minutes. Share it only with someone you trust.
+                This link includes your device token, so share it only with someone you trust.
               </p>
-            )}
-            {setupGrantError && (
-              <div className="mt-3 space-y-3">
-                <div className="rounded-large-element border border-error/30 bg-error/10 px-3 py-3 flex items-start gap-2" role="alert">
-                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-error" aria-hidden="true" />
-                  <p className="text-sm text-foreground">{setupGrantError}</p>
-                </div>
-                <Button variant="outline" onClick={requestSetupGrant}>Try again</Button>
-              </div>
-            )}
-            {hasSetupLink && (
-              <Button
-                variant="outline"
-                className="mt-3"
-                loading={setupGrantLoading}
-                onClick={async () => {
-                  setSetupGrant("");
-                  setSetupUrl("");
-                  await requestSetupGrant();
-                }}
-              >
-                Get a new setup link
-              </Button>
-            )}
+            ) : hasSetupLink ? (
+              <p className="text-xs text-muted-foreground mt-2">
+                Luna will ask for your device token when you open it from outside your home.
+              </p>
+            ) : null}
           </div>
           <Button
             size="lg"
