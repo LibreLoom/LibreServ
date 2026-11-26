@@ -22,6 +22,7 @@ fdisk
 iproute2
 isc-dhcp-client
 console-setup
+kbd
 keyboard-configuration
 firmware-linux-free
 firmware-linux-nonfree
