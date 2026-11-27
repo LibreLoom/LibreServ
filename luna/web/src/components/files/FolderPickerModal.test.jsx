@@ -1,8 +1,9 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FolderPickerModal from "./FolderPickerModal.jsx";
+import { AuthProvider } from "../../context/AuthContext.jsx";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 
 describe("FolderPickerModal", () => {
@@ -44,6 +45,10 @@ describe("FolderPickerModal", () => {
       </ToastProvider>,
     );
   }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("renders the destination drive selector as a dropdown", async () => {
     renderModal({
@@ -138,5 +143,59 @@ describe("FolderPickerModal", () => {
       }),
       expect.any(Function),
     );
+  });
+
+  it("offers a member's writable grants but not a grant on a read-only drive", async () => {
+    const json = (body) => new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/auth/me")) return json({ id: "u1", username: "max", role: "member" });
+      if (u.endsWith("/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/setup")) return json({ setup_completed: true });
+      if (u.endsWith("/drives")) return json([
+        { id: "ro", label: "Read-only drive", state: "readonly", mounted: true },
+        { id: "rw", label: "Writable drive", state: "as_is", mounted: true },
+      ]);
+      if (u.endsWith("/me/access")) return json([
+        { drive_id: "ro", path: "Archive", caps: "full", name: "Archive on read-only" },
+        { drive_id: "rw", path: "Inbox", caps: "full", name: "Inbox" },
+        { drive_id: "rw", path: "Documents", caps: "full", name: "Documents" },
+      ]);
+      return json([]);
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ToastProvider>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AuthProvider>
+            <FolderPickerModal
+              open
+              title="Copy files"
+              drives={[
+                { id: "ro", label: "Read-only drive", state: "readonly" },
+                { id: "rw", label: "Writable drive", state: "as_is" },
+              ]}
+              initialDriveId="ro"
+              initialPath="Archive"
+              confirmLabel="Start copying"
+              onClose={vi.fn()}
+              onConfirm={vi.fn()}
+            />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByText("Destination")).toBeInTheDocument();
+    fireEvent.click(document.querySelector('[data-slot="dropdown-trigger"]'));
+    expect(await screen.findByRole("option", { name: /^Inbox$/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Documents$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Archive on read-only/i })).not.toBeInTheDocument();
   });
 });

@@ -82,10 +82,14 @@ export function backupWaitingReason({ kind, last_error: error, waiting_reason: r
     return "Cloud storage is full. Delete a cloud backup you no longer need or ask Luna Connect support to raise the limit.";
   }
   if (error.startsWith("Cloud storage is full.")) return error;
-  if (
-    error === "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups." ||
-    error.startsWith("Add a payment card at")
-  ) return "Add a payment card in Luna Connect before cloud backups can start.";
+  if (error === "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups.") {
+    // Not linked to Luna Connect yet. Keep the instruction that says where to
+    // connect — this is not a billing problem.
+    return error;
+  }
+  if (error.startsWith("Add a payment card at")) {
+    return "Add a payment card in Luna Connect before cloud backups can start.";
+  }
   return null;
 }
 

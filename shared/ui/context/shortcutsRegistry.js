@@ -12,7 +12,9 @@ import { parseCombo } from "../lib/shortcuts.js";
  * @property {boolean} [hidden] Work, but stay out of the `?` sheet.
  * @property {boolean} [allowInInput] Fire while a text field has focus.
  *   Default: only combos that use Alt.
- * @property {boolean} [allowInModal] Fire while a dialog is open. Default false.
+ * @property {boolean | ((el: Element) => boolean)} [allowInModal] Fire while a
+ *   dialog is open, or while only dialogs the predicate accepts are open.
+ *   Default false.
  * @property {boolean} [repeat] Fire again while the key is held. Default false.
  */
 
@@ -28,7 +30,7 @@ import { parseCombo } from "../lib/shortcuts.js";
  * @property {boolean} enabled
  * @property {boolean} hidden
  * @property {boolean | undefined} allowInInput
- * @property {boolean} allowInModal
+ * @property {boolean | ((el: Element) => boolean)} allowInModal
  * @property {boolean} repeat
  */
 

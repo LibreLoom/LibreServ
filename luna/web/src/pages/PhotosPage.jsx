@@ -2497,10 +2497,12 @@ export default function PhotosPage() {
         onFavorite={() => bulkFavorite.mutate(selection.selectedItems)}
         onAddToAlbum={() => {
           if (addToAlbumTarget) {
-            const target = addToAlbumTarget;
-            setAddToAlbumTarget(null);
+            // Keep the target until the mutation succeeds: if the request
+            // fails, the selection stays and another press retries into the
+            // same album instead of opening the generic picker. onSuccess
+            // clears it, as do Clear, Escape and leaving selection mode.
             applyAlbumPick.mutate({
-              changes: [{ album: target, add: selection.selectedItems }],
+              changes: [{ album: addToAlbumTarget, add: selection.selectedItems }],
             });
           } else {
             setAlbumPick(selection.selectedItems);

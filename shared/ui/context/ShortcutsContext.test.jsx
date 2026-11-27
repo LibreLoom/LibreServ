@@ -67,6 +67,52 @@ describe("ShortcutsProvider", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("runs in an open dialog when allowInModal is true", () => {
+    const handler = vi.fn();
+    render(
+      <ShortcutsProvider>
+        <Bind keys="n" handler={handler} allowInModal />
+        <div role="dialog" aria-modal="true" />
+      </ShortcutsProvider>,
+    );
+    press({ key: "n" });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a narrow allowInModal predicate name its own modal only", () => {
+    const own = (el) => el.hasAttribute("data-own-surface");
+    const allowed = vi.fn();
+    render(
+      <ShortcutsProvider>
+        <Bind keys="n" handler={allowed} allowInModal={own} />
+        <div role="dialog" aria-modal="true" data-own-surface />
+      </ShortcutsProvider>,
+    );
+    press({ key: "n" });
+    expect(allowed).toHaveBeenCalledTimes(1);
+  });
+
+  it("a narrow allowInModal predicate still yields to a dialog stacked over it", () => {
+    const own = (el) => el.hasAttribute("data-own-surface");
+    const handler = vi.fn();
+    render(
+      <ShortcutsProvider>
+        <Bind keys="n" handler={handler} allowInModal={own} />
+        <div role="dialog" aria-modal="true" data-own-surface />
+        <div role="dialog" aria-modal="true" data-other-dialog />
+      </ShortcutsProvider>,
+    );
+    press({ key: "n" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does not match Mod+S when Shift is held", () => {
+    const handler = vi.fn();
+    render(<ShortcutsProvider><Bind keys="Mod+S" handler={handler} /></ShortcutsProvider>);
+    press({ key: "S", ctrlKey: true, shiftKey: true });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("does not treat Enter as a shortcut on a focused button", () => {
     const handler = vi.fn();
     render(

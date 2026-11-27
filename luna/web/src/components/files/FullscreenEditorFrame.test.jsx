@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
+import { ShortcutsProvider } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import FullscreenEditorFrame from "./FullscreenEditorFrame.jsx";
 import { collabPresenceLabel } from "./collabPresence.js";
 
@@ -41,20 +42,22 @@ function renderFrame({
   /** @type {Record<string, any>} */
   const api = {};
   const view = render(
-    <ToastProvider>
-      <FullscreenEditorFrame
-        name={name}
-        sessionKey={sessionKey}
-        canWrite={canWrite}
-        presence={presence}
-        onClose={onClose}
-      >
-        {(editorApi) => {
-          Object.assign(api, editorApi);
-          return <div data-testid="editor-body" />;
-        }}
-      </FullscreenEditorFrame>
-    </ToastProvider>,
+    <ShortcutsProvider>
+      <ToastProvider>
+        <FullscreenEditorFrame
+          name={name}
+          sessionKey={sessionKey}
+          canWrite={canWrite}
+          presence={presence}
+          onClose={onClose}
+        >
+          {(editorApi) => {
+            Object.assign(api, editorApi);
+            return <div data-testid="editor-body" />;
+          }}
+        </FullscreenEditorFrame>
+      </ToastProvider>
+    </ShortcutsProvider>,
   );
   return { ...view, api, onClose };
 }
@@ -261,8 +264,8 @@ describe("FullscreenEditorFrame Ctrl+S", () => {
     act(() => api.onRegisterSave(save));
     act(() => api.onSaveStateChange(true));
 
-    // Dispatch from a text field: CodeMirror's keymap is not allowed to win
-    // this key, so the frame's capture listener has to catch it first.
+    // Dispatch from a text field: the registry's allowInInput path owns this
+    // key now, so it must save from a typing field too.
     const field = document.createElement("textarea");
     document.body.appendChild(field);
     const event = new KeyboardEvent("keydown", {
@@ -290,8 +293,8 @@ describe("FullscreenEditorFrame Ctrl+S", () => {
   });
 
   it("lets only the topmost editor save when one is opened over another", async () => {
-    // A database editor opened from a form: both frames listen on window in
-    // capture phase, so the parent must bow out before stopping the key.
+    // A database editor opened from a form: both frames register Mod+S, so
+    // the parent handler must bow out and let the child save.
     const parent = renderFrame({ name: "Form.form", sessionKey: "parent" });
     const child = renderFrame({ name: "Data.db", sessionKey: "child" });
     const parentSave = vi.fn(async () => true);
@@ -310,6 +313,72 @@ describe("FullscreenEditorFrame Ctrl+S", () => {
     expect(event.defaultPrevented).toBe(true);
     await waitFor(() => expect(childSave).toHaveBeenCalledTimes(1));
     expect(parentSave).not.toHaveBeenCalled();
+  });
+
+  it("ignores Mod+Shift+S", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+
+    const event = new KeyboardEvent("keydown", {
+      key: "S", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => window.dispatchEvent(event));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("yields to the unsaved-changes dialog", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+    act(() => api.onSaveStateChange(true));
+    await userEvent.click(screen.getByRole("button", { name: "Close editor" }));
+    expect(screen.getByText("Document unsaved")).toBeInTheDocument();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => window.dispatchEvent(event));
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("lets a same-document key reach the registry untouched", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+    const observer = vi.fn();
+    window.addEventListener("keydown", observer, true);
+    try {
+      const event = new KeyboardEvent("keydown", {
+        key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+      });
+      act(() => document.body.dispatchEvent(event));
+      expect(observer).toHaveBeenCalledTimes(1); // frame did not stop the key
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    } finally {
+      window.removeEventListener("keydown", observer, true);
+    }
+  });
+
+  it("still saves a key forwarded from an embedded frame", async () => {
+    const { api } = renderFrame();
+    const save = vi.fn(async () => true);
+    act(() => api.onRegisterSave(save));
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const event = new KeyboardEvent("keydown", {
+      key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    Object.defineProperty(event, "target", { value: iframe.contentDocument });
+    try {
+      act(() => window.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    } finally {
+      iframe.remove();
+    }
   });
 });
 

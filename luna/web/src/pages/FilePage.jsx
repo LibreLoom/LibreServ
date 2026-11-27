@@ -20,7 +20,7 @@ import useMovedLinkForwarding from "../hooks/useMovedLinkForwarding.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 import { useAuth } from "../context/AuthContext";
 import { CAP, hasCapOnDrive, memberWritableRoots } from "../lib/shareTree.js";
-import { isLocked, isPresentDrive, isUnopenable } from "../lib/drives.js";
+import { isLocked, isPresentDrive, isUnopenable, isWritableDrive } from "../lib/drives.js";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import UnlockPrompt from "../components/drives/UnlockPrompt.jsx";
 
@@ -82,7 +82,7 @@ export default function FilePage() {
   const memberDests = useMemo(() => {
     if (isAdmin || !userId) return null;
     const present = new Set(
-      (drives.data || []).filter(isPresentDrive).map((d) => d.id),
+      (drives.data || []).filter((d) => isPresentDrive(d) && isWritableDrive(d)).map((d) => d.id),
     );
     const labelOf = (id) => (drives.data || []).find((d) => d.id === id)?.label;
     return memberWritableRoots(access.data, (id) => present.has(id), labelOf)

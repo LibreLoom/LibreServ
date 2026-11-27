@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backupHeadline,
   backupStatus,
+  backupWaitingReason,
   buildBackupRows,
   groupByCreator,
   isPausedByLock,
@@ -157,6 +158,31 @@ describe("backupStatus", () => {
     expect(backupStatus(drive({ state: "failing" }))).toEqual({ label: "Last copy failed", variant: "error" });
     expect(backupStatus(drive({ status: "stopped" })).label).toBe("Stopped");
     expect(backupStatus(drive({ status: "source_gone" })).label).toBe("Original is gone");
+  });
+});
+
+describe("backupWaitingReason", () => {
+  const CONNECT =
+    "Connect this Luna to Luna Connect in Settings → About → Advanced to use cloud backups.";
+  const BILLING = "Add a payment card in Luna Connect before cloud backups can start.";
+
+  it("keeps the connect instruction for a Luna not linked to Luna Connect", () => {
+    const row = cloud({ last_error: CONNECT });
+    expect(backupWaitingReason(row)).toBe(CONNECT);
+    expect(backupWaitingReason(row)).toContain("Settings → About → Advanced");
+    expect(backupWaitingReason(row)).not.toBe(BILLING);
+    expect(backupStatus(row)).toEqual({ label: "Waiting", variant: "warning" });
+  });
+
+  it("asks for a payment card only on payment errors", () => {
+    for (const last_error of [
+      "Add a payment card at connect.luna.libreloom.org to store your cloud backup.",
+      "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.",
+    ]) {
+      const row = cloud({ last_error });
+      expect(backupWaitingReason(row)).toBe(BILLING);
+      expect(backupWaitingReason(row)).not.toBe(CONNECT);
+    }
   });
 });
 

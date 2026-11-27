@@ -215,17 +215,18 @@ export default function DriveFileExplorer({
     queryFn: () => getJson("/api/v1/me/access"),
     enabled: !guest && !isAdmin,
   });
-  // Copy needs somewhere the member can actually put the files. A view-only
-  // member has no writable root, so the picker would offer no destination.
+  // Copy needs somewhere the files can actually land. A view-only member has
+  // no writable root, and a mounted read-only drive is present but refuses
+  // writes even with a Write grant — only writable drives are destinations.
   const memberCanCopy = useMemo(() => {
     if (guest) return false;
-    if (isAdmin) return true;
+    if (isAdmin) return writableDrives.length > 0;
     return memberWritableRoots(
       access.data,
-      (d) => availableDrives.some((drive) => drive.id === d),
-      (d) => availableDrives.find((drive) => drive.id === d)?.label,
+      (d) => writableDrives.some((drive) => drive.id === d),
+      (d) => writableDrives.find((drive) => drive.id === d)?.label,
     ).length > 0;
-  }, [guest, isAdmin, access.data, availableDrives]);
+  }, [guest, isAdmin, access.data, writableDrives]);
   const protectAvailable = useCanProtect(!guest);
   // Read on a folder is enough to back it up; a whole drive needs Admin.
   const showProtect = !guest && protectAvailable;

@@ -11,12 +11,13 @@ const AuthContext = createContext(undefined);
 // exists so a recovery file can create a new Admin account at boot.
 const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
-// A recovery attempt can be blackholed (a firewall drops the packet instead
-// of refusing it). Without a bound, browser fetch keeps the in-flight guard
-// shut for minutes and recovery stalls. Abort a whole attempt that has not
-// answered by now — probe and the refresh behind it — so the next interval
-// tick retries and a stalled refresh cannot write stale state later.
-const RECOVERY_PROBE_TIMEOUT_MS = 5000;
+// A startup or recovery attempt can be blackholed (a firewall drops the
+// packet instead of refusing it). Without a bound, browser fetch keeps the
+// in-flight guard shut for minutes and the app stalls. Abort a whole attempt
+// that has not answered by now — startup refresh, recovery probe and the
+// refresh behind it — so the next tick retries and a stalled read cannot
+// write stale state later.
+const AUTH_READ_TIMEOUT_MS = 5000;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -45,6 +46,14 @@ export function AuthProvider({ children }) {
     navigateRef.current = navigate;
   }, [navigate]);
 
+  // A login creates a newer session than any auth read still in flight. Bump
+  // this so a late `me: null` from startup or recovery cannot clear the new
+  // user or route to setup, even when its fetch ignored an abort.
+  const authGenerationRef = useRef(0);
+  // Abort handle for the current startup/recovery attempt. login() cancels it
+  // so a stalled poll cannot keep its in-flight guard after a fresh session.
+  const activeControllerRef = useRef(null);
+
   // Re-fetch the signed-in user and the setup state. Called at startup and
   // after big state changes (creating the admin account, finishing setup) so
   // the routes guarded by RequireAuth see the fresh state instead of the
@@ -59,13 +68,14 @@ export function AuthProvider({ children }) {
   // learned then: the previous state is kept and the other fields are null, so
   // callers must never read them as "no admin, no setup".
   //
-  // Pass `{ signal }` to cancel a refresh (the recovery deadline does). A
-  // cancelled refresh still returns what it learned so a caller can validate
-  // freshness, but it writes no provider state: by then a newer attempt or a
-  // login owns that state. Called with no args everywhere else.
+  // Pass `{ signal }` to cancel a refresh (the startup and recovery deadlines
+  // do). A cancelled refresh still returns what it learned so a caller can
+  // validate freshness, but it writes no provider state: by then a newer
+  // attempt or a login owns that state. Called with no args everywhere else.
   /** @param {{ signal?: AbortSignal }} [options] */
   const refresh = useCallback(async (options = {}) => {
     const { signal } = /** @type {{ signal?: AbortSignal }} */ (options);
+    const generation = authGenerationRef.current;
     let me = null;
     let meFailed = false;
     try {
@@ -96,10 +106,10 @@ export function AuthProvider({ children }) {
       : Boolean(me || setupState?.setup_completed);
     const effectiveSetup = setupState || (!adminExists ? { setup_completed: false } : null);
 
-    // An attempt whose deadline passed must not commit: its signal is aborted
-    // and a newer attempt (or a login) owns the state now. Returning the data
-    // lets callers that check freshness still use it.
-    if (!signal?.aborted) {
+    // An attempt whose deadline passed, or which began before a login, must
+    // not commit: its signal is aborted or a newer session owns the state.
+    // Returning the data lets callers that check freshness still use it.
+    if (!signal?.aborted && generation === authGenerationRef.current) {
       if (!meFailed) setUser(me || null);
       setHasAdmin(adminExists);
       if (effectiveSetup) setSetup(effectiveSetup);
@@ -113,19 +123,20 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let alive = true;
     let pollTimer = 0;
-    // The current probe's deadline timer and abort handle. Hoisted to effect
-    // scope so unmount can cancel a hung probe as well as the poll interval.
+    // The current attempt's deadline timer. Hoisted to effect scope so
+    // unmount can cancel a hung startup refresh or probe, not just the poll.
     let probeTimer = 0;
-    /** @type {AbortController | null} */
-    let probeController = null;
-    function cancelProbe() {
+    function clearDeadline() {
       if (probeTimer) {
         window.clearTimeout(probeTimer);
         probeTimer = 0;
       }
-      if (probeController) {
-        probeController.abort();
-        probeController = null;
+    }
+    function cancelAttempt() {
+      clearDeadline();
+      if (activeControllerRef.current) {
+        activeControllerRef.current.abort();
+        activeControllerRef.current = null;
       }
     }
     // Read the path once instead of subscribing to the router: a hook here
@@ -146,87 +157,126 @@ export function AuthProvider({ children }) {
       }
     }
 
-    (async () => {
-      const result = await refresh();
-      if (!alive) return;
-      setUnreachable(result.unreachable);
-      const { me, setup: setupState, hasAdmin: adminExists, unreachable } = result;
-      // Luna never answered (a restart after an update, or no connection). We
-      // know nothing about this Luna, so do not move the user anywhere: the
-      // page they are on shows a "can't reach Luna" notice, and a short poll
-      // restores the session and the page when Luna is back. Sending them to
-      // /setup would say a working Luna had lost its setup.
-      if (unreachable) {
-        setLoading(false);
-        // A tick can outlive the 2 s interval (a slow answer, then refresh).
-        // Never start a second one on top of it.
-        let polling = false;
-        // Every tick gets an id. Only the current, non-aborted attempt may act
-        // on its result; a timed-out attempt may still be settling, but it is
-        // inert and cannot overwrite a newer recovery or login.
-        let attemptId = 0;
-        pollTimer = window.setInterval(() => {
-          if (polling) return;
-          polling = true;
-          const thisAttempt = ++attemptId;
-          const controller = new AbortController();
-          probeController = controller;
-          const signal = controller.signal;
-          // Race the whole attempt against a deadline. A blackholed fetch does
-          // not reject on its own, so aborting its socket is backed by a timer
-          // that frees the guard no matter what fetch decides to do. The same
-          // signal goes to refresh()'s requests, so a stalled refresh cannot
-          // commit state after the deadline.
-          const timedOut = new Promise((_, reject) => {
-            probeTimer = window.setTimeout(() => {
-              controller.abort();
-              reject(new Error("Luna recovery probe timed out"));
-            }, RECOVERY_PROBE_TIMEOUT_MS);
-          });
-          (async () => {
-            try {
-              const attempt = (async () => {
-                // apiFetch resolves on any HTTP answer — 401, 403 and 500 all
-                // mean Luna is back. It throws only when no answer arrived,
-                // which is the one case where Luna is still restarting.
-                await apiFetch("/api/v1/auth/me", { cache: "no-store", signal });
-                return refresh({ signal });
-              })();
-              const next = await Promise.race([attempt, timedOut]);
-              // A deadline, a newer attempt, or unmount made this result stale.
-              // It must not clear the poll, clear unreachable, route, or read
-              // as a fresh Luna.
-              if (!alive || signal.aborted || thisAttempt !== attemptId || next.unreachable) return;
-              if (pollTimer) window.clearInterval(pollTimer);
-              pollTimer = 0;
-              // Abort on success too: cancel any leftover request from this
-              // attempt (and clear the deadline) before acting on the result.
-              cancelProbe();
-              setUnreachable(false);
-              routeAfterRefresh(next);
-            } catch {
-              // No HTTP answer (a failed request or a timed-out blackhole):
-              // Luna is still down. The next tick tries again.
-            } finally {
-              if (probeTimer) {
-                window.clearTimeout(probeTimer);
-                probeTimer = 0;
-              }
-              if (probeController === controller) probeController = null;
-              polling = false;
-            }
-          })();
-        }, 2000);
-        return;
-      }
-      routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists });
+    // Luna never answered. We know nothing about it, so stay on this page
+    // with a "can't reach Luna" notice and short-poll until it answers; a
+    // restart is not a fresh Luna and must not send anyone to the wizard.
+    function startRecoveryPoll() {
+      setUnreachable(true);
       setLoading(false);
+      // A tick can outlive the 2 s interval (a slow answer, then refresh).
+      // Never start a second one on top of it.
+      let polling = false;
+      // Every tick gets an id. Only the current, non-aborted attempt may act
+      // on its result; a timed-out attempt may still be settling, but it is
+      // inert and cannot overwrite a newer recovery or login.
+      let attemptId = 0;
+      pollTimer = window.setInterval(() => {
+        if (polling) return;
+        polling = true;
+        const thisAttempt = ++attemptId;
+        const controller = new AbortController();
+        activeControllerRef.current = controller;
+        const signal = controller.signal;
+        const generation = authGenerationRef.current;
+        // Race the whole attempt against a deadline. A blackholed fetch does
+        // not reject on its own, so aborting its socket is backed by a timer
+        // that frees the guard no matter what fetch decides to do. The same
+        // signal goes to refresh()'s requests, so a stalled refresh cannot
+        // commit state after the deadline.
+        const timedOut = new Promise((_, reject) => {
+          probeTimer = window.setTimeout(() => {
+            controller.abort();
+            reject(new Error("Luna recovery probe timed out"));
+          }, AUTH_READ_TIMEOUT_MS);
+        });
+        (async () => {
+          try {
+            const attempt = (async () => {
+              // apiFetch resolves on any HTTP answer — 401, 403 and 500 all
+              // mean Luna is back. It throws only when no answer arrived,
+              // which is the one case where Luna is still restarting.
+              await apiFetch("/api/v1/auth/me", { cache: "no-store", signal });
+              return refresh({ signal });
+            })();
+            const next = await Promise.race([attempt, timedOut]);
+            // A deadline, a newer attempt, a login, or unmount made this
+            // result stale. It must not clear the poll, clear unreachable,
+            // route, or read as a fresh Luna.
+            if (!alive || signal.aborted || thisAttempt !== attemptId
+              || generation !== authGenerationRef.current || next.unreachable) return;
+            if (pollTimer) window.clearInterval(pollTimer);
+            pollTimer = 0;
+            // Abort on success too: cancel any leftover request from this
+            // attempt (and clear the deadline) before acting on the result.
+            cancelAttempt();
+            setUnreachable(false);
+            routeAfterRefresh(next);
+          } catch {
+            // No HTTP answer (a failed request or a timed-out blackhole):
+            // Luna is still down. The next tick tries again.
+          } finally {
+            clearDeadline();
+            if (activeControllerRef.current === controller) activeControllerRef.current = null;
+            polling = false;
+          }
+        })();
+      }, 2000);
+    }
+
+    (async () => {
+      // Startup used to run refresh() without a signal: one blackholed
+      // /auth/me left protected routes blank forever and never started the
+      // recovery poll. Give it the same deadline and abort handle as a probe.
+      const controller = new AbortController();
+      activeControllerRef.current = controller;
+      const signal = controller.signal;
+      const generation = authGenerationRef.current;
+      const timedOut = new Promise((_, reject) => {
+        probeTimer = window.setTimeout(() => {
+          controller.abort();
+          reject(new Error("Luna startup refresh timed out"));
+        }, AUTH_READ_TIMEOUT_MS);
+      });
+      try {
+        const result = await Promise.race([refresh({ signal }), timedOut]);
+        if (!alive) return;
+        if (generation !== authGenerationRef.current) {
+          // A login overtook this read; it owns the state and the URL.
+          setLoading(false);
+          return;
+        }
+        clearDeadline();
+        if (activeControllerRef.current === controller) activeControllerRef.current = null;
+        if (signal.aborted) {
+          // The deadline won the race against the answer: nothing was learned.
+          startRecoveryPoll();
+          return;
+        }
+        setUnreachable(result.unreachable);
+        const { me, setup: setupState, hasAdmin: adminExists, unreachable } = result;
+        if (unreachable) {
+          startRecoveryPoll();
+          return;
+        }
+        routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists });
+        setLoading(false);
+      } catch {
+        // Only the deadline rejects: refresh() swallows request failures, and
+        // a login or unmount settles the race with refresh()'s return value.
+        if (!alive || generation !== authGenerationRef.current) return;
+        clearDeadline();
+        if (activeControllerRef.current === controller) activeControllerRef.current = null;
+        startRecoveryPoll();
+      } finally {
+        clearDeadline();
+        if (activeControllerRef.current === controller) activeControllerRef.current = null;
+      }
     })();
     return () => {
       alive = false;
       if (pollTimer) window.clearInterval(pollTimer);
       pollTimer = 0;
-      cancelProbe();
+      cancelAttempt();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
@@ -265,6 +315,11 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     // Cookie session only — login JSON has no JWT. fetch uses credentials: include.
     const me = await postJson("/api/v1/auth/login", { username, password });
+    // This session is newer than any startup or recovery read still in flight.
+    // Invalidate those reads so a late `me: null` cannot clear this user or
+    // route to setup; aborting frees a stalled probe's in-flight guard too.
+    authGenerationRef.current += 1;
+    activeControllerRef.current?.abort();
     setSessionEnded(false);
     setUser(me);
     return me;

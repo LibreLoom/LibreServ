@@ -722,4 +722,148 @@ describe("AuthProvider recovery poll", () => {
     expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
     expect(screen.getByText("ADMIN UNKNOWN")).toBeTruthy();
   });
+
+  it("starts recovery when the startup refresh passes its deadline", async () => {
+    // A blackholed /auth/me on first load used to leave the app loading with
+    // no recovery poll. The startup read must carry a signal and a deadline.
+    vi.useFakeTimers();
+    let meCalls = 0;
+    /** @type {AbortSignal | null} */
+    let startupSignal = null;
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) {
+        meCalls += 1;
+        if (meCalls === 1) {
+          // Ignore the abort so only the deadline can end the startup read.
+          startupSignal = options?.signal || null;
+          return new Promise(() => {});
+        }
+        return new Response("null", { status: 401 });
+      }
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: true });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: true });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, unreachable } = useAuth();
+      return <div>{loading ? "LOADING" : unreachable ? "UNREACHABLE" : "REACHABLE"}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("LOADING")).toBeTruthy();
+    expect(startupSignal).toBeTruthy();
+    expect(startupSignal?.aborted).toBe(false);
+    expect(meCalls).toBe(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(startupSignal?.aborted).toBe(true);
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    // The recovery interval now runs: the next tick's probe and refresh both
+    // call /auth/me, and the first answer clears the unreachable notice.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(meCalls).toBe(3);
+    expect(screen.getByText("REACHABLE")).toBeTruthy();
+  });
+
+  it("a stale recovery answer released before the deadline cannot clear a newer login", async () => {
+    // The old regression waited for the deadline before signing in. This one
+    // releases the stale setup/status answer BEFORE the deadline, after login.
+    vi.useFakeTimers();
+    let online = false;
+    let stallTail = false;
+    /** @type {(value?: any) => void} */
+    let releaseTail = () => {};
+    const tailGate = new Promise((resolve) => { releaseTail = resolve; });
+    let probeCalls = 0;
+    let refreshMeCalls = 0;
+    /** @type {AbortSignal | null} */
+    let staleSignal = null;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) {
+        if (options?.cache === "no-store") {
+          probeCalls += 1;
+          return new Response("null", { status: 401 });
+        }
+        refreshMeCalls += 1;
+        if (refreshMeCalls === 1) {
+          staleSignal = options?.signal || null;
+          // A clean 200 with null body: without the fix this clears the user.
+          return json(null);
+        }
+        return json({ id: "other", username: "other" });
+      }
+      if (u.endsWith("/api/v1/auth/login")) {
+        return json({ id: "new", username: "newuser", role: "admin" });
+      }
+      if (u.endsWith("/api/v1/auth/status")) {
+        if (stallTail) await tailGate;
+        return json({ has_admin: false }); // stale: looks like a fresh Luna
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        if (stallTail) await tailGate;
+        return json({ name: "Luna", setup_completed: false });
+      }
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, user, login } = useAuth();
+      const { pathname } = useLocation();
+      return (
+        <div>
+          <span>{`AT ${pathname}`}</span>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`USER ${user ? user.username : "NONE"}`}</span>
+          <button type="button" onClick={() => login("newuser", "pw").catch(() => {})}>LOGIN</button>
+        </div>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider>
+          <Probe />
+          <Routes>
+            <Route path="/" element={<div>HOME PAGE</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("READY")).toBeTruthy();
+    expect(screen.getByText("AT /")).toBeTruthy();
+
+    online = true;
+    stallTail = true;
+    // First tick: probe and refresh both read "nobody signed in", but the
+    // refresh's setup/status answers are held back, so it has not committed.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(probeCalls).toBe(1);
+    expect(refreshMeCalls).toBe(1);
+    expect(staleSignal?.aborted).toBe(false);
+    expect(screen.getByText("USER NONE")).toBeTruthy();
+
+    // Login wins the race to own the session. No deadline has fired yet.
+    await act(async () => { fireEvent.click(screen.getByText("LOGIN")); });
+    expect(screen.getByText("USER newuser")).toBeTruthy();
+
+    // Release the stale answer before the deadline. The old refresh resolves
+    // with `me: null` and "no Admin" data; it must not clear the new user or
+    // send the tab to the setup wizard.
+    await act(async () => { releaseTail(); await vi.advanceTimersByTimeAsync(0); });
+    expect(staleSignal?.aborted).toBe(true); // login aborted it, not the deadline
+    expect(screen.getByText("USER newuser")).toBeTruthy();
+    expect(screen.getByText("AT /")).toBeTruthy();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeTruthy();
+  });
 });

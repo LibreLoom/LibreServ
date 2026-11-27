@@ -21,6 +21,40 @@ import { isCollabOfflinePresence } from "./collabPresence.js";
 
 const MD_UP_QUERY = "(min-width: 768px)";
 
+/** Only the topmost fullscreen editor owns keys shared by stacked frames. */
+function isTopmostOverlay(overlay) {
+  const overlays = document.querySelectorAll(
+    '[data-slot="file-viewer-overlay"]',
+  );
+  return overlays.length <= 1 || overlays[overlays.length - 1] === overlay;
+}
+
+/**
+ * A key event can reach the registry's window listener when it was dispatched
+ * in this document (on the window, the document, or any node here). Only a key
+ * forwarded out of an embedded editor's browsing context needs the capture
+ * fallback; intercepting same-document keys here would bypass the registry.
+ * @param {KeyboardEvent} event
+ */
+function fromEmbeddedFrame(event) {
+  // A Window target has no DOM interface in JSDoc; its `document` says which
+  // browsing context the key came from.
+  const target = /** @type {any} */ (event.target);
+  if (target == null) return false;
+  // Window targets carry the document they belong to. Compare documents, not
+  // window identity: test environments hand out separate Window proxies.
+  if (target === document || target.nodeType === 9) return target !== document;
+  if (target.document) return target.document !== document;
+  if (typeof Node !== "undefined" && target instanceof Node) {
+    return target.ownerDocument !== document;
+  }
+  return true;
+}
+
+/** Shared by stacked editors: their own overlay is not a blocking dialog. */
+const ALLOW_EDITOR_OVERLAY = (/** @type {Element} */ el) =>
+  el.matches('[data-slot="file-viewer-overlay"]');
+
 /**
  * The save pill resizes with `useSmoothResize`, which writes its own inline
  * width transition and so can't be switched off with a `motion-safe:` class.
@@ -166,14 +200,21 @@ export default function FullscreenEditorFrame({
   // The capture-phase Ctrl+S handler reads this ref so it can call `runSave`
   // without re-registering the window listener on every render.
   const runSaveRef = useRef(/** @type {() => Promise<boolean>} */ (() => Promise.resolve(false)));
-  // Register Mod+S so it shows up in the `?` sheet and works through the
-  // normal shortcut path. The capture listener below still handles the key
-  // first for embedded editors that would swallow it; because it calls
-  // preventDefault, the registry skips the event and there is one save.
-  useShortcut("Mod+S", () => void runSaveRef.current(), {
+  const overlayRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  // Same-document saves go through the registry: it shows in the `?` sheet,
+  // handles typing fields, and calls preventDefault once. Our own overlay is
+  // aria-modal, so allow it as a dialog — but only that surface, never a
+  // dialog stacked over the editor. The capture listener below is only for
+  // keys that cannot reach this document's window listener.
+  useShortcut("Mod+S", () => {
+    if (!isTopmostOverlay(overlayRef.current)) return false;
+    if (document.querySelector('[data-slot="dialog-overlay"]')) return false;
+    return void runSaveRef.current();
+  }, {
     label: "Save this file",
     group: "Editor",
     allowInInput: true,
+    allowInModal: /** @type {any} */ (ALLOW_EDITOR_OVERLAY),
   });
   // "Document Unsaved" guard modal. The ref mirrors the state so the window
   // capture-phase Escape handler can yield to the modal without re-registering.
@@ -188,7 +229,6 @@ export default function FullscreenEditorFrame({
   // rather than with a `motion-safe:` class.
   const savePillRef = useRef(/** @type {HTMLSpanElement | null} */ (null));
   useSmoothResize(savePillRef, { x: !prefersReducedMotion() });
-  const overlayRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const entered = useEntranceSettled(overlayRef, sessionKey, isClosing);
   const closeRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const cancelRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
@@ -260,29 +300,23 @@ export default function FullscreenEditorFrame({
       closeRef.current?.focus();
     }
 
-    // A second fullscreen editor opened on top (a database editor from inside
-    // a form) owns the key; only the topmost overlay acts on it. Both capture
-    // listeners are on window, so the parent runs first and must bow out
-    // before it stops propagation.
-    const isTopmostOverlay = () => {
-      const overlays = document.querySelectorAll(
-        '[data-slot="file-viewer-overlay"]',
-      );
-      return overlays.length <= 1 || overlays[overlays.length - 1] === overlayRef.current;
-    };
-
     const handleKeyDown = (event) => {
-      // Ctrl/Cmd+S saves this file, not the browser's Save page dialog. The
-      // registered Mod+S shortcut handles the normal case; this capture
-      // listener stays for embedded editors (EuroOffice's iframe, CodeMirror)
-      // that swallow the key before it reaches the window's bubble listener.
-      // preventDefault below makes the registry skip the same keypress, so
-      // the two paths never save twice.
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      // The registered Mod+S shortcut owns every key dispatched in this
+      // document. This capture listener is only the fallback for a key that
+      // cannot reach it — forwarded out of an embedded editor's frame — and
+      // preventDefault makes the registry skip that same keypress, so the two
+      // paths never save twice. Mod+Shift+S is a different shortcut.
+      if (
+        !event.shiftKey &&
+        !event.altKey &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "s"
+      ) {
+        if (!fromEmbeddedFrame(event)) return;
         // Same checks as Escape, before stopping the event: a nested editor's
         // save must not be swallowed by the frame underneath it, and a dialog
         // owns its own keys instead of saving behind the person's back.
-        if (!isTopmostOverlay()) return;
+        if (!isTopmostOverlay(overlayRef.current)) return;
         if (document.querySelector('[data-slot="dialog-overlay"]')) return;
         event.preventDefault();
         event.stopPropagation();
@@ -295,7 +329,7 @@ export default function FullscreenEditorFrame({
         // capture listener and would otherwise eat the keypress before the
         // modal's document listener sees it.
         if (confirmCloseRef.current) return;
-        if (!isTopmostOverlay()) return;
+        if (!isTopmostOverlay(overlayRef.current)) return;
         // Any other open dialog owns Escape too — without this the frame
         // would close the editor out from under the modal, or stack the
         // unsaved-changes guard on top.

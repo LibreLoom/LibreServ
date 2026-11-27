@@ -84,15 +84,19 @@ export default function FolderPickerModal({
       ? (drivesQuery.data || []).filter(isPresentDrive)
       : []
   ), [rooted, drivesQuery.data]);
+  // A mounted read-only drive is present, but files can't be put on it. A
+  // Write grant there is not a destination root for a member (or an Admin).
+  const writableDrives = useMemo(() => memberDrives.filter(isWritableDrive), [memberDrives]);
   const roots = useMemo(() => {
     if (!rooted || !(isAdmin ? drivesQuery.data : access.data)) return null;
-    const present = new Set(memberDrives.map((d) => d.id));
     const labelOf = (id) => memberDrives.find((d) => d.id === id)?.label || id;
-    if (!isAdmin) return memberWritableRoots(access.data, (id) => present.has(id), labelOf);
-    return memberDrives
-      .filter((d) => isWritableDrive(d))
-      .map((d) => ({ driveId: d.id, path: "", label: d.label }));
-  }, [rooted, isAdmin, access.data, drivesQuery.data, memberDrives]);
+    if (!isAdmin) return memberWritableRoots(
+      access.data,
+      (id) => writableDrives.some((d) => d.id === id),
+      labelOf,
+    );
+    return writableDrives.map((d) => ({ driveId: d.id, path: "", label: d.label }));
+  }, [rooted, isAdmin, access.data, drivesQuery.data, memberDrives, writableDrives]);
   const [rootIdx, setRootIdx] = useState(0);
   const root = rooted ? (roots?.[rootIdx] || roots?.[0] || null) : null;
 

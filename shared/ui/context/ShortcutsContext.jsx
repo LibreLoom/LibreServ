@@ -19,11 +19,33 @@ const GROUP_ORDER = ["Search", "Go to", "Files", "Photos", "Settings", "General"
 
 let nextId = 0;
 
-/** A visible modal dialog is up. Always-mounted but hidden ones (mobile menus) don't count. */
-function isDialogOpen() {
-  return [...document.querySelectorAll('[aria-modal="true"]')].some(
+/** Visible modal dialogs. Always-mounted hidden ones (mobile menus) don't count. */
+function visibleDialogs() {
+  return [...document.querySelectorAll('[aria-modal="true"]')].filter(
     (el) => typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true }),
   );
+}
+
+/**
+ * `allowInModal` keeps its old boolean contract: false (the default) is
+ * blocked by any visible dialog, true ignores all of them. A function narrows
+ * that exception to just the modals the registration lives in, so an
+ * `aria-modal` editor surface can use shortcuts while a dialog stacked over it
+ * still owns its own keys.
+ * @param {boolean | ((el: Element) => boolean) | undefined} allowInModal
+ * @param {Element} el
+ */
+function modalAllowed(allowInModal, el) {
+  return typeof allowInModal === "function"
+    ? Boolean(allowInModal(el))
+    : allowInModal === true;
+}
+
+/** @param {import("./shortcutsRegistry.js").Registration} reg @param {Element[]} dialogs */
+function blockedByDialog(reg, dialogs) {
+  if (dialogs.length === 0) return false;
+  if (typeof reg.allowInModal !== "function") return !reg.allowInModal;
+  return dialogs.some((el) => !modalAllowed(reg.allowInModal, el));
 }
 
 /** Every entry the sheet shows: one row per shortcut, only for keys it actually wins. */
@@ -121,14 +143,14 @@ export function ShortcutsProvider({ children }) {
   useEffect(() => {
     function onKeyDown(/** @type {KeyboardEvent} */ event) {
       if (event.defaultPrevented || event.isComposing) return;
-      const dialogOpen = isDialogOpen();
+      const dialogs = visibleDialogs();
       const typing = isEditableTarget(event.target);
 
       const candidates = [];
       for (const reg of registry.current.values()) {
         if (!reg.enabled) continue;
         if (event.repeat && !reg.repeat) continue;
-        if (dialogOpen && !reg.allowInModal) continue;
+        if (blockedByDialog(reg, dialogs)) continue;
         const combo = reg.combos.find((c) => matchesCombo(event, c));
         if (!combo) continue;
         if (typing && !(reg.allowInInput ?? combo.alt)) continue;
