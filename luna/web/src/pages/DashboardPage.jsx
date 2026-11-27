@@ -262,13 +262,18 @@ export default function DashboardPage() {
                 {adopted.length > 0 && (
                   <div className="grid grid-cols-1 gap-6">
                     {adopted.map((drive, index) => (
-                      <DriveHomeCard
+                      <div
                         key={drive.id}
-                        drive={drive}
-                        isAdmin={isAdmin}
-                        grants={grantsByDrive.get(drive.id) ?? NO_GRANTS}
-                        showSeeAllShared={memberHasGrants && index === firstReadyIndex}
-                      />
+                        className="pop-in"
+                        style={{ animationDelay: `${Math.min(index, 5) * 60}ms` }}
+                      >
+                        <DriveHomeCard
+                          drive={drive}
+                          isAdmin={isAdmin}
+                          grants={grantsByDrive.get(drive.id) ?? NO_GRANTS}
+                          showSeeAllShared={memberHasGrants && index === firstReadyIndex}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
