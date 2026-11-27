@@ -543,7 +543,7 @@ func TestUnregisterThenRebindClearsPreviousOwnersProgress(t *testing.T) {
 	}
 }
 
-func TestRebindRepairsStaleProgressFromPreviousOwner(t *testing.T) {
+func TestRebindRepairsStaleProgressOwnedByAnotherAccount(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}
 	devH := DeviceHandler{Deps: d}
@@ -555,7 +555,9 @@ func TestRebindRepairsStaleProgressFromPreviousOwner(t *testing.T) {
 	newID := accountIDFor(t, d, "stalenew@b.co")
 
 	devID, code := mintDevice(t, d, "official")
-	_, _ = d.DB.Exec(`INSERT INTO device_onboarding (device_id, account_id, path, step) VALUES (?, ?, 'diy', 'backup')`, devID, ownerID)
+	if _, err := d.DB.Exec(`INSERT INTO device_onboarding (device_id, account_id, path, step) VALUES (?, ?, 'diy', 'backup')`, devID, ownerID); err != nil {
+		t.Fatalf("seed stale progress: %v", err)
+	}
 	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
 	bindReq.AddCookie(other)
 	if rec := withVerifiedAccount(acctH, devH.Bind, bindReq); rec.Code != http.StatusOK {
