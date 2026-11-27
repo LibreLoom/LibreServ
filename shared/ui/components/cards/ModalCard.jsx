@@ -1,11 +1,12 @@
 /* eslint-disable react-refresh/only-export-components -- useModalClose is the paired hook for ModalCard */
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils.js";
 import Card from "../../components/cards/Card.jsx";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight.jsx";
 import { haptic } from "../../utils/haptics.js";
+import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { useShortcut } from "../../context/shortcutsRegistry.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 
@@ -47,6 +48,7 @@ function prefersReducedMotion() {
  * @property {import('react').ReactNode} [title]
  * @property {import('react').ReactNode | ((args: {close: () => void}) => import('react').ReactNode)} [children]
  * @property {() => void} [onClose]
+ * @property {() => void} [onCloseStart] Called when the person dismisses the dialog, before the animation.
  * @property {boolean} [open] Controlled visibility. When set to false, plays the exit
  *   animation then unmounts. Prefer `<ModalCard open={!!x} onClose={() => setX(null)}>`
  *   over `{x && <ModalCard>}` so parents that clear state still get animate-out.
@@ -69,6 +71,7 @@ export default function ModalCard({
   title,
   children,
   onClose,
+  onCloseStart,
   open = true,
   showCloseButton = true,
   size = "md",
@@ -87,6 +90,7 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const focusCapturedRef = useRef(false);
   const prevOpenRef = useRef(false);
   // Rebind when the portal remounts after exit — a mount-only observer would
   // miss the second open and leave height:auto (content jumps instead of easing).
@@ -104,12 +108,18 @@ export default function ModalCard({
   // with autoFocus takes focus during that same commit, before any effect.
   if (!present) {
     previousFocusRef.current = null;
-  } else if (previousFocusRef.current === null && typeof document !== "undefined") {
+    focusCapturedRef.current = false;
+  } else if (!focusCapturedRef.current && typeof document !== "undefined") {
     previousFocusRef.current = document.activeElement;
+    focusCapturedRef.current = true;
   }
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onCloseStartRef = useRef(onCloseStart);
+  onCloseStartRef.current = onCloseStart;
+  const openHapticRef = useRef(openHaptic);
+  openHapticRef.current = openHaptic;
   const isClosingRef = useRef(false);
   // A close the person started (X, footer, Escape) while `open` is still
   // true. The dialog is in the page from its first render, before the open
@@ -141,9 +151,16 @@ export default function ModalCard({
   /** @param {boolean} notify Whether to call onClose after the exit animation. */
   const beginExit = useCallback((notify) => {
     if (isClosingRef.current) return;
-    haptic("light");
     isClosingRef.current = true;
     userClosingRef.current = notify;
+    if (notify) {
+      haptic("light");
+      onCloseStartRef.current?.();
+    }
+    if (prefersReducedMotion()) {
+      finishExit(notify);
+      return;
+    }
     setIsClosing(true);
     setScrollReady(false);
     exitTimerRef.current = setTimeout(() => {
@@ -152,14 +169,13 @@ export default function ModalCard({
   }, [finishExit]);
 
   const handleClose = useCallback(() => {
-    haptic("light");
     beginExit(true);
   }, [beginExit]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open) {
-      if (!prevOpenRef.current && openHaptic) {
-        haptic(openHaptic);
+      if (!prevOpenRef.current && openHapticRef.current) {
+        haptic(openHapticRef.current);
       }
       const wasOpen = prevOpenRef.current;
       prevOpenRef.current = true;
@@ -179,7 +195,7 @@ export default function ModalCard({
       beginExit(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, openHaptic]);
+  }, [open]);
 
   useEffect(() => () => clearExitTimer(), [clearExitTimer]);
 
@@ -196,12 +212,12 @@ export default function ModalCard({
 
   const handlePopInEnd = useCallback((event) => {
     const name = String(event.animationName || event.nativeEvent?.animationName || "");
-    if (name.includes("pop-out")) return;
+    if (event.target !== event.currentTarget || isClosingRef.current || name.includes("pop-out")) return;
     if (name && !name.includes("pop-in")) return;
     setScrollReady(true);
   }, []);
 
-  const content = loading
+  const content = !present || loading
     ? null
     : typeof children === "function"
       ? children({ close: handleClose })
@@ -222,18 +238,19 @@ export default function ModalCard({
     allowInInput: true,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!present) return undefined;
 
     const overlayId = titleId;
+    const returnFocus = previousFocusRef.current;
     overlayStack.push(overlayId);
 
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockBodyScroll();
     if (initialFocusRef?.current) {
-      initialFocusRef.current.focus();
+      initialFocusRef.current.focus({ preventScroll: true });
     } else if (!dialogRef.current?.contains(document.activeElement)) {
       // Keep focus a child's autoFocus already placed; else the close button.
-      closeButtonRef.current?.focus();
+      closeButtonRef.current?.focus({ preventScroll: true });
     }
 
     const isTopOverlay = () => overlayStack[overlayStack.length - 1] === overlayId;
@@ -252,14 +269,18 @@ export default function ModalCard({
         const focusableElements = dialogRef.current?.querySelectorAll(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         );
-        if (!focusableElements || focusableElements.length === 0) return;
-        const firstElement = focusableElements[0];
-        const lastElement = focusableElements[focusableElements.length - 1];
+        const available = Array.from(focusableElements || []).filter((element) =>
+          /** @type {HTMLElement} */ (element).tabIndex >= 0 &&
+          !element.closest('[inert], [hidden], [aria-hidden="true"]'));
+        if (available.length === 0) return;
+        const firstElement = available[0];
+        const lastElement = available[available.length - 1];
 
-        if (event.shiftKey && document.activeElement === firstElement) {
+        const focusInside = dialogRef.current?.contains(document.activeElement);
+        if (event.shiftKey && (!focusInside || document.activeElement === firstElement)) {
           event.preventDefault();
           lastElement.focus();
-        } else if (!event.shiftKey && document.activeElement === lastElement) {
+        } else if (!event.shiftKey && (!focusInside || document.activeElement === lastElement)) {
           event.preventDefault();
           firstElement.focus();
         }
@@ -268,13 +289,12 @@ export default function ModalCard({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      const wasTop = isTopOverlay();
       const idx = overlayStack.lastIndexOf(overlayId);
       if (idx !== -1) overlayStack.splice(idx, 1);
-      if (overlayStack.length === 0) {
-        document.body.style.overflow = "";
-      }
+      unlockScroll();
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocusRef.current?.focus?.();
+      if (wasTop && returnFocus?.isConnected) returnFocus.focus?.({ preventScroll: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [present]);
@@ -308,7 +328,7 @@ export default function ModalCard({
   // The blur and the dim fade together; the blur is never transformed or
   // scaled, because Chrome re-blurs the whole page for every frame that a
   // backdrop-filter layer changes shape.
-  const backdropMotion = isClosing ? "animate-out fade-out" : "animate-in fade-in";
+  const backdropMotion = isClosing ? "animate-out fade-out motion-reduce:animate-none" : "animate-in fade-in motion-reduce:animate-none";
   // Closing is one quick beat: the shared pop-out / animate-out timings are
   // too leisurely for a modal that the person has already dismissed.
   const exitTiming = isClosing ? { animationDuration: `${EXIT_DURATION_MS}ms` } : undefined;
@@ -380,6 +400,7 @@ export default function ModalCard({
               ? "overflow-y-auto overflow-x-hidden"
               : "overflow-hidden",
           )}
+          inert={isClosing || undefined}
         >
           <div ref={innerRef} data-slot="dialog-measure">
             <ModalCloseContext.Provider value={handleClose}>

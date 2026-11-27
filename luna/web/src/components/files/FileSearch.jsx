@@ -35,6 +35,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { useFileOps } from "../../context/FileOpsContext.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { lockBodyScroll } from "@libreloom/ui/utils/bodyScrollLock.js";
 
 /**
  * Within a group, matches that aren't by name sit under a small heading
@@ -361,12 +362,11 @@ export default function FileSearch({ initialRequest }) {
     return () => ro.disconnect();
   }, [present]);
 
-  // Escape / body scroll lock while the overlay is present.
+  useLayoutEffect(() => present ? lockBodyScroll() : undefined, [present]);
+
+  // Escape while the overlay is present.
   useEffect(() => {
     if (!present) return undefined;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
     function onKeyDown(event) {
       if (event.key !== "Escape") return;
       // Nested action sheets/modals own Escape first.
@@ -378,7 +378,6 @@ export default function FileSearch({ initialRequest }) {
 
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
-      document.body.style.overflow = prevOverflow;
       document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [present, actionModalOpen, beginClose]);

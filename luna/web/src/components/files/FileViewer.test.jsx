@@ -218,7 +218,23 @@ describe("FileViewer image preview", () => {
     expect(document.activeElement).toBe(exitBtn);
 
     fireEvent.click(exitBtn);
+    await waitForExitAnimation();
     expect(document.activeElement).toBe(fullViewBtn);
+  });
+
+  it("keeps the existing photo on screen while a route close fades out full view", async () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<FileViewer open driveId="drive-1" path="/Photos/vacation.jpg" onClose={onClose} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Full view" }));
+    rerender(<FileViewer open={false} driveId="drive-2" path="" onClose={onClose} />);
+
+    const cinema = document.querySelector('[data-slot="file-viewer-fullview"]');
+    expect(cinema).toHaveClass("file-viewer-exit");
+    expect(cinema?.querySelector("img")).toHaveAttribute(
+      "src", "/api/v1/drives/drive-1/files/content?path=%2FPhotos%2Fvacation.jpg",
+    );
+    await waitForExitAnimation();
+    expect(document.querySelector('[data-slot="file-viewer-fullview"]')).toBeNull();
   });
 
   it("closes the modal when Escape is pressed in normal view", async () => {

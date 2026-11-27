@@ -28,5 +28,11 @@ describe("SlidePages", () => {
     );
     const page = screen.getByText("Responses page").closest("[data-slide-page]");
     expect(page).toHaveAttribute("data-slide-page", "responses");
+    expect(page).not.toHaveAttribute("inert");
+    const outgoing = screen.queryByText("Questions page")?.closest("[data-slide-page]");
+    if (outgoing) {
+      expect(outgoing).toHaveAttribute("inert");
+      expect(outgoing).toHaveAttribute("aria-hidden", "true");
+    }
   });
 });

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "../../lib/utils.js";
 import { ICON_SIZE } from "../../lib/ui-tokens.js";
 import { haptic } from "../../utils/haptics.js";
+import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { useShortcut, useShortcutsSheet } from "../../context/ShortcutsContext.jsx";
 
 const TRANSITION = {
@@ -419,13 +420,10 @@ export default function Navbar({ brand, items, user, onLogout, onNavigationInten
   };
 
   useEffect(() => {
-    if (!isMobileMenuOpen) {
-      document.body.style.overflow = "";
-      return;
-    }
+    if (!isMobileMenuOpen) return;
 
-    firstNavLinkRef.current?.focus();
-    document.body.style.overflow = "hidden";
+    firstNavLinkRef.current?.focus({ preventScroll: true });
+    const unlockScroll = lockBodyScroll();
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
@@ -453,6 +451,7 @@ export default function Navbar({ brand, items, user, onLogout, onNavigationInten
 
     globalThis.addEventListener("keydown", handleKeyDown);
     return () => {
+      unlockScroll();
       globalThis.removeEventListener("keydown", handleKeyDown);
     };
   }, [isMobileMenuOpen]);

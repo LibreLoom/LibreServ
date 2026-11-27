@@ -61,6 +61,7 @@ export function useAnimatedHeight(enabled = true) {
     let ro = null;
     /** @type {number | null} */
     let resizeRaf = null;
+    let bindRaf = 0;
 
     /** @type {HTMLElement | null} */
     let outerAtBind = null;
@@ -87,15 +88,13 @@ export function useAnimatedHeight(enabled = true) {
       settleTimerRef.current = setTimeout(markSettled, HEIGHT_SETTLE_MS);
     };
 
-    const applyHeight = () => {
+    const applyHeight = (/** @type {number | undefined} */ measuredHeight = undefined) => {
       const outer = outerRef.current;
       const inner = innerRef.current;
       if (!outer || !inner) return;
       const { marginTop, marginBottom } = getComputedStyle(inner);
       const margins = (parseFloat(marginTop) || 0) + (parseFloat(marginBottom) || 0);
-      const contentHeight = Math.ceil(
-        Math.max(inner.offsetHeight || 0, inner.getBoundingClientRect?.().height || 0)
-      );
+      const contentHeight = measuredHeight === undefined ? inner.offsetHeight : Math.ceil(measuredHeight);
       const uncapped = contentHeight + margins;
       let targetHeight = uncapped;
       let constrained = false;
@@ -113,6 +112,7 @@ export function useAnimatedHeight(enabled = true) {
       if (!cancelled) setNeedsVerticalScroll(constrained);
 
       const prevHeight = outer.style.height ? parseFloat(outer.style.height) : Number.NaN;
+      if (prevHeight === targetHeight) return;
       outer.style.height = `${targetHeight}px`;
 
       // First paint (no prior px height) should not flag animating — pop-in / scrollReady
@@ -129,8 +129,11 @@ export function useAnimatedHeight(enabled = true) {
     };
 
     const onWindowResize = () => {
-      if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
-      resizeRaf = requestAnimationFrame(applyHeight);
+      if (resizeRaf != null) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        applyHeight();
+      });
     };
 
     const bind = () => {
@@ -138,16 +141,17 @@ export function useAnimatedHeight(enabled = true) {
       const outer = outerRef.current;
       const inner = innerRef.current;
       if (!outer || !inner) {
-        requestAnimationFrame(bind);
+        bindRaf = requestAnimationFrame(bind);
         return;
       }
       outerAtBind = outer;
       outer.addEventListener("transitionend", onTransitionEnd);
-      outer.addEventListener("transitioncancel", onTransitionEnd);
       applyHeight();
       if (typeof ResizeObserver !== "undefined") {
-        ro = new ResizeObserver(applyHeight);
-        ro.observe(inner);
+        ro = new ResizeObserver(([entry]) => {
+          applyHeight(entry?.borderBoxSize?.[0]?.blockSize);
+        });
+        ro.observe(inner, { box: "border-box" });
       }
       window.addEventListener("resize", onWindowResize);
     };
@@ -160,9 +164,9 @@ export function useAnimatedHeight(enabled = true) {
       ro?.disconnect();
       window.removeEventListener("resize", onWindowResize);
       if (resizeRaf != null) cancelAnimationFrame(resizeRaf);
+      if (bindRaf) cancelAnimationFrame(bindRaf);
       if (outerAtBind) {
         outerAtBind.removeEventListener("transitionend", onTransitionEnd);
-        outerAtBind.removeEventListener("transitioncancel", onTransitionEnd);
         outerAtBind.style.height = "";
       }
       setIsAnimating(false);

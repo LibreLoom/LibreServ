@@ -39,4 +39,21 @@ describe("lockBodyScroll", () => {
     expect(document.documentElement.hasAttribute("data-scroll-lock")).toBe(true);
     unlockAgain();
   });
+
+  it("restores the viewport's original overflow after the last overlay closes", () => {
+    const root = document.documentElement;
+    root.style.overflow = "clip";
+    const first = lockBodyScroll();
+    const second = lockBodyScroll();
+    try {
+      first();
+      expect(root.style.overflow).toBe("hidden");
+      second();
+      expect(root.style.overflow).toBe("clip");
+    } finally {
+      first();
+      second();
+      root.style.overflow = "";
+    }
+  });
 });

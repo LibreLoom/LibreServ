@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { Download, RotateCw, Save, Share2, X } from "lucide-react";
@@ -13,12 +13,14 @@ import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
+import { lockBodyScroll } from "@libreloom/ui/utils/bodyScrollLock.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import DocumentLoadingScreen from "./DocumentLoadingScreen.jsx";
 import SlowLoadNotice from "./SlowLoadNotice.jsx";
 import { EditorLoadingContext } from "./editorLoadingContext.js";
 
 const MD_UP_QUERY = "(min-width: 768px)";
+const editorLayers = [];
 
 /**
  * The save pill resizes with `useSmoothResize`, which writes its own inline
@@ -57,10 +59,11 @@ function useEntranceSettled(overlayRef, sessionKey, isClosing) {
     setSettled(!canWait());
   }
   useEffect(() => {
-    if (settled) return undefined;
+    if (settled || isClosing) return undefined;
     let cancelled = false;
+    let frame = 0;
     const done = () => {
-      if (!cancelled) requestAnimationFrame(() => !cancelled && setSettled(true));
+      if (!cancelled) frame = requestAnimationFrame(() => !cancelled && setSettled(true));
     };
     const el = overlayRef.current;
     const running = el && typeof el.getAnimations === "function"
@@ -68,15 +71,19 @@ function useEntranceSettled(overlayRef, sessionKey, isClosing) {
       : [];
     if (!running.length) {
       done();
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+      };
     }
     const timer = setTimeout(() => !cancelled && setSettled(true), SETTLE_MAX_MS);
     Promise.all(running.map((a) => a.finished.catch(() => {}))).then(done);
     return () => {
       cancelled = true;
+      cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
-  }, [settled, overlayRef, sessionKey]);
+  }, [settled, overlayRef, sessionKey, isClosing]);
   return settled;
 }
 
@@ -166,6 +173,14 @@ export default function FullscreenEditorFrame({
   const [saveReady, setSaveReady] = useState(false);
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingSession = useRef(/** @type {object | null} */ (null));
+  const activeSession = useRef(/** @type {object | null} */ (null));
+  const closeIntent = useRef(0);
+  useLayoutEffect(() => {
+    if (isClosing) return undefined;
+    activeSession.current = {};
+    return () => { activeSession.current = null; };
+  }, [sessionKey, isClosing]);
   const [saveError, setSaveError] = useState("");
   const saveFnRef = useRef(/** @type {(() => Promise<unknown>) | null} */ (null));
   const recoveryRef = useRef(/** @type {{ download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null} */ (null));
@@ -190,6 +205,7 @@ export default function FullscreenEditorFrame({
   useSmoothResize(savePillRef, { x: !prefersReducedMotion() });
   const overlayRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const entered = useEntranceSettled(overlayRef, sessionKey, isClosing);
+  useLayoutEffect(() => lockBodyScroll(), []);
   const closeRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const cancelRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   // Tracks whether this session already claimed initial focus — keeps the
@@ -236,6 +252,7 @@ export default function FullscreenEditorFrame({
     setSaveReady(false);
     setHasUnsaved(false);
     setSaving(false);
+    setDownloading(false);
     setSaveError("");
     setConfirmClose(false);
     setMounted(false);
@@ -246,15 +263,17 @@ export default function FullscreenEditorFrame({
   // through here. Dirty → open the "Document Unsaved" modal; clean → close
   // straight away.
   const requestClose = useCallback(() => {
+    if (isClosing) return;
     if (hasUnsaved) {
       setSaveError("");
       setConfirmClose(true);
     } else {
       onClose();
     }
-  }, [hasUnsaved, onClose]);
+  }, [hasUnsaved, isClosing, onClose]);
 
   useEffect(() => {
+    if (isClosing) return undefined;
     // Focus the rail's Close button once per session — requestClose changes
     // identity on every dirty-state flip, so re-focusing here on each run
     // would yank typing focus out of the editor mid-keystroke.
@@ -322,19 +341,19 @@ export default function FullscreenEditorFrame({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [requestClose]);
+  }, [requestClose, isClosing]);
 
   // While the fullscreen overlay is mounted, flag the root element so
   // global chrome (the Navbar's mobile menu FAB floats above this overlay)
   // can hide over the editor surface.
   useEffect(() => {
-    // Nested editors (a database editor opened from a form) restore the
-    // value the editor beneath them had, so the global chrome doesn't
-    // reappear when only the top one closes.
-    const previous = document.documentElement.dataset.lunaEditor;
+    const layer = { kind: editorKind };
+    editorLayers.push(layer);
     document.documentElement.dataset.lunaEditor = editorKind;
     return () => {
-      if (previous) document.documentElement.dataset.lunaEditor = previous;
+      editorLayers.splice(editorLayers.indexOf(layer), 1);
+      const top = editorLayers.at(-1);
+      if (top) document.documentElement.dataset.lunaEditor = top.kind;
       else delete document.documentElement.dataset.lunaEditor;
     };
   }, [editorKind]);
@@ -374,7 +393,9 @@ export default function FullscreenEditorFrame({
   /** Run the registered save thunk. Returns true on success. */
   async function runSave({ closing = false } = {}) {
     const run = saveFnRef.current;
-    if (!run || saving) return false;
+    const session = activeSession.current;
+    if (!run || !session || savingSession.current === session) return false;
+    savingSession.current = session;
     setSaving(true);
     setSaveError("");
     try {
@@ -383,6 +404,7 @@ export default function FullscreenEditorFrame({
       // flight) — surface it like a failure so the dirty flag and any
       // save-and-close flow can't slip through.
       const saved = await run();
+      if (activeSession.current !== session) return false;
       if (saved === false) {
         haptic("error");
         setSaveError(
@@ -395,6 +417,7 @@ export default function FullscreenEditorFrame({
       addToast({ type: "success", message: "Changes saved." });
       return true;
     } catch (err) {
+      if (activeSession.current !== session) return false;
       haptic("error");
       const message = apiErrorMessage(err, "Couldn't save. Try again.");
       setSaveError(message);
@@ -406,7 +429,8 @@ export default function FullscreenEditorFrame({
       }
       return false;
     } finally {
-      setSaving(false);
+      if (savingSession.current === session) savingSession.current = null;
+      if (activeSession.current === session) setSaving(false);
     }
   }
 
@@ -422,28 +446,33 @@ export default function FullscreenEditorFrame({
 
   async function downloadFromFailure() {
     const download = recoveryRef.current?.download;
-    if (!download || downloading) return;
+    const session = activeSession.current;
+    if (!download || downloading || !session) return;
     setDownloading(true);
     setDownloadError("");
     try {
       const result = await download();
+      if (activeSession.current !== session) return;
       if (result?.blob) downloadBlob(result.blob, result.filename || name);
       addToast({ type: "success", message: "Downloaded your version." });
     } catch (err) {
+      if (activeSession.current !== session) return;
       setDownloadError(
         apiErrorMessage(err, "Couldn't prepare your version. Keep editing and try again."),
       );
     } finally {
-      setDownloading(false);
+      if (activeSession.current === session) setDownloading(false);
     }
   }
 
   async function saveAndClose() {
+    if (savingSession.current === activeSession.current) return;
+    const intent = ++closeIntent.current;
     const ok = await runSave({ closing: true });
     if (!ok) return;
     // The user may have cancelled the modal while the save was in flight —
     // respect that and keep editing instead of closing underneath them.
-    if (!confirmCloseRef.current) return;
+    if (closeIntent.current !== intent) return;
     // runSave already announced the save; closing needs no second toast.
     setConfirmClose(false);
     onClose();
@@ -486,6 +515,7 @@ export default function FullscreenEditorFrame({
           aria-modal="true"
           aria-label={name}
           data-slot="file-viewer-overlay"
+          inert={isClosing || undefined}
           className={cn(
             "fixed inset-0 z-[80] flex flex-col surface-primary",
             isClosing
@@ -658,6 +688,7 @@ export default function FullscreenEditorFrame({
       {/* Unsaved-changes guard — z-[90] sits above the z-[80] editor overlay. */}
       <ModalCard
         open={confirmClose}
+        onCloseStart={() => { closeIntent.current++; }}
         onClose={() => setConfirmClose(false)}
         title="Document unsaved"
         showCloseButton={false}

@@ -107,8 +107,30 @@ describe("FullscreenEditorFrame save pill", () => {
     // The thunk is still pending, so the pill holds "Saving…".
     expect(savePill()).toHaveTextContent(/^Saving…$/);
 
-    await act(async () => finishSave(true));
+    await act(async () => {
+      api.onSaveStateChange(false);
+      finishSave(true);
+    });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the editor open if Cancel starts closing the guard before the save finishes", async () => {
+    stubPhoneViewport();
+    const { api, onClose } = renderFrame();
+    /** @type {(value?: unknown) => void} */
+    let finishSave = () => {};
+    act(() => api.onRegisterSave(() => new Promise((resolve) => { finishSave = resolve; })));
+    act(() => api.onSaveStateChange(true));
+
+    await userEvent.click(within(topbar()).getByRole("button", { name: "Close editor" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Save and close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      api.onSaveStateChange(false);
+      finishSave(true);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(savePill()).toHaveTextContent(/^Saved$/);
   });
 
   it("keeps the pill in the topbar, capped at 40% so a long filename still reads", () => {

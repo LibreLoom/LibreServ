@@ -1677,7 +1677,7 @@ export default function PhotosPage() {
     setMapPage({
       key: pageKey,
       map: placesMapOverview,
-      lingers: mapPage.map && !placesMapOverview && !reduceMotion,
+      lingers: (mapPage.map || mapPage.lingers) && !placesMapOverview && !reduceMotion,
     });
   }
   const mapLayout = placesMapOverview || mapPage.lingers;

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { Download, FileOutput, ImageOff, Maximize2, VideoOff, X } from "lucide-react";
@@ -80,7 +80,7 @@ function useOverlayPresence(active) {
     setPresent(true);
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (active) {
       if (exitTimerRef.current != null) {
         clearTimeout(exitTimerRef.current);
@@ -164,9 +164,15 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const previewKey = `${driveId}:${path}:${open}`;
   const [expandedScope, setExpandedScope] = useState(previewKey);
   const exitButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const cinemaRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const fullViewButtonRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   const previewVideoRef = useRef(/** @type {HTMLVideoElement|null} */ (null));
-  const wasExpandedRef = useRef(false);
+  const expandedFromRef = useRef(/** @type {string|null} */ (null));
+  const conversionRequest = useRef(/** @type {AbortController|null} */ (null));
+  useLayoutEffect(() => () => {
+    conversionRequest.current?.abort();
+    conversionRequest.current = null;
+  }, [previewKey]);
   // Snapshot of officeMissing for the exit animation — see below.
   const officeMissingViewRef = useRef(false);
   // Frozen identity of the mounted editor, for the same exit window: the
@@ -174,6 +180,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   // office editor for a TextFileEditor on an empty path — a bogus content
   // fetch and an error flash for the last 250ms.
   const frameViewRef = useRef({
+    key: previewKey,
+    driveId,
     path,
     name,
     isOffice,
@@ -199,35 +207,6 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     if (open && isOffice && path) perfStart("W12", { fromInput: true, keep: true });
   }, [open, isOffice, path, driveId]);
 
-  useEffect(() => {
-    if (wasExpandedRef.current && !expanded) {
-      fullViewButtonRef.current?.focus();
-    }
-    wasExpandedRef.current = expanded;
-  }, [expanded]);
-
-  useEffect(() => {
-    if (!expanded) return undefined;
-
-    exitButtonRef.current?.focus();
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        setExpanded(false);
-      } else if (event.key === "Tab") {
-        event.preventDefault();
-        exitButtonRef.current?.focus();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [expanded]);
 
   // EuroOfficeHost reports a missing pack when the DocsAPI script fails to
   // load — the only "is EuroOffice installed" check, riding on the load the
@@ -236,12 +215,16 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
 
   /** Convert to the adjacent office format, upload the copy, open it. */
   async function convertAndOpen() {
-    if (!conversion?.convert || converting) return;
+    if (!conversion?.convert || conversionRequest.current) return;
+    const request = new AbortController();
+    conversionRequest.current = request;
     setConverting(true);
     setError(null);
     try {
       const bytes = await source.fetchBytes(driveId, path);
+      if (request.signal.aborted) return;
       const blob = await conversion.convert(bytes, fileExtension(name));
+      if (request.signal.aborted) return;
       const folder = parentPath(path) ?? "";
       const ext = fileExtension(name);
       const stem = ext ? name.slice(0, name.length - ext.length - 1) : name;
@@ -249,6 +232,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
       // refuses to overwrite (409), so a taken name just means try the next.
       let targetPath = null;
       for (let i = 0; i < 50 && !targetPath; i += 1) {
+        if (request.signal.aborted) return;
         const fileName = i === 0
           ? `${stem}.${conversion.targetExt}`
           : `${stem} (${i + 1}).${conversion.targetExt}`;
@@ -263,6 +247,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           await postForm(
             `/api/v1/drives/${driveId}/files/upload?path=${encodeURIComponent(folder)}&overwrite=0`,
             form,
+            { signal: request.signal },
           );
           targetPath = candidate;
         } catch (err) {
@@ -271,6 +256,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           if (!(err instanceof ApiError && err.status === 409 && err.code === "exists")) throw err;
         }
       }
+      if (request.signal.aborted) return;
       if (!targetPath) {
         throw new Error(
           "Couldn't make the converted copy: this folder has too many files with that name. Rename or remove one, then try again.",
@@ -280,10 +266,14 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
       onSaved?.();
       onOpenPath?.(targetPath);
     } catch (err) {
+      if (request.signal.aborted) return;
       haptic("error");
       setError(apiErrorMessage(err, "Couldn't convert that file. Try again."));
     } finally {
-      setConverting(false);
+      if (conversionRequest.current === request) {
+        conversionRequest.current = null;
+        setConverting(false);
+      }
     }
   }
 
@@ -322,6 +312,55 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   const editorOverlay = useOverlayPresence(editorActive);
   const fullViewActive = open && expanded && canFullView;
   const fullViewOverlay = useOverlayPresence(fullViewActive);
+  const cinemaViewRef = useRef({ driveId, path, kind, name, mediaFailed });
+  if (fullViewActive) cinemaViewRef.current = { driveId, path, kind, name, mediaFailed };
+  const cinema = cinemaViewRef.current;
+  const cinemaPresent = fullViewActive || fullViewOverlay.present;
+  useLayoutEffect(() => {
+    if (fullViewActive) {
+      expandedFromRef.current = previewKey;
+    } else if (!cinemaPresent) {
+      if (expandedFromRef.current === previewKey && open) {
+        fullViewButtonRef.current?.focus({ preventScroll: true });
+      }
+      expandedFromRef.current = null;
+    }
+  }, [cinemaPresent, fullViewActive, open, previewKey]);
+
+  useEffect(() => {
+    if (!cinemaPresent) return undefined;
+
+    if (fullViewActive) exitButtonRef.current?.focus({ preventScroll: true });
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        setExpanded(false);
+      } else if (event.key === "Tab") {
+        if (!fullViewActive) {
+          event.preventDefault();
+          return;
+        }
+        const controls = cinemaRef.current?.querySelectorAll("button, a[href], video[controls]");
+        if (!controls?.length) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!cinemaRef.current?.contains(document.activeElement) ||
+          (event.shiftKey && document.activeElement === first) ||
+          (!event.shiftKey && document.activeElement === last && last.tagName !== "VIDEO")) {
+          event.preventDefault();
+          /** @type {HTMLElement} */ (event.shiftKey ? last : first).focus();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [cinemaPresent, fullViewActive]);
 
   // Freeze the missing-pack swap and the editor identity while exiting —
   // the open→false reset clears officeMissing and `path` mid-animation,
@@ -329,6 +368,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
   if (!editorOverlay.isClosing) {
     officeMissingViewRef.current = officeMissing;
     frameViewRef.current = {
+      key: previewKey,
+      driveId,
       path,
       name,
       isOffice,
@@ -348,7 +389,8 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     return (
       <FullscreenEditorFrame
         name={frameView.name}
-        sessionKey={previewKey}
+        key={frameView.key}
+        sessionKey={frameView.key}
         isClosing={editorOverlay.isClosing}
         canWrite={canWrite}
         onShare={onShare}
@@ -360,7 +402,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           <EditorMountedSignal />
           {frameView.isOffice ? (
             <OfficeEditor
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
@@ -373,7 +415,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : frameView.isDiagram ? (
             <DiagramEditor
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
@@ -385,7 +427,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : frameView.isWhiteboard ? (
             <WhiteboardEditor
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               canWrite={canWrite}
               onSaved={onSaved}
@@ -397,7 +439,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : frameView.isSqlite ? (
             <SqliteFileEditor
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               name={frameView.name}
               canWrite={canWrite}
@@ -407,7 +449,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : frameView.isForm ? (
             <FormBuilder
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               name={frameView.name}
               canWrite={canWrite}
@@ -417,7 +459,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
             />
           ) : (
             <TextFileEditor
-              driveId={driveId}
+              driveId={frameView.driveId}
               path={frameView.path}
               name={frameView.name}
               isMarkdown={frameView.isMarkdown}
@@ -440,7 +482,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         title={name}
         size="lg"
         onClose={onClose}
-        overlayClassName={expanded ? "invisible pointer-events-none" : ""}
+        overlayClassName={cinemaPresent ? "invisible pointer-events-none" : ""}
       >
         {({ close }) => (
           <>
@@ -545,11 +587,13 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
         )}
       </ModalCard>
 
-      {(fullViewActive || fullViewOverlay.present) && createPortal(
+      {cinemaPresent && createPortal(
         <div
+          ref={cinemaRef}
           role="dialog"
           aria-modal="true"
-          aria-label={name}
+          aria-label={cinema.name}
+          inert={fullViewOverlay.isClosing || undefined}
           data-slot="file-viewer-fullview"
           className={cn(
             /* color-scan: ignore-next-line cinema full-screen backdrop */
@@ -574,42 +618,42 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
           </button>
 
           <div className="relative flex h-full w-full items-center justify-center p-2 sm:p-4 md:p-6">
-            {mediaFailed ? (
+            {cinema.mediaFailed ? (
               <div
                 role="alert"
                 className="flex max-w-sm flex-col items-center gap-3 rounded-large-element surface-secondary px-8 py-6 text-center"
               >
-                {kind === "video" ? (
+                {cinema.kind === "video" ? (
                   <VideoOff size={28} aria-hidden="true" />
                 ) : (
                   <ImageOff size={28} aria-hidden="true" />
                 )}
                 <p className="text-sm">
-                  {kind === "video"
+                  {cinema.kind === "video"
                     ? "This video can't play here. Download it to watch it on your device."
                     : "This photo could not open here. Download it to open it on your device."}
                 </p>
                 <Button variant="primary" size="sm" asChild>
-                  <a href={source.downloadHref(driveId, path)} download>
+                  <a href={source.downloadHref(cinema.driveId, cinema.path)} download>
                     <Download size={ICON_SIZE.sm} aria-hidden="true" />
                     Download
                   </a>
                 </Button>
               </div>
-            ) : kind === "video" ? (
+            ) : cinema.kind === "video" ? (
               <video
                 controls
                 autoPlay
                 className="h-full w-full rounded-large-element object-contain"
-                src={source.contentHref(driveId, path)}
-                onError={() => setMediaFailed(true)}
+                src={source.contentHref(cinema.driveId, cinema.path)}
+                onError={fullViewActive ? () => setMediaFailed(true) : undefined}
               />
             ) : (
               <img
-                src={source.contentHref(driveId, path)}
-                alt={name}
+                src={source.contentHref(cinema.driveId, cinema.path)}
+                alt={cinema.name}
                 className="h-full w-full object-contain select-none motion-safe:animate-page-enter"
-                onError={() => setMediaFailed(true)}
+                onError={fullViewActive ? () => setMediaFailed(true) : undefined}
               />
             )}
           </div>

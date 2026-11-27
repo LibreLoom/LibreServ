@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { AnimatePresence, motion as Motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion as Motion, useIsPresent, useReducedMotion } from "motion/react";
 
 // Pages move like a carousel, the way their selector reads: going to a page
 // further along pushes the old one out to the left and the new one follows in
@@ -22,6 +22,12 @@ const INSTANT = { duration: 0 };
 // The entrances a page's own pieces would play on mount (index.css). A page
 // sliding in already moves, so they wait until it lands.
 const ENTRANCES = ".animate-nav-slide-in, .animate-cascade-in";
+
+/** @param {import("react").ComponentProps<typeof Motion.div>} props */
+function SlideCell(props) {
+  const present = useIsPresent();
+  return <Motion.div {...props} inert={!present || undefined} aria-hidden={!present || undefined} />;
+}
 
 /**
  * Which way a change moves: compare positions element by element; the first
@@ -80,15 +86,16 @@ export default function SlidePages({
   onSettled,
 }) {
   const reduceMotion = useReducedMotion();
-  const [shown, setShown] = useState({ key: pageKey, position, dir: 1, moved: false });
+  const [shown, setShown] = useState({ key: pageKey, position, dir: 1, revision: 0 });
   if (shown.key !== pageKey) {
-    setShown({ key: pageKey, position, dir: slideDirection(shown.position, position), moved: true });
+    setShown({ key: pageKey, position, dir: slideDirection(shown.position, position), revision: shown.revision + 1 });
   }
   const dir = shown.dir;
 
   const boxRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const scrollAt = useRef(0);
   const lastKey = useRef(pageKey);
+  const activeTransition = useRef({ revision: 0, entered: true, notified: true });
   const latest = useRef({ onPageChange, onSettled });
   latest.current = { onPageChange, onSettled };
 
@@ -108,6 +115,7 @@ export default function SlidePages({
   useLayoutEffect(() => {
     if (lastKey.current === pageKey) return;
     lastKey.current = pageKey;
+    activeTransition.current = { revision: shown.revision, entered: !!reduceMotion, notified: false };
     const box = boxRef.current;
     if (!box) return;
     const el = scrollRef?.current ?? null;
@@ -141,34 +149,50 @@ export default function SlidePages({
     }
     box.style.clipPath = anyShifted ? "inset(0 0 -100000px 0)" : "";
     latest.current.onPageChange?.();
-  }, [pageKey, scrollRef]);
+  }, [pageKey, scrollRef, shown.revision, reduceMotion]);
+
+  const settleIfReady = useCallback(() => {
+    const box = boxRef.current;
+    const transition = activeTransition.current;
+    if (!box || !transition.entered || transition.notified || box.children.length !== 1) return;
+    transition.notified = true;
+    box.style.clipPath = "";
+    latest.current.onSettled?.();
+  }, []);
 
   // A page that slid in already showed its pieces; switch their entrance off
   // for good before lifting the hold, or each would play it again as the page
   // lands. Pieces that mount later (the next batch of photos) keep theirs.
-  const handleShown = useCallback((/** @type {string} */ key) => {
+  const handleShown = useCallback((/** @type {string} */ key, /** @type {number} */ revision) => {
+    if (activeTransition.current.revision !== revision) return;
     const page = /** @type {HTMLElement[]} */ ([...(boxRef.current?.children || [])]).find(
       (el) => el.dataset.slidePage === key,
     );
-    if (!page?.hasAttribute("data-entering")) return;
-    for (const el of page.querySelectorAll(ENTRANCES)) {
-      /** @type {HTMLElement} */ (el).style.animation = "none";
+    if (page?.hasAttribute("data-entering")) {
+      for (const el of page.querySelectorAll(ENTRANCES)) {
+        /** @type {HTMLElement} */ (el).style.animation = "none";
+      }
+      page.removeAttribute("data-entering");
     }
-    page.removeAttribute("data-entering");
-  }, []);
+    activeTransition.current.entered = true;
+    settleIfReady();
+  }, [settleIfReady]);
 
-  const handleSettled = useCallback(() => {
-    if (boxRef.current) boxRef.current.style.clipPath = "";
-    latest.current.onSettled?.();
-  }, []);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box || typeof MutationObserver !== "function") return undefined;
+    const observer = new MutationObserver(settleIfReady);
+    observer.observe(box, { childList: true });
+    return () => observer.disconnect();
+  }, [settleIfReady]);
 
   return (
     <div ref={boxRef} className={`-mx-1 grid overflow-x-clip px-1 ${className}`}>
-      <AnimatePresence initial={false} custom={dir} onExitComplete={handleSettled}>
-        <Motion.div
+      <AnimatePresence initial={false} custom={dir} onExitComplete={settleIfReady}>
+        <SlideCell
           key={pageKey}
           data-slide-page={pageKey}
-          data-entering={shown.moved && !reduceMotion ? "" : undefined}
+          data-entering={shown.revision > 0 && !reduceMotion ? "" : undefined}
           custom={dir}
           variants={SLIDE}
           initial={reduceMotion ? false : "enter"}
@@ -176,12 +200,12 @@ export default function SlidePages({
           exit="leave"
           transition={reduceMotion ? INSTANT : SPRING}
           onAnimationComplete={(name) => {
-            if (name === "shown") handleShown(pageKey);
+            if (name === "shown") handleShown(pageKey, shown.revision);
           }}
           className={`col-start-1 row-start-1 min-w-0 ${pageClassName}`}
         >
           <div className={innerClassName}>{children}</div>
-        </Motion.div>
+        </SlideCell>
       </AnimatePresence>
     </div>
   );
