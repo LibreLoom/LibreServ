@@ -12,6 +12,7 @@ import PropTypes from "prop-types";
 import {
   ChevronDown,
   ChevronUp,
+  Download,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -42,6 +43,7 @@ import {
 } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
+import { downloadBlob } from "../../../../lib/downloadBlob.js";
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { apiErrorMessage } from "../../../../lib/api.js";
 import lazyWithPreload from "../../../../lib/lazyWithPreload.js";
@@ -199,6 +201,7 @@ export default function SqliteEditor({
           onReload={onReload}
           frame={frame}
           formMode={formMode}
+          fileName={name}
         />
       )}
     </FullscreenEditorFrame>
@@ -230,12 +233,13 @@ SqliteEditor.propTypes = {
  *     | (() => Promise<{ bytes: Uint8Array, revision: number | string }>)
  *     | null,
  *   frame: {
- *     onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *     onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *     onSaveStateChange: (hasUnsaved: boolean) => void,
  *   },
  *   conflictTitle?: string,
  *   conflictMessage?: string,
  *   conflictNoReloadMessage?: string,
+ *   fileName?: string,
  *   oversizedHint?: string,
  *   formMode?: boolean,
  * }} props
@@ -250,6 +254,7 @@ export function SqliteEditorSession({
   conflictTitle = "New answers arrived",
   conflictMessage = "Someone answered this form after you opened the database. Saving now would replace the newer answers.",
   conflictNoReloadMessage = "Close the editor and open the form again to load the new answers.",
+  fileName = "database.sqlite",
   oversizedHint = "Use the Responses view to read answers page by page.",
   formMode = false,
 }) {
@@ -683,6 +688,17 @@ export function SqliteEditorSession({
     };
   }, [tooLarge, sourceBytes, loadTable, canWrite, selectTable]);
 
+  /** The database as it stands in this editor, ready to download. */
+  const downloadMine = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client) throw new Error("Nothing to download yet.");
+    const bytes = await client.exportBytes();
+    return {
+      blob: new Blob([bytes], { type: "application/vnd.sqlite3" }),
+      filename: fileName,
+    };
+  }, [fileName]);
+
   const save = useCallback(async () => {
     const client = clientRef.current;
     if (!client || savingRef.current) return false;
@@ -711,6 +727,8 @@ export function SqliteEditorSession({
         autoSavePausedRef.current = true;
         setConflictError("");
         setConflict(true);
+        // This editor's own dialog offers the choices; the frame stays quiet.
+        if (error && typeof error === "object") error.recoveryHandled = true;
       }
       const raw = String(error?.message || "");
       if (/SQLite is busy or locked|active write transaction/i.test(raw)) {
@@ -727,9 +745,9 @@ export function SqliteEditorSession({
 
   useEffect(() => {
     if (!canWrite || !ready) return undefined;
-    onRegisterSave(save);
+    onRegisterSave(save, { download: downloadMine });
     return () => onRegisterSave(null);
-  }, [canWrite, ready, save, onRegisterSave]);
+  }, [canWrite, ready, save, downloadMine, onRegisterSave]);
 
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -1096,6 +1114,47 @@ export function SqliteEditorSession({
     setConflict(false);
     setConflictError("");
   }, [reloading]);
+
+  const [conflictBusy, setConflictBusy] = useState(false);
+
+  const downloadFromConflict = useCallback(async () => {
+    if (conflictBusy) return;
+    setConflictBusy(true);
+    setConflictError("");
+    try {
+      const mine = await downloadMine();
+      downloadBlob(mine.blob, mine.filename);
+      addToast({ type: "success", message: "Downloaded your version." });
+    } catch (error) {
+      setConflictError(
+        apiErrorMessage(error, "Couldn't prepare your version. Keep editing and try again."),
+      );
+    } finally {
+      setConflictBusy(false);
+    }
+  }, [addToast, conflictBusy, downloadMine]);
+
+  /** Save anyway: adopt the revision on the drive, then write this copy over it. */
+  const overwriteTheirs = useCallback(async () => {
+    if (!onReload || conflictBusy || reloadingRef.current) return;
+    setConflictBusy(true);
+    setConflictError("");
+    try {
+      const latest = await onReload();
+      if (latest?.revision !== undefined) revisionRef.current = latest.revision;
+      autoSavePausedRef.current = false;
+      await saveRef.current?.();
+      setConflict(false);
+      addToast({ type: "success", message: "Saved over the newer version." });
+    } catch (error) {
+      autoSavePausedRef.current = true;
+      setConflictError(
+        apiErrorMessage(error, "Couldn't save over the newer version. Try again."),
+      );
+    } finally {
+      setConflictBusy(false);
+    }
+  }, [addToast, conflictBusy, onReload]);
 
   const reloadFromLuna = useCallback(async () => {
     if (!onReload || reloadingRef.current) return;
@@ -1810,16 +1869,39 @@ export function SqliteEditorSession({
               fullWidth
               haptic={false}
               onClick={keepEditing}
-              disabled={reloading}
+              disabled={reloading || conflictBusy}
             >
               Keep editing
             </Button>
+            <Button
+              variant="outline"
+              surface="secondary"
+              fullWidth
+              loading={conflictBusy}
+              disabled={reloading}
+              onClick={() => void downloadFromConflict()}
+            >
+              <Download size={ICON_SIZE.sm} aria-hidden="true" />
+              Download my version
+            </Button>
+            {onReload && !formMode ? (
+              <Button
+                variant="outline"
+                surface="secondary"
+                fullWidth
+                disabled={reloading || conflictBusy}
+                onClick={() => void overwriteTheirs()}
+              >
+                Save over their changes
+              </Button>
+            ) : null}
             {onReload ? (
               <Button
                 variant="accent"
                 surface="secondary"
                 fullWidth
                 loading={reloading}
+                disabled={conflictBusy}
                 onClick={() => void reloadFromLuna()}
               >
                 Reload from Luna

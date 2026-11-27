@@ -54,7 +54,7 @@ function revisionOf(stat, bytes = null) {
  *   name: string,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
- *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
  * }} props
  */
@@ -275,6 +275,7 @@ export default function SqliteFileEditor({
           : "Download it and open it in a desktop database app."
       }
       formMode={formMode}
+      fileName={name}
     />
   );
 }

@@ -221,7 +221,7 @@ WhiteboardErrorBoundary.propTypes = {
  *   onSaved?: () => void,
  *   onClose?: () => void,
  *   onPresenceChange?: (label: string) => void,
- *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave?: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   requestClose?: () => void,
  *   onRetry?: () => void,
@@ -769,9 +769,16 @@ function EditorSession({
   // save" contract as the other editors.
   useEffect(() => {
     if (phase !== "ready" || !canWrite || !onRegisterSave) return undefined;
-    onRegisterSave(save);
+    onRegisterSave(save, {
+      download: async () => {
+        flushScene();
+        const body = syncRef.current?.serialize();
+        if (!body) throw new Error("Nothing to download yet.");
+        return { blob: new Blob([body], { type: WHITEBOARD_MIME }), filename: name };
+      },
+    });
     return () => onRegisterSave(null);
-  }, [phase, canWrite, save, onRegisterSave]);
+  }, [phase, canWrite, save, name, flushScene, onRegisterSave]);
 
   // Theme follows Luna's; the prop flips the canvas live.
   const theme = resolvedTheme === "dark" ? "dark" : "light";

@@ -120,7 +120,7 @@ const ROW_EXIT = { opacity: 0, height: 0, transition: { duration: 0.16 } };
  *   name: string,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
- *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
  * }} props
  */
@@ -149,7 +149,7 @@ FormBuilder.propTypes = {
  *   name: string,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
- *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
  * }} props
  */
@@ -479,9 +479,15 @@ function BuilderSession({
   // save" contract as the text editor.
   useEffect(() => {
     if (loading || error || !canWrite) return undefined;
-    onRegisterSave(save);
+    onRegisterSave(save, {
+      download: async () => {
+        const body = syncRef.current?.serialize();
+        if (!body) throw new Error("Nothing to download yet.");
+        return { blob: new Blob([body], { type: "application/json" }), filename: name };
+      },
+    });
     return () => onRegisterSave(null);
-  }, [loading, error, canWrite, save, onRegisterSave]);
+  }, [loading, error, canWrite, save, name, onRegisterSave]);
 
   /** Local edit. Viewers never write — the hub would reject the op. */
   function edit(apply) {

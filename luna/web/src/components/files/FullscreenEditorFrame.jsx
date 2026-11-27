@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Save, Share2, X } from "lucide-react";
+import { Download, RotateCw, Save, Share2, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import InlineError from "@libreloom/ui/components/common/InlineError.jsx";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
 import { apiErrorMessage } from "../../lib/api.js";
+import { downloadBlob } from "../../lib/downloadBlob.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import { TooltipTargets } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { cn } from "@libreloom/ui/lib/utils.js";
@@ -112,8 +113,13 @@ function useIsMdUp() {
  *
  * The child editor plugs in through a render prop receiving the save
  * contract:
- *   - `onRegisterSave(fn)` — register the save thunk once a writable
- *     session is up (null to unregister). Save stays disabled until then.
+ *   - `onRegisterSave(fn, recovery?)` — register the save thunk once a
+ *     writable session is up (null to unregister). Save stays disabled
+ *     until then. `recovery.download()` returns `{ blob, filename? }` for
+ *     the editor's current content (or null after saving a file itself);
+ *     when a save fails the frame offers Try again / Download / Keep
+ *     editing. An editor that shows its own failure dialog marks the error
+ *     `recoveryHandled` so the frame stays quiet.
  *   - `onSaveStateChange(hasUnsaved)` — report dirty state. `false` means
  *     "everything is saved" and clears any save error, so only call it on
  *     a real save, not on initial load.
@@ -135,7 +141,10 @@ function useIsMdUp() {
  *   editorKind?: string,
  *   onClose: () => void,
  *   children: (api: {
- *     onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *     onRegisterSave: (
+ *       save: (() => Promise<unknown>) | null,
+ *       recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null,
+ *     ) => void,
  *     onSaveStateChange: (hasUnsaved: boolean) => void,
  *     requestClose: () => void,
  *   }) => import("react").ReactNode,
@@ -159,6 +168,13 @@ export default function FullscreenEditorFrame({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const saveFnRef = useRef(/** @type {(() => Promise<unknown>) | null} */ (null));
+  const recoveryRef = useRef(/** @type {{ download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null} */ (null));
+  // The "Couldn't save" dialog: what failed, and whether the person was
+  // closing the editor when it did.
+  const [failure, setFailure] = useState(/** @type {{ message: string, closing: boolean } | null} */ (null));
+  const [downloadError, setDownloadError] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const retryRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
   // "Document Unsaved" guard modal. The ref mirrors the state so the window
   // capture-phase Escape handler can yield to the modal without re-registering.
   const [confirmClose, setConfirmClose] = useState(false);
@@ -214,6 +230,9 @@ export default function FullscreenEditorFrame({
   if (sessionScope !== sessionKey && !isClosing) {
     setSessionScope(sessionKey);
     saveFnRef.current = null;
+    recoveryRef.current = null;
+    setFailure(null);
+    setDownloadError("");
     setSaveReady(false);
     setHasUnsaved(false);
     setSaving(false);
@@ -346,13 +365,14 @@ export default function FullscreenEditorFrame({
     }
   }, []);
 
-  const handleRegisterSave = useCallback((save) => {
+  const handleRegisterSave = useCallback((save, recovery = null) => {
     saveFnRef.current = save || null;
+    recoveryRef.current = save ? recovery : null;
     setSaveReady(Boolean(save));
   }, []);
 
   /** Run the registered save thunk. Returns true on success. */
-  async function runSave() {
+  async function runSave({ closing = false } = {}) {
     const run = saveFnRef.current;
     if (!run || saving) return false;
     setSaving(true);
@@ -376,15 +396,50 @@ export default function FullscreenEditorFrame({
       return true;
     } catch (err) {
       haptic("error");
-      setSaveError(apiErrorMessage(err, "Couldn't save. Try again."));
+      const message = apiErrorMessage(err, "Couldn't save. Try again.");
+      setSaveError(message);
+      // The editor's own dialog (a database conflict) already offers the
+      // choices; every other failure gets the shared one.
+      if (!err?.recoveryHandled) {
+        setDownloadError("");
+        setFailure({ message, closing });
+      }
       return false;
     } finally {
       setSaving(false);
     }
   }
 
+  async function retryFromFailure() {
+    const closing = failure?.closing ?? false;
+    setFailure(null);
+    const ok = await runSave({ closing });
+    if (ok && closing) {
+      setConfirmClose(false);
+      onClose();
+    }
+  }
+
+  async function downloadFromFailure() {
+    const download = recoveryRef.current?.download;
+    if (!download || downloading) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const result = await download();
+      if (result?.blob) downloadBlob(result.blob, result.filename || name);
+      addToast({ type: "success", message: "Downloaded your version." });
+    } catch (err) {
+      setDownloadError(
+        apiErrorMessage(err, "Couldn't prepare your version. Keep editing and try again."),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function saveAndClose() {
-    const ok = await runSave();
+    const ok = await runSave({ closing: true });
     if (!ok) return;
     // The user may have cancelled the modal while the save was in flight —
     // respect that and keep editing instead of closing underneath them.
@@ -648,6 +703,76 @@ export default function FullscreenEditorFrame({
               >
                 Close anyway
               </Button>
+            </div>
+          </div>
+        )}
+      </ModalCard>
+      {/* Save failed — never leave the person with only "try again". */}
+      <ModalCard
+        open={failure != null}
+        onClose={() => setFailure(null)}
+        title="Couldn't save your changes"
+        showCloseButton={false}
+        overlayClassName={NESTED_OVERLAY_CLASS}
+        initialFocusRef={retryRef}
+        openHaptic={false}
+      >
+        {({ close }) => (
+          <div className="space-y-4">
+            <p className="text-sm text-primary">{failure?.message}</p>
+            <p className="text-sm text-primary">
+              Your changes are still open here. Nothing is lost until you close the editor.
+            </p>
+            {downloadError ? <InlineError>{downloadError}</InlineError> : null}
+            <div className="flex flex-col gap-3">
+              <Button
+                ref={retryRef}
+                variant="primary"
+                surface="secondary"
+                fullWidth
+                disabled={!saveReady}
+                onClick={() => void retryFromFailure()}
+              >
+                <RotateCw size={ICON_SIZE.sm} aria-hidden="true" />
+                Try again
+              </Button>
+              {recoveryRef.current?.download ? (
+                <Button
+                  variant="outline"
+                  surface="secondary"
+                  fullWidth
+                  loading={downloading}
+                  onClick={() => void downloadFromFailure()}
+                >
+                  <Download size={ICON_SIZE.sm} aria-hidden="true" />
+                  Download my version
+                </Button>
+              ) : null}
+              <Button
+                variant="outline"
+                surface="secondary"
+                fullWidth
+                haptic={false}
+                disabled={downloading}
+                onClick={close}
+              >
+                Keep editing
+              </Button>
+              {failure?.closing ? (
+                <Button
+                  variant="accent"
+                  surface="secondary"
+                  fullWidth
+                  disabled={downloading}
+                  onClick={() => {
+                    setFailure(null);
+                    setConfirmClose(false);
+                    onClose();
+                  }}
+                >
+                  Close without saving
+                </Button>
+              ) : null}
             </div>
           </div>
         )}

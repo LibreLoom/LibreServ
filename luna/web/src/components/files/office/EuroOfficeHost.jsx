@@ -21,6 +21,7 @@ import {
   euroOfficeDocumentType,
   watchEuroOfficeFocus,
   loadEuroOfficeDocsApi,
+  downloadEuroOfficeDocument,
   patchEuroOfficeDownloadAs,
   patchEuroOfficeReconnect,
   patchEuroOfficeSaveState,
@@ -70,7 +71,7 @@ function publicAssetUrl(path) {
  *   onSaved?: () => void,
  *   onPresenceChange?: (label: string) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
- *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave?: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onUnavailable?: () => void,
  *   onClose?: () => void,
  * }} props
@@ -706,7 +707,19 @@ export default function EuroOfficeHost({
         if (!cancelled && canSave) {
           // The thunk must always settle to a boolean — FileViewer treats
           // false as "didn't save" and keeps the doc dirty/open.
-          onRegisterSaveRef.current?.(() => saveFnRef.current?.() ?? Promise.resolve(false));
+          onRegisterSaveRef.current?.(
+            () => saveFnRef.current?.() ?? Promise.resolve(false),
+            {
+              // The editor builds the file itself and hands it to the browser.
+              download: async () => {
+                const live = /** @type {HTMLIFrameElement | null} */ (
+                  mountRef.current?.querySelector('iframe[name="frameEditor"]') ?? null
+                );
+                await downloadEuroOfficeDocument(live, name, ext);
+                return null;
+              },
+            },
+          );
         }
       } catch (err) {
         if (cancelled) return;

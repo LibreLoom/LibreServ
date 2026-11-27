@@ -49,7 +49,7 @@ const HYDRATE_POLL_MS = 10;
  *   isMarkdown?: boolean,
  *   canWrite?: boolean,
  *   onSaved?: () => void,
- *   onRegisterSave: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange: (hasUnsaved: boolean) => void,
  * }} props
  */
@@ -243,9 +243,15 @@ function EditorSession({
   // until then, matching the office editor's "no session, no save" behavior.
   useEffect(() => {
     if (loading || error || !sync || !canWrite) return undefined;
-    onRegisterSave(save);
+    onRegisterSave(save, {
+      download: async () => {
+        const body = syncRef.current?.serialize();
+        if (body == null) throw new Error("Nothing to download yet.");
+        return { blob: new Blob([body], { type: "text/plain" }), filename: name };
+      },
+    });
     return () => onRegisterSave(null);
-  }, [loading, error, sync, canWrite, save, onRegisterSave]);
+  }, [loading, error, sync, canWrite, save, name, onRegisterSave]);
 
   const peerNames = peers.map((p) => p.username).join(", ");
   const connNote =

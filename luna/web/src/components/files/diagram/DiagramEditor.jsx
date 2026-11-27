@@ -57,7 +57,7 @@ const PATCH_ATTEMPTS = 3;
  *   onSaved?: () => void,
  *   onClose?: () => void,
  *   onPresenceChange?: (label: string) => void,
- *   onRegisterSave?: (save: (() => Promise<unknown>) | null) => void,
+ *   onRegisterSave?: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *   onSaveStateChange?: (hasUnsaved: boolean) => void,
  *   requestClose?: () => void,
  * }} props
@@ -447,9 +447,17 @@ function EditorSession({
 
   useEffect(() => {
     if (!docLoaded || !canWrite || !onRegisterSave) return undefined;
-    onRegisterSave(save);
+    onRegisterSave(save, {
+      download: async () => {
+        const bytes = diagramBytesFromExport(container, await requestExport());
+        return {
+          blob: new Blob([/** @type {BlobPart} */ (bytes)], { type: DIAGRAM_MIME[container] }),
+          filename: name,
+        };
+      },
+    });
     return () => onRegisterSave(null);
-  }, [docLoaded, canWrite, save, onRegisterSave]);
+  }, [docLoaded, canWrite, save, container, name, requestExport, onRegisterSave]);
 
   useEffect(() => {
     if (phase !== "ready") return undefined;
