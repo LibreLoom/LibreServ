@@ -178,7 +178,10 @@ function PhotoInfoBody({ photo, photos, onSelectPhoto }) {
         </div>
       </div>
 
-      <Section icon={CalendarDays} title="Taken">
+      <Section
+        icon={CalendarDays}
+        title={photo.date_estimated ? "Added" : "Taken"}
+      >
         <p className="text-sm">
           {photo.taken_at
             ? new Date(photo.taken_at * 1000).toLocaleString()

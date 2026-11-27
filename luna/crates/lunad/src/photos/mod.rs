@@ -6,7 +6,7 @@
 //! uses embedded JPEG or Alpine `heif-dec`; video thumbs use optional
 //! `ffmpeg`. Originals are never rewritten.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use image::ImageReader;
@@ -47,6 +47,8 @@ pub struct Photo {
     pub name: String,
     pub size: u64,
     pub taken_at: i64,
+    /// `taken_at` is the file's added time because no capture date is known.
+    pub date_estimated: bool,
     pub width: u32,
     pub height: u32,
     pub thumb: String,
@@ -69,7 +71,7 @@ impl Photo {
     /// Stable opaque handle for a photo — safe to hand to guests, unlike the
     /// raw `drive_id`/`path` coordinates.
     pub fn opaque_id(&self) -> String {
-        blake3::hash(format!("{}\0{}", self.drive_id, self.path).as_bytes())
+        photo_key_hash(&self.drive_id, b"\0", &self.path)
             .to_hex()
             .to_string()
     }
@@ -91,12 +93,13 @@ impl Serialize for Photo {
             + self.lon.is_some() as usize
             + self.place_label.is_some() as usize;
         let opaque = self.opaque_id();
-        let mut st = s.serialize_struct("Photo", 17 + optional)?;
+        let mut st = s.serialize_struct("Photo", 18 + optional)?;
         st.serialize_field("id", &opaque)?;
         st.serialize_field("path", &opaque)?;
         st.serialize_field("name", &self.name)?;
         st.serialize_field("size", &self.size)?;
         st.serialize_field("taken_at", &self.taken_at)?;
+        st.serialize_field("date_estimated", &self.date_estimated)?;
         st.serialize_field("width", &self.width)?;
         st.serialize_field("height", &self.height)?;
         st.serialize_field("thumb", &self.thumb)?;
@@ -263,18 +266,31 @@ pub fn is_video(path: &Path) -> bool {
 }
 
 pub fn is_media(path: &Path) -> bool {
-    is_image(path) || is_video(path)
+    let Some(leaf) = crate::files::leaf_name(path) else {
+        return false;
+    };
+    Path::new(leaf.as_ref())
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            formats::lookup(ext).is_some()
+                || VIDEO_EXTS
+                    .iter()
+                    .any(|video| ext.eq_ignore_ascii_case(video))
+        })
 }
 
 fn ext_in(path: &Path, exts: &[&str]) -> bool {
-    let Some(leaf) = crate::files::leaf_of(path) else {
+    let Some(leaf) = crate::files::leaf_name(path) else {
         return false;
     };
-    Path::new(&leaf)
+    Path::new(leaf.as_ref())
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
+        .is_some_and(|ext| {
+            exts.iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+        })
 }
 
 /// Per-drive thumbnail directory `{prefix}-thumbs/` on the photo's own mount
@@ -346,9 +362,16 @@ fn prepare_thumbs_dir(drive_root: &Path, dir: &Path) -> anyhow::Result<()> {
 pub(crate) const THUMB_RECIPE: u32 = THUMB_GEN;
 
 fn thumb_path_in(thumb_dir: &Path, drive_id: &str, rel: &str) -> PathBuf {
-    let key = format!("{drive_id}:{rel}");
-    let hash = blake3::hash(key.as_bytes()).to_hex().to_string();
+    let hash = photo_key_hash(drive_id, b":", rel).to_hex();
     thumb_dir.join(format!("{hash}.v{THUMB_GEN}.jpg"))
+}
+
+fn photo_key_hash(drive_id: &str, separator: &[u8], rel: &str) -> blake3::Hash {
+    let mut hash = blake3::Hasher::new();
+    hash.update(drive_id.as_bytes());
+    hash.update(separator);
+    hash.update(rel.as_bytes());
+    hash.finalize()
 }
 
 /// The grid-sized WebP variant kept beside a 640 px thumbnail:
@@ -417,18 +440,45 @@ fn remove_preview_in(thumb_dir: &Path, drive_id: &str, rel: &str) {
 /// differs from the full one's: browsers keep a thumbnail for an hour
 /// (`THUMB_CACHE_CONTROL`), and the upgrade must not hide behind that.
 fn thumb_url_for(drive_id: &str, rel: &str, has_thumb: i64) -> String {
-    match has_thumb {
-        THUMB_NONE => String::new(),
-        THUMB_PREVIEW => format!("{}&q=preview", thumb_url(drive_id, rel)),
-        _ => thumb_url(drive_id, rel),
+    if has_thumb == THUMB_NONE {
+        return String::new();
     }
+    let suffix = if has_thumb == THUMB_PREVIEW {
+        "&q=preview"
+    } else {
+        ""
+    };
+    build_thumb_url(drive_id, rel, suffix)
 }
 
 pub fn thumb_url(drive_id: &str, rel: &str) -> String {
-    format!(
-        "/api/v1/photos/thumb?drive_id={drive_id}&path={}",
-        urlencode(rel)
-    )
+    build_thumb_url(drive_id, rel, "")
+}
+
+fn build_thumb_url(drive_id: &str, rel: &str, suffix: &str) -> String {
+    const PREFIX: &str = "/api/v1/photos/thumb?drive_id=";
+    const PATH_PARAM: &str = "&path=";
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(
+        PREFIX.len() + drive_id.len() + PATH_PARAM.len() + rel.len() + suffix.len(),
+    );
+    out.push_str(PREFIX);
+    out.push_str(drive_id);
+    out.push_str(PATH_PARAM);
+    for byte in rel.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
+                out.push(byte as char);
+            }
+            _ => {
+                out.push('%');
+                out.push(HEX[(byte >> 4) as usize] as char);
+                out.push(HEX[(byte & 0x0F) as usize] as char);
+            }
+        }
+    }
+    out.push_str(suffix);
+    out
 }
 
 /// Skip anything inside the drive's `.luna-<uuid>` namespace — marker, trash,
@@ -477,16 +527,16 @@ fn flash_to_i64(flash: Option<bool>) -> i64 {
     }
 }
 
-fn path_ext_lower(path: &str) -> String {
-    Path::new(path)
+fn path_format(path: &str) -> std::borrow::Cow<'_, str> {
+    let ext = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .unwrap_or_default()
+        .unwrap_or("");
+    formats::canonical_ext(ext)
 }
 
 fn normalize_format_ext(raw: &str) -> String {
-    formats::canonical_ext(raw)
+    formats::canonical_ext(raw).into_owned()
 }
 
 /// `MM-DD` with plausible ranges (the caller derives it from today's date, so
@@ -550,35 +600,37 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            let meta = match std::fs::symlink_metadata(entry.path()) {
-                Ok(m) => m,
-                Err(_) => continue,
+            // On filesystems with d_type this is already in the directory
+            // entry. Only media candidates need a separate stat.
+            let Ok(file_type) = entry.file_type() else {
+                continue;
             };
-            if meta.file_type().is_symlink() {
+            if !file_type.is_dir() && !file_type.is_file() {
                 continue;
             }
             let disk_name = entry.file_name();
             let item = disk_name.to_str().and_then(|n| private.get(n));
             let shown = item
-                .map(|i| i.name().to_string())
-                .unwrap_or_else(|| disk_name.to_string_lossy().into_owned());
-            if meta.is_dir() {
+                .map(|i| std::borrow::Cow::Borrowed(i.name()))
+                .unwrap_or_else(|| disk_name.to_string_lossy());
+            if file_type.is_dir() {
                 if item.is_none() && skip_photos_dir(&shown) {
                     continue;
                 }
                 stack.push((entry.path(), photos_indexer::join_rel(&dir_rel, &shown)));
                 continue;
             }
-            if !meta.is_file() || !is_media(Path::new(&shown)) {
+            if disk_name.to_str().is_none() || !is_media(Path::new(shown.as_ref())) {
                 continue;
             }
-            let path_buf = entry.path();
-            if disk_name.to_str().is_none() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if !meta.is_file() {
                 continue;
             }
             let rel = photos_indexer::join_rel(&dir_rel, &shown);
             seen.insert(rel.clone());
-            let name = shown;
             let size = meta.len() as i64;
             let mtime = meta
                 .modified()
@@ -586,12 +638,6 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
-            let kind = if is_video(&path_buf) {
-                "video"
-            } else {
-                "image"
-            };
-
             let dest = thumb_path_in(&thumb_dir, drive_id, &rel);
             if let Ok(Some((old_size, old_mtime, old_has_thumb))) = photo_cache_row(&conn, &rel)
                 && old_size == size
@@ -603,10 +649,17 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
                 continue;
             }
 
+            let path_buf = entry.path();
+            let kind = if is_video(&path_buf) {
+                "video"
+            } else {
+                "image"
+            };
+
             todo.push(ScanWork {
                 path_buf,
                 rel,
-                name,
+                name: shown.into_owned(),
                 size,
                 mtime,
                 kind,
@@ -620,18 +673,22 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
     // results. One core stays free for the web UI. A photo with a big enough
     // embedded preview gets that first; `upgrade_thumbs` does the full
     // decode later.
-    let workers = scan_workers();
-    let next = std::sync::atomic::AtomicUsize::new(0);
+    let workers = if todo.is_empty() {
+        0
+    } else {
+        scan_workers().min(todo.len())
+    };
+    let todo = std::sync::Mutex::new(todo.into_iter());
     let (tx, rx) = std::sync::mpsc::sync_channel::<(PendingUpsert, ScanOutcome)>(workers * 4);
     std::thread::scope(|scope| -> anyhow::Result<()> {
         for worker in 0..workers {
             let tx = tx.clone();
-            let (todo, next) = (&todo, &next);
+            let todo = &todo;
             scope.spawn(move || {
                 set_batch_decode_slot(worker);
                 loop {
-                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let Some(work) = todo.get(i) else {
+                    let work = todo.lock().unwrap().next();
+                    let Some(work) = work else {
                         break;
                     };
                     if tx.send(index_scanned_file(work)).is_err() {
@@ -647,33 +704,41 @@ pub fn scan_drive(drive_id: &str, root: &Path) -> anyhow::Result<ScanReport> {
             report.thumbnailed += u64::from(outcome.thumbnailed);
             report.previews += u64::from(row.has_thumb == THUMB_PREVIEW);
             pending.push(row);
-            if let Err(e) = flush_if_full(&mut conn, &mut pending) {
-                // Stop the workers: they see the next index past the end.
-                next.store(usize::MAX / 2, std::sync::atomic::Ordering::Relaxed);
-                return Err(e);
-            }
+            // On write failure the receiver is dropped before the scoped
+            // threads join, so senders stop when they next submit a row.
+            flush_if_full(&mut conn, &mut pending)?;
         }
         Ok(())
     })?;
     flush_batch(&mut conn, &mut pending)?;
 
     // Prune vanished paths in one pass.
-    let existing: Vec<String> = {
+    let stale = {
         let mut stmt = conn.prepare("SELECT path FROM photos")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        rows.filter_map(|r| r.ok()).collect()
+        let mut rows = stmt.query([])?;
+        let mut stale = Vec::new();
+        while let Some(row) = rows.next()? {
+            if let Ok(path) = row.get_ref(0)?.as_str()
+                && !seen.contains(path)
+            {
+                stale.push(path.to_owned());
+            }
+        }
+        stale
     };
-    let stale: Vec<String> = existing.into_iter().filter(|p| !seen.contains(p)).collect();
     if !stale.is_empty() {
         let tx = conn.unchecked_transaction()?;
-        for path in &stale {
-            tx.execute("DELETE FROM photos WHERE path = ?1", params![path])?;
-            tx.execute("DELETE FROM favorites WHERE path = ?1", params![path])?;
-            tx.execute(
-                "DELETE FROM album_items WHERE drive_id = ?1 AND path = ?2",
-                params![drive_id, path],
-            )?;
-            report.pruned += 1;
+        {
+            let mut photos = tx.prepare("DELETE FROM photos WHERE path = ?1")?;
+            let mut favorites = tx.prepare("DELETE FROM favorites WHERE path = ?1")?;
+            let mut albums =
+                tx.prepare("DELETE FROM album_items WHERE drive_id = ?1 AND path = ?2")?;
+            for path in &stale {
+                photos.execute(params![path])?;
+                favorites.execute(params![path])?;
+                albums.execute(params![drive_id, path])?;
+                report.pruned += 1;
+            }
         }
         tx.commit()?;
         // The file is gone (deleted while Luna was off, or by another
@@ -712,7 +777,7 @@ pub(crate) fn scan_workers() -> usize {
 }
 
 /// EXIF, place and thumbnail for one file. Runs on a scan worker thread.
-fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
+fn index_scanned_file(work: ScanWork) -> (PendingUpsert, ScanOutcome) {
     let ScanWork {
         path_buf,
         rel,
@@ -722,7 +787,6 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
         kind,
         dest,
     } = work;
-    let (rel, name, size, mtime, kind) = (rel.clone(), name.clone(), *size, *mtime, *kind);
     let limits = crate::budget::limits();
     if (size as u64) > limits.source_max_bytes {
         let row = PendingUpsert {
@@ -758,7 +822,7 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
         );
     }
 
-    let meta = crate::photos::exif::capture_meta(path_buf).unwrap_or_default();
+    let meta = crate::photos::exif::capture_meta(&path_buf).unwrap_or_default();
     // `0` means no EXIF capture date; list/sort fall back to mtime.
     let taken_at = meta.taken_at.unwrap_or(0);
     let lat = meta.lat;
@@ -778,7 +842,7 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
     let mut height = 0;
     let mut has_thumb = THUMB_NONE;
     let mut outcome = ScanOutcome::default();
-    match ensure_thumb_first(path_buf, dest, kind) {
+    match ensure_thumb_first(&path_buf, &dest, kind) {
         Ok((w, h, made, quality)) => {
             width = w;
             height = h;
@@ -791,7 +855,7 @@ fn index_scanned_file(work: &ScanWork) -> (PendingUpsert, ScanOutcome) {
     }
 
     let duration_secs = if kind == "video" {
-        probe_video_duration_secs(path_buf)
+        probe_video_duration_secs(&path_buf)
     } else {
         0
     };
@@ -835,8 +899,8 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
         return Ok(());
     }
     let tx = conn.unchecked_transaction()?;
-    for row in pending.drain(..) {
-        tx.execute(
+    {
+        let mut upsert = tx.prepare_cached(
             "INSERT INTO photos (path, name, size, mtime, taken_at, kind, width, height, lat, lon, place_label, place_city, place_region, place_country, camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT(path) DO UPDATE SET
@@ -861,7 +925,9 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                flash = excluded.flash,
                duration_secs = excluded.duration_secs,
                has_thumb = excluded.has_thumb",
-            params![
+        )?;
+        for row in pending.drain(..) {
+            upsert.execute(params![
                 row.path,
                 row.name,
                 row.size,
@@ -884,15 +950,16 @@ fn flush_batch(conn: &mut Connection, pending: &mut Vec<PendingUpsert>) -> anyho
                 row.flash,
                 row.duration_secs as i64,
                 row.has_thumb,
-            ],
-        )?;
+            ])?;
+        }
     }
     tx.commit()?;
     Ok(())
 }
 
 fn photo_cache_row(conn: &Connection, rel: &str) -> anyhow::Result<Option<(i64, i64, bool)>> {
-    let mut stmt = conn.prepare("SELECT size, mtime, has_thumb FROM photos WHERE path = ?1")?;
+    let mut stmt =
+        conn.prepare_cached("SELECT size, mtime, has_thumb FROM photos WHERE path = ?1")?;
     let mut rows = stmt.query(params![rel])?;
     if let Some(row) = rows.next()? {
         let has: i64 = row.get(2)?;
@@ -1101,7 +1168,8 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
     let conn = open_drive_db(root)?;
     let mut stmt = conn.prepare(
         "SELECT path, name, size, COALESCE(NULLIF(taken_at, 0), mtime), kind, width, height, lat, lon, place_label,
-                camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb
+                camera_make, camera_model, lens, iso, focal_mm, flash, duration_secs, has_thumb,
+                taken_at = 0
          FROM photos WHERE path = ?1",
     )?;
     let photo = stmt
@@ -1124,12 +1192,14 @@ pub fn index_one(drive_id: &str, root: &Path, rel: &str) -> anyhow::Result<Optio
             let flash: i64 = row.get(15)?;
             let duration_secs: i64 = row.get(16)?;
             let has_thumb: i64 = row.get(17)?;
+            let date_estimated: bool = row.get(18)?;
             Ok(Photo {
                 drive_id: drive_id.to_string(),
                 path: path.clone(),
                 name,
                 size: size as u64,
                 taken_at,
+                date_estimated,
                 width: width as u32,
                 height: height as u32,
                 thumb: thumb_url_for(drive_id, &path, has_thumb),
@@ -1938,41 +2008,54 @@ pub fn list_photos(
 ) -> anyhow::Result<PhotosPage> {
     let album_paths = load_album_paths(mounts, filter)?;
     let mut all = Vec::new();
+    let cap = i64::from(offset) + i64::from(limit) + 1;
     for (id, root) in mounts {
         if let Some(want) = drive_id
             && want != id
         {
             continue;
         }
-        if photos_db_path(root).is_none() {
-            continue;
-        }
+        let album_on_drive = match &album_paths {
+            Some(paths) => match paths.get(id) {
+                Some(paths) => Some(paths),
+                None => continue,
+            },
+            None => None,
+        };
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        // offset + limit + 1 rows per drive are enough to fill this page from
-        // the merged order and still tell whether more follow.
-        let cap = i64::from(offset) + i64::from(limit) + 1;
-        let rows = query_drive_photos(&conn, id, filter, album_paths.as_ref(), Some(cap))?;
+        let rows = query_drive_photos(&conn, id, filter, album_on_drive, cap)?;
         all.extend(rows);
     }
-    all.sort_by(|a, b| {
-        b.taken_at
-            .cmp(&a.taken_at)
-            .then_with(|| a.path.cmp(&b.path))
-            .then_with(|| a.drive_id.cmp(&b.drive_id))
-    });
     let total = all.len();
     let start = (offset as usize).min(total);
-    let end = (start + limit as usize).min(total);
-    let items = all[start..end].to_vec();
-    let next_offset = end as u32;
+    let end = start.saturating_add(limit as usize).min(total);
+    // Partition away the unrequested tail and prefix before sorting the
+    // page. (taken_at, path, drive_id) uniquely identifies its position.
+    if end < total {
+        all.select_nth_unstable_by(end, timeline_order);
+        all.truncate(end);
+    }
+    if start > 0 && start < end {
+        all.select_nth_unstable_by(start, timeline_order);
+    }
+    let mut items = Vec::with_capacity(end - start);
+    items.extend(all.into_iter().skip(start));
+    items.sort_unstable_by(timeline_order);
     Ok(PhotosPage {
         has_more: end < total,
-        next_offset,
+        next_offset: end as u32,
         items,
     })
+}
+
+fn timeline_order(a: &Photo, b: &Photo) -> std::cmp::Ordering {
+    b.taken_at
+        .cmp(&a.taken_at)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.drive_id.cmp(&b.drive_id))
 }
 
 /// Photos that share the same file name and byte size (likely duplicates).
@@ -1981,12 +2064,8 @@ pub fn list_duplicates(
     mounts: &[(String, PathBuf)],
     limit: u32,
 ) -> anyhow::Result<Vec<DuplicateGroup>> {
-    use std::collections::HashMap;
     let mut map: HashMap<(u64, String), Vec<Photo>> = HashMap::new();
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
@@ -1997,7 +2076,7 @@ pub fn list_duplicates(
                     COALESCE(duration_secs, 0),
                     COALESCE(camera_make, ''), COALESCE(camera_model, ''),
                     COALESCE(lens, ''), COALESCE(iso, 0), COALESCE(focal_mm, 0),
-                    COALESCE(flash, -1)
+                    COALESCE(flash, -1), taken_at = 0
              FROM photos",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -2006,15 +2085,17 @@ pub fn list_duplicates(
             let size: i64 = row.get(2)?;
             let has_thumb: i64 = row.get(10)?;
             let place_label: String = row.get(9)?;
+            let thumb = thumb_url_for(drive_id, &path, has_thumb);
             Ok(Photo {
                 drive_id: drive_id.clone(),
-                path: path.clone(),
+                path,
                 name,
                 size: size.max(0) as u64,
                 taken_at: row.get(3)?,
+                date_estimated: row.get(18)?,
                 width: row.get::<_, i64>(4)?.max(0) as u32,
                 height: row.get::<_, i64>(5)?.max(0) as u32,
-                thumb: thumb_url_for(drive_id, &path, has_thumb),
+                thumb,
                 kind: row.get(6)?,
                 lat: row.get(7)?,
                 lon: row.get(8)?,
@@ -2042,12 +2123,7 @@ pub fn list_duplicates(
         .into_iter()
         .filter(|(_, items)| items.len() > 1)
         .map(|((size, name), mut items)| {
-            items.sort_by(|a, b| {
-                b.taken_at
-                    .cmp(&a.taken_at)
-                    .then_with(|| a.path.cmp(&b.path))
-                    .then_with(|| a.drive_id.cmp(&b.drive_id))
-            });
+            items.sort_by(timeline_order);
             DuplicateGroup {
                 key: format!("{size}:{name}"),
                 size,
@@ -2068,10 +2144,12 @@ pub fn list_duplicates(
     Ok(groups)
 }
 
+type AlbumPaths = HashMap<String, HashSet<String>>;
+
 fn load_album_paths(
     mounts: &[(String, PathBuf)],
     filter: &ListFilter,
-) -> anyhow::Result<Option<HashSet<(String, String)>>> {
+) -> anyhow::Result<Option<AlbumPaths>> {
     let album_id = filter
         .album_id
         .as_deref()
@@ -2085,24 +2163,28 @@ fn load_album_paths(
     match (album_id, home) {
         (None, None) => Ok(None),
         // Incomplete album filter must not fall through to an unfiltered library list.
-        (None, Some(_)) | (Some(_), None) => Ok(Some(HashSet::new())),
+        (None, Some(_)) | (Some(_), None) => Ok(Some(AlbumPaths::new())),
         (Some(album_id), Some(home)) => {
             let Some((_, root)) = mounts.iter().find(|(id, _)| id == home) else {
-                return Ok(Some(HashSet::new()));
+                return Ok(Some(AlbumPaths::new()));
             };
-            if photos_db_path(root).is_none() {
-                return Ok(Some(HashSet::new()));
-            }
-            let conn = open_drive_db(root)?;
+            let conn = match open_drive_db(root) {
+                Ok(conn) => conn,
+                Err(err) if crate::drives::drive_db::is_no_marker(&err) => {
+                    return Ok(Some(AlbumPaths::new()));
+                }
+                Err(err) => return Err(err),
+            };
             let mut stmt =
                 conn.prepare("SELECT drive_id, path FROM album_items WHERE album_id = ?1")?;
-            let set = stmt
-                .query_map(params![album_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-            Ok(Some(set))
+            let rows = stmt.query_map(params![album_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut paths = AlbumPaths::new();
+            for (drive, path) in rows.flatten() {
+                paths.entry(drive).or_default().insert(path);
+            }
+            Ok(Some(paths))
         }
     }
 }
@@ -2111,8 +2193,8 @@ fn query_drive_photos(
     conn: &Connection,
     drive_id: &str,
     filter: &ListFilter,
-    album_paths: Option<&HashSet<(String, String)>>,
-    cap: Option<i64>,
+    album_paths: Option<&HashSet<String>>,
+    cap: i64,
 ) -> anyhow::Result<Vec<Photo>> {
     let uid = filter
         .favorites_user
@@ -2260,7 +2342,7 @@ fn query_drive_photos(
                 COALESCE(p.duration_secs, 0),
                 COALESCE(p.camera_make, ''), COALESCE(p.camera_model, ''),
                 COALESCE(p.lens, ''), COALESCE(p.iso, 0), COALESCE(p.focal_mm, 0),
-                COALESCE(p.flash, -1)
+                COALESCE(p.flash, -1), p.taken_at = 0
          FROM photos p
          LEFT JOIN favorites f ON f.path = p.path AND f.user_id = ?1
          WHERE (?2 = '' OR p.name LIKE ?2 COLLATE NOCASE OR p.path LIKE ?2 COLLATE NOCASE
@@ -2368,20 +2450,24 @@ fn query_drive_photos(
     if let Some(pq) = parsed_q.as_ref().filter(|p| !p.is_empty()) {
         allowed.extend(pq.formats.iter().cloned());
     }
-    // A page needs only this drive's newest `cap` rows when nothing below
-    // drops rows in Rust: SQLite keeps a bounded top-N heap instead of every
-    // photo becoming a `Photo`. Same order as `list_photos`' merge sort.
-    if let Some(cap) = cap
-        && album_paths.is_none()
-        && allowed.is_empty()
-    {
-        sql.push_str(&format!(
-            " ORDER BY COALESCE(NULLIF(p.taken_at, 0), p.mtime) DESC, p.path LIMIT {cap}"
-        ));
+    // This drive can contribute at most offset + limit + 1 matching photos
+    // to the merged page. With a Rust-side filter, stop after that many
+    // survivors instead of materializing every matching database row.
+    sql.push_str(" ORDER BY COALESCE(NULLIF(p.taken_at, 0), p.mtime) DESC, p.path");
+    if album_paths.is_none() && allowed.is_empty() {
+        sql.push_str(" LIMIT ?");
+        binds.push(cap.into());
     }
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(binds), |row| {
-        let path: String = row.get(0)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut rows = stmt.query(params_from_iter(binds))?;
+    let mut photos = Vec::new();
+    while let Some(row) = rows.next()? {
+        let path = row.get_ref(0)?.as_str()?;
+        if album_paths.is_some_and(|paths| !paths.contains(path))
+            || (!allowed.is_empty() && !allowed.contains(path_format(path).as_ref()))
+        {
+            continue;
+        }
         let has_thumb: i64 = row.get(10)?;
         let favorited: i64 = row.get(11)?;
         let place_label: String = row.get(9)?;
@@ -2392,15 +2478,16 @@ fn query_drive_photos(
         let iso: i64 = row.get(16)?;
         let focal_mm: f64 = row.get(17)?;
         let flash: i64 = row.get(18)?;
-        Ok(Photo {
+        photos.push(Photo {
             drive_id: drive_id.to_string(),
-            path: path.clone(),
+            path: path.to_owned(),
             name: row.get(1)?,
             size: row.get::<_, i64>(2)? as u64,
             taken_at: row.get(3)?,
+            date_estimated: row.get(19)?,
             width: row.get::<_, i64>(4)? as u32,
             height: row.get::<_, i64>(5)? as u32,
-            thumb: thumb_url_for(drive_id, &path, has_thumb),
+            thumb: thumb_url_for(drive_id, path, has_thumb),
             kind: row.get(6)?,
             lat: row.get(7)?,
             lon: row.get(8)?,
@@ -2417,24 +2504,10 @@ fn query_drive_photos(
             flash,
             duration_secs: duration_secs.max(0) as u32,
             favorited: favorited != 0,
-        })
-    })?;
-
-    let mut photos = Vec::new();
-    for row in rows {
-        let photo = row?;
-        if let Some(set) = album_paths
-            && !set.contains(&(drive_id.to_string(), photo.path.clone()))
-        {
-            continue;
+        });
+        if photos.len() as i64 >= cap {
+            break;
         }
-        if !allowed.is_empty() {
-            let ext = normalize_format_ext(&path_ext_lower(&photo.path));
-            if !allowed.contains(&ext) {
-                continue;
-            }
-        }
-        photos.push(photo);
     }
     Ok(photos)
 }
@@ -2675,9 +2748,6 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
     use std::collections::HashMap;
     let mut map: HashMap<String, PlaceCluster> = HashMap::new();
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2727,9 +2797,6 @@ pub fn list_places(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceClus
 pub fn list_place_markers(mounts: &[(String, PathBuf)]) -> anyhow::Result<Vec<PlaceMarker>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2782,9 +2849,6 @@ pub fn list_cameras(
     use std::collections::HashMap;
     let mut map: HashMap<(String, String), u64> = HashMap::new();
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2859,9 +2923,6 @@ pub fn list_filter_facets(
     let mut focal_max: Option<f64> = None;
 
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2889,7 +2950,7 @@ pub fn list_filter_facets(
                 if !path_allowed_by_grants(path_grants, visible, drive_id, &path) {
                     continue;
                 }
-                let ext = normalize_format_ext(&path_ext_lower(&path));
+                let ext = path_format(&path).into_owned();
                 if ext.is_empty() {
                     continue;
                 }
@@ -2968,19 +3029,6 @@ pub fn place_key(lat: f64, lon: f64) -> String {
 /// region or country, else raw coordinates.
 pub fn place_label_for(lat: f64, lon: f64) -> String {
     crate::photos::places::label_for(lat, lon)
-}
-
-fn urlencode(input: &str) -> String {
-    let mut out = String::new();
-    for byte in input.as_bytes() {
-        match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'/' => {
-                out.push(*byte as char);
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
 }
 
 // --- Favorites / albums (on-drive library) ---
@@ -3080,9 +3128,6 @@ pub fn list_albums(
 ) -> anyhow::Result<Vec<Album>> {
     let mut out = Vec::new();
     for (drive_id, root) in mounts {
-        if photos_db_path(root).is_none() {
-            continue;
-        }
         let conn = match open_drive_db(root) {
             Ok(c) => c,
             Err(_) => continue,
