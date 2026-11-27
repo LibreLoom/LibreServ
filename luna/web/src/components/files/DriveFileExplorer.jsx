@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2, Users } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2, Share2 } from "lucide-react";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import { BackupRowActions, VersionsModal } from "./backupsView.jsx";
@@ -646,7 +646,7 @@ export default function DriveFileExplorer({
         key: "share",
         label: "Share",
         aria: `Sharing for ${ctx.displayName}`,
-        icon: Users,
+        icon: Share2,
         run: () => setAccessTarget({ path: ctx.fullPath }),
       });
     }

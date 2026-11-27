@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Settings2, Trash2, Users } from "lucide-react";
+import { Lock, Settings2, Trash2, Share2 } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -62,7 +62,7 @@ export function ShareButton({ label, onClick, surface = "secondary" }) {
         aria-label={`Sharing for ${label}`}
         onClick={onClick}
       >
-        <Users size={ICON_SIZE.sm} />
+        <Share2 size={ICON_SIZE.sm} />
       </Button>
     </Tooltip>
   );

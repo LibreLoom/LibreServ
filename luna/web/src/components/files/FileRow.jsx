@@ -10,7 +10,7 @@ import {
   Info,
   Pencil,
   Trash2,
-  Users,
+  Share2,
 } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -134,7 +134,7 @@ function FileRow({
       key: "share",
       label: "Sharing",
       aria: `Sharing for ${displayName}`,
-      icon: Users,
+      icon: Share2,
       // The row has always spelled this one out; the sheet says the same word.
       text: true,
       run: () => api.share(ctx),
