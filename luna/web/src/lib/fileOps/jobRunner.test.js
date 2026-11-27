@@ -193,7 +193,7 @@ describe("job runner: how jobs end", () => {
     api.state.jobs = [];
     advance(JOB_POLL_MS);
     await tick();
-    expect(api.getJson).toHaveBeenCalledWith("/api/v1/jobs/j1");
+    expect(api.getJson).toHaveBeenCalledWith("/api/v1/jobs/j1", { signal: expect.any(AbortSignal) });
     expect(store.getState().ops[0].items[0].state).toBe("failed");
   });
 

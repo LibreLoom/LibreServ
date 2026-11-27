@@ -93,11 +93,14 @@ export default function Dropdown({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0, room: 0 });
+  const [activeValue, setActiveValue] = useState(/** @type {string|null} */ (null));
   const containerRef = useRef(null);
   const portalRef = useRef(null);
+  const listRef = useRef(null);
   const buttonRef = useRef(null);
+  const activeIndex = activeValue === null ? -1 : options.findIndex((option) => option.value === activeValue);
+  const keyboardValue = useRef(null);
   useSmoothResize(buttonRef, { x: !fullWidth && !renderTrigger });
 
   const isForm = size === "form" || variant === "form";
@@ -120,19 +123,31 @@ export default function Dropdown({
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const menuWidth = portalRef.current?.offsetWidth || rect.width;
-      let left = (align === "end" ? rect.right - menuWidth : rect.left) + window.scrollX;
-      if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
-      if (left < 8) left = 8;
-      const next = { top: rect.bottom + window.scrollY + 4, left, width: rect.width };
-      setPosition((prev) => (prev.top === next.top && prev.left === next.left && prev.width === next.width ? prev : next));
+      const viewport = window.visualViewport;
+      const x = viewport?.offsetLeft ?? 0;
+      const y = viewport?.offsetTop ?? 0;
+      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const preferredLeft = align === "end" ? rect.right - menuWidth : rect.left;
+      const left = Math.max(x + 8, Math.min(preferredLeft, x + viewportWidth - menuWidth - 8));
+      const maxHeight = menu ? 288 : 256;
+      const desiredHeight = Math.min(listRef.current?.scrollHeight || 0, maxHeight);
+      const below = y + viewportHeight - rect.bottom - 12;
+      const above = rect.top - y - 12;
+      const flip = below < desiredHeight && above > below;
+      const room = Math.max(0, flip ? above : below);
+      const top = flip ? rect.top - 4 - Math.min(desiredHeight, room) : rect.bottom + 4;
+      const next = { top: top + window.scrollY, left: left + window.scrollX, width: rect.width, room };
+      setPosition((prev) => prev.top === next.top && prev.left === next.left &&
+        prev.width === next.width && prev.room === next.room ? prev : next);
     }
-  }, [align]);
+  }, [align, menu]);
 
   // A custom trigger sits inside a span — focus the control inside it.
   const focusTrigger = useCallback(() => {
     const el = buttonRef.current;
     const target = el?.matches?.("button") ? el : el?.querySelector?.("button");
-    (target || el)?.focus?.();
+    (target || el)?.focus?.({ preventScroll: true });
   }, []);
 
   const closeTimerRef = useRef(null);
@@ -149,14 +164,19 @@ export default function Dropdown({
   }, [onOpenChange]);
 
   const close = useCallback(() => {
-    setIsClosing(true);
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = setTimeout(() => {
+    if (closeTimerRef.current !== null) return;
+    const finish = () => {
       closeTimerRef.current = null;
       setIsOpen(false);
       setIsClosing(false);
-      setActiveIndex(-1);
-    }, 160);
+      setActiveValue(null);
+      keyboardValue.current = null;
+    };
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) finish();
+    else {
+      setIsClosing(true);
+      closeTimerRef.current = setTimeout(finish, 160);
+    }
     onOpenChangeRef.current?.(false);
   }, []);
 
@@ -181,19 +201,22 @@ export default function Dropdown({
   }, [openProp]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isClosing) return;
     function handleClickOutside(event) {
       if (containerRef.current?.contains(event.target) || portalRef.current?.contains(event.target)) return;
       close();
     }
     function handleEscape(event) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        event.stopPropagation();
         close();
         focusTrigger();
       }
     }
     let frame = 0;
-    function handleScroll() {
+    function handleScroll(event) {
+      if (event?.target instanceof Node && portalRef.current?.contains(event.target)) return;
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
@@ -201,22 +224,37 @@ export default function Dropdown({
       });
     }
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
+    window.addEventListener("keydown", handleEscape, true);
     window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
     window.addEventListener("resize", handleScroll);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", handleScroll);
+    viewport?.addEventListener("scroll", handleScroll);
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => handleScroll(undefined)) : null;
+    if (buttonRef.current) observer?.observe(buttonRef.current);
+    if (listRef.current) observer?.observe(listRef.current);
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("keydown", handleEscape, true);
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
+      viewport?.removeEventListener("resize", handleScroll);
+      viewport?.removeEventListener("scroll", handleScroll);
+      observer?.disconnect();
     };
-  }, [isOpen, updatePosition, close, focusTrigger]);
+  }, [isOpen, isClosing, updatePosition, close, focusTrigger]);
 
   useLayoutEffect(() => {
     if (!isOpen) return;
     updatePosition();
-  }, [isOpen, updatePosition]);
+  }, [isOpen, updatePosition, options.length]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || isClosing || activeIndex < 0 || keyboardValue.current !== activeValue) return;
+    keyboardValue.current = null;
+    listRef.current?.querySelector(`[data-option-index="${activeIndex}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex, activeValue, isClosing, isOpen]);
 
   const handleSelect = (optionValue) => {
     if (menu && options.find((o) => o.value === optionValue)?.keepOpen) {
@@ -253,7 +291,8 @@ export default function Dropdown({
     const next = at === -1
       ? (dir > 0 ? 0 : enabledIndexes.length - 1)
       : (at + dir + enabledIndexes.length) % enabledIndexes.length;
-    setActiveIndex(enabledIndexes[next]);
+    keyboardValue.current = options[enabledIndexes[next]].value;
+    setActiveValue(keyboardValue.current);
   };
 
   const handleKeyDown = (event) => {
@@ -266,7 +305,8 @@ export default function Dropdown({
         const direction = event.key === "ArrowDown" ? 1 : -1;
         let index = direction > 0 ? 0 : options.length - 1;
         while (options[index]?.disabled) index += direction;
-        setActiveIndex(options[index] ? index : -1);
+        keyboardValue.current = options[index]?.value ?? null;
+        setActiveValue(keyboardValue.current);
       }
       return;
     }
@@ -315,7 +355,7 @@ export default function Dropdown({
           hoverClass,
           triggerClassName,
         )}
-        aria-expanded={isOpen}
+        aria-expanded={isOpen && !isClosing}
         aria-haspopup={menu ? "menu" : "listbox"}
         aria-label={ariaLabel || (label ? `${label}: ${selectedOption?.label || "select"}` : undefined)}
       >
@@ -352,6 +392,7 @@ export default function Dropdown({
           <div
             ref={portalRef}
             data-slot="dropdown-menu"
+            inert={isClosing || undefined}
             style={{
               position: "absolute",
               top: position.top,
@@ -360,10 +401,12 @@ export default function Dropdown({
             }}
             className={cn(
               "z-[100]",
-              isClosing ? "animate-dropdown-close" : "animate-dropdown-open"
+              isClosing ? "animate-dropdown-close" : "animate-dropdown-open",
+              "motion-reduce:animate-none",
             )}
           >
             <ul
+              ref={listRef}
               role={menu ? "menu" : "listbox"}
               aria-label={menu ? menuLabel : undefined}
               className={cn(
@@ -375,6 +418,7 @@ export default function Dropdown({
                 menu && "min-w-[12rem] max-h-72",
               )}
               tabIndex={-1}
+              style={position.room > 0 ? { maxHeight: `min(${menu ? 18 : 16}rem, ${position.room}px)` } : undefined}
             >
               {menu && menuHeader ? (
                 <li role="none" data-slot="dropdown-header" className={cn("px-4 pt-3", options.length ? "pb-2" : "pb-3")}>
@@ -390,8 +434,8 @@ export default function Dropdown({
                     key={option.value}
                     role="none"
                     data-slot="dropdown-option"
-                    className={isClosing ? "" : "animate-dropdown-option"}
-                    style={isClosing ? undefined : { animationDelay: `${Math.min(i * (menu ? 45 : 30), 240)}ms` }}
+                    className={isClosing || i >= 8 ? "" : "animate-dropdown-option motion-reduce:animate-none"}
+                    style={isClosing || i >= 8 ? undefined : { animationDelay: `${Math.min(i * (menu ? 45 : 30), 240)}ms` }}
                   >
                     {showGroup ? (
                       <p className="px-4 pt-2.5 pb-1 font-mono text-xs text-primary">{option.group}</p>
@@ -402,7 +446,8 @@ export default function Dropdown({
                       aria-selected={menu ? undefined : selected}
                       disabled={option.disabled}
                       data-no-press-scale
-                      onMouseEnter={menu && !option.disabled ? () => setActiveIndex(i) : undefined}
+                      data-option-index={i}
+                      onMouseEnter={menu && !option.disabled ? () => setActiveValue(option.value) : undefined}
                       onClick={() => handleSelect(option.value)}
                       {...extraProps}
                       className={cn(

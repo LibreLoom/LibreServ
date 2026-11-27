@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -51,19 +51,21 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
 
   // A new src means new media to decode — replay the reveal and clear any
   // stale failure left by the previous source.
-  const [seenSrc, setSeenSrc] = useState(src);
-  if (seenSrc !== src) {
-    setSeenSrc(src);
+  const [seen, setSeen] = useState({ src, lite });
+  if (seen.src !== src || seen.lite !== lite) {
+    setSeen({ src, lite });
     setPhase("loading");
-    setFailed(false);
-    setThumbFallback(false);
+    if (seen.src !== src) {
+      setFailed(false);
+      setThumbFallback(false);
+    }
   }
 
   // Off-center carousel panes mount with autoPlay=false — pause a video that
   // kept playing after sliding away from center.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = /** @type {HTMLMediaElement|null} */ (mediaRef.current);
-    if (!autoPlay && typeof el?.pause === "function") {
+    if (!autoPlay && el instanceof HTMLMediaElement && !el.paused) {
       el.pause();
     }
   }, [autoPlay]);
@@ -90,7 +92,9 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
     if (!timed) return;
     const pending = ids.filter(perfPending);
     if (pending.length === 0) return;
-    const done = () => pending.forEach((id) => perfEnd(id));
+    const done = () => {
+      if (el?.isConnected) pending.forEach((id) => perfEnd(id));
+    };
     if (el instanceof HTMLImageElement && typeof el.decode === "function") el.decode().then(done, done);
     else done();
   }
@@ -151,8 +155,8 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
           className={`${THUMB_STAGE_CAP} rounded-large-element object-contain`}
           onLoad={(e) => endOnDecode(["W9"], e.currentTarget)}
           style={{
-            opacity: phase === "grown" || failed ? 0 : 1,
-            transition: reduced
+            opacity: !lite && (phase === "grown" || failed) ? 0 : 1,
+            transition: reduced || lite
               ? "none"
               : "opacity var(--motion-duration-medium1) var(--motion-easing-standard) var(--motion-duration-short3)",
           }}
@@ -192,6 +196,7 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
           }}
           controls
           autoPlay={autoPlay}
+          preload={autoPlay || timed ? "auto" : "metadata"}
           className="absolute inset-0 m-auto max-h-full max-w-full rounded-large-element"
           style={mediaStyle}
           src={src}
@@ -205,16 +210,15 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
             mediaRef.current = el;
             if (el && el.complete && el.naturalWidth > 0) handleReady();
           }}
-          src={src}
+          src={thumbFallback ? photo.thumb : src}
           alt={photo.name}
           draggable={false}
           className="absolute inset-0 m-auto max-h-full max-w-full object-contain"
           style={mediaStyle}
           onLoad={handleReady}
-          onError={(e) => {
+          onError={() => {
             if (canThumbFallback) {
               setThumbFallback(true);
-              e.currentTarget.src = photo.thumb;
             } else {
               if (timed) perfCancel("W9:full");
               setFailed(true);
@@ -222,7 +226,7 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
           }}
         />
       )}
-      {thumbFallback && !failed ? (
+      {!lite && thumbFallback && !failed ? (
         <p className="absolute inset-x-0 bottom-4 mx-auto w-fit max-w-[85%] rounded-pill surface-secondary px-4 py-2 text-center text-xs motion-safe:animate-in motion-safe:fade-in">
           The full-size photo could not load. This is a small preview.
         </p>

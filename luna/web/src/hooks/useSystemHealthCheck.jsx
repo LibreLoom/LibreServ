@@ -16,7 +16,8 @@ export function useSystemHealthCheck(refreshInterval = REFRESH_MS) {
   const isAdmin = user?.role === "admin";
   return useQuery({
     queryKey: ["system-health-check"],
-    queryFn: () => getJsonAllowErrorStatus("/api/v1/system/health/check"),
+    queryFn: ({ signal }) => getJsonAllowErrorStatus("/api/v1/system/health/check", { signal }),
+    staleTime: REFRESH_MS,
     enabled: isAdmin,
     refetchInterval: isAdmin ? refreshInterval : false,
     retry: 1,

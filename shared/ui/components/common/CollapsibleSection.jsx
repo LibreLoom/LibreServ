@@ -37,10 +37,10 @@ export default function CollapsibleSection({
         type="button"
         onClick={() => {
           haptic("light");
-          setOpen(!open);
+          setOpen((previous) => !previous);
         }}
         className={cn(
-          "flex items-center gap-1.5 motion-safe:transition-all w-full cursor-pointer active:motion-safe:scale-[0.99]",
+          "flex items-center gap-1.5 motion-safe:transition-[scale] w-full cursor-pointer active:motion-safe:scale-[0.99]",
           "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
           sizeClass,
           pill ? cn(onPage ? "text-secondary" : "text-primary", "font-medium py-2 px-3") : "text-inherit py-1",
@@ -59,17 +59,17 @@ export default function CollapsibleSection({
       <div
         id={contentId}
         aria-hidden={!open}
+        inert={!open}
         className={cn(
-          "grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
+          "grid motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         )}
       >
-        <div className="overflow-hidden">
+        <div className="min-h-0 overflow-hidden">
           <div
-            key={open ? "open" : "closed"}
             className={cn(
               pill ? "px-3 pb-2" : "pt-2 pl-6",
-              open && "animate-alert-enter"
+              open && "motion-safe:animate-alert-enter"
             )}
           >
             {children}

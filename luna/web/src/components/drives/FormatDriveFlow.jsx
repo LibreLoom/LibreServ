@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckCircle2, Circle, Link2Off, Loader2, Lock, PauseCircle, Trash2, Users } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -48,25 +48,27 @@ const felt = new Set();
  *   the window has closed, whatever step it was on. `onDone` gets the drive's
  *   id when the person chooses Open drive.
  */
-export default function FormatDriveFlow({ device, password, open = true, onDone, onCancel }) {
+export default function FormatDriveFlow(props) {
+  return <FormatDriveSession key={props.device.name} {...props} />;
+}
+
+/** @param {Parameters<typeof FormatDriveFlow>[0]} props */
+function FormatDriveSession({ device, password, open = true, onDone, onCancel }) {
   const client = useQueryClient();
   const { addToast } = useToast();
   const [attempt, setAttempt] = useState(0);
   const [runId, setRunId] = useState(device.format_id || null);
   const [starting, setStarting] = useState(false);
+  const startPending = useRef(false);
   const [startError, setStartError] = useState(/** @type {{ message: string, fresh: boolean } | null} */ (null));
   const [ready, setReady] = useState(/** @type {{ readyAt: number, skew: number } | null} */ (null));
-  // The browser's clock as of the last redraw; the countdown is worked out from it.
-  const [clockMs, setClockMs] = useState(() => Date.now());
-
   const preview = useQuery({
     queryKey: ["drive-format-preview", device.name, attempt],
-    enabled: !runId,
-    queryFn: async () => {
-      const result = await postJson(`${API}/preview`, { device: device.name });
+    enabled: open && !runId,
+    queryFn: async ({ signal }) => {
+      const result = await postJson(`${API}/preview`, { device: device.name }, { signal });
       // Counted on the server's clock: how far it is from ours, right now.
       const receivedAt = Date.now();
-      setClockMs(receivedAt);
       return { ...result, skew: clockSkew(result.now, receivedAt) };
     },
     retry: false,
@@ -78,8 +80,8 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
 
   const run = useQuery({
     queryKey: ["drive-format-run", runId],
-    enabled: Boolean(runId),
-    queryFn: () => getJson(`${API}/${encodeURIComponent(String(runId))}`),
+    enabled: open && Boolean(runId),
+    queryFn: ({ signal }) => getJson(`${API}/${encodeURIComponent(String(runId))}`, { signal }),
     refetchInterval: (query) => (query.state.data?.done || query.state.data?.failed ? false : 1000),
     // A dropped connection is not the end of an erase: keep asking. Only
     // "Luna has no record of it" is final.
@@ -107,14 +109,6 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
     client.invalidateQueries({ queryKey: ["drives-detected"] });
   }, [status, client]);
 
-  const looking = !runId && Boolean(preview.data);
-  // Redraw while the countdown runs; nothing else needs a clock.
-  useEffect(() => {
-    if (!looking) return undefined;
-    const timer = setInterval(() => setClockMs(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [looking]);
-
   const label = driveLabel(device, preview.data);
 
   const lookAgain = () => {
@@ -125,7 +119,12 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
   };
 
   const start = async () => {
-    if (!preview.data) return;
+    if (!open || !preview.data || startPending.current) return;
+    const skew = ready?.skew ?? preview.data.skew;
+    const now = Date.now();
+    if (secondsUntil(ready?.readyAt ?? preview.data.ready_at, skew, now) > 0 ||
+        now / 1000 + skew >= preview.data.expires_at) return;
+    startPending.current = true;
     setStarting(true);
     setStartError(null);
     try {
@@ -147,6 +146,7 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
         fresh: needsFreshPreview(e),
       });
     } finally {
+      startPending.current = false;
       setStarting(false);
     }
   };
@@ -186,7 +186,7 @@ export default function FormatDriveFlow({ device, password, open = true, onDone,
               starting={starting}
               error={startError}
               ready={ready}
-              clockMs={clockMs}
+              active={open}
               onErase={start}
               onLookAgain={lookAgain}
               onCancel={close}
@@ -207,16 +207,9 @@ function driveLabel(device, preview) {
   return (device.label || firstPart || device.model || preview?.device?.model || "Drive").trim().slice(0, 80);
 }
 
-function LookStep({ preview, password, starting, error, ready, clockMs, onErase, onLookAgain, onCancel }) {
-  const clientNow = clockMs;
-  const readyAt = ready?.readyAt ?? preview.ready_at;
-  const skew = ready?.skew ?? preview.skew;
-  const seconds = secondsUntil(readyAt, skew, clientNow);
-  const expired = clientNow / 1000 + skew >= preview.expires_at;
+function LookStep({ preview, password, starting, error, ready, active, onErase, onLookAgain, onCancel }) {
   const cantProtect = Boolean(password) && preview.can_encrypt === false;
   const registered = Boolean(preview.registered_drive_id);
-  const waiting = seconds > 0 && !expired;
-  const canErase = seconds === 0 && !expired && !cantProtect;
   return (
     <>
       <FormatPreview preview={preview} />
@@ -234,11 +227,49 @@ function LookStep({ preview, password, starting, error, ready, clockMs, onErase,
         </ul>
       </div>
       {cantProtect && <InlineError>This is a test drive made from a folder. A folder can&apos;t be protected with a password.</InlineError>}
+      <FormatActions
+        key={preview.preview_id}
+        active={active}
+        readyAt={ready?.readyAt ?? preview.ready_at}
+        expiresAt={preview.expires_at}
+        skew={ready?.skew ?? preview.skew}
+        cantProtect={cantProtect}
+        starting={starting}
+        error={error}
+        onErase={onErase}
+        onLookAgain={onLookAgain}
+        onCancel={onCancel}
+      />
+    </>
+  );
+}
+
+function FormatActions({ active, readyAt, expiresAt, skew, cantProtect, starting, error, onErase, onLookAgain, onCancel }) {
+  const [now, setNow] = useState(Date.now);
+  const seconds = secondsUntil(readyAt, skew, now);
+  const expiresIn = (expiresAt - skew) * 1000 - now;
+  const expired = expiresIn <= 0;
+  const waiting = seconds > 0 && !expired;
+  const canErase = seconds === 0 && !expired && !cantProtect;
+  useEffect(() => {
+    if (!active || !Number.isFinite(expiresIn) || expired) return undefined;
+    const untilNextSecond = (readyAt - skew) * 1000 - now - (seconds - 1) * 1000;
+    const delay = waiting ? Math.min(expiresIn, untilNextSecond) : expiresIn;
+    const update = () => setNow(Date.now());
+    const timer = setTimeout(update, Math.max(1, Math.ceil(now + delay - Date.now())));
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [active, expired, expiresIn, now, readyAt, seconds, skew, waiting]);
+  return (
+    <>
       {expired && !error && <InlineError>Luna&apos;s look at this drive is out of date. Look at the drive again.</InlineError>}
       {error && <InlineError>{error.message}</InlineError>}
       <div className="flex flex-wrap gap-3">
         {expired || error?.fresh ? (
-          <Button onClick={onLookAgain}>Look at the drive again</Button>
+          <Button onClick={onLookAgain} disabled={starting}>Look at the drive again</Button>
         ) : (
           <Button variant="danger" disabled={!canErase} loading={starting} onClick={onErase}>
             {waiting ? `Erase drive (${seconds})` : "Erase drive"}

@@ -70,14 +70,14 @@ export function createJobRunner(env) {
   let inflight = 0;
   let blockedUntil = 0;
   let pollTimer = null;
+  let pollRequest = null;
   let retryTimer = null;
   let stopped = false;
+  const cancelling = new Set();
 
   const stored = () => readStoredJobs(env.storage);
   const saveJob = (/** @type {StoredJob} */ job) =>
     writeStoredJobs(env.storage, [...stored().filter((j) => j.jobId !== job.jobId), job]);
-  const dropJob = (/** @type {string} */ jobId) =>
-    writeStoredJobs(env.storage, stored().filter((j) => j.jobId !== jobId));
   const dropOp = (/** @type {string} */ opId) =>
     writeStoredJobs(env.storage, stored().filter((j) => j.opId !== opId));
 
@@ -134,6 +134,7 @@ export function createJobRunner(env) {
         void Promise.resolve(env.api.deleteJson(`/api/v1/jobs/${job.id}`)).catch(() => {});
         return;
       }
+      if (typeof job?.id !== "string" || !job.id) throw new Error("Luna couldn't confirm that the job started.");
       env.patchItem(op, item, {
         state: "running",
         jobId: job.id,
@@ -158,11 +159,11 @@ export function createJobRunner(env) {
       });
       schedulePoll();
     } catch (err) {
-      if (item.state === "cancelled") return;
+      if (!env.isAlive(op) || item.state === "cancelled") return;
       onSubmitError(op, item, err);
     } finally {
       inflight -= 1;
-      env.settle(op);
+      if (env.isAlive(op)) env.settle(op);
       pump();
     }
   }
@@ -222,6 +223,7 @@ export function createJobRunner(env) {
       env.patchItem(op, item, { state: "submitting", decision: null, error: null });
       Promise.resolve(op.source.remove(op.destDriveId, joinPath(op.destFolder, item.name))).then(
         () => {
+          if (!env.isAlive(op) || item.state !== "submitting") return;
           const { on_conflict: _drop, ...rest } = item.extra || {};
           void _drop;
           env.patchItem(op, item, { extra: rest, state: "queued" });
@@ -229,6 +231,7 @@ export function createJobRunner(env) {
           pump();
         },
         (err) => {
+          if (!env.isAlive(op) || item.state !== "submitting") return;
           const c = classifyError(err, "trash");
           env.patchItem(op, item, { state: "failed", error: c.message, retryable: false });
           env.notify(op, "error");
@@ -250,7 +253,12 @@ export function createJobRunner(env) {
   function cancelItem(/** @type {any} */ op, /** @type {any} */ item) {
     if (item.state === "running" && item.jobId) {
       // Luna reports the end state; the poll turns it into "cancelled".
-      void Promise.resolve(env.api.deleteJson(`/api/v1/jobs/${item.jobId}`)).catch(() => {});
+      const id = item.jobId;
+      if (cancelling.has(id)) return;
+      cancelling.add(id);
+      void Promise.resolve(env.api.deleteJson(`/api/v1/jobs/${id}`)).catch(() => {
+        cancelling.delete(id);
+      });
     } else if (item.state === "queued" || item.state === "submitting" || item.state === "needs-decision") {
       env.patchItem(op, item, { state: "cancelled", decision: null, waitingForQueue: false });
     }
@@ -259,7 +267,7 @@ export function createJobRunner(env) {
   // -- polling -------------------------------------------------------------------
 
   function schedulePoll() {
-    if (pollTimer != null || stopped || !accepted.size) return;
+    if (pollTimer != null || pollRequest || stopped || !accepted.size) return;
     pollTimer = env.setTimer(() => {
       pollTimer = null;
       void poll();
@@ -267,44 +275,78 @@ export function createJobRunner(env) {
   }
 
   async function poll() {
-    if (stopped || !accepted.size) return;
-    let list = null;
+    if (stopped || pollRequest || !accepted.size) return;
+    const request = new AbortController();
+    pollRequest = request;
+    const observed = [...accepted.entries()];
     try {
-      list = await env.api.getJson("/api/v1/jobs?limit=200");
-    } catch {
-      list = null; // can't reach Luna right now; try again next second
-    }
-    if (list && Array.isArray(list)) {
+      const list = await env.api.getJson("/api/v1/jobs?limit=200", { signal: request.signal });
+      if (request.signal.aborted || !Array.isArray(list)) return;
       const byId = new Map(list.map((j) => [j.id, j]));
-      await Promise.all(
-        [...accepted.entries()].map(async ([id, entry]) => {
-          let job = byId.get(id);
-          if (!job) {
-            try {
-              job = await env.api.getJson(`/api/v1/jobs/${id}`);
-            } catch (err) {
-              if (/** @type {any} */ (err)?.status === 404) gone(id, entry);
-              return;
-            }
-          }
-          if (job) handleJob(id, entry, job);
-        }),
-      );
+      const complete = new Set();
+      const invalidations = new Map();
+      const publish = (id, entry, job, missing = false) => {
+        if (request.signal.aborted || accepted.get(id) !== entry) return;
+        if (!env.isAlive(entry.op)) return;
+        const ended = missing ? gone(id, entry) : handleJob(id, entry, job, (keys) => {
+          for (const key of keys) invalidations.set(JSON.stringify(key), key);
+        });
+        if (ended) complete.add(id);
+      };
+      const flush = () => {
+        if (!complete.size) return;
+        writeStoredJobs(env.storage, stored().filter((job) => !complete.has(job.jobId)));
+        env.invalidate([...invalidations.values()]);
+        complete.clear();
+        invalidations.clear();
+      };
+      const missing = [];
+      env.batch(() => {
+        for (const [id, entry] of observed) {
+          const job = byId.get(id);
+          if (job) publish(id, entry, job);
+          else if (accepted.get(id) === entry) missing.push([id, entry]);
+        }
+        flush();
+        pump();
+      });
+      // Apply visible jobs immediately. A slow fallback lookup must not
+      // delay other rows, and the next poll must wait for every lookup.
+      const found = await Promise.all(missing.map(async ([id, entry]) => {
+        try {
+          const job = await env.api.getJson(`/api/v1/jobs/${id}`, { signal: request.signal });
+          return { id, entry, job };
+        } catch (err) {
+          return { id, entry, missing: /** @type {any} */ (err)?.status === 404 };
+        }
+      }));
+      if (!found.length || request.signal.aborted) return;
+      env.batch(() => {
+        for (const result of found) {
+          if (result.job || result.missing) publish(result.id, result.entry, result.job, result.missing);
+        }
+        flush();
+        pump();
+      });
+    } catch {
+      // Luna is temporarily unreachable. Keep the accepted rows intact.
+    } finally {
+      pollRequest = null;
+      schedulePoll();
     }
-    schedulePoll();
   }
 
   function gone(/** @type {string} */ id, /** @type {{ op: any, item: any }} */ { op, item }) {
     accepted.delete(id);
-    dropJob(id);
+    cancelling.delete(id);
     env.patchItem(op, item, { state: "failed", error: jobGone(op.kind), retryable: false });
     env.notify(op, "error");
     env.settle(op);
     blockedUntil = 0;
-    pump();
+    return true;
   }
 
-  function handleJob(/** @type {string} */ id, /** @type {{ op: any, item: any }} */ { op, item }, /** @type {any} */ job) {
+  function handleJob(/** @type {string} */ id, /** @type {{ op: any, item: any }} */ { op, item }, /** @type {any} */ job, invalidate) {
     const total = Number(job.total) || 0;
     const progress = Number(job.progress) || 0;
     const jobState = String(job.state || "running");
@@ -316,11 +358,11 @@ export function createJobRunner(env) {
       return;
     }
     accepted.delete(id);
-    dropJob(id);
+    cancelling.delete(id);
     blockedUntil = 0;
     if (jobState === "done") {
       env.patchItem(op, item, { state: "done", size: total, received: total || progress });
-      env.invalidate([
+      invalidate([
         ["files", op.driveId],
         ["files", op.destDriveId],
         ["trash", op.driveId],
@@ -329,7 +371,7 @@ export function createJobRunner(env) {
       ]);
     } else if (jobState === "cancelled") {
       env.patchItem(op, item, { state: "cancelled", size: total, received: progress, error: job.error || null });
-      env.invalidate([["files", op.driveId], ["files", op.destDriveId], ["jobs"]]);
+      invalidate([["files", op.driveId], ["files", op.destDriveId], ["jobs"]]);
     } else {
       env.patchItem(op, item, {
         state: "failed",
@@ -339,10 +381,10 @@ export function createJobRunner(env) {
         retryable: true,
       });
       env.notify(op, "error");
-      env.invalidate([["files", op.driveId], ["files", op.destDriveId], ["trash", op.driveId], ["jobs"]]);
+      invalidate([["files", op.driveId], ["files", op.destDriveId], ["trash", op.driveId], ["jobs"]]);
     }
     env.settle(op);
-    pump();
+    return true;
   }
 
   // -- the store's actions ----------------------------------------------------------
@@ -376,8 +418,13 @@ export function createJobRunner(env) {
     /** Forget the stored job ids of an op (dismissed or auto-cleared). */
     forget(/** @type {any} */ op) {
       if (op.kind !== "copy" && op.kind !== "move") return;
-      for (const [id, entry] of accepted) if (entry.op === op) accepted.delete(id);
+      for (const [id, entry] of accepted) {
+        if (entry.op !== op) continue;
+        accepted.delete(id);
+        cancelling.delete(id);
+      }
       dropOp(op.id);
+      pump();
     },
 
     /** After a reload: pick this tab's accepted jobs back up. */
@@ -420,6 +467,7 @@ export function createJobRunner(env) {
 
     stop() {
       stopped = true;
+      pollRequest?.abort();
       if (pollTimer != null) env.clearTimer(pollTimer);
       if (retryTimer != null) env.clearTimer(retryTimer);
     },

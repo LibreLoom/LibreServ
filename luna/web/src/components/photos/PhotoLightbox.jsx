@@ -175,12 +175,19 @@ export default function PhotoLightbox({
   const trackElRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const stepRef = useRef(0);
   const trackXRef = useRef(0);
-  const gestureRef = useRef(/** @type {{x0:number,y0:number,lastX:number,lastT:number,vel:number,axis:(string|null),grab:number,near:number}|null} */ (null));
+  const gestureRef = useRef(/** @type {{id:number,x0:number,y0:number,lastX:number,lastT:number,vel:number,axis:(string|null),grab:number,near:number}|null} */ (null));
   // Set when a real swipe ends so the synthetic click that follows touchend
   // (React attaches touch listeners passively — preventDefault won't reach it)
   // is swallowed instead of firing a second navigation under the fingertip.
-  const suppressClickRef = useRef(false);
+  const suppressClickUntil = useRef(0);
   const settleRef = useRef(/** @type {{dest:number,x:number,v:number,raf:(number|null),timer:(ReturnType<typeof setTimeout>|null)}|null} */ (null));
+  const stopSettling = useCallback(() => {
+    const settle = settleRef.current;
+    if (!settle) return;
+    settleRef.current = null;
+    if (settle.raf != null) cancelAnimationFrame(settle.raf);
+    if (settle.timer != null) clearTimeout(settle.timer);
+  }, []);
   const onIndexChangeRef = useRef(onIndexChange);
   onIndexChangeRef.current = onIndexChange;
   const live = useRef({ layoutIndex, index, photosLength: photos.length });
@@ -212,10 +219,12 @@ export default function PhotoLightbox({
   const firstPane = Math.max(0, Math.min(covFirst, reach?.first ?? covFirst));
   const lastPane = Math.min(photos.length - 1, Math.max(covLast, reach?.last ?? covLast));
 
-  const requestClose = useCallback(() => {
+  const requestClose = useCallback((feedback = true) => {
     if (isClosingRef.current) return;
-    haptic("light");
+    if (feedback) haptic("light");
     isClosingRef.current = true;
+    stopSettling();
+    gestureRef.current = null;
     setIsClosing(true);
     const delay = prefersReducedMotion() ? 0 : FULLSCREEN_EXIT_MS;
     if (delay === 0) {
@@ -226,25 +235,34 @@ export default function PhotoLightbox({
       exitTimerRef.current = null;
       onCloseRef.current?.();
     }, delay);
-  }, []);
+  }, [stopSettling]);
 
-  useEffect(() => {
-    if (!open && !isClosingRef.current) {
-      requestClose();
+  const previousOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (open && !previousOpen.current) {
+      if (exitTimerRef.current != null) clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+      isClosingRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Cancel an interrupted exit before it paints.
+      setIsClosing(false);
+      setLayoutIndex(live.current.index);
+      setPending(live.current.index);
+      setReach(null);
+      lastEmittedRef.current = null;
     }
-  }, [open, requestClose]);
+    previousOpen.current = open;
+    if (!open && !isClosingRef.current) {
+      requestClose(false);
+    }
+  }, [open, requestClose, setPending]);
 
   useEffect(() => () => {
     if (exitTimerRef.current != null) {
       clearTimeout(exitTimerRef.current);
       exitTimerRef.current = null;
     }
-    if (settleRef.current) {
-      if (settleRef.current.raf != null) cancelAnimationFrame(settleRef.current.raf);
-      if (settleRef.current.timer != null) clearTimeout(settleRef.current.timer);
-      settleRef.current = null;
-    }
-  }, []);
+    stopSettling();
+  }, [stopSettling]);
 
   // Before the first paint: the page must never scroll under a lightbox
   // already on screen.
@@ -254,10 +272,24 @@ export default function PhotoLightbox({
 
   useEffect(() => {
     if (!slideshow || isClosing || photos.length < 2) return undefined;
-    const id = setInterval(() => {
-      onIndexChangeRef.current(index >= photos.length - 1 ? 0 : index + 1);
-    }, 4000);
-    return () => clearInterval(id);
+    let tick;
+    function schedule() {
+      clearTimeout(tick);
+      if (document.visibilityState === "hidden") return;
+      tick = setTimeout(() => {
+        if (gestureRef.current || settleRef.current) {
+          schedule();
+          return;
+        }
+        onIndexChangeRef.current?.(index >= photos.length - 1 ? 0 : index + 1);
+      }, 4000);
+    }
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      clearTimeout(tick);
+      document.removeEventListener("visibilitychange", schedule);
+    };
   }, [slideshow, isClosing, index, photos.length]);
 
   /** Width of one pane + gap — the distance of a full slide step. */
@@ -304,9 +336,10 @@ export default function PhotoLightbox({
     // Pin the exact landing spot in the CURRENT window, then re-anchor. React
     // commits the shifted pane window and the layout effect re-pins under the
     // new anchor in the same frame — the photo under your finger never moves.
-    writeTrack(paneX(s.dest));
-    setLayoutIndex(s.dest);
-    syncTrackRef.current?.(s.dest);
+    const dest = Math.max(0, Math.min(s.dest, live.current.photosLength - 1));
+    writeTrack(paneX(dest));
+    setLayoutIndex(dest);
+    syncTrackRef.current?.(dest);
   }, [paneX, writeTrack]);
 
   /**
@@ -318,11 +351,7 @@ export default function PhotoLightbox({
    */
   const settleTo = useCallback(
     (dest, velocity = 0) => {
-      if (settleRef.current) {
-        if (settleRef.current.raf != null) cancelAnimationFrame(settleRef.current.raf);
-        if (settleRef.current.timer != null) clearTimeout(settleRef.current.timer);
-        settleRef.current = null;
-      }
+      stopSettling();
       const el = trackElRef.current;
       const s = {
         dest,
@@ -368,7 +397,7 @@ export default function PhotoLightbox({
       settleRef.current = s;
       s.raf = requestAnimationFrame(tick);
     },
-    [finishSettle, readTrack, paneX, writeTrack],
+    [finishSettle, readTrack, paneX, stopSettling, writeTrack],
   );
 
   /**
@@ -381,6 +410,7 @@ export default function PhotoLightbox({
    */
   const commitTo = useCallback(
     (dest, vel = 0, boost = false) => {
+      if (isClosingRef.current) return;
       setPending(dest);
       if (dest !== live.current.index) {
         lastEmittedRef.current = dest;
@@ -404,11 +434,14 @@ export default function PhotoLightbox({
     [settleTo, setPending, paneX, slideStep, readTrack, finishSettle],
   );
 
+  const viewing = Boolean(photo);
+  const detailsShowing = useRef(infoOpen);
+  detailsShowing.current = infoOpen;
   useEffect(() => {
-    if (!photo) return undefined;
+    if (!viewing) return undefined;
     function onKey(e) {
-      if (isClosingRef.current || e.key !== "Escape") return;
-      if (infoOpen) {
+      if (e.defaultPrevented || isClosingRef.current || e.key !== "Escape") return;
+      if (detailsShowing.current) {
         haptic("light");
         setInfoOpen(false);
       } else {
@@ -417,11 +450,10 @@ export default function PhotoLightbox({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [photo, requestClose, infoOpen]);
+  }, [viewing, requestClose]);
 
   // The rest of the lightbox keys go through the shared shortcut layer so the
   // `?` sheet lists them. Dialog-safe: this lightbox is itself the open dialog.
-  const viewing = Boolean(photo);
   useShortcut("ArrowLeft", () => {
     if (isClosingRef.current) return;
     // Navigate from the committed destination, not the rendered prop —
@@ -458,15 +490,9 @@ export default function PhotoLightbox({
   }, { label: "Move to trash", group: "Photos", enabled: viewing && !guest, allowInModal: true });
   const viewingVideo = viewing && photo?.kind === "video";
   useShortcut("Space", () => {
-    // Every neighbouring pane holds a (paused) video too; the centered one is current.
-    const videos = /** @type {HTMLVideoElement[]} */ ([...document.querySelectorAll('[data-slot="photo-lightbox-stage"] video')]);
-    const mid = window.innerWidth / 2;
-    const distance = (/** @type {HTMLVideoElement} */ el) => {
-      const r = el.getBoundingClientRect();
-      return Math.abs(r.left + r.width / 2 - mid);
-    };
-    const current = videos.sort((a, b) => distance(a) - distance(b))[0];
-    if (!current) return false;
+    if (isClosingRef.current || gestureRef.current || settleRef.current) return false;
+    const current = trackElRef.current?.querySelector("[data-current-photo] video");
+    if (!(current instanceof HTMLVideoElement)) return false;
     if (current.paused) current.play()?.catch(() => {});
     else current.pause();
   }, { label: "Play or pause the video", group: "Photos", enabled: viewingVideo, allowInModal: true });
@@ -474,7 +500,7 @@ export default function PhotoLightbox({
   const syncTrack = useCallback(
     /** @param {number} [fromLayout] */
     (fromLayout) => {
-      if (gestureRef.current) return;
+      if (gestureRef.current || isClosingRef.current) return;
       const target = live.current.index;
       const pending = pendingRef.current;
       if (target !== pending) {
@@ -486,6 +512,14 @@ export default function PhotoLightbox({
           return;
         }
         setPending(target);
+        if (Math.abs(target - (fromLayout ?? live.current.layoutIndex)) > 8) {
+          // A distant jump should never mount the intervening album.
+          stopSettling();
+          setReach(null);
+          setLayoutIndex(target);
+          lastEmittedRef.current = null;
+          return;
+        }
       } else {
         // The commit landed (or never diverged) — external navigation is
         // authoritative again, so a stale emit can't hijack it later.
@@ -507,7 +541,7 @@ export default function PhotoLightbox({
       if (Math.abs(dest - layout) === 1) settleTo(dest, 0);
       else setLayoutIndex(dest);
     },
-    [settleTo, setPending, finishSettle],
+    [settleTo, setPending, finishSettle, stopSettling],
   );
   syncTrackRef.current = syncTrack;
 
@@ -520,8 +554,8 @@ export default function PhotoLightbox({
   useLayoutEffect(() => {
     const prev = windowRef.current;
     windowRef.current = { first: firstPane, last: lastPane };
-    if (!prev) {
-      writeTrack(paneX(layoutIndex));
+    if (!prev || (!gestureRef.current && !settleRef.current)) {
+      writeTrack(paneX(layout));
       return;
     }
     const df = prev.first - firstPane;
@@ -532,12 +566,10 @@ export default function PhotoLightbox({
       writeTrack(readTrack() - dpx);
       return;
     }
-    if (gestureRef.current || settleRef.current) return;
-    writeTrack(paneX(layoutIndex));
-  }, [firstPane, lastPane, layoutIndex, photos.length, paneX, writeTrack, readTrack, slideStep]);
+  }, [firstPane, lastPane, layout, paneX, writeTrack, readTrack, slideStep]);
 
   // Spring (or jump, for non-adjacent moves) when the parent changes `index`.
-  useEffect(() => {
+  useLayoutEffect(() => {
     syncTrack();
   }, [index, layoutIndex, syncTrack]);
 
@@ -595,20 +627,17 @@ export default function PhotoLightbox({
   }, [readTrack, slideStep, viewing, writeTrack]);
 
   function onTouchStart(e) {
-    if (isClosingRef.current) return;
+    if (isClosingRef.current || gestureRef.current) return;
     const t = e.changedTouches?.[0];
     if (!t) return;
     // A touch mid-spring grabs the track where it is — the DOM already holds
     // the live position and the committed destination stays pending, we just
     // stop the loop and continue from the measured offset.
-    if (settleRef.current) {
-      if (settleRef.current.raf != null) cancelAnimationFrame(settleRef.current.raf);
-      if (settleRef.current.timer != null) clearTimeout(settleRef.current.timer);
-      settleRef.current = null;
-    }
+    stopSettling();
     setReach(null);
     const grab = readTrack();
     gestureRef.current = {
+      id: t.identifier,
       x0: t.clientX,
       y0: t.clientY,
       lastX: t.clientX,
@@ -623,7 +652,7 @@ export default function PhotoLightbox({
   function onTouchMove(e) {
     const g = gestureRef.current;
     if (!g) return;
-    const t = e.changedTouches?.[0];
+    const t = Array.from(/** @type {TouchList} */ (e.changedTouches) || []).find((touch) => touch.identifier === g.id);
     if (!t) return;
     const dx = t.clientX - g.x0;
     const dy = t.clientY - g.y0;
@@ -676,21 +705,28 @@ export default function PhotoLightbox({
 
   function endGesture(e, cancelled) {
     const g = gestureRef.current;
+    if (!g) return;
+    const touches = /** @type {TouchList|undefined} */ (e.changedTouches);
+    const touch = Array.from(touches || []).find((item) => item.identifier === g.id);
+    if (!touch && (!cancelled || touches?.length)) return;
     gestureRef.current = null;
     setReach(null);
-    if (!g) return;
     const step = slideStep();
     const { first } = windowRef.current ?? { first: 0 };
     const len = live.current.photosLength;
-    const dx = (e.changedTouches?.[0]?.clientX ?? g.lastX) - g.x0;
+    const dx = (touch?.clientX ?? g.lastX) - g.x0;
     // Use the last position written, including end-of-track resistance.
     const tx = readTrack();
     // Pane position in fractional index units — 0.0 = photo 0.
     const curFloat = first - tx / step;
     let dest;
     let flicking = false;
-    if (g.axis !== "h" || cancelled) {
-      // Vertical grabs and cancelled touches just release at the nearest pane.
+    if (cancelled) {
+      settleTo(pendingRef.current);
+      return;
+    }
+    if (g.axis !== "h") {
+      // Vertical grabs just release at the nearest pane.
       dest = Math.round(curFloat);
     } else {
       // Land on the nearest pane to where the momentum carries — a hard fling
@@ -702,13 +738,13 @@ export default function PhotoLightbox({
       if (flicking && dest === nearest) dest = nearest + (g.vel < 0 ? 1 : -1);
       // A real swipe suppresses the synthetic click that follows touchend —
       // otherwise lifting over a chevron fires a second navigation.
-      if (Math.abs(dx) > AXIS_LOCK_PX) suppressClickRef.current = true;
+      if (Math.abs(dx) > AXIS_LOCK_PX) suppressClickUntil.current = performance.now() + 350;
     }
     const wanted = dest;
     dest = Math.max(0, Math.min(len - 1, dest));
     if (dest !== live.current.layoutIndex) haptic("selection");
     else if (wanted < 0 || wanted > len - 1) haptic("rigid");
-    commitTo(dest, g.axis === "h" && !cancelled ? g.vel : 0);
+    commitTo(dest, g.axis === "h" ? g.vel : 0);
   }
 
   // Focus lands on Close, Tab stays in the lightbox, the Photos page behind it is
@@ -725,6 +761,11 @@ export default function PhotoLightbox({
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
+      onClickCapture={(e) => {
+        if (!isClosingRef.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       aria-label={photo.name}
       data-slot="photo-lightbox"
       data-mode={mode}
@@ -782,7 +823,7 @@ export default function PhotoLightbox({
               surface="primary"
               size="icon"
               className="rounded-full"
-              onClick={requestClose}
+              onClick={() => requestClose()}
               aria-label="Close"
             >
               <X size={20} />
@@ -801,8 +842,8 @@ export default function PhotoLightbox({
         onTouchEnd={(e) => endGesture(e, false)}
         onTouchCancel={(e) => endGesture(e, true)}
         onClickCapture={(e) => {
-          if (suppressClickRef.current) {
-            suppressClickRef.current = false;
+          if (performance.now() < suppressClickUntil.current && e.detail !== 0) {
+            suppressClickUntil.current = 0;
             e.preventDefault();
             e.stopPropagation();
           }
@@ -851,6 +892,8 @@ export default function PhotoLightbox({
               <div
                 key={`${paneIndex}:${photoSelectionKey(p)}`}
                 className="h-full w-full shrink-0 select-none"
+                data-current-photo={isCurrent ? "" : undefined}
+                inert={!isCurrent || undefined}
                 aria-hidden={!isCurrent || undefined}
               >
                 <LightboxMedia

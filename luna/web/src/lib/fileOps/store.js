@@ -532,6 +532,7 @@ export function createFileOpsStore({
     removeItem,
     touch,
     settle,
+    batch,
     emit,
     noteFolder,
     flushFolders,
@@ -682,10 +683,13 @@ export function createFileOpsStore({
 
   /** Retry every failed item that failed because the connection was down (the `online` event). */
   function retryOffline() {
-    for (const op of [...ops]) {
-      const targets = op.items.filter((i) => i.state === "failed" && i.retryable && i.offline);
-      if (targets.length) runnerFor(op).retry(op, targets);
-    }
+    batch(() => {
+      for (const op of [...ops]) {
+        if (op.cancelled) continue;
+        const targets = op.items.filter((i) => i.state === "failed" && i.retryable && i.offline);
+        if (targets.length) runnerFor(op).retry(op, targets);
+      }
+    });
   }
 
   /**

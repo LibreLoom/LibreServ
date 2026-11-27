@@ -184,12 +184,50 @@ describe("PhotoLightbox fullscreen animations", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps the lightbox open if it reopens before the exit finishes", () => {
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      const onIndexChange = vi.fn();
+      const view = (open, index) => (
+        <MemoryRouter>
+          <ShortcutsProvider>
+            <PhotoLightbox photos={photos} index={index} open={open} onClose={onClose} onIndexChange={onIndexChange} />
+          </ShortcutsProvider>
+        </MemoryRouter>
+      );
+      const { rerender } = render(view(true, 0));
+      rerender(view(false, 0));
+      expect(screen.getByRole("dialog")).toHaveClass("file-viewer-exit");
+      rerender(view(true, 1));
+      act(() => { vi.advanceTimersByTime(250); });
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("dialog", { name: "two.jpg" })).toHaveClass("file-viewer-enter");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("PhotoLightbox swipe navigation", () => {
   function stage() {
     return document.querySelector('[data-slot="photo-lightbox-stage"]');
   }
+
+  it("ignores another finger lifting and settles a cancelled swipe without navigating", () => {
+    const onIndexChange = vi.fn();
+    renderLightbox({ onIndexChange });
+    const el = stage();
+    fireEvent.touchStart(el, { changedTouches: [{ identifier: 1, clientX: 500, clientY: 200 }] });
+    fireEvent.touchMove(el, { changedTouches: [{ identifier: 1, clientX: 10, clientY: 200 }] });
+    fireEvent.touchEnd(el, { changedTouches: [{ identifier: 2, clientX: 10, clientY: 200 }] });
+    fireEvent.touchCancel(el, { changedTouches: [{ identifier: 1, clientX: 10, clientY: 200 }] });
+
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "one.jpg" })).toBeInTheDocument();
+  });
 
   function swipe(el, from, to) {
     fireEvent.touchStart(el, { changedTouches: [{ clientX: from, clientY: 200 }] });
