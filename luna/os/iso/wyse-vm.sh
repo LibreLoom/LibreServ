@@ -19,6 +19,10 @@
 #        With the VM closed: put the latest OS image on the virtual eMMC and keep
 #        everything on it (accounts, settings, files). The old disk is kept as
 #        emmc.before-refresh.img.
+#   iso/wyse-vm.sh ui
+#        Rebuild lunad with the current web UI and put just that binary into the
+#        virtual eMMC's OS slots, keeping all data; a few minutes, not a full
+#        image build. If the VM is open it is closed first, then started again.
 #   iso/wyse-vm.sh reset
 #        Delete the virtual eMMC.
 #
@@ -96,8 +100,31 @@ refresh)
 	mv "$EMMC" "$DIR/emmc.before-refresh.img"
 	mv "$EMMC.new" "$EMMC"
 	;;
+ui)
+	[ -f "$EMMC" ] || { echo "no virtual eMMC yet: run $0 first" >&2; exit 2; }
+	LROOT="$(CDPATH= cd -- "$OSDIR/.." && pwd)"
+	MUSL="${MUSL_TARGET:-x86_64-unknown-linux-musl}"
+	echo "==> web UI and lunad"
+	(
+		cd "$LROOT"
+		make web
+		# shellcheck source=../lib/musl-link.sh
+		. "$LROOT/os/lib/musl-link.sh"
+		unset RUSTFLAGS
+		luna_musl_export "$MUSL"
+		cargo build --release -p lunad --bin lunad --target "$MUSL"
+	)
+	if pgrep -x qemu-system-x86 >/dev/null; then
+		echo "==> closing the VM"
+		monitor system_powerdown
+		_i=0
+		while pgrep -x qemu-system-x86 >/dev/null && [ "$_i" -lt 45 ]; do sleep 2; _i=$((_i + 1)); done
+		pgrep -x qemu-system-x86 >/dev/null && { echo "the VM did not close" >&2; exit 1; }
+	fi
+	sudo "$OSDIR/iso/swap-lunad.sh" "$EMMC" "$LROOT/target/$MUSL/release/lunad"
+	;;
 install) rm -f "$EMMC"; truncate -s 8G "$EMMC" ;;
-*) echo "usage: $0 [start|install|refresh|reset]" >&2; exit 2 ;;
+*) echo "usage: $0 [start|install|refresh|ui|reset]" >&2; exit 2 ;;
 esac
 
 KVM=""
