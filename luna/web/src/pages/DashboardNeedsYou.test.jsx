@@ -639,7 +639,7 @@ describe("Needs you on the dashboard", () => {
       expect(within(row).getByText("This Luna's Connect access was revoked.")).toBeInTheDocument();
       expect(within(zone).getByRole("link", { name: "Open Device token" })).toHaveAttribute(
         "href",
-        "/settings#luna_connect",
+        "/settings#about",
       );
     });
 

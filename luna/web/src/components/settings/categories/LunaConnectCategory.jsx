@@ -1,4 +1,4 @@
-import DeviceTokenCard from "./DeviceTokenCard.jsx";
+import PairingCard from "./PairingCard.jsx";
 import RemoteCategory from "./RemoteCategory.jsx";
 import CloudBackupCategory from "./CloudBackupCategory.jsx";
 
@@ -10,7 +10,7 @@ import CloudBackupCategory from "./CloudBackupCategory.jsx";
 export default function LunaConnectCategory() {
   return (
     <div className="space-y-5" data-slot="luna-connect-category">
-      <DeviceTokenCard />
+      <PairingCard />
       <RemoteCategory />
       <CloudBackupCategory />
     </div>

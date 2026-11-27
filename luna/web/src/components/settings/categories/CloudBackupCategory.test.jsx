@@ -173,7 +173,7 @@ describe("CloudBackupCategory", () => {
     const fetchMock = stubApi({ connected: false, state: "unbound" });
     renderCard();
     expect(await screen.findByText(/Pair this Luna with its device token/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#luna_connect");
+    expect(screen.getByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#about");
     expect(screen.getByText("Recovery phrase")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back up now" })).toBeNull();
     const asked = fetchMock.mock.calls.map(([url]) => String(url));

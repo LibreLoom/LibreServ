@@ -448,7 +448,7 @@ export default [
     title: "Remote access off",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { state: "unbound", paired: false, device_token: "7K4M2Q9XR8N36T5W1PZH" }; },
-    check: ["Shows that a device token is set, never the token itself", "Advanced lets an Admin replace the token on Luna only", "Open Luna Connect is offered for pairing"],
+    check: ["Pairing says to enter the device token in Luna Connect, and offers Open Luna Connect", "Settings → About → Advanced → Device token shows Set, never the token itself", "An Admin can replace the token there, on Luna only"],
   },
   {
     id: "settings/remote-on",
@@ -475,7 +475,7 @@ export default [
     title: "Connect revoked this Luna",
     url: "/settings#luna_connect",
     seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, device_token: "7K4M2Q9XR8N36T5W1PZH" }; w.connectActive = false; },
-    check: ["Reconnect-required state is shown in plain words", "Cloud backup says to reconnect before turning it on", "Advanced still lets an Admin replace the token", "Opening Luna Connect is offered"],
+    check: ["Reconnect-required state is shown in plain words", "Cloud backup says to reconnect before turning it on", "Settings → About → Advanced → Device token still lets an Admin replace the token"],
   },
   {
     id: "settings/about-versions",
@@ -597,7 +597,7 @@ export default [
     title: "Member sees fewer categories",
     url: "/settings",
     seed: asMember,
-    check: ["No Users or About", "Luna Connect remains available with the device token state", "/settings#users falls back to an allowed page"],
+    check: ["No Users or About", "Luna Connect remains available with its pairing state", "/settings#users falls back to an allowed page"],
   },
   {
     id: "settings/search",

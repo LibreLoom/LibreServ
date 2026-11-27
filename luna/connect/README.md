@@ -41,7 +41,7 @@ from bot challenges in production. Reproduce locally with
 
 ## Device tokens
 
-The product's **Device token** section holds one 20-character Crockford token,
+The device token lives in Settings → About → Advanced → **Device token** and is one 20-character Crockford token,
 stored ungrouped in `device-token` on Luna with mode `0600`. The rolling
 `auth_token` is stored separately in `connect-credential` with mode `0600` and is
 never shown to a user. The old permanent-token files, `device-uid`,

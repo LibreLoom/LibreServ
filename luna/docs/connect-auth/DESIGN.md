@@ -146,7 +146,7 @@ Errors remain generic. Counters and limits survive restarts. Successful pairing 
 
 ## Luna local files and state
 
-- `device-token`: the ungrouped uppercase Crockford token, mode `0600`. Written by the installer, read from the factory `TOKENS` magazine, or set later in the Device token section's **Advanced** area. It survives factory reset, unbind, and pairing.
+- `device-token`: the ungrouped uppercase Crockford token, mode `0600`. Written by the installer, read from the factory `TOKENS` magazine, or set later in Settings → About → **Advanced** → Device token. It survives factory reset, unbind, and pairing.
 - `connect-credential`: the rolling auth token, mode `0600`, never returned by an API.
 - `connect.json`: hostname, tunnel, and bound-state configuration.
 - `connect-unbind-pending`: retained when revocation has not yet been confirmed.
@@ -161,7 +161,7 @@ The installer and factory-magazine reader take the first line and write `device-
 
 The Device ID, Verification code, `device-uid`, `pairing-code`, `setup-token`, and `first_user_secret` files and fields are removed. No compatibility reader is required under the repository's early-development policy.
 
-Replacing the token in Advanced is local-only. It performs no Connect request and does not change the auth token, tunnel, binding, or cloud state; the new token matters the next time Luna pairs or an off-LAN setup is attempted.
+Replacing the token in Settings → About → Advanced is local-only. It performs no Connect request and does not change the auth token, tunnel, binding, or cloud state; the new token matters the next time Luna pairs or an off-LAN setup is attempted.
 
 ## Luna behavior
 
@@ -217,7 +217,7 @@ This is a local physical-recovery mechanism, separate from Connect authenticatio
 
 ## User-facing terminology
 
-The settings section is **Device token** and its one field is the **device token**. Connect never calls it a setup code, device code, Device ID, or Verification code. The rolling credential is never named in product copy.
+The device token's only settings home is **Settings → About → Advanced → Device token**, and its one field is the **device token**. Settings → Luna Connect only links there. Connect never calls it a setup code, device code, Device ID, or Verification code. The rolling credential is never named in product copy.
 
 Factory reset offers **Keep Connect** and **Disconnect**. Disconnect explains that remote access stops and the device can be connected again later.
 

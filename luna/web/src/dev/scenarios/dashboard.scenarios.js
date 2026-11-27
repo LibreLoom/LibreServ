@@ -170,7 +170,7 @@ export default [
     area: "Dashboard",
     title: "Needs you: Connect access revoked",
     seed: (w) => { w.connect = { state: "revoked", paired: false, connect_active: false, enabled: false, connect_error: "Luna Connect revoked this Luna. Reconnect it from your Connect account." }; w.connectActive = false; },
-    check: [NEEDS, "Button goes to Settings → Luna Connect → Device token", "The revoked state is explained without asking for a replacement token"],
+    check: [NEEDS, "Button goes to Settings → About → Advanced → Device token", "The revoked state is explained without asking for a replacement token"],
   },
   {
     id: "dashboard/system-check-failed",

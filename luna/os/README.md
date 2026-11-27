@@ -62,8 +62,8 @@ make eurooffice-pack drawio-pack models-pack   # → os/dist/*-pack.tar.zst
 #    (mode 0600), and rewrites the magazine. Without a magazine, the
 #    installer asks for the device token; an empty answer skips Connect.
 #    Later factory assets (device photos, etc.) also belong on LUNAASSETS.
-#    The Device token section in Settings → Luna Connect can set or replace
-#    the token later (Advanced).
+#    Settings → About → Advanced → Device token can set or replace the token
+#    later.
 
 # Optional: flash a whole disk attached to this machine
 ./os/flash.sh /dev/sdX                # also /dev/nvme0n1 /dev/mmcblk0

@@ -9,6 +9,7 @@ import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import { InfoHint, TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
+import DeviceTokenAdvanced from "./DeviceTokenAdvanced.jsx";
 import { getJson, putJson, apiErrorMessage } from "../../../lib/api";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
@@ -131,6 +132,8 @@ export default function UpdateSourceCard({ index = 3 }) {
             </div>
           </div>
         </CollapsibleSection>
+
+        <DeviceTokenAdvanced />
       </div>
 
       {source.data && (

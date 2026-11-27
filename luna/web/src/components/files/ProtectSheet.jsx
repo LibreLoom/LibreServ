@@ -212,7 +212,7 @@ export default function ProtectSheet({ driveId, path = "", onClose, open = true 
     ? (
         <>
           An Admin can pair this Luna with its device token in{" "}
-          <PathTrail steps={["Settings", "Luna Connect", "Device token"]} />.
+          <PathTrail steps={["Settings", "About", "Advanced", "Device token"]} />.
         </>
       )
     : needsPayment

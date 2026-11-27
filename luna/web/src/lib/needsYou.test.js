@@ -516,7 +516,7 @@ describe("Connect state, no route, new drive, and no drives (Admin)", () => {
         tone: "problem",
         title: ["Luna Connect needs attention"],
         detail: "This Luna's Connect access was revoked.",
-        action: { label: "Open Device token", href: "/settings#luna_connect" },
+        action: { label: "Open Device token", href: "/settings#about" },
       },
     ]);
   });

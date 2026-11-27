@@ -239,7 +239,7 @@ export default function CloudBackupCategory() {
               </p>
               {isAdmin && (
                 <Button variant="outline" surface="secondary" size="sm" asChild>
-                  <Link to="/settings#luna_connect">
+                  <Link to="/settings#about">
                     <span>Open Device token</span>
                     <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
                   </Link>

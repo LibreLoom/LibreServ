@@ -26,7 +26,7 @@ support call later.
 - [ ] `ping luna.local` answers from the LAN
 - [ ] On the console, `cat /etc/resolv.conf` lists a `nameserver` and `ping -c1 example.com` answers (root is read-only; the file is a link to `/run/resolv.conf`)
 - [ ] `http://luna.local` opens the setup wizard (maybe)
-- [ ] HDMI shows the current IPv4 (or waiting-for-address); the Device token section shows whether a device token is set (including after setup / Connect claim)
+- [ ] HDMI shows the current IPv4 (or waiting-for-address); Settings → About → Advanced → Device token shows whether a device token is set (including after setup / Connect claim)
 
 ## 3. Setup wizard
 - [ ] Ethernet cable detected; no Luna Setup network; no Wi-Fi scan required

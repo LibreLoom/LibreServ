@@ -188,7 +188,7 @@ describe("useNeedsYou for an Admin", () => {
     });
     expect(result.current.items[2]).toMatchObject({
       detail: "This Luna's Connect access was revoked.",
-      action: { label: "Open Device token", href: "/settings#luna_connect" },
+      action: { label: "Open Device token", href: "/settings#about" },
     });
     expect(result.current.items[3]).toMatchObject({
       detail: "Check that your router or modem is online.",

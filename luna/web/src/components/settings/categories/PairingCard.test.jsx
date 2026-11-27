@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@libreloom/ui/context/ToastContext.jsx";
 import Toaster from "@libreloom/ui/components/common/Toaster.jsx";
-import DeviceTokenCard from "./DeviceTokenCard.jsx";
+import PairingCard from "./PairingCard.jsx";
 
 let mockRole = "admin";
 vi.mock("../../../context/AuthContext", () => ({
   useOptionalAuth: () => ({ user: { id: "1", role: mockRole } }),
 }));
 
-const TOKEN = "7K4M2Q9XR8N36T5W1PZH";
 const BASE_STATUS = {
   state: "unbound",
   paired: false,
@@ -28,7 +28,6 @@ function stubApi(status = BASE_STATUS) {
     const path = String(url);
     const method = init.method || "GET";
     if (path === "/api/v1/connect/status") return json(status);
-    if (path === "/api/v1/connect/device-token" && method === "PUT") return json({ ok: true });
     if (path === "/api/v1/connect/unbind" && method === "POST") return json({ ok: true });
     return json({}, 404);
   });
@@ -40,15 +39,17 @@ function renderCard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <ToastProvider>
-      <QueryClientProvider client={client}>
-        <DeviceTokenCard />
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <PairingCard />
+        </QueryClientProvider>
+      </MemoryRouter>
       <Toaster />
     </ToastProvider>,
   );
 }
 
-describe("DeviceTokenCard", () => {
+describe("PairingCard", () => {
   beforeEach(() => {
     mockRole = "admin";
   });
@@ -57,48 +58,24 @@ describe("DeviceTokenCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows that a device token is set without displaying it", async () => {
+  it("points to Open Luna Connect when the device token is set", async () => {
     stubApi();
     renderCard();
 
-    expect(await screen.findByText("Set")).toBeInTheDocument();
-    expect(screen.queryByText(/7K4M/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Not paired")).toBeInTheDocument();
+    expect(screen.getByText("Enter the device token in your Luna Connect account.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /token/i })).not.toBeInTheDocument();
   });
 
-  it("sets the device token locally from Advanced", async () => {
-    const fetchMock = stubApi({ ...BASE_STATUS, device_token_set: false });
-    const user = userEvent.setup();
+  it("sends an Admin to Settings → About → Advanced when no device token is set", async () => {
+    stubApi({ ...BASE_STATUS, device_token_set: false });
     renderCard();
 
-    expect(await screen.findByText("Not set")).toBeInTheDocument();
+    expect(await screen.findByText("Set the device token in Settings → About → Advanced first.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Device token/i })).toHaveAttribute("href", "/settings#about");
     expect(screen.queryByRole("link", { name: /Open Luna Connect/i })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Advanced" }));
-    await user.click(screen.getByRole("button", { name: "Set token" }));
-    const dialog = await screen.findByRole("dialog", { name: "Set device token" });
-    const save = within(dialog).getByRole("button", { name: "Save token" });
-    expect(save).toBeDisabled();
-    await user.type(within(dialog).getByLabelText("Device token"), "7k4m-2q9x-r8n3-6t5w-1pzh");
-    await user.click(save);
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/connect/device-token",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ device_token: TOKEN }) }),
-    ));
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/connect/unbind"))).toBe(false);
-    expect(await screen.findByText("Device token saved.")).toBeInTheDocument();
-  });
-
-  it("offers to replace an existing token and says Connect does not change", async () => {
-    stubApi();
-    const user = userEvent.setup();
-    renderCard();
-
-    await user.click(await screen.findByRole("button", { name: "Advanced" }));
-    expect(screen.getByText(/Connect and remote access do not change/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Replace token" }));
-    expect(await screen.findByRole("dialog", { name: "Replace device token" })).toBeInTheDocument();
   });
 
   it("requires the Luna password before the separate Disconnect action", async () => {
@@ -134,22 +111,21 @@ describe("DeviceTokenCard", () => {
     ));
   });
 
-  it("shows revoked recovery guidance and keeps the token replaceable", async () => {
+  it("shows revoked recovery guidance", async () => {
     stubApi({ ...BASE_STATUS, state: "revoked", paired: false, connect_active: false });
     renderCard();
 
     expect(await screen.findByText("Reconnect required")).toBeInTheDocument();
     expect(screen.getByText(/Reconnect it from Devices in your Connect account/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Advanced" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
   });
 
-  it("shows a Member the token state but no Admin actions", async () => {
+  it("shows a Member no Admin actions", async () => {
     mockRole = "member";
     const fetchMock = stubApi();
     renderCard();
-    expect(await screen.findByText("Set")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Advanced" })).not.toBeInTheDocument();
+    expect(await screen.findByText("An Admin can pair this Luna from Luna Connect.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });

@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("./categories/CloudBackupCategory.jsx", () => ({ default: () => <section aria-label="cloud backup" /> }));
 vi.mock("./categories/RemoteCategory.jsx", () => ({ default: () => <section aria-label="luna connect" /> }));
-vi.mock("./categories/DeviceTokenCard.jsx", () => ({ default: () => <section aria-label="device token" /> }));
+vi.mock("./categories/PairingCard.jsx", () => ({ default: () => <section aria-label="pairing" /> }));
 
 import { visibleCategories } from "./settingsCategories.js";
 import { CATEGORY_COMPONENTS } from "./categoryComponents.js";

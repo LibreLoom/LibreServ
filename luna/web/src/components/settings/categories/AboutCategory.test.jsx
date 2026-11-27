@@ -197,14 +197,14 @@ describe("AboutCategory", () => {
     );
   });
 
-  it("keeps Advanced focused on updates, with Device token in Luna Connect", async () => {
+  it("keeps the Device token section in Advanced, after Updates", async () => {
     renderPage(stubFetch());
     await screen.findByText("Update source");
 
-    expect(screen.queryByText("Set or remove the Luna Connect device token here.")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Change device token/i })).toBeNull();
+    const updates = screen.getByRole("button", { name: "Updates" });
+    const token = screen.getByRole("button", { name: "Device token" });
+    expect(updates.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByLabelText("Device token from Luna Connect")).toBeNull();
-    expect(screen.getByText("Updates")).toBeTruthy();
   });
 
   it("opens a custom source with its own address and the custom-key hint", async () => {

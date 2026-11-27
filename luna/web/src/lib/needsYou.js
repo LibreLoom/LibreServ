@@ -233,7 +233,7 @@ function deviceTokenItem(error) {
     tone: "problem",
     title: ["Luna Connect needs attention"],
     detail: error,
-    action: { label: "Open Device token", href: "/settings#luna_connect" },
+    action: { label: "Open Device token", href: "/settings#about" },
   };
 }
 
