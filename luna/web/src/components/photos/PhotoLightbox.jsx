@@ -10,7 +10,7 @@ import {
   Heart,
   Images,
   Info,
-  Link2,
+  Share2,
   Play,
   Trash2,
   X,
@@ -966,7 +966,7 @@ export default function PhotoLightbox({
                 }}
                 aria-label="Share"
               >
-                <Link2 size={18} />
+                <Share2 size={18} />
               </Button>
             </Tooltip>
           )}

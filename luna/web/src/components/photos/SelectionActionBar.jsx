@@ -6,7 +6,7 @@ import {
   Download,
   Heart,
   Images,
-  Link2,
+  Share2,
   ListChecks,
   Minus,
   Plus,
@@ -128,7 +128,7 @@ export default function SelectionActionBar({
     onAddToAlbum && { key: "album", icon: Images, label: "Add to album", onClick: onAddToAlbum, needsSelection: true },
     onNewAlbum && { key: "new", icon: Plus, label: "New album", onClick: onNewAlbum, needsSelection: true },
     onRemoveFromAlbum && { key: "remove", icon: Minus, label: "Remove from album", onClick: onRemoveFromAlbum, needsSelection: true },
-    onShare && { key: "share", icon: Link2, label: "Share", onClick: onShare, needsSelection: true },
+    onShare && { key: "share", icon: Share2, label: "Share", onClick: onShare, needsSelection: true },
     onDownload && { key: "download", icon: Download, label: "Download", onClick: onDownload, needsSelection: true },
     onTrash && { key: "trash", icon: Trash2, label: "Trash", onClick: onTrash, needsSelection: true },
   ].filter(Boolean);
