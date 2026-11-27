@@ -1,5 +1,5 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
@@ -19,256 +19,115 @@ const THEME_OPTIONS = [
 ];
 
 /* color-scan: ignore-file custom theme color picker UI — hex values are the data */
-function ColorInput({ label, value, onChange, description }) {
-  const [inputValue, setInputValue] = useState(value || "#000000");
-  const [isValid, setIsValid] = useState(true);
-  const lastExternalValue = useRef(value);
-
-  if (value !== lastExternalValue.current) {
-    lastExternalValue.current = value;
-    setInputValue(value || "#000000");
-    setIsValid(true);
-  }
-
-  const validateHex = (hex) => /^#[0-9A-Fa-f]{6}$/.test(hex);
-
-  const handleChange = (e) => {
-    const newValue = e.target.value;
-    setInputValue(newValue);
-    if (validateHex(newValue)) {
-      setIsValid(true);
-      onChange(newValue);
-    } else {
-      setIsValid(false);
-    }
-  };
-
-  const handleColorPickerChange = (e) => {
-    const newValue = e.target.value;
-    setInputValue(newValue);
-    setIsValid(true);
-    onChange(newValue);
-  };
-
-  return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3">
-      <div className="min-w-0">
-        <div className="text-sm">{label}</div>
-        {description && <div className="text-xs mt-0.5">{description}</div>}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <input
-          type="color"
-          value={value || "#000000"}
-          onChange={handleColorPickerChange}
-          // The browser paints the swatch as a square inside the input, so a
-          // rounded input alone leaves the corners poking out. Round the swatch
-          // itself (and drop its default padding/border) to match.
-          className={cn(
-            "w-9 h-9 p-0 rounded-full cursor-pointer border border-secondary/20 bg-transparent appearance-none overflow-hidden shrink-0",
-            "[&::-webkit-color-swatch-wrapper]:p-0",
-            "[&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full",
-            "[&::-moz-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full",
-          )}
-          aria-label={`Choose ${label} color`}
-        />
-        <input
-          type="text"
-          value={inputValue}
-          onChange={handleChange}
-          placeholder="#000000"
-          className={cn(
-            "w-[6.5rem] min-w-0 px-3 py-1.5 text-sm font-mono rounded-pill surface-secondary border-2 outline-none focus:border-accent",
-            isValid && "border-secondary/20",
-            !isValid && "border-error",
-          )}
-          aria-label={`${label} hex value`}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Live mock-up of the palette: page, a card on it, and an accent outline. */
-function PalettePreview({ palette }) {
-  const ratio = getContrastRatio(palette.primary, palette.secondary);
-  const readability =
-    ratio >= 7
-      ? { variant: "success", text: "Easy to read" }
-      : ratio >= 4.5
-        ? { variant: "default", text: "Readable" }
-        : { variant: "warning", text: "Hard to read" };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-sm">Preview</div>
-        <Pill variant={readability.variant}>{readability.text}</Pill>
-      </div>
-      <div
-        role="img"
-        aria-label="Preview of your colors"
-        className="rounded-large-element border p-3 space-y-3 motion-safe:transition-colors motion-safe:duration-200"
-        style={{
-          backgroundColor: palette.primary,
-          color: palette.secondary,
-          borderColor: `${palette.secondary}33`,
-        }}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm">Photos</span>
-          <span
-            className="rounded-pill border-2 px-3 py-0.5 text-xs"
-            style={{ borderColor: palette.accent }}
-          >
-            Share
-          </span>
-        </div>
-        <div
-          className="rounded-large-element px-3 py-2.5 space-y-1.5"
-          style={{ backgroundColor: palette.secondary, color: palette.primary }}
-        >
-          <div className="text-sm">Backup finished</div>
-          <div className="text-xs">Last night at 2:14 AM</div>
-          <div className="h-0.5 rounded-full" style={{ backgroundColor: palette.accent }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ColorPreset({ colors, previewColors, label, currentColors, onSelect }) {
-  // What the mini preview paints — differs from `colors` only in dark mode
-  // without separate dark colors, where the app auto-inverts primary/secondary.
-  const preview = previewColors || colors;
-  const isMatch =
-    currentColors?.primary === colors.primary &&
-    currentColors?.secondary === colors.secondary &&
-    currentColors?.accent === colors.accent;
-
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        haptic("selection");
-        onSelect(colors);
-      }}
-      aria-label={`Apply ${label} preset`}
-      aria-pressed={isMatch}
-      className={cn(
-        "group relative flex flex-col items-center gap-2 p-2 pt-3 rounded-large-element border-2 text-center",
-        "motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out",
-        "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-        "hover:-translate-y-0.5 active:motion-safe:scale-95",
-        isMatch
-          ? "border-accent"
-          : "border-primary/10 hover:border-primary/30 hover:bg-primary/5"
-      )}
-      style={{ transitionDuration: "var(--motion-duration-short2)" }}
-    >
-      {/* Mini theme preview — layered: preset.primary surface, preset.secondary
-          text bars, preset.accent pill, so the theme reads at a glance. */}
-      <div
-        className="w-full rounded-large-element px-2.5 py-2 border motion-safe:transition-transform motion-safe:duration-200 group-hover:scale-[1.02]"
-        style={{
-          backgroundColor: preview.primary,
-          borderColor: `${preview.secondary}33`,
-        }}
-        aria-hidden="true"
-      >
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <div
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: preview.secondary }}
-          />
-          <div
-            className="h-1.5 rounded-full flex-1 opacity-40"
-            style={{ backgroundColor: preview.secondary }}
-          />
-        </div>
-        <div
-          className="h-1 rounded-full mb-1 opacity-30"
-          style={{ backgroundColor: preview.secondary }}
-        />
-        <div
-          className="h-1 rounded-full mb-1.5 w-3/4 opacity-30"
-          style={{ backgroundColor: preview.secondary }}
-        />
-        <div
-          className="w-8 h-3 rounded-pill"
-          style={{ backgroundColor: preview.accent }}
-        />
-      </div>
-
-      <span
-        className={cn(
-          "text-xs font-mono",
-          "text-primary"
-        )}
-      >
-        {label}
-      </span>
-
-      {isMatch && (
-        <span
-          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full surface-primary flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
-          aria-hidden="true"
-        >
-          <Check size={ICON_SIZE.xs} className="text-secondary" strokeWidth={3} />
-        </span>
-      )}
-    </button>
-  );
-}
+const HEX = /^#[0-9A-Fa-f]{6}$/;
 
 function getLuminance(hex) {
   const rgb = parseInt(hex.slice(1), 16);
-  const r = ((rgb >> 16) & 0xff) / 255;
-  const g = ((rgb >> 8) & 0xff) / 255;
-  const b = (rgb & 0xff) / 255;
   const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const r = toLinear(((rgb >> 16) & 0xff) / 255);
+  const g = toLinear(((rgb >> 8) & 0xff) / 255);
+  const b = toLinear((rgb & 0xff) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 function getContrastRatio(hex1, hex2) {
   const l1 = getLuminance(hex1);
   const l2 = getLuminance(hex2);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-function createValidatedPresets() {
-  const presets = [
-    { label: "Classic", colors: { primary: "#ffffff", secondary: "#000000", accent: "#767676" } },
-    { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
-    { label: "Forest", colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" } },
-    { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" } },
-    { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" } },
-    { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
-    { label: "Muted", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" } },
-    { label: "Soft dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
-    { label: "Soft light", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#808080" } },
-  ];
-
-  const MIN_CONTRAST = 12;
-
-  return presets.map((preset) => {
-    const contrastPrimary = getContrastRatio(preset.colors.primary, preset.colors.accent);
-    const contrastSecondary = getContrastRatio(preset.colors.secondary, preset.colors.accent);
-    const isCompliant = contrastPrimary >= MIN_CONTRAST && contrastSecondary >= MIN_CONTRAST;
-    return {
-      ...preset,
-      contrastPrimary: contrastPrimary.toFixed(2),
-      contrastSecondary: contrastSecondary.toFixed(2),
-      isCompliant
-    };
-  });
-}
-
-const COLOR_PRESETS = createValidatedPresets();
 const LIGHT_DEFAULTS = { primary: "#ffffff", secondary: "#000000", accent: "#767676" };
 const DARK_DEFAULTS = { primary: "#000000", secondary: "#ffffff", accent: "#767676" };
+
+const PRESETS = [
+  { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
+  { label: "Forest", colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" } },
+  { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" } },
+  { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" } },
+  { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
+  { label: "Muted", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" } },
+  { label: "Soft dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
+];
+
+const sameColors = (a, b) =>
+  a?.primary === b.primary && a?.secondary === b.secondary && a?.accent === b.accent;
+
+/** A selectable palette: three overlapping dots plus its name. */
+function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        haptic("selection");
+        onSelect();
+      }}
+      aria-label={ariaLabel}
+      aria-pressed={selected}
+      className={cn(
+        "relative inline-flex items-center gap-2 rounded-pill border-2 py-1.5 pl-2 pr-3.5 text-sm",
+        "motion-safe:transition-all motion-safe:duration-200 active:motion-safe:scale-95",
+        "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+        selected ? "border-accent" : "border-primary/10 hover:border-primary/30",
+      )}
+    >
+      <span className="flex -space-x-2" aria-hidden="true">
+        {dots.map((color, i) => (
+          <span
+            key={i}
+            className="h-5 w-5 rounded-full border border-secondary/30"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </span>
+      <span>{label}</span>
+      {selected && <Check size={ICON_SIZE.xs} aria-hidden="true" />}
+    </button>
+  );
+}
+
+/** One color: round swatch (opens the picker), its name, and a hex field. */
+function ColorSwatch({ label, value, onChange }) {
+  const [draft, setDraft] = useState(value);
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    setDraft(value);
+  }
+  const valid = HEX.test(draft);
+
+  return (
+    <div className="flex min-w-0 flex-col items-center gap-2">
+      <input
+        type="color"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={`Choose ${label} color`}
+        // The browser paints a square swatch inside the input; round the swatch itself.
+        className={cn(
+          "h-14 w-14 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-full border-2 border-secondary/20 bg-transparent p-0",
+          "[&::-webkit-color-swatch-wrapper]:p-0",
+          "[&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-0",
+          "[&::-moz-color-swatch]:rounded-full [&::-moz-color-swatch]:border-0",
+        )}
+      />
+      <span className="text-sm">{label}</span>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (HEX.test(e.target.value)) onChange(e.target.value);
+        }}
+        placeholder="#000000"
+        aria-label={`${label} hex value`}
+        className={cn(
+          "w-full min-w-0 max-w-[7rem] rounded-pill border-2 surface-secondary px-3 py-1 text-center text-sm font-mono outline-none focus:border-accent",
+          valid ? "border-secondary/20" : "border-error",
+        )}
+      />
+    </div>
+  );
+}
 
 export default function AppearanceCategory() {
   const {
@@ -284,171 +143,96 @@ export default function AppearanceCategory() {
     resetColors,
     isCustomTheme,
   } = useTheme();
-  const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
-  const [editTarget, setEditTarget] = useState(null);
   const hapticsEnabled = useHapticsEnabled();
   const tips = useTipState();
 
   const darkMode = resolvedTheme === "dark";
+  // You edit the palette of the mode you are looking at.
+  const editingDark = darkMode && useSeparateDarkColors;
+  const palette = editingDark ? (darkColors || DARK_DEFAULTS) : isCustomTheme ? colors : LIGHT_DEFAULTS;
+  const save = editingDark ? setDarkColors : setColors;
 
-  // The base palette is always stored in its light form; dark mode flips
-  // background and text unless the person set separate dark colors.
-  const basePalette = isCustomTheme ? colors : LIGHT_DEFAULTS;
-  const darkPalette = darkColors || DARK_DEFAULTS;
+  // Without separate dark colors, dark mode swaps background and text.
+  const flip = darkMode && !useSeparateDarkColors;
+  const dotsFor = (c) => (flip ? [c.secondary, c.primary, c.accent] : [c.primary, c.secondary, c.accent]);
 
-  // Which palette the editor changes: the dark one only when it exists and is selected.
-  const editingDarkPalette =
-    useSeparateDarkColors && (editTarget ?? (darkMode ? "dark" : "light")) === "dark";
-  const palette = editingDarkPalette ? darkPalette : basePalette;
-
-  const flipPreview = darkMode && !useSeparateDarkColors;
-  const presetPreview = (c) =>
-    flipPreview ? { primary: c.secondary, secondary: c.primary, accent: c.accent } : c;
-
-  const handleColorChange = (key, value) => {
-    if (editingDarkPalette) {
-      setDarkColors({ ...darkPalette, [key]: value });
-    } else {
-      setColors({ ...basePalette, [key]: value });
-    }
-  };
-
-  const handlePresetSelect = (presetColors) => {
-    if (editingDarkPalette) {
-      setDarkColors(presetColors);
-    } else {
-      setColors(presetColors);
-    }
-    setShowCustomColors(true);
-  };
-
-  const handleReset = () => {
-    resetColors();
-    setEditTarget(null);
-    setShowCustomColors(false);
-  };
-
-  const handleToggleCustomColors = () => {
-    if (showCustomColors && isCustomTheme) {
-      handleReset();
-    } else {
-      setShowCustomColors(!showCustomColors);
-    }
-  };
+  const matchesPreset = PRESETS.some((p) => sameColors(palette, p.colors));
+  const readable = getContrastRatio(palette.primary, palette.secondary) >= 4.5;
 
   return (
     <div className="space-y-4" data-slot="appearance-category">
       <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
         <SettingsRow label="Color scheme" description="Choose light, dark, or your device's setting." stack>
-          <SegmentedControl
-            options={THEME_OPTIONS}
-            value={theme}
-            onChange={setTheme}
-          />
+          <SegmentedControl options={THEME_OPTIONS} value={theme} onChange={setTheme} />
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard icon={Palette} title="Custom colors" padding={false} index={1}>
-        <div className={cn("px-4 pt-4", showCustomColors ? "" : "pb-4")}>
-          <Toggle
-            checked={showCustomColors}
-            onChange={handleToggleCustomColors}
-            label="Enable custom colors"
-            description="Customize the primary, secondary, and accent colors"
-            iconOn={Check}
-            iconOff={Palette}
-          />
+      <SettingsCard icon={Palette} title="Colors" padding={false} index={1}>
+        <div className="space-y-4 p-4">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Color presets">
+            <PaletteChip
+              label="Default"
+              ariaLabel="Use the default colors"
+              dots={dotsFor(darkMode && !flip ? DARK_DEFAULTS : LIGHT_DEFAULTS)}
+              selected={!isCustomTheme}
+              onSelect={resetColors}
+            />
+            {PRESETS.map((preset) => (
+              <PaletteChip
+                key={preset.label}
+                label={preset.label}
+                ariaLabel={`Apply ${preset.label} preset`}
+                dots={dotsFor(preset.colors)}
+                selected={isCustomTheme && sameColors(palette, preset.colors)}
+                onSelect={() => save(preset.colors)}
+              />
+            ))}
+            <PaletteChip
+              label="Custom"
+              ariaLabel="Make your own colors"
+              dots={dotsFor(palette)}
+              selected={isCustomTheme && !matchesPreset}
+              onSelect={() => save(palette)}
+            />
+          </div>
 
-          {showCustomColors && (
-            <div className="mt-4 pb-4 space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-              <div className="pt-4 border-t border-primary/10">
-                <PalettePreview palette={presetPreview(palette)} />
+          {isCustomTheme && (
+            <div className="space-y-3 rounded-large-element surface-primary p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm">{editingDark ? "Dark mode colors" : "Light mode colors"}</div>
+                {!readable && <Pill variant="warning">Text is hard to read on this background</Pill>}
               </div>
-
-              <div className="pt-4 border-t border-primary/10">
-                <div className="text-sm mb-3">Color presets</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {COLOR_PRESETS.map((preset) => (
-                    <ColorPreset
-                      key={preset.label}
-                      label={preset.label}
-                      colors={preset.colors}
-                      previewColors={presetPreview(preset.colors)}
-                      currentColors={palette}
-                      onSelect={handlePresetSelect}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-primary/10 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm">Your colors</div>
-                  {useSeparateDarkColors && (
-                    <SegmentedControl
-                      aria-label="Which colors to edit"
-                      options={[
-                        { value: "light", icon: Sun, label: "Light" },
-                        { value: "dark", icon: Moon, label: "Dark" },
-                      ]}
-                      value={editingDarkPalette ? "dark" : "light"}
-                      onChange={setEditTarget}
-                    />
-                  )}
-                </div>
-                <div className="rounded-large-element surface-primary divide-y divide-secondary/10 overflow-hidden">
-                  <ColorInput
-                    label="Background"
-                    description="Page and window background"
-                    value={palette.primary}
-                    onChange={(v) => handleColorChange("primary", v)}
-                  />
-                  <ColorInput
-                    label="Text"
-                    description="Text, icons and cards"
-                    value={palette.secondary}
-                    onChange={(v) => handleColorChange("secondary", v)}
-                  />
-                  <ColorInput
-                    label="Accent"
-                    description="Borders, outlines and highlights"
-                    value={palette.accent}
-                    onChange={(v) => handleColorChange("accent", v)}
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-primary/10">
-                <Toggle
-                  checked={useSeparateDarkColors}
-                  onChange={() => {
-                    setEditTarget(null);
-                    setUseSeparateDarkColors(!useSeparateDarkColors);
-                  }}
-                  label="Separate dark mode colors"
-                  description={
-                    useSeparateDarkColors
-                      ? "Light and dark mode each keep their own colors."
-                      : "Dark mode swaps background and text. Turn on to pick its colors yourself."
-                  }
-                />
-              </div>
-
-              <div className="pt-4 border-t border-primary/10 flex justify-end">
-                <Button
-                  variant="ghost"
-                  surface="secondary"
-                  size="sm"
-                  onClick={handleReset}
-                  aria-label="Reset colors to default"
-                >
-                  <RotateCcw size={ICON_SIZE.sm} />
-                  <span>Reset to default</span>
-                </Button>
+              <div className="grid grid-cols-3 gap-3">
+                <ColorSwatch label="Background" value={palette.primary} onChange={(v) => save({ ...palette, primary: v })} />
+                <ColorSwatch label="Text" value={palette.secondary} onChange={(v) => save({ ...palette, secondary: v })} />
+                <ColorSwatch label="Accent" value={palette.accent} onChange={(v) => save({ ...palette, accent: v })} />
               </div>
             </div>
           )}
         </div>
+
+        {isCustomTheme && (
+          <SettingsRow
+            label="Dark mode colors"
+            description={
+              useSeparateDarkColors
+                ? "Switch to dark mode above to choose its colors."
+                : "Flipped swaps background and text."
+            }
+            hideDivider
+            stack
+          >
+            <SegmentedControl
+              aria-label="Dark mode colors"
+              options={[
+                { value: "flipped", label: "Flipped" },
+                { value: "separate", label: "Separate" },
+              ]}
+              value={useSeparateDarkColors ? "separate" : "flipped"}
+              onChange={(v) => setUseSeparateDarkColors(v === "separate")}
+            />
+          </SettingsRow>
+        )}
       </SettingsCard>
 
       {/* Existing Luna vibration preference — Toggle matches shared primitives */}

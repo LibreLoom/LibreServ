@@ -184,7 +184,7 @@ export default [
     area: "Settings: Appearance",
     title: "Appearance, light and dark",
     url: "/settings#appearance",
-    check: ["Changing theme and colors applies at once", "Custom colors shows presets and three compact colour rows; Reset to default sits at the bottom", "Everything stays readable in both modes", "Choice survives Reload only if it is meant to"],
+    check: ["Changing theme and colors applies at once", "Colors shows one row of palette chips (Default, presets, Custom); picking anything but Default reveals three swatches and a Flipped or Separate dark choice", "Everything stays readable in both modes", "Choice survives Reload only if it is meant to"],
   },
   {
     id: "settings/appearance-phone",

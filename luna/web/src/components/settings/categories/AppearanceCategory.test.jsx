@@ -63,46 +63,47 @@ describe("AppearanceCategory", () => {
     expect(localStorage.getItem("theme")).toBe("light");
   });
 
-  it("exposes custom colors toggle", async () => {
+  it("shows palette chips and reveals the editor only once colors are custom", async () => {
     const user = userEvent.setup();
     renderAppearance();
 
-    expect(screen.getByText("Enable custom colors")).toBeTruthy();
-    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
-    expect(screen.getByText("Color presets")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Apply Classic preset/i })).toBeTruthy();
-  });
+    expect(screen.getByRole("button", { name: /Use the default colors/i }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByLabelText("Background hex value")).toBeNull();
 
-  it("shows a preview with a readability check and plain color names", async () => {
-    const user = userEvent.setup();
-    renderAppearance();
-
-    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
-    expect(screen.getByRole("img", { name: /Preview of your colors/i })).toBeTruthy();
-    expect(screen.getByText("Easy to read")).toBeTruthy();
-    expect(screen.getByLabelText("Background hex value")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Apply Ocean preset/i }));
+    expect((/** @type {HTMLInputElement} */ (screen.getByLabelText("Background hex value"))).value).toBe("#cce7f5");
     expect(screen.getByLabelText("Text hex value")).toBeTruthy();
     expect(screen.getByLabelText("Accent hex value")).toBeTruthy();
+  });
+
+  it("Custom starts from the current colors and Default resets", async () => {
+    const user = userEvent.setup();
+    renderAppearance();
+
+    await user.click(screen.getByRole("button", { name: /Make your own colors/i }));
+    expect(screen.getByRole("button", { name: /Make your own colors/i }).getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("button", { name: /Use the default colors/i }));
+    expect(screen.queryByLabelText("Background hex value")).toBeNull();
+    expect(localStorage.getItem("theme-colors")).toBeNull();
   });
 
   it("warns when the chosen colors are hard to read", async () => {
     const user = userEvent.setup();
     renderAppearance();
 
-    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
+    await user.click(screen.getByRole("button", { name: /Make your own colors/i }));
     const text = screen.getByLabelText("Text hex value");
     await user.clear(text);
     await user.type(text, "#eeeeee");
-    expect(screen.getByText("Hard to read")).toBeTruthy();
+    expect(screen.getByText(/hard to read/i)).toBeTruthy();
   });
 
-  it("edits one palette at a time with a Light / Dark switch", async () => {
+  it("offers separate dark colors as a Flipped / Separate choice", async () => {
     const user = userEvent.setup();
     renderAppearance();
 
-    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
-    await user.click(screen.getByRole("switch", { name: /Separate dark mode colors/i }));
-    await user.click(screen.getByRole("radio", { name: /^Dark$/i, hidden: false }));
-    expect(screen.getAllByLabelText("Background hex value")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /Apply Forest preset/i }));
+    await user.click(screen.getByRole("radio", { name: /Separate/i }));
+    expect(localStorage.getItem("theme-separate-dark")).toBe("true");
   });
 });
