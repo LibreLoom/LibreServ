@@ -57,7 +57,10 @@ function FileOpRow({ op }) {
   // second. Animating each line in and out made the card breathe constantly,
   // so a long queue gets a fixed set of slots: a file filling one slot swaps
   // its name in place and the card never changes height.
-  const stableSlots = running && op.items.length > MAX_ACTIVE_LINES
+  // Only uploads show per-file lines; a move or copy has none, so reserving
+  // slots for them left a tall empty block in the card.
+  const showsLines = op.kind === "upload" || op.kind === "gallery";
+  const stableSlots = showsLines && running && op.items.length > MAX_ACTIVE_LINES
     ? MAX_ACTIVE_LINES
     : Math.min(MAX_ACTIVE_LINES, activeItems.length);
 
