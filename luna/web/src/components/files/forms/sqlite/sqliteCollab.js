@@ -12,6 +12,12 @@
  * yours in the log, your copy no longer matches the log's order, and it is
  * rebuilt from the opened file plus the whole log.
  *
+ * Each step carries the time it ran at, and replays with SQLite's clock
+ * stopped there, so `CURRENT_TIMESTAMP` and column defaults match everywhere.
+ * A transaction is shared as one unit when it commits (nothing at all when it
+ * rolls back). An edit too big for one message is split into pieces that the
+ * log reassembles.
+ *
  * Saving still writes the whole file. The saver records which log entry the
  * file covers and its new revision in a shared map, so people who open the
  * database later start from the right place and nobody gets a false
@@ -25,15 +31,22 @@ const LOG_KEY = "sqliteLog";
 const META_KEY = "sqliteMeta";
 /** The hub drops frames over 256 KB; keep a safe margin for the envelope. */
 export const MAX_ENTRY_BYTES = 150 * 1024;
+/** Size of one piece of an entry that is too big for a single message. */
+const PIECE_CHARS = 100 * 1024;
+/** The most one edit (or one transaction) may add to the shared log. */
+export const MAX_SHARED_BYTES = 8 * 1024 * 1024;
 
-const TRANSACTION_VERBS = new Set([
-  "BEGIN",
-  "COMMIT",
-  "END",
-  "ROLLBACK",
-  "SAVEPOINT",
-  "RELEASE",
-]);
+/**
+ * Savepoints nest, which one flat log entry can't express.
+ * @param {{ verb: string, statement: string }} step
+ */
+function isSavepoint(step) {
+  return (
+    step.verb === "SAVEPOINT" ||
+    step.verb === "RELEASE" ||
+    (step.verb === "ROLLBACK" && /\bTO\b/i.test(step.statement))
+  );
+}
 
 /**
  * Doc adapter for `CollabDocSync`. The file is never put into the doc, so
@@ -61,14 +74,104 @@ function newId() {
 }
 
 /**
- * @typedef {{ id: string, sql: string, params?: any[] }} LogEntry
+ * One statement and the time it ran at (ms).
+ * @typedef {{ sql: string, params?: any[], t: number }} Step
  */
+/**
+ * One shared edit. `atomic` entries are a committed transaction: they replay
+ * inside BEGIN/COMMIT so they land all or nothing.
+ * @typedef {{ id: string, steps: Step[], atomic: boolean }} LogEntry
+ */
+
+/** @param {Uint8Array} bytes */
+function toB64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+/** @param {string} b64 */
+function fromB64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * The text form of an entry's steps, with blobs as base64 so it can be cut
+ * into pieces.
+ * @param {{ steps: Step[], atomic: boolean }} body
+ */
+function encodeBody(body) {
+  return JSON.stringify(body, (_key, value) =>
+    value instanceof Uint8Array ? { $blob: toB64(value) } : value,
+  );
+}
+
+/** @param {string} text @returns {{ steps: Step[], atomic: boolean }} */
+function decodeBody(text) {
+  return JSON.parse(text, (_key, value) =>
+    value && typeof value === "object" && typeof value.$blob === "string"
+      ? fromB64(value.$blob)
+      : value,
+  );
+}
+
+/**
+ * Turn the raw log items into whole entries. An entry sent in pieces counts
+ * once its last piece arrives, and sits where that piece sits, so every copy
+ * orders it the same way.
+ *
+ * @param {any[]} items
+ * @returns {LogEntry[]}
+ */
+export function readEntries(items) {
+  /** @type {LogEntry[]} */
+  const entries = [];
+  /** @type {Map<string, { n: number, parts: Map<number, string> }>} */
+  const partial = new Map();
+  for (const item of items) {
+    if (!item || typeof item.id !== "string") continue;
+    if (Array.isArray(item.steps)) {
+      entries.push({ id: item.id, steps: item.steps, atomic: Boolean(item.atomic) });
+      continue;
+    }
+    if (typeof item.data !== "string" || !Number.isInteger(item.i) || !Number.isInteger(item.n)) {
+      continue;
+    }
+    let group = partial.get(item.id);
+    if (!group) {
+      group = { n: item.n, parts: new Map() };
+      partial.set(item.id, group);
+    }
+    group.parts.set(item.i, item.data);
+    if (group.parts.size < group.n) continue;
+    try {
+      let text = "";
+      for (let i = 0; i < group.n; i += 1) text += group.parts.get(i) ?? "";
+      const body = decodeBody(text);
+      entries.push({ id: item.id, steps: body.steps, atomic: Boolean(body.atomic) });
+    } catch {
+      // A damaged edit is skipped by everyone alike.
+    }
+    partial.delete(item.id);
+  }
+  return entries;
+}
+
+/** @param {Step} step */
+function stepBytes(step) {
+  return encodeBody({ steps: [step], atomic: false }).length;
+}
 
 /**
  * @typedef {object} InnerClient
  * @property {(bytes: Uint8Array, options?: { readOnly?: boolean }) => Promise<any>} open
- * @property {(sql: string, params?: any[]) => Promise<any>} exec
- * @property {(sql: string, params?: any[], readOnly?: boolean) => Promise<any>} apply
+ * @property {(sql: string, params?: any[], now?: number) => Promise<any>} exec
+ * @property {(sql: string, params?: any[], readOnly?: boolean, now?: number) => Promise<any>} apply
  * @property {() => Promise<any>} schema
  * @property {() => Promise<Uint8Array>} exportBytes
  * @property {() => Promise<void>} close
@@ -102,6 +205,8 @@ export class CollabSqliteClient {
     this.applied = /** @type {string[]} */ ([]);
     /** The last applied id at the moment of the latest export. */
     this.exportMark = /** @type {string | null} */ (null);
+    /** A transaction this person has open: its steps wait for COMMIT. */
+    this.txn = /** @type {{ steps: Step[], bytes: number } | null} */ (null);
     this.chain = Promise.resolve();
     this.disposed = false;
     this.opened = false;
@@ -131,9 +236,14 @@ export class CollabSqliteClient {
     return run;
   }
 
+  /** @returns {LogEntry[]} every whole entry in the log */
+  _allEntries() {
+    return readEntries(this.log.toArray());
+  }
+
   /** @returns {LogEntry[]} entries this copy is responsible for replaying */
   _pendingEntries() {
-    const all = /** @type {LogEntry[]} */ (this.log.toArray());
+    const all = this._allEntries();
     const at = this.startId ? all.findIndex((entry) => entry.id === this.startId) : -1;
     return at >= 0 ? all.slice(at + 1) : all;
   }
@@ -149,7 +259,7 @@ export class CollabSqliteClient {
 
     const savedRevision = this.meta.get("revision");
     const savedThrough = this.meta.get("savedThrough");
-    const existing = /** @type {LogEntry[]} */ (this.log.toArray());
+    const existing = this._allEntries();
     if (savedRevision === undefined) {
       // Nobody has saved in this room: the file is the log's starting point.
       this.startId = null;
@@ -182,6 +292,8 @@ export class CollabSqliteClient {
    * @param {boolean} notify tell the editor when other people's entries ran
    */
   async _replay(notify) {
+    // Someone else's edits wait until this person's open transaction ends.
+    if (this.txn) return;
     const entries = this._pendingEntries();
     const ids = entries.map((entry) => entry.id);
     const isPrefix = this.applied.every((id, index) => ids[index] === id);
@@ -195,15 +307,31 @@ export class CollabSqliteClient {
     }
     const fresh = entries.slice(from);
     for (const entry of fresh) {
-      try {
-        await this.inner.apply(entry.sql, entry.params, this.readOnly);
-      } catch {
-        // A statement that fails here failed the same way for the person who sent it,
-        // so everyone skips it and stays in step.
-      }
+      await this._applyEntry(entry);
       this.applied.push(entry.id);
     }
     if (notify && (fresh.length || rebuilt)) this.onRemoteChange?.({ rebuilt });
+  }
+
+  /** @param {LogEntry} entry */
+  async _applyEntry(entry) {
+    // A step that fails here failed the same way for the person who sent it,
+    // so everyone skips it and stays in step.
+    const run = async (/** @type {Step} */ step) => {
+      await this.inner.apply(step.sql, step.params, this.readOnly, step.t);
+    };
+    if (!entry.atomic) {
+      for (const step of entry.steps) await run(step).catch(() => {});
+      return;
+    }
+    const at = entry.steps[0]?.t;
+    try {
+      await this.inner.apply("BEGIN", undefined, this.readOnly, at);
+      for (const step of entry.steps) await run(step);
+      await this.inner.apply("COMMIT", undefined, this.readOnly, at);
+    } catch {
+      await this.inner.apply("ROLLBACK", undefined, this.readOnly, at).catch(() => {});
+    }
   }
 
   _reconcile() {
@@ -220,42 +348,77 @@ export class CollabSqliteClient {
       const plan = statements.map((statement) => ({
         statement,
         mutates: statementMutates(statement),
+        verb: firstVerb(statement),
       }));
       if (!plan.some((step) => step.mutates)) return this.inner.exec(sql, params);
 
+      const t = Date.now();
+      let size = this.txn?.bytes ?? 0;
       for (const step of plan) {
-        if (step.mutates && TRANSACTION_VERBS.has(firstVerb(step.statement))) {
+        if (!step.mutates) continue;
+        if (isSavepoint(step)) {
           throw new Error(
-            "Transactions aren't available while editing together. Run each change on its own.",
+            "Savepoints aren't available while editing together. Use BEGIN and COMMIT instead.",
           );
         }
+        size += stepBytes({ sql: step.statement, ...(params ? { params } : {}), t });
       }
-      /** @param {number} count statements that ran, from the start */
-      const entriesFor = (count) =>
-        plan
-          .slice(0, count)
-          .filter((step) => step.mutates)
-          .map((step) => ({
-            id: newId(),
-            sql: step.statement,
-            ...(Array.isArray(params) ? { params } : {}),
-          }));
-      const entries = entriesFor(plan.length);
-      if (entries.some((entry) => JSON.stringify(entry).length > MAX_ENTRY_BYTES)) {
+      if (size > MAX_SHARED_BYTES) {
         throw new Error(
           "This change is too large to share live. Split it into smaller steps.",
         );
       }
 
-      try {
-        const result = await this.inner.exec(sql, params);
+      /** Entries for the first `count` statements, updating the open transaction. */
+      const track = (/** @type {number} */ count) => {
+        /** @type {LogEntry[]} */
+        const out = [];
+        for (const step of plan.slice(0, count)) {
+          if (!step.mutates) continue;
+          if (step.verb === "BEGIN") {
+            this.txn = { steps: [], bytes: 0 };
+          } else if (step.verb === "COMMIT" || step.verb === "END") {
+            if (this.txn?.steps.length) {
+              out.push({ id: newId(), steps: this.txn.steps, atomic: true });
+            }
+            this.txn = null;
+          } else if (step.verb === "ROLLBACK") {
+            this.txn = null;
+          } else {
+            /** @type {Step} */
+            const logged = {
+              sql: step.statement,
+              ...(Array.isArray(params) ? { params } : {}),
+              t,
+            };
+            if (this.txn) {
+              this.txn.steps.push(logged);
+              this.txn.bytes += stepBytes(logged);
+            } else {
+              out.push({ id: newId(), steps: [logged], atomic: false });
+            }
+          }
+        }
+        return out;
+      };
+
+      const hadTransaction = Boolean(this.txn);
+      /** @param {LogEntry[]} entries */
+      const finish = (entries) => {
         this._record(entries);
+        // Edits from others that waited for the transaction can run now.
+        if (hadTransaction && !this.txn) void this._reconcile();
+      };
+
+      try {
+        const result = await this.inner.exec(sql, params, t);
+        finish(track(plan.length));
         return result;
       } catch (error) {
         // A script stops at its first failing statement and keeps what ran
         // before it. Share that part, or other people's copies would miss it.
         const failedAt = Number(/^Statement (\d+):/.exec(String(error?.message))?.[1]);
-        if (failedAt > 1) this._record(entriesFor(failedAt - 1));
+        if (failedAt > 1) finish(track(failedAt - 1));
         throw error;
       }
     });
@@ -264,8 +427,21 @@ export class CollabSqliteClient {
   /** @param {LogEntry[]} entries */
   _record(entries) {
     if (!entries.length) return;
-    for (const entry of entries) this.applied.push(entry.id);
-    this.log.push(entries);
+    for (const entry of entries) {
+      this.applied.push(entry.id);
+      const text = encodeBody({ steps: entry.steps, atomic: entry.atomic });
+      if (text.length <= MAX_ENTRY_BYTES) {
+        this.log.push([{ id: entry.id, steps: entry.steps, atomic: entry.atomic }]);
+        continue;
+      }
+      // Too big for one message: send it in pieces, each its own update.
+      const total = Math.ceil(text.length / PIECE_CHARS);
+      for (let i = 0; i < total; i += 1) {
+        this.log.push([
+          { id: entry.id, i, n: total, data: text.slice(i * PIECE_CHARS, (i + 1) * PIECE_CHARS) },
+        ]);
+      }
+    }
   }
 
   schema() {

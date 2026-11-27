@@ -4,12 +4,17 @@ import { CollabSqliteClient } from "./sqliteCollab.js";
 
 /** A stand-in database that remembers the statements run on it. */
 function fakeInner() {
-  const state = { statements: /** @type {string[]} */ ([]), opens: 0 };
+  const state = {
+    statements: /** @type {string[]} */ ([]),
+    clocks: /** @type {(number | undefined)[]} */ ([]),
+    opens: 0,
+  };
   return {
     state,
     open: async () => {
       state.opens += 1;
       state.statements = [];
+      state.clocks = [];
       return { tables: [] };
     },
     exec: async (/** @type {string} */ sql) => {
@@ -18,8 +23,9 @@ function fakeInner() {
       state.statements.push(sql);
       return { changes: 1 };
     },
-    apply: async (/** @type {string} */ sql) => {
+    apply: async (/** @type {string} */ sql, /** @type {any} */ _params, /** @type {any} */ _ro, /** @type {number | undefined} */ now) => {
       state.statements.push(sql);
+      state.clocks.push(now);
       return { changes: 1 };
     },
     schema: async () => ({ tables: [] }),
@@ -86,9 +92,57 @@ describe("CollabSqliteClient", () => {
     expect(left.state.statements).toHaveLength(2);
   });
 
-  it("refuses transactions while editing together", async () => {
+  it("refuses savepoints while editing together", async () => {
     const { a } = await pair();
-    await expect(a.exec("BEGIN")).rejects.toThrow(/Transactions/);
+    await expect(a.exec("SAVEPOINT s1")).rejects.toThrow(/Savepoints/);
+  });
+
+  it("shares a committed transaction as one unit", async () => {
+    const { a, flush, right } = await pair();
+    await a.exec("BEGIN");
+    await a.exec("INSERT INTO t VALUES (1)");
+    await a.exec("INSERT INTO t VALUES (2)");
+    flush();
+    await settle();
+    expect(right.state.statements).toEqual([]);
+    await a.exec("COMMIT");
+    flush();
+    await settle();
+    expect(right.state.statements).toEqual([
+      "BEGIN",
+      "INSERT INTO t VALUES (1)",
+      "INSERT INTO t VALUES (2)",
+      "COMMIT",
+    ]);
+  });
+
+  it("shares nothing from a rolled back transaction", async () => {
+    const { a, flush, right } = await pair();
+    await a.exec("BEGIN");
+    await a.exec("INSERT INTO t VALUES (1)");
+    await a.exec("ROLLBACK");
+    flush();
+    await settle();
+    expect(right.state.statements).toEqual([]);
+  });
+
+  it("replays a change at the time the sender ran it", async () => {
+    const { a, flush, right } = await pair();
+    await a.exec("INSERT INTO t VALUES (CURRENT_TIMESTAMP)");
+    flush();
+    await settle();
+    expect(typeof right.state.clocks[0]).toBe("number");
+  });
+
+  it("shares a change too big for one message in pieces", async () => {
+    const { a, b, flush, right } = await pair();
+    const big = `INSERT INTO t VALUES ('${"x".repeat(400 * 1024)}')`;
+    await a.exec(big);
+    expect(a.log.length).toBeGreaterThan(1);
+    flush();
+    await settle();
+    expect(right.state.statements).toEqual([big]);
+    expect(b.applied).toHaveLength(1);
   });
 
   it("lets a later joiner skip what a save already covers", async () => {

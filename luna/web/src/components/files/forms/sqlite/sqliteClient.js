@@ -103,10 +103,11 @@ export class SqliteClient {
   /**
    * @param {string} sql
    * @param {any[]} [params]
+   * @param {number} [now] stop SQLite's clock at this time (ms) while it runs
    * @returns {Promise<ExecResult>}
    */
-  exec(sql, params) {
-    const payload = params ? { sql, params } : { sql };
+  exec(sql, params, now) {
+    const payload = { sql, ...(params ? { params } : {}), ...(now != null ? { now } : {}) };
     return this.request("exec", payload);
   }
 
@@ -117,10 +118,16 @@ export class SqliteClient {
    * @param {string} sql
    * @param {any[]} [params]
    * @param {boolean} [readOnly] true when this copy was opened read-only
+   * @param {number} [now] stop SQLite's clock at this time (ms) while it runs
    * @returns {Promise<{ changes: number }>}
    */
-  apply(sql, params, readOnly = false) {
-    const payload = params ? { sql, params, readOnly } : { sql, readOnly };
+  apply(sql, params, readOnly = false, now) {
+    const payload = {
+      sql,
+      readOnly,
+      ...(params ? { params } : {}),
+      ...(now != null ? { now } : {}),
+    };
     return this.request("apply", payload);
   }
 
