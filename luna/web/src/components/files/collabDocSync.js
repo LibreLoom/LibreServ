@@ -165,6 +165,9 @@ export class CollabDocSync {
     this._seedContent = null;
     this._seedTimer = null;
     this._retryTimer = null;
+    this._seedFallbackElapsed = false;
+    /** @type {Set<(ready: boolean) => void>} */
+    this._hydrationWaiters = new Set();
     this._driveId = driveId;
     this._path = path;
     this._socketFactory = socket
@@ -189,6 +192,7 @@ export class CollabDocSync {
     });
 
     this.ydoc.on("update", (update, origin) => {
+      this._notifyHydrated();
       if (origin === "remote" || this._destroyed) return;
       this.socket?.sendOp({ k: "u", d: toB64(update) });
     });
@@ -243,9 +247,11 @@ export class CollabDocSync {
 
   /** Drop the socket but keep the document — reconnect picks up via s1. */
   disconnect() {
+    this._clearSyncTimers();
     this.socket?.close();
     this.socket = null;
     this._welcomed = false;
+    this._seedFallbackElapsed = false;
   }
 
   /**
@@ -255,6 +261,7 @@ export class CollabDocSync {
    * @param {string} content
    */
   adoptContent(content) {
+    if (this._synced || this._seeded || this._destroyed) return;
     this._pendingContent = content;
     this._maybeSeed();
   }
@@ -282,6 +289,36 @@ export class CollabDocSync {
     return this._seeded || this._synced || !this._adapter.isEmpty(this.ydoc);
   }
 
+  /** Wait for hydration without polling. A caller can leave or time out. */
+  waitForHydration(/** @type {number} */ timeoutMs, /** @type {AbortSignal} */ signal) {
+    if (this._destroyed || signal.aborted) return Promise.resolve(false);
+    if (this.hydrated) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const abort = () => finish(false);
+      const finish = (/** @type {boolean} */ ready) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        this._hydrationWaiters.delete(finish);
+        resolve(ready);
+      };
+      const timer = setTimeout(abort, timeoutMs);
+      this._hydrationWaiters.add(finish);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
+
+  _notifyHydrated() {
+    if (!this._hydrationWaiters.size || !this.hydrated) return;
+    for (const finish of this._hydrationWaiters) finish(true);
+  }
+
+  _clearSyncTimers() {
+    clearTimeout(this._seedTimer);
+    clearTimeout(this._retryTimer);
+    this._seedTimer = null;
+    this._retryTimer = null;
+  }
+
   /** Tell the room we persisted the file (peers show a "saved" beat). */
   notifySaved(size) {
     this.socket?.sendSaved(size);
@@ -289,8 +326,8 @@ export class CollabDocSync {
 
   destroy() {
     this._destroyed = true;
-    if (this._seedTimer) clearTimeout(this._seedTimer);
-    if (this._retryTimer) clearTimeout(this._retryTimer);
+    this._clearSyncTimers();
+    for (const finish of this._hydrationWaiters) finish(false);
     this.socket?.close();
     this.awareness.destroy();
     this.ydoc.destroy();
@@ -345,6 +382,8 @@ export class CollabDocSync {
   }
 
   _onWelcome(msg) {
+    this._clearSyncTimers();
+    this._seedFallbackElapsed = false;
     this._welcomed = true;
     this.peerId = msg.peer_id ?? null;
     this.peers.clear();
@@ -378,15 +417,16 @@ export class CollabDocSync {
         }
       }
       this._sendSyncRequest();
-      this._retryTimer = setTimeout(() => {
+      if (!this._synced) this._retryTimer = setTimeout(() => {
         this._retryTimer = null;
         if (!this._synced) this._sendSyncRequest();
       }, SYNC_RETRY_MS);
       // If nobody answers (dead peers, foreign clients), fall back to the
       // file content rather than sitting on an empty document.
-      this._seedTimer = setTimeout(() => {
+      if (!this._synced) this._seedTimer = setTimeout(() => {
         this._seedTimer = null;
-        this._maybeSeed(true);
+        this._seedFallbackElapsed = true;
+        this._maybeSeed();
       }, SEED_FALLBACK_MS);
     } else {
       this._maybeSeed();
@@ -415,14 +455,15 @@ export class CollabDocSync {
     }
     try {
       if (cursor.k === "s1") {
+        if (!this.hydrated) return;
         // A peer wants our state: send the diff they are missing (SyncStep 2).
         // Do NOT send another s1 back here — SyncStep 1 is the query, SyncStep 2
         // is the answer; ping-ponging s1 caused infinite feedback loops.
         const reply = Y.encodeStateAsUpdate(this.ydoc, fromB64(cursor.d));
         this._sendPresence({ k: "s2", d: toB64(reply) });
       } else if (cursor.k === "s2") {
-        this._synced = true;
         Y.applyUpdate(this.ydoc, fromB64(cursor.d), "remote");
+        this._acceptSync();
       } else if (cursor.k === "a") {
         applyAwarenessUpdate(this.awareness, fromB64(cursor.d), "remote");
       }
@@ -434,18 +475,25 @@ export class CollabDocSync {
   _onOp(payload) {
     if (!payload || payload.k !== "u" || typeof payload.d !== "string") return;
     try {
-      this._synced = true;
       Y.applyUpdate(this.ydoc, fromB64(payload.d), "remote");
+      this._acceptSync();
     } catch {
       // ignore malformed update
     }
   }
 
-  _maybeSeed(force = false) {
-    if (this._destroyed || !this._adapter.isEmpty(this.ydoc)) return;
+  _acceptSync() {
+    this._synced = true;
+    this._pendingContent = null;
+    this._clearSyncTimers();
+    this._notifyHydrated();
+  }
+
+  _maybeSeed() {
+    if (this._destroyed || this._synced || !this._adapter.isEmpty(this.ydoc)) return;
     const alone = this.otherPeers().length === 0;
     const allowed = this._welcomed || this._offline;
-    if (!allowed || (!alone && !force)) return;
+    if (!allowed || (!alone && !this._seedFallbackElapsed)) return;
     const content = this._pendingContent;
     if (content == null) return;
     this._pendingContent = null;
@@ -456,6 +504,7 @@ export class CollabDocSync {
     this.ydoc.transact(() => {
       this._adapter.seed(this.ydoc, content);
     }, "seed");
+    this._notifyHydrated();
   }
 
   _emitPeers() {

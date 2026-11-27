@@ -26,7 +26,6 @@ import { asBytes } from "./forms/sqlite/sqliteModel.js";
 const SIDECAR_SUFFIX = ".lunaform.responses.sqlite";
 /** How long to wait for the room's shared edits before opening anyway. */
 const HYDRATE_TIMEOUT_MS = 6_000;
-const HYDRATE_POLL_MS = 50;
 
 /**
  * The form whose answers live in this sidecar, or null for an ordinary
@@ -110,6 +109,7 @@ export default function SqliteFileEditor({
 
   useEffect(() => {
     let cancelled = false;
+    const hydration = new AbortController();
     (async () => {
       if (formPath && typeof source.formSqlite === "function") {
         try {
@@ -151,15 +151,7 @@ export default function SqliteFileEditor({
         if (cancelled) return;
         // Opening before the room's edits arrive would start from the bare
         // file and miss changes made since it was last saved.
-        const started = Date.now();
-        while (
-          live &&
-          !cancelled &&
-          !sync.hydrated &&
-          Date.now() - started < HYDRATE_TIMEOUT_MS
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
-        }
+        if (live) await sync.waitForHydration(HYDRATE_TIMEOUT_MS, hydration.signal);
         if (cancelled) return;
         const bytes = asBytes(raw);
         setState({
@@ -188,6 +180,7 @@ export default function SqliteFileEditor({
     })();
     return () => {
       cancelled = true;
+      hydration.abort();
       // Disconnect rather than destroy: StrictMode replays this effect and
       // the same shared document has to survive into the second run.
       if (live) sync.disconnect();

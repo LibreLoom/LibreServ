@@ -83,6 +83,7 @@ const AUTOSAVE_IDLE_MS = 2_000;
 const AUTOSAVE_MAX_MS = 15_000;
 const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
+const HYDRATE_TIMEOUT_MS = 10_000;
 
 /** One page of the Responses tab. The summary covers every page at once. */
 const RESPONSES_PAGE_SIZE = 100;
@@ -335,6 +336,7 @@ function BuilderSession({
 
   useEffect(() => {
     let cancelled = false;
+    const hydration = new AbortController();
     let repaired = false;
     const snapshot = observeForm(sync.ydoc);
     // Seeding can wait for the hub's welcome, so repair once the doc has content.
@@ -392,10 +394,17 @@ function BuilderSession({
         // save even when key order in the file differs.
         setBaseline(seedFormSnapshot(text));
         sync.adoptContent(text);
+        const ready = await sync.waitForHydration(HYDRATE_TIMEOUT_MS, hydration.signal);
+        if (cancelled) return;
         // Questions sharing an id would share every answer; give each its
         // own before anyone fills the form in again.
-        repairOnce();
-        setDoc(snapshot.read());
+        if (ready) repairOnce();
+        const next = ready ? snapshot.read() : null;
+        if (!next) {
+          setError("Luna couldn't open this form. Close it and try again.");
+          return;
+        }
+        setDoc(next);
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this form. Try downloading it."));
@@ -407,6 +416,7 @@ function BuilderSession({
 
     return () => {
       cancelled = true;
+      hydration.abort();
       sync.ydoc.off("update", pull);
       sync.awareness.off("change", onAware);
       snapshot.dispose();

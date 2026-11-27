@@ -23,7 +23,6 @@ const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
 
 const HYDRATE_TIMEOUT_MS = 10_000;
-const HYDRATE_POLL_MS = 10;
 
 /**
  * Fullscreen plaintext/markdown editor — the writable counterpart to the
@@ -127,6 +126,7 @@ function EditorSession({
 
   useEffect(() => {
     let cancelled = false;
+    const hydration = new AbortController();
     const onDocUpdate = () => {
       setDocVersion((v) => v + 1);
       // Remote ops count too — a peer's edit also leaves the doc ahead of
@@ -151,10 +151,8 @@ function EditorSession({
         // With the hub, the file seeds the doc only after its welcome. Until
         // then the doc is empty by timing, and typing into it would block the
         // seed and later save over the real file. Keep the loading screen up.
-        const started = Date.now();
-        while (!cancelled && !sync.hydrated && Date.now() - started < HYDRATE_TIMEOUT_MS) {
-          await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
-        }
+        const ready = await sync.waitForHydration(HYDRATE_TIMEOUT_MS, hydration.signal);
+        if (!ready && !cancelled) setError("Luna couldn't open this file for editing. Close it and try again.");
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
@@ -166,6 +164,7 @@ function EditorSession({
 
     return () => {
       cancelled = true;
+      hydration.abort();
       sync.ydoc.off("update", onDocUpdate);
       // Disconnect rather than destroy: StrictMode replays this effect, and
       // the same document must survive into the second mount.

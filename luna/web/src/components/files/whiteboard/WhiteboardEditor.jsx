@@ -44,7 +44,6 @@ const SETTLE_TIMEOUT_MS = 1_000;
 /** Give a silent room this long to answer the sync handshake before
  * mounting whatever the doc holds (the in-sync fallback seeds anyway). */
 const HYDRATE_TIMEOUT_MS = 10_000;
-const HYDRATE_POLL_MS = 10;
 
 const EMPTY_OBJECT = Object.freeze({});
 
@@ -57,26 +56,32 @@ const EMPTY_OBJECT = Object.freeze({});
  * resize), so the browser resamples it every frame and pointer math runs
  * off a stale offset.
  * @param {Element | null} el
+ * @param {AbortSignal} signal
  */
-function ancestorAnimationsSettled(el) {
-  if (!el || typeof document.getAnimations !== "function") return Promise.resolve();
-  const running = document.getAnimations().filter((anim) => {
-    const target = /** @type {KeyframeEffect | null} */ (anim.effect)?.target;
-    const timing = anim.effect?.getTiming?.();
-    return (
-      anim.playState === "running" &&
-      timing?.iterations !== Infinity &&
-      target instanceof Element &&
-      target !== el &&
-      target.contains(el)
-    );
-  });
+function ancestorAnimationsSettled(el, signal) {
+  if (signal.aborted) return Promise.resolve();
+  const running = [];
+  for (let parent = el?.parentElement; parent; parent = parent.parentElement) {
+    for (const animation of parent.getAnimations?.() || EMPTY_ANIMATIONS) {
+      if (animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity) {
+        running.push(animation.finished);
+      }
+    }
+  }
   if (!running.length) return Promise.resolve();
-  return Promise.race([
-    Promise.all(running.map((anim) => anim.finished.catch(() => {}))),
-    new Promise((resolve) => setTimeout(resolve, SETTLE_TIMEOUT_MS)),
-  ]);
+  return new Promise((resolve) => {
+    const finish = () => {
+      signal.removeEventListener("abort", finish);
+      clearTimeout(timer);
+      resolve(undefined);
+    };
+    const timer = setTimeout(finish, SETTLE_TIMEOUT_MS);
+    signal.addEventListener("abort", finish, { once: true });
+    Promise.allSettled(running).then(finish);
+  });
 }
+
+const EMPTY_ANIMATIONS = [];
 
 const UI_OPTIONS = Object.freeze({
   canvasActions: {
@@ -487,6 +492,7 @@ function EditorSession({
   // Load the file, join the room, mount the canvas once the doc is hydrated.
   useEffect(() => {
     let cancelled = false;
+    const hydration = new AbortController();
     const session = sync;
 
     const onYUpdate = (_update, origin) => {
@@ -542,11 +548,13 @@ function EditorSession({
       // scene (CollabDocSync's own fallback seeds on timeout anyway). Solo
       // and dead-hub sessions never see a welcome, so gate on `hydrated`,
       // never on `session.ready`.
-      const started = Date.now();
-      while (!cancelled && !session.hydrated && Date.now() - started < HYDRATE_TIMEOUT_MS) {
-        await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
-      }
+      const ready = await session.waitForHydration(HYDRATE_TIMEOUT_MS, hydration.signal);
       if (cancelled) return;
+      if (!ready) {
+        setPhase("error");
+        setError("Luna couldn't open this whiteboard. Try again.");
+        return;
+      }
       const { mod, error: moduleError } = await moduleRequest;
       if (cancelled) return;
       if (!mod) {
@@ -554,7 +562,7 @@ function EditorSession({
         setError(apiErrorMessage(moduleError, "Luna couldn't open the whiteboard."));
         return;
       }
-      await ancestorAnimationsSettled(hostRef.current);
+      await ancestorAnimationsSettled(hostRef.current, hydration.signal);
       if (cancelled) return;
       const scene = readScene(session.ydoc);
       const restored = mod.restore
@@ -575,6 +583,7 @@ function EditorSession({
 
     return () => {
       cancelled = true;
+      hydration.abort();
       session.ydoc.off("update", onYUpdate);
       session.awareness.off("change", onAwarenessUpdate);
       if (remoteRafRef.current != null) {

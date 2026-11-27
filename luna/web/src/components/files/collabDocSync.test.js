@@ -248,6 +248,45 @@ describe("CollabDocSync", () => {
     expect(sync.serialize()).toBe("from disk");
   });
 
+  it("wakes the editor when the file arrives after the room fallback timer", async () => {
+    vi.useFakeTimers();
+    const socket = new FakeSocket();
+    const sync = makeSession(socket);
+    const controller = new AbortController();
+    sync.connect();
+    socket.welcome({ others: [PEER_B] });
+    const waiting = sync.waitForHydration(10_000, controller.signal);
+
+    vi.advanceTimersByTime(5000);
+    sync.adoptContent("late disk copy");
+    await expect(waiting).resolves.toBe(true);
+    expect(sync.serialize()).toBe("late disk copy");
+  });
+
+  it("keeps an intentionally empty synced document even if the disk fetch arrives late", () => {
+    vi.useFakeTimers();
+    const socket = new FakeSocket();
+    const sync = makeSession(socket);
+    sync.connect();
+    socket.welcome({ others: [PEER_B] });
+    const blank = new Y.Doc();
+    socket.emit({ type: "presence", peer_id: 2, cursor: { k: "s2", d: toB64(Y.encodeStateAsUpdate(blank)) } });
+
+    sync.adoptContent("older disk copy");
+    vi.advanceTimersByTime(5000);
+    expect(sync.hydrated).toBe(true);
+    expect(sync.serialize()).toBe("");
+    blank.destroy();
+  });
+
+  it("releases an editor's hydration wait when its file closes", async () => {
+    const sync = makeSession(new FakeSocket());
+    const controller = new AbortController();
+    const waiting = sync.waitForHydration(10_000, controller.signal);
+    controller.abort();
+    await expect(waiting).resolves.toBe(false);
+  });
+
   it("seeds offline when the hub is unreachable", () => {
     const socket = new FakeSocket();
     const sync = makeSession(socket);
