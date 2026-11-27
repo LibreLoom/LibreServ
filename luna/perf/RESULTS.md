@@ -512,3 +512,6 @@ For Sol's availability query, the aggregate and reference row scan agreed on a
 150-row fixture with mixed statuses and null messages. Both counted 89 valid
 checks and 67 healthy checks in the latest 100 rows. The query plan used the
 existing health-check index by app.
+
+The Luna backend at `7a8f386d` passed a locked release-profile type check for
+`x86_64-unknown-linux-musl`. This covers the daemon and its dependencies.
