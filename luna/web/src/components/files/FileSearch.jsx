@@ -14,10 +14,11 @@ import LinearProgress from "@libreloom/ui/components/common/LinearProgress.jsx";
 import { showPageLevelError } from "../../lib/modalScopedError";
 import ShakeTarget from "@libreloom/ui/components/ui/ShakeTarget.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import FileSearchRow from "./FileSearchRow.jsx";
 import { useIsSmUp } from "./fileRowUtils.js";
 import { useToneColor } from "@libreloom/ui/lib/iconImage.js";
-import FileSearchStatus from "./FileSearchStatus.jsx";
+import FileSearchStatus, { INDEXING_HINT } from "./FileSearchStatus.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import { useShortcut } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import useFileSearch from "../../hooks/useFileSearch.js";
@@ -641,7 +642,11 @@ export default function FileSearch({ initialRequest }) {
                     title="Nothing yet"
                     description={search.scan?.scanning
                       ? "Luna is still reading your drives. Matches appear here as they're found."
-                      : "Luna is still reading inside your files. Matches appear here as they're found."}
+                      : (
+                        <>
+                          Luna is still <TermHint surface="primary" content={INDEXING_HINT}>indexing</TermHint> your files. Matches appear here as they're found.
+                        </>
+                      )}
                   />
                 ) : (
                   <EmptyState

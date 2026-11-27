@@ -7,7 +7,7 @@ import Card from "../../components/cards/Card.jsx";
  * @param {{
  *   icon?: import('react').ElementType,
  *   title?: string,
- *   description?: string,
+ *   description?: import('react').ReactNode,
  *   action?: import('react').ReactNode,
  *   className?: string,
  *   surface?: "primary" | "secondary",
@@ -47,7 +47,7 @@ export default function EmptyState({
 EmptyState.propTypes = {
   icon: PropTypes.elementType,
   title: PropTypes.string,
-  description: PropTypes.string,
+  description: PropTypes.node,
   action: PropTypes.node,
   className: PropTypes.string,
   surface: PropTypes.oneOf(["primary", "secondary"]),

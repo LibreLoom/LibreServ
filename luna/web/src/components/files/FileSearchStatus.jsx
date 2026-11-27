@@ -1,21 +1,28 @@
 import { useEffect, useState } from "react";
 import { cn } from "@libreloom/ui/lib/utils.js";
+import { TermHint } from "@libreloom/ui/components/ui/Tooltip.jsx";
 
 /** A scan that ends this fast never needs a notice. */
 const SHOW_AFTER_MS = 700;
 /** How long "Finished" stays up before the pill goes away. */
 const DONE_FOR_MS = 2600;
 
+export const INDEXING_HINT = "Indexing means Luna reads the text inside your files so you can search for it.";
+
 /**
  * @param {import("../../lib/fileSearch.js").ScanStatus | null} scan
- * @returns {string}
+ * @returns {import("react").ReactNode}
  */
 function readingText(scan) {
   if (!scan) return "Still reading your drives";
   if (!scan.scanning && scan.contents_reading) {
     // Names are all in; the words inside files are still being read.
     const left = scan.contents_left ? ` · ${scan.contents_left.toLocaleString()} left` : "";
-    return `Still reading inside your files${left}`;
+    return (
+      <>
+        Still <TermHint surface="primary" content={INDEXING_HINT}>indexing</TermHint> your files{left}
+      </>
+    );
   }
   const progress = scan.drives_total > 1 ? ` · ${scan.drives_done} of ${scan.drives_total} done` : "";
   const folders = scan.dirs_indexed ? ` · ${scan.dirs_indexed.toLocaleString()} folders` : "";
