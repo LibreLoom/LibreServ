@@ -21,9 +21,8 @@ const (
 	accountKey ctxKey = "account"
 )
 
-// MaxLunasPerAccount caps how many Lunas one account may bind and how many
-// cloud Luna IDs it may claim. Each Luna that stores something gets its own
-// Backblaze bucket, and the Backblaze account allows only so many.
+// MaxLunasPerAccount is the product ceiling for Lunas on one account. Device
+// claims and cloud Luna IDs share it so the two caps cannot disagree.
 const MaxLunasPerAccount = 25
 
 // OnlineWithinSec is how recent last_seen_at must be for "Online" (2× 5m refresh).

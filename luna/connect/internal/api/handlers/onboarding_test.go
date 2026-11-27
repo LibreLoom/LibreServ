@@ -543,6 +543,34 @@ func TestUnregisterThenRebindClearsPreviousOwnersProgress(t *testing.T) {
 	}
 }
 
+func TestRebindRepairsStaleProgressFromPreviousOwner(t *testing.T) {
+	d := testDeps(t)
+	acctH := AccountHandler{Deps: d}
+	devH := DeviceHandler{Deps: d}
+	registerAccount(t, acctH, "staleowner@b.co")
+	verifyEmailFor(t, acctH, "staleowner@b.co")
+	other := registerAccount(t, acctH, "stalenew@b.co")
+	verifyEmailFor(t, acctH, "stalenew@b.co")
+	ownerID := accountIDFor(t, d, "staleowner@b.co")
+	newID := accountIDFor(t, d, "stalenew@b.co")
+
+	devID, code := mintDevice(t, d, "official")
+	_, _ = d.DB.Exec(`INSERT INTO device_onboarding (device_id, account_id, path, step) VALUES (?, ?, 'diy', 'backup')`, devID, ownerID)
+	bindReq := httptest.NewRequest(http.MethodPost, "/devices/bind", bytes.NewBufferString(`{"code":"`+code+`"}`))
+	bindReq.AddCookie(other)
+	if rec := withVerifiedAccount(acctH, devH.Bind, bindReq); rec.Code != http.StatusOK {
+		t.Fatalf("rebind %d %s", rec.Code, rec.Body.String())
+	}
+
+	var accountID, path, step string
+	if err := d.DB.QueryRow(`SELECT account_id, path, step FROM device_onboarding WHERE device_id = ?`, devID).Scan(&accountID, &path, &step); err != nil {
+		t.Fatalf("progress row: %v", err)
+	}
+	if accountID != newID || path != "official" || step != "domain" {
+		t.Fatalf("stale progress not repaired: %q/%q/%q", accountID, path, step)
+	}
+}
+
 func TestProgressWriteCannotFollowARebindRace(t *testing.T) {
 	d := testDeps(t)
 	acctH := AccountHandler{Deps: d}

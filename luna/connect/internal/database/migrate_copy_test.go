@@ -28,6 +28,10 @@ func TestMigrateSQLiteToPostgresCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = src.Exec(`INSERT INTO device_onboarding (device_id, account_id, path, step) VALUES ('dev1', 'acct1', 'diy', 'backup')`)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	dst, err := Open(dstPath)
 	if err != nil {
@@ -49,5 +53,12 @@ func TestMigrateSQLiteToPostgresCopy(t *testing.T) {
 	}
 	if err := dst.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("devices count=%d err=%v", n, err)
+	}
+	var accountID, path, step string
+	if err := dst.QueryRow(`SELECT account_id, path, step FROM device_onboarding WHERE device_id = 'dev1'`).Scan(&accountID, &path, &step); err != nil {
+		t.Fatalf("device_onboarding not copied: %v", err)
+	}
+	if accountID != "acct1" || path != "diy" || step != "backup" {
+		t.Fatalf("copied progress = %q/%q/%q", accountID, path, step)
 	}
 }
