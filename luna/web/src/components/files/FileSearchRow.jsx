@@ -8,7 +8,7 @@ import {
   FolderInput,
   FolderOpen,
   Trash2,
-  Share2,
+  Share,
 } from "lucide-react";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
@@ -165,7 +165,7 @@ function FileSearchRow({
       key: "share",
       label: "Share",
       aria: `Sharing for ${item.name}`,
-      icon: Share2,
+      icon: Share,
       run: () => onShare(item),
     });
   }

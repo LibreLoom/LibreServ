@@ -10,7 +10,7 @@ import {
   ListChecks,
   Pencil,
   Plus,
-  Share2,
+  Share,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -670,7 +670,7 @@ function BuilderSession({
               tooltip="Share this form"
               onClick={() => setSharing("sheet")}
             >
-              <Share2 size={ICON_SIZE.md} aria-hidden="true" />
+              <Share size={ICON_SIZE.md} aria-hidden="true" />
             </Button>
           )}
         </div>
@@ -893,7 +893,7 @@ function BuilderSession({
                             <CardButton
                               variant="inverted"
                               actionLabel="Collect responses"
-                              icon={Share2}
+                              icon={Share}
                               onClick={() => setSharing("link")}
                             >
                               Collect responses

@@ -13,7 +13,7 @@ import {
   LogIn,
   MoonStar,
   Search,
-  Share2,
+  Share,
   SlidersHorizontal,
   Sparkles,
   Users,
@@ -79,7 +79,7 @@ const DESTINATIONS = [
     icon: HardDrive,
     aliases: ["files", "file", "folders", "documents", "docs", "drive", "storage", "browse"],
   },
-  { to: "/shared", label: "Shared", icon: Share2, aliases: ["share", "shares", "links", "sharing"] },
+  { to: "/shared", label: "Shared", icon: Share, aliases: ["share", "shares", "links", "sharing"] },
   {
     to: "/settings#users",
     label: "Users",

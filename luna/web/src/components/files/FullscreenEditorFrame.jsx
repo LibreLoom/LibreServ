@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Download, RotateCw, Save, Share2, X } from "lucide-react";
+import { Download, RotateCw, Save, Share, X } from "lucide-react";
 import ModalCard, { NESTED_OVERLAY_CLASS } from "@libreloom/ui/components/cards/ModalCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
@@ -565,7 +565,7 @@ export default function FullscreenEditorFrame({
                         aria-label="Share"
                         tooltip="Share"
                       >
-                        <Share2 size={ICON_SIZE.xl} aria-hidden="true" />
+                        <Share size={ICON_SIZE.xl} aria-hidden="true" />
                       </Button>
                     ) : null}
                     {canWrite ? (
@@ -649,7 +649,7 @@ export default function FullscreenEditorFrame({
                       onClick={onShare}
                       aria-label="Share"
                     >
-                      <Share2 size={ICON_SIZE.lg} aria-hidden="true" />
+                      <Share size={ICON_SIZE.lg} aria-hidden="true" />
                     </Button>
                   ) : null}
                   <Button

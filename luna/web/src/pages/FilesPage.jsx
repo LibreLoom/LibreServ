@@ -2,7 +2,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Share2 } from "lucide-react";
+import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Share } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -415,7 +415,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
   const targeted = location.hash === `#${hashId}`;
   /** @type {import("@libreloom/ui/components/ui/RowActionMenu.jsx").RowAction[]} */
   const actions = [
-    onShare && ready && { key: "share", label: "Share", icon: Share2, run: () => onShare(drive) },
+    onShare && ready && { key: "share", label: "Share", icon: Share, run: () => onShare(drive) },
     onProtect && ready && { key: "backup", label: "Back up", icon: Shield, run: () => onProtect(drive) },
     onEncryption && (ready || locked) && { key: "encryption", label: "Encryption", icon: Lock, run: () => onEncryption(drive) },
     showHealth && ready && { key: "eject", label: "Eject safely", icon: Unplug, run: () => onEject(drive) },

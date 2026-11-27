@@ -2,7 +2,7 @@ import { memo, useCallback, useDeferredValue, useRef, useState } from "react";
 import { MotionConfig } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { File as FileIcon, Folder, Image as ImageIcon, Search, Share2 } from "lucide-react";
+import { File as FileIcon, Folder, Image as ImageIcon, Search, Share } from "lucide-react";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ConfirmModal from "@libreloom/ui/components/cards/ConfirmModal.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -79,7 +79,7 @@ const SharedItems = memo(/**
       {tab === "with_me" && (
         shownItems.length === 0 ? (
           <EmptyState
-            icon={Share2}
+            icon={Share}
             title={query ? "Nothing matches" : "Nothing shared with you yet"}
             description={query
               ? `Nothing shared with you matches "${search}".`
@@ -180,7 +180,7 @@ const SharedItems = memo(/**
       {tab === "manage" && (
         shownItems.length === 0 ? (
           <EmptyState
-            icon={Share2}
+            icon={Share}
             title={query ? "Nothing matches" : "Nothing shared yet"}
             description={query
               ? `Nothing you manage matches "${search}".`

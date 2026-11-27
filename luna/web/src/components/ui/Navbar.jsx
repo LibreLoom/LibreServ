@@ -2,7 +2,7 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
-  Share2,
+  Share,
   SlidersHorizontal,
   UserRound,
 } from "lucide-react";
@@ -13,7 +13,7 @@ const navItems = [
   { to: "/", icon: Home, label: "Home", end: true },
   { to: "/photos", icon: ImageIcon, label: "Photos" },
   { to: "/files", icon: HardDrive, label: "Files" },
-  { to: "/shared", icon: Share2, label: "Shared" },
+  { to: "/shared", icon: Share, label: "Shared" },
   { to: "/settings", icon: SlidersHorizontal, label: "Settings", end: true },
 ];
 

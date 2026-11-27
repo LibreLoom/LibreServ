@@ -9,7 +9,7 @@ import {
   Pencil,
   Plus,
   PlugZap,
-  Share2,
+  Share,
   Sparkles,
   Trash2,
   X,
@@ -1948,7 +1948,7 @@ export default function PhotosPage() {
                   setShareAlbum(albumView);
                 }}
               >
-                <Share2 size={14} /> Share
+                <Share size={14} /> Share
               </Button>
             )}
           </div>
@@ -2752,7 +2752,7 @@ function AlbumsPanel({
                   aria-label={`Share album ${album.name}`}
                   onClick={() => onShare(album)}
                 >
-                  <Share2 size={14} /> Share
+                  <Share size={14} /> Share
                 </Button>
                 {manage && (
                   <>
