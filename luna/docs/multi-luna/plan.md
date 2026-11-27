@@ -34,7 +34,7 @@ Keep the printed `/onboarding` route and the DIY `/diyonboarding` route. Signed-
 - **DIY.** Pay the activation fee, then show the linked device token with the installer instructions and continue through name, cloud backup, and plug-in.
 - **Resume.** Store progress per Luna. List each Luna with its own setup, address, backup, and billing status. Group website downloads by Luna and build the existing `/setup?token=` link for the selected Luna.
 
-Keep email verification, bind rate limits, password confirmation for device token reveal, and token validation for off-LAN first-user setup. Track customer sign-out everywhere, password reset, and on-demand tunnel token rotation as defensive follow-ups before or alongside enabling several Lunas per account.
+Keep email verification, bind rate limits, and token validation for off-LAN first-user setup. Track customer sign-out everywhere, password reset, and on-demand tunnel token rotation as defensive follow-ups before or alongside enabling several Lunas per account.
 
 ## Remaining choices
 
