@@ -6,13 +6,13 @@ import {
   Download,
   Heart,
   Images,
-  Share,
   ListChecks,
   Minus,
   Plus,
   Trash2,
   X,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";

@@ -13,11 +13,11 @@ import {
   LogIn,
   MoonStar,
   Search,
-  Share,
   SlidersHorizontal,
   Sparkles,
   Users,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 
 import { notfound as quips } from "../lib/greetings.jsx";
 import { useAuth } from "../context/AuthContext";

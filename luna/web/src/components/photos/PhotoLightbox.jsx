@@ -10,11 +10,11 @@ import {
   Heart,
   Images,
   Info,
-  Share,
   Play,
   Trash2,
   X,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import LightboxMedia from "./LightboxMedia.jsx";

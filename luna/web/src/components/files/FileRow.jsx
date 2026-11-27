@@ -10,8 +10,8 @@ import {
   Info,
   Pencil,
   Trash2,
-  Share,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";

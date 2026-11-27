@@ -2,10 +2,10 @@ import {
   HardDrive,
   Home,
   Image as ImageIcon,
-  Share,
   SlidersHorizontal,
   UserRound,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import SharedNavbar from "@libreloom/ui/components/ui/Navbar.jsx";
 import { useAuth } from "../../context/AuthContext";
 

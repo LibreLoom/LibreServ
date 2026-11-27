@@ -8,8 +8,8 @@ import {
   FolderInput,
   FolderOpen,
   Trash2,
-  Share,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import RowActionMenu from "@libreloom/ui/components/ui/RowActionMenu.jsx";
 import IconActions from "@libreloom/ui/components/ui/IconActions.jsx";
 import { iconStripStyle } from "@libreloom/ui/lib/iconImage.js";

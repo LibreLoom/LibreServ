@@ -9,11 +9,11 @@ import {
   Pencil,
   Plus,
   PlugZap,
-  Share,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import { Link } from "react-router-dom";
 import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";

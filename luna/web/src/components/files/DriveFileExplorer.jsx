@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2, Share } from "lucide-react";
+import { Copy, Download, FolderInput, HardDrive, Lock, Pencil, RotateCcw, Shield, Trash2 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import PropTypes from "prop-types";
 import FileBrowser from "./FileBrowser.jsx";
 import { BackupRowActions, VersionsModal } from "./backupsView.jsx";

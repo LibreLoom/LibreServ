@@ -10,10 +10,10 @@ import {
   ListChecks,
   Pencil,
   Plus,
-  Share,
   Trash2,
   Upload,
 } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import { CollabDocSync } from "../collabDocSync.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import CardButton from "@libreloom/ui/components/ui/CardButton.jsx";

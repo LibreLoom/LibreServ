@@ -2,7 +2,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Share } from "lucide-react";
+import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug } from "lucide-react";
+import Share from "@libreloom/ui/components/common/ShareIcon.jsx";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
 import Card from "@libreloom/ui/components/cards/Card.jsx";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
