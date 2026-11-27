@@ -1,5 +1,7 @@
 # Go
 bin/
+# ...except lunad's extra binaries, which are source files
+!luna/crates/lunad/src/bin/
 *.exe
 *.so
 *.dylib
