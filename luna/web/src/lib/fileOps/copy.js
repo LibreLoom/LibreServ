@@ -224,6 +224,49 @@ export function dockSummary(s) {
  * @returns {Parts}
  */
 export function opStatus(op) {
+  const parts = opStatusCore(op);
+  const { skipped, all } = leftOut(op);
+  const done = op.itemsDone ?? 0;
+  if (op.state === "cancelled") {
+    // "Cancelled" alone hides that part of the work may already have happened.
+    if (done > 0) return [`Cancelled after ${done} of ${all} ${noun(op, all)}`];
+    return parts;
+  }
+  if (skipped > 0 && (op.state === "done" || op.state === "partial")) {
+    // Skipped items weren't done, so a bare "Moved 3 items" would overstate it.
+    if (done === 0) return [`Nothing ${PAST_NOT[op.kind] || "finished"}: ${skipped} ${n(skipped, "item was", "items were")} skipped`];
+    return [...parts, `; ${skipped} skipped`];
+  }
+  return parts;
+}
+
+/** The "not done" wording for a run where every item was skipped. */
+const PAST_NOT = {
+  copy: "copied", move: "moved", trash: "moved to Trash", "restore-trash": "put back",
+  purge: "deleted", upload: "uploaded", gallery: "uploaded",
+};
+
+/** @param {any} op @param {number} count */
+function noun(op, count) {
+  if (op.kind === "gallery") return n(count, "photo", "photos");
+  if (op.kind === "upload") return n(count, "file", "files");
+  return n(count, "item", "items");
+}
+
+/**
+ * How many of an operation's items were skipped (a "Skip" answer) or stopped
+ * (cancelled), out of every item it was asked to do. Folders made along the
+ * way aren't counted: they aren't things the person picked.
+ * @param {any} op
+ */
+function leftOut(op) {
+  const items = (op.items || []).filter((/** @type {any} */ i) => !i.isDir);
+  const skipped = items.filter((/** @type {any} */ i) => i.state === "skipped").length;
+  return { skipped, all: items.length };
+}
+
+/** @param {any} op @returns {Parts} */
+function opStatusCore(op) {
   const state = op.state;
   if (state === "cancelled") return ["Cancelled"];
   const total = op.itemsTotal ?? op.items?.length ?? 0;
@@ -524,6 +567,13 @@ export function problemsTitle(kind) {
  * @returns {string}
  */
 export function finishedText(op) {
+  const text = finishedTextCore(op);
+  const { skipped } = leftOut(op);
+  return skipped > 0 ? `${text}, ${skipped} skipped` : text;
+}
+
+/** @param {any} op */
+function finishedTextCore(op) {
   const done = op.itemsDone ?? 0;
   const total = op.itemsTotal ?? 0;
   const folders = op.foldersDone ?? 0;
@@ -563,6 +613,13 @@ export function finishedText(op) {
  * @returns {string|null}
  */
 export function successToast(op, done) {
+  const text = successToastCore(op, done);
+  const { skipped } = leftOut(op);
+  return text && skipped > 0 ? `${text.replace(/\.$/, "")}, ${skipped} skipped.` : text;
+}
+
+/** @param {any} op @param {number} done @returns {string|null} */
+function successToastCore(op, done) {
   const name = op.title || "";
   const dest = op.destLabel || "";
   if (done <= 0) {

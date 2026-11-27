@@ -158,6 +158,13 @@ describe("copy and errors", () => {
     expect(plain(opStatus({ kind: "copy", state: "done", title: "a.txt", itemsTotal: 1, destLabel: "Backup" }))).toBe("Copied a.txt to Backup");
     expect(plain(opStatus({ kind: "empty-trash", state: "running", destLabel: "Backup" }))).toBe("Emptying Trash on Backup");
     expect(plain(opStatus({ kind: "move", state: "cancelled" }))).toBe("Cancelled");
+    const moveItems = (states) => states.map((state) => ({ state }));
+    expect(plain(opStatus({ kind: "move", state: "done", itemsDone: 3, itemsTotal: 3, destLabel: "Docs", items: moveItems(["done", "done", "done", "skipped", "skipped"]) })))
+      .toBe("Moved 3 items to Docs; 2 skipped");
+    expect(plain(opStatus({ kind: "move", state: "done", itemsDone: 0, itemsTotal: 0, destLabel: "Docs", items: moveItems(["skipped"]) })))
+      .toBe("Nothing moved: 1 item was skipped");
+    expect(plain(opStatus({ kind: "move", state: "cancelled", itemsDone: 2, items: moveItems(["done", "done", "cancelled", "cancelled", "cancelled"]) })))
+      .toBe("Cancelled after 2 of 5 items");
     expect(opStatus({ kind: "copy", state: "running", title: "a.txt", itemsTotal: 1, destLabel: "Backup" })[1]).toEqual({ pill: "a.txt" });
   });
 
