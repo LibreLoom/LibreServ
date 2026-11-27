@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, History, Shield, Smartphone, Trash2, User, UserRound } from "lucide-react";
+import { Globe2, History, Plus, Shield, Smartphone, Trash2, User, UserRound } from "lucide-react";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
@@ -567,6 +567,7 @@ export default function AccessCategory() {
                 setCreating(true);
               }}
             >
+              <Plus size={ICON_SIZE.sm} aria-hidden="true" />
               New access token
             </Button>
           </div>
