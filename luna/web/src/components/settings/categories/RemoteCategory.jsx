@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Globe2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import PathTrail from "@libreloom/ui/components/common/PathTrail.jsx";
 import CopyableValue from "@libreloom/ui/components/ui/CopyableValue.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -68,6 +69,14 @@ export default function RemoteCategory() {
                 role="alert"
               >
                 <p className="text-sm text-secondary leading-relaxed">{hardError}</p>
+                {isAdmin && (connectError || state === "revoked") ? (
+                  <Button variant="outline" surface="primary" asChild>
+                    <Link to="/settings#about">
+                      Open Device token
+                      <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
+                    </Link>
+                  </Button>
+                ) : null}
               </div>
             ) : address ? (
               <CopyableValue
@@ -114,7 +123,7 @@ export default function RemoteCategory() {
               {state === "pairing"
                 ? "Luna Connect is waiting for Luna to finish pairing."
                 : isAdmin
-                  ? "Pair this Luna in Luna Connect with its device token."
+                  ? <>Pair this Luna in Luna Connect with its device token, set in <PathTrail steps={["Settings", "About", "Advanced", "Device token"]} />.</>
                   : "An Admin can pair this Luna from Luna Connect."}
             </p>
           ) : null}

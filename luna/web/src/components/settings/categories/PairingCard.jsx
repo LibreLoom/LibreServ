@@ -137,6 +137,21 @@ export default function PairingCard({ index = 0 }) {
             </SettingsRow>
           ) : null}
 
+          {isAdmin && (state === "revoked" || state === "pending") ? (
+            <SettingsRow
+              label="Device token"
+              description="Check or replace the device token this Luna uses."
+              hideDivider={!canDisconnect}
+            >
+              <Button variant="outline" asChild>
+                <Link to="/settings#about">
+                  Open Device token
+                  <ChevronRight size={ICON_SIZE.md} aria-hidden="true" />
+                </Link>
+              </Button>
+            </SettingsRow>
+          ) : null}
+
           {isAdmin && canDisconnect ? (
             <SettingsRow
               label="Disconnect"

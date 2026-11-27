@@ -17,12 +17,13 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-function stubApi(tokenSet = true) {
+function stubApi(tokenSet = true, extra = {}, deleteResponse = () => json({ ok: true })) {
   const fetchMock = vi.fn(async (url, init = {}) => {
     const path = String(url);
     const method = init.method || "GET";
-    if (path === "/api/v1/connect/status") return json({ state: "unbound", device_token_set: tokenSet });
+    if (path === "/api/v1/connect/status") return json({ state: "unbound", device_token_set: tokenSet, ...extra });
     if (path === "/api/v1/connect/device-token" && method === "PUT") return json({ ok: true });
+    if (path === "/api/v1/connect/device-token" && method === "DELETE") return deleteResponse();
     return json({}, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -104,5 +105,73 @@ describe("DeviceTokenAdvanced", () => {
     expect(screen.queryByRole("button", { name: "Replace token" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set token" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it("shows a refused token inline in the section and the modal", async () => {
+    stubApi(true, { connect_error: "Luna Connect did not accept this device token." });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Device token" }));
+    expect(await screen.findByText("Luna Connect did not accept this device token.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Replace token" }));
+    const dialog = await screen.findByRole("dialog", { name: "Replace device token" });
+    expect(within(dialog).getByText("Luna Connect did not accept this device token.")).toBeInTheDocument();
+    expect(within(dialog).getByText(/quick-start guide/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Luna Connect" })).toHaveAttribute(
+      "href",
+      "https://connect.luna.libreloom.org",
+    );
+  });
+
+  it("shows revoked and pending states as a problem", async () => {
+    stubApi(true, { state: "revoked" });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Device token" }));
+    expect(await screen.findByText(/Luna Connect revoked this Luna/)).toBeInTheDocument();
+  });
+
+  it("removes the device token after confirming", async () => {
+    const fetchMock = stubApi(true);
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Device token" }));
+    expect(screen.getByText(/To turn off Luna Connect on an unconnected Luna/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Remove device token" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Your files are not affected/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Remove device token" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/connect/device-token",
+      expect.objectContaining({ method: "DELETE" }),
+    ));
+    expect(await screen.findByText("Device token removed.")).toBeInTheDocument();
+  });
+
+  it("shows the refusal message when the token cannot be removed", async () => {
+    stubApi(true, {}, () => json({ error: "Disconnect Luna from Luna Connect first." }, 409));
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Device token" }));
+    await user.click(await screen.findByRole("button", { name: "Remove device token" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Remove device token" }));
+
+    expect(await screen.findByText("Disconnect Luna from Luna Connect first.")).toBeInTheDocument();
+  });
+
+  it("offers no remove action when no token is set or for a Member", async () => {
+    stubApi(false);
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Device token" }));
+    await screen.findByText("Not set");
+    expect(screen.queryByRole("button", { name: "Remove device token" })).not.toBeInTheDocument();
   });
 });

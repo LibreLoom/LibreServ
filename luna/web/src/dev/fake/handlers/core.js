@@ -47,6 +47,7 @@ get("/api/v1/auth/me", ({ user, world }) => (user ? { ...userJson(user), phrase_
 get("/api/v1/auth/status", ({ world }) => ({
   has_admin: world.users.length > 0 && world.hasAdmin,
   connect_active: fakeConnectActive(world),
+  device_token_set: Boolean(world.connect?.device_token),
   setup_off_lan: Boolean(world.setupOffLan) && !(world.users.length > 0 && world.hasAdmin),
 }), { public: true });
 

@@ -33,6 +33,7 @@ function stubFetch({
   hasAdmin = false,
   connectActive = false,
   offLan = false,
+  deviceTokenSet = undefined,
   connect = /** @type {Record<string, unknown>} */ ({}),
   me = null,
 } = {}) {
@@ -44,7 +45,7 @@ function stubFetch({
       return jsonResponse({}, 401);
     }
     if (u.includes("/auth/status")) {
-      return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive, setup_off_lan: offLan });
+      return jsonResponse({ has_admin: hasAdmin, connect_active: connectActive, setup_off_lan: offLan, device_token_set: deviceTokenSet });
     }
     if (u.includes("/api/v1/connect/status")) {
       return jsonResponse({
@@ -410,6 +411,19 @@ describe("SetupPage", () => {
     expect(screen.getByText(/quick-start guide/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create account/i })).toBeDisabled();
     expect(screen.queryByLabelText(/setup key/i)).toBeNull();
+  });
+
+  it("says setup needs the home network when Luna has no device token", async () => {
+    vi.stubGlobal("fetch", stubFetch({
+      network: { ethernet_connected: true, has_default_route: true, ipv4: ["192.168.1.8"] },
+      offLan: true,
+      deviceTokenSet: false,
+    }));
+    renderSetup();
+
+    await openDeviceTokenField({ asked: false });
+    expect(screen.getByText("This Luna has no device token. Set it up from the same network as Luna.")).toBeTruthy();
+    expect(screen.queryByLabelText(/^Device token/i)).toBeNull();
   });
 
   it("never asks for a device token on the home network", async () => {

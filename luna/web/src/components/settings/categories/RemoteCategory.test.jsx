@@ -103,4 +103,27 @@ describe("RemoteCategory", () => {
     expect(screen.queryByRole("link", { name: /Change the device token/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open Luna Connect/i })).toBeInTheDocument();
   });
+
+  it("sends an Admin from a Connect error to the device token", async () => {
+    answer({ paired: false, connect_active: false, connect_error: "Luna Connect needs attention." });
+    renderPage();
+
+    expect(await screen.findByText("Luna Connect needs attention.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Device token/i })).toHaveAttribute("href", "/settings#about");
+  });
+
+  it("sends an Admin from a revoked Luna to the device token", async () => {
+    answer({ state: "revoked", paired: false, connect_active: false });
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: /Open Device token/i })).toHaveAttribute("href", "/settings#about");
+  });
+
+  it("shows where the device token lives for an unpaired Admin", async () => {
+    answer({ state: "unbound", paired: false, connect_active: false, device_token_set: true });
+    renderPage();
+
+    expect(await screen.findByText("Device token")).toBeInTheDocument();
+    expect(screen.getByText("Advanced")).toBeInTheDocument();
+  });
 });

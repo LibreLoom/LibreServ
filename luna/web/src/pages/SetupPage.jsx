@@ -38,6 +38,7 @@ import DiscoveryPaths from "../components/setup/DiscoveryPaths.jsx";
 import TextLink from "../components/ui/TextLink";
 import PasswordStrengthChecklist from "@libreloom/ui/components/common/PasswordStrengthChecklist.jsx";
 import InlinePill from "@libreloom/ui/components/common/InlinePill.jsx";
+import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import usePageTitle from "../hooks/usePageTitle.js";
 
@@ -327,7 +328,7 @@ FormField.propTypes = {
 // Focus is sent immediately to the visible text entry box on mount and
 // on every substep transition.
 
-function AccountStep({ hasAdmin, onContinue, deviceToken, offLan }) {
+function AccountStep({ hasAdmin, onContinue, deviceToken, offLan, deviceTokenSet = null }) {
   const { user, register, login } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -359,7 +360,9 @@ function AccountStep({ hasAdmin, onContinue, deviceToken, offLan }) {
   const displayNameOk = isValidDisplayName(form.display_name);
   const usernameOk  = isValidUsername(form.username);
   const confirmOk   = confirm === pw && pw !== "";
-  const showDeviceTokenField = offLan && (!deviceToken || tokenRefused);
+  // Off the home network with no token saved on Luna: there is nothing to type, so say where to set it up.
+  const noDeviceToken = offLan && deviceTokenSet === false;
+  const showDeviceTokenField = offLan && !noDeviceToken && (!deviceToken || tokenRefused);
   const usernameFieldError = usernamePolicyError(form.username);
   const displayNameFieldError = displayNamePolicyError(form.display_name);
 
@@ -607,6 +610,12 @@ function AccountStep({ hasAdmin, onContinue, deviceToken, offLan }) {
         )}
       </div>
 
+      {noDeviceToken ? (
+        <PageNotice variant="warning" className="mb-6">
+          This Luna has no device token. Set it up from the same network as Luna.
+        </PageNotice>
+      ) : null}
+
       {/* Substep progress */}
       <div className="w-full mb-8">
         <div className="flex items-center justify-between mb-2.5">
@@ -765,6 +774,7 @@ AccountStep.propTypes = {
   onContinue: PropTypes.func.isRequired,
   deviceToken: PropTypes.string,
   offLan: PropTypes.bool,
+  deviceTokenSet: PropTypes.bool,
 };
 
 // ─── STEP: Name ───────────────────────────────────────────────────────────────
@@ -944,6 +954,7 @@ export default function SetupPage() {
   const [saveError, setSaveError] = useState(null);
   const [hydrated, setHydrated] = useState(false);
   const [offLan, setOffLan] = useState(false);
+  const [deviceTokenSet, setDeviceTokenSet] = useState(null);
   const [deviceToken] = useState(() => readSetupTokenFromHash(location.hash));
   const consumedSetupTokenRef = useRef(false);
 
@@ -982,6 +993,7 @@ export default function SetupPage() {
         if (!alive) return;
         setHasAdmin(Boolean(data?.has_admin));
         setOffLan(Boolean(data?.setup_off_lan));
+        setDeviceTokenSet(typeof data?.device_token_set === "boolean" ? data.device_token_set : null);
       })
       .catch(() => { /* offline — the account step will surface the error */ });
     return () => { alive = false; };
@@ -1167,6 +1179,7 @@ export default function SetupPage() {
         onContinue={handleAccountContinue}
         deviceToken={deviceToken}
         offLan={offLan}
+        deviceTokenSet={deviceTokenSet}
       />
     );
   } else if (shownStep === STEP.NAME) {

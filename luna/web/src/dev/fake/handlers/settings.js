@@ -59,6 +59,16 @@ put("/api/v1/connect/device-token", ({ world, user, body }) => {
   return { ok: true };
 });
 
+del("/api/v1/connect/device-token", ({ world, user }) => {
+  if (world.users.length > 0 && !isAdmin(user)) return fail(403, "Only an Admin can remove the device token.");
+  const state = fakeConnectState(world);
+  if (state === "bound" || world.connect?.unbind_pending) {
+    return fail(409, "Disconnect Luna Connect first.");
+  }
+  world.connect = { ...world.connect, device_token: null };
+  return { ok: true };
+});
+
 // Disconnect cancels pairing, revokes a bound Luna, or clears a revoked
 // account link after password step-up. A revoked failure stays revoked rather
 // than pretending there is an ordinary pending revocation to retry.

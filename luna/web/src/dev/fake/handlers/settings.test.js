@@ -71,6 +71,33 @@ describe("fake device token writes", () => {
   });
 });
 
+describe("fake DELETE /api/v1/connect/device-token", () => {
+  it("removes the saved token while unpaired", async () => {
+    const world = startFake((w) => {
+      w.connect = { state: "unbound", device_token: TOKEN };
+    });
+
+    const response = await window.fetch("/api/v1/connect/device-token", { method: "DELETE" });
+
+    expect(response.status).toBe(200);
+    expect(world.connect.device_token).toBeNull();
+    const status = await (await window.fetch("/api/v1/connect/status")).json();
+    expect(status.device_token_set).toBe(false);
+  });
+
+  it("refuses with a plain message while paired", async () => {
+    const world = startFake((w) => {
+      w.connect = { state: "bound", paired: true, connect_active: true, device_token: TOKEN };
+    });
+
+    const response = await window.fetch("/api/v1/connect/device-token", { method: "DELETE" });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/device token/i);
+    expect(world.connect.device_token).toBe(TOKEN);
+  });
+});
+
 describe("fake POST /api/v1/connect/unbind", () => {
   it("cancels pairing after password step-up", async () => {
     const world = startFake((w) => {

@@ -131,6 +131,13 @@ describe("fake POST /api/v1/auth/register off-LAN setup", () => {
     startFake(offLan);
     const status = await (await window.fetch("/api/v1/auth/status")).json();
     expect(status.setup_off_lan).toBe(true);
+    expect(status.device_token_set).toBe(true);
+  });
+
+  it("reports that no device token is saved", async () => {
+    startFake((w) => { offLan(w); w.connect = { ...w.connect, device_token: null }; });
+    const status = await (await window.fetch("/api/v1/auth/status")).json();
+    expect(status.device_token_set).toBe(false);
   });
 
   it("refuses a missing or wrong token and creates no account", async () => {

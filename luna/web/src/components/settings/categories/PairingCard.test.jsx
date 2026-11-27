@@ -118,6 +118,14 @@ describe("PairingCard", () => {
     expect(await screen.findByText("Reconnect required")).toBeInTheDocument();
     expect(screen.getByText(/Reconnect it from Devices in your Connect account/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#about");
+  });
+
+  it("links an Admin to the device token while a disconnect is pending", async () => {
+    stubApi({ ...BASE_STATUS, state: "pending", unbind_pending: true });
+    renderCard();
+
+    expect(await screen.findByRole("link", { name: /Open Device token/ })).toHaveAttribute("href", "/settings#about");
   });
 
   it("shows a Member no Admin actions", async () => {
