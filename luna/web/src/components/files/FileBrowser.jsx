@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  ArrowUp,
   Check,
   ChevronDown,
   Copy,
@@ -2064,7 +2065,10 @@ export default function FileBrowser({
                       className={cn(isUpDrop && "border-transparent ring-2 ring-accent")}
                       {...upDropProps}
                     >
-                      <Link to={folderHref(driveId, upPath)} draggable={false}>↑ Up one folder</Link>
+                      <Link to={folderHref(driveId, upPath)} draggable={false}>
+                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                        Up one folder
+                      </Link>
                     </Button>
                   ) : (
                     <Button
@@ -2075,7 +2079,8 @@ export default function FileBrowser({
                       onClick={() => openFolder(upPath)}
                       {...upDropProps}
                     >
-                      ↑ Up one folder
+                      <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                      Up one folder
                     </Button>
                   );
                 })()}
