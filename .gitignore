@@ -180,9 +180,6 @@ keys/*.key
 *.jks
 *.keystore
 
-# Local T3 Code project config
-t3.json
-
 # local musl cross-build cache
 /target-musl/
 

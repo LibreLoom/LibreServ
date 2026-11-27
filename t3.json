@@ -1,0 +1,12 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "iconPath": "server/frontend/src/assets/libreserv-logo.svg",
+  "scripts": [
+    {
+      "name": "Clean up",
+      "command": "if [ \"$(git rev-parse --git-dir 2>/dev/null)\" != \"$(git rev-parse --git-common-dir 2>/dev/null)\" ]; then find . -type d \\( -name .git -o -name node_modules -o -name target \\) -prune \\( -name node_modules -o -name target \\) -exec rm -rf -- {} +; fi",
+      "icon": "build",
+      "runOnSettle": true
+    }
+  ]
+}
