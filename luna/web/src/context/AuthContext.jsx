@@ -139,14 +139,19 @@ export function AuthProvider({ children }) {
         activeControllerRef.current = null;
       }
     }
-    // Read the path once instead of subscribing to the router: a hook here
-    // re-rendered the provider on every ?file= / #hash change, so opening a
-    // file re-rendered the whole app tree.
-    const path = typeof window !== "undefined" ? window.location.pathname : "";
-
     // Shared by startup and by the recovery poll: decide where a known Luna
     // should put this tab, without touching the URL of a set-up one.
+    //
+    // Read the path when the decision is made, not once when this effect
+    // mounts. The startup read can be pending while the person navigates —
+    // e.g. from /login to the recovery form — and routing by the mount-time
+    // path would yank them off recovery and into setup when the read lands.
+    // Reading window.location directly (instead of subscribing to the router)
+    // keeps this effect one-shot: a useLocation hook here re-rendered the
+    // provider on every ?file= / #hash change, so opening a file re-rendered
+    // the whole app tree.
     function routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists }) {
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
       if (!adminExists && !me && path !== "/recover") {
         if (path !== "/setup") {
@@ -278,7 +283,6 @@ export function AuthProvider({ children }) {
       pollTimer = 0;
       cancelAttempt();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: the setup check runs once at startup
   }, [refresh]);
 
   // Any API call that comes back 401 lands here. Ask /auth/me whether the

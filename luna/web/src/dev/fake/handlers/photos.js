@@ -6,6 +6,7 @@
 //   world.albums        album rows; world.albumItems[id] = photo keys in it
 import { del, fail, get, patch, post, put, raw } from "../engine.js";
 import { CAP, hasCap } from "../../../lib/access.js";
+import { hasDriveAccess } from "../policy.js";
 import { addFile, fsOf } from "../fsmodel.js";
 import { nextId } from "../world.js";
 import { makePhotos, photoKey } from "../photos.js";
@@ -258,7 +259,16 @@ get("/api/v1/photos/status", ({ world }) => {
 
 post("/api/v1/photos/rescan", ({ world, user }) => {
   const g = state(world);
-  if (user.role !== "admin") return fail(403, "Only an Admin can rescan photos.");
+  // lunad's rescan (api/photos.rs) arms every mounted drive the caller can
+  // access — Members included — and refuses only when there are none.
+  const accessible = (world.drives || []).filter(
+    (d) => d.state === "as_is" && d.mounted !== false
+      && world.summaries?.[d.id]?.mounted !== false
+      && hasDriveAccess(world, user, d.id),
+  );
+  if (!accessible.length) {
+    return fail(400, "No drives are ready to look through. Add a drive on the Files page first.");
+  }
   if (g.busy) return fail(409, "Luna is already looking through your photos.");
   g.busy = true;
   g.scanStarted = Date.now();

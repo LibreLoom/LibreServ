@@ -1070,4 +1070,40 @@ describe("FilePage", () => {
     expect(screen.getByText("Ask an Admin to check it.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Files" })).toHaveAttribute("href", "/files");
   });
+
+  it("keeps a mounted read-only root in a member's Places menu but never drops into it", async () => {
+    const fetchMock = stubFilesApi({
+      __role: "user",
+      __userId: "2",
+      __drives: [
+        { id: "d1", label: "Photos Drive", state: "as_is" },
+        { id: "d2", label: "Archive Drive", state: "readonly" },
+      ],
+      __access: [
+        { id: "m-in", kind: "path", drive_id: "d1", path: "inbox", caps: "full", name: "Inbox" },
+        { id: "m-ar", kind: "path", drive_id: "d2", path: "archive", caps: "full", name: "Archive" },
+      ],
+      "": [],
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "Places: Photos Drive" }));
+    const menu = await screen.findByRole("menu", { name: "Places" });
+    const readOnly = within(menu).getByRole("menuitem", { name: /Archive/ });
+    const dataTransfer = {
+      types: ["application/x-luna-paths"],
+      dropEffect: "",
+      getData: (type) =>
+        type === "application/x-luna-paths" ? JSON.stringify(["photo.jpg"])
+        : type === "application/x-luna-drive" ? "d1"
+        : "",
+    };
+    fireEvent.dragOver(readOnly, { dataTransfer });
+    expect(readOnly.className).not.toMatch(/ring-accent/);
+    fireEvent.drop(readOnly, { dataTransfer });
+    expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url).includes("/api/v1/jobs") && (init?.method || "GET").toUpperCase() === "POST"
+    )).toBe(false);
+    fireEvent.click(readOnly);
+    expect(await screen.findByRole("heading", { name: "Archive Drive" })).toBeInTheDocument();
+  });
 });

@@ -14,6 +14,31 @@ import { chromium } from "playwright-core";
 const BASE = process.env.STATES_URL || "http://127.0.0.1:3001";
 const GALLERY = `${BASE}/__states`;
 const OUT = path.resolve("testing/smoke-results.json");
+
+// The gallery sizes its frame from each scenario's declared viewport (see
+// Gallery.jsx VIEWPORTS): phone is a fixed 390px, tablet a fixed 820px, and
+// desktop is 100% of the frame container. The browser itself must be wide
+// enough for that container to honour those widths. At the old 1280px context
+// both tablet and desktop frames collapsed to ~543px — below the app's 768px
+// breakpoint — so a height-based label wrongly called them tablet/desktop while
+// the app actually rendered the phone layout. `frame` is the target INNER width;
+// `context` is the browser width that lets the gallery reach it.
+const PRESETS = {
+  phone: { frame: 390, context: 1280 },
+  tablet: { frame: 820, context: 1700 },
+  desktop: { frame: 1024, context: 1900 }, // desktop must clear the lg breakpoint to leave the tablet band
+};
+const PHONE_MAX = 768;
+const DESKTOP_MIN = 1024;
+/** Classify by the frame's real inner width, matching the app's Tailwind breakpoints. */
+const classifyWidth = (w) => w < PHONE_MAX ? "phone" : w >= DESKTOP_MIN ? "desktop" : "tablet";
+/** True when the frame actually rendered at the width its declared preset requires. */
+const presetMatches = (preset, w) => {
+  const target = PRESETS[preset]?.frame;
+  if (!target) return false;
+  return preset === "desktop" ? w >= target : Math.abs(w - target) <= 2;
+};
+
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.STATES_CHROME ? { executablePath: process.env.STATES_CHROME } : {}),
@@ -94,12 +119,22 @@ async function visitScenario(scenario, retry) {
 
 const records = [];
 let failures = 0;
+let contextWidth = 1280; // matches the width the context was created with
 for (let i = 0; i < scenarios.length; i++) {
   const scenario = scenarios[i];
   let status = "ok";
   let observed = [];
   // A failed visit never gets to claim a rendered theme or viewport.
-  let rendered = { viewport: "unknown", theme: "unknown" };
+  let rendered = { viewport: "unknown", theme: "unknown", frame: { innerWidth: null, innerHeight: null } };
+
+  // Widen the gallery before visiting so its frame can honour the declared
+  // preset. Context-level sizing survives the fresh-reload retry (page.reload),
+  // unlike an inline style on the frame, which that reload would wipe.
+  const preset = PRESETS[scenario.viewport] || PRESETS.desktop;
+  if (preset.context !== contextWidth) {
+    await page.setViewportSize({ width: preset.context, height: 900 });
+    contextWidth = preset.context;
+  }
 
   // A reload can break one visit; retry that scenario once before recording.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -126,11 +161,10 @@ for (let i = 0; i < scenarios.length; i++) {
         const theme = w.document.documentElement.classList.contains("dark") ? "dark" : "light";
         let storedTheme = "";
         try { storedTheme = w.localStorage.getItem("theme") || ""; } catch { /* storage blocked */ }
-        const { width, height } = f.getBoundingClientRect();
-        // The gallery renders phone at 390x800, tablet at 543x1000 and desktop
-        // at 543x714 in this harness: width alone cannot split tablet from
-        // desktop, but the tablet's 1000px height can.
-        const viewport = width <= 450 ? "phone" : height >= 950 ? "tablet" : "desktop";
+        // Measure the frame's own viewport, not the gallery element's box: the
+        // app's layout and media queries see these INNER dimensions.
+        const innerWidth = w.innerWidth;
+        const innerHeight = w.innerHeight;
         return {
           crashed,
           crashDetail: crashed ? JSON.stringify(snap.crashed).slice(0, 200) : "",
@@ -138,13 +172,25 @@ for (let i = 0; i < scenarios.length; i++) {
           banner: /No mock|no handler|not mocked|fake crashed/i.test(text),
           theme,
           storedTheme,
-          viewport,
+          innerWidth,
+          innerHeight,
         };
       });
-      rendered = { viewport: info.viewport, theme: info.theme };
-      observed.push(`loaded ${scenario.url} in ${info.viewport}/${info.theme} with the fake installed`);
+      // Classify by the frame's real inner width against the app's breakpoints
+      // (phone < 768, tablet 768-1023, desktop >= 1024), not by element height.
+      info.viewport = classifyWidth(info.innerWidth);
+      info.frame = { innerWidth: info.innerWidth, innerHeight: info.innerHeight };
+      rendered = { viewport: info.viewport, theme: info.theme, frame: info.frame };
+      const widthOk = presetMatches(scenario.viewport, info.innerWidth);
+      observed.push(`loaded ${scenario.url} in ${info.viewport}/${info.theme} (frame ${info.innerWidth}x${info.innerHeight}) with the fake installed`);
       if (scenario.theme !== info.theme) observed.push(`theme rendered ${info.theme} (stored ${info.storedTheme || "none"}, scenario declared ${scenario.theme || "default"})`);
-      if (scenario.viewport !== info.viewport) observed.push(`viewport rendered ${info.viewport} (scenario declared ${scenario.viewport})`);
+      if (scenario.viewport !== info.viewport || !widthOk) {
+        // Never silently record a mismatched label: the declared preset and the
+        // width the app actually rendered must agree, or the visit is a problem.
+        status = "problem";
+        const expected = scenario.viewport === "desktop" ? ">= 1024" : `${PRESETS[scenario.viewport]?.frame ?? scenario.viewport}px`;
+        observed.push(`viewport mismatch: frame inner ${info.innerWidth}x${info.innerHeight} rendered ${info.viewport}, scenario declared ${scenario.viewport} (expected ${expected})`);
+      }
       if (info.crashed) { status = "problem"; observed.push(`fake crashed: ${info.crashDetail}`); }
       if (info.unhandled) { status = "problem"; observed.push(`${info.unhandled} unhandled error(s)`); }
       if (info.banner) { status = "problem"; observed.push("no-mock/crash banner in frame"); }
@@ -179,6 +225,9 @@ for (let i = 0; i < scenarios.length; i++) {
     at: new Date().toISOString(),
     viewport: rendered.viewport,
     theme: rendered.theme,
+    // The frame's real inner dimensions, recorded next to the classification
+    // so a future width regression is visible in the evidence.
+    frame: rendered.frame,
   });
   if (i % 40 === 0) console.log(`${i + 1}/${scenarios.length} ${scenario.id} ${status}`);
 }

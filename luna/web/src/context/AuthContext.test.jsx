@@ -867,3 +867,95 @@ describe("AuthProvider recovery poll", () => {
     expect(screen.queryByText("SETUP WIZARD")).not.toBeTruthy();
   });
 });
+
+describe("AuthProvider routing while the startup read is pending", () => {
+  afterEach(() => {
+    // jsdom keeps location between tests; put the tab back where the rest of
+    // the suite expects it (MemoryRouter's own path is unrelated to this).
+    window.history.pushState({}, "", "/");
+    vi.unstubAllGlobals();
+  });
+
+  it("stays on /recover when a pending startup read resolves with no Admin after the person navigated there", async () => {
+    // Regression: the startup effect captured window.location.pathname once,
+    // so a read that began on /login and landed after the person opened the
+    // recovery form routed by the stale "/login" and replaced recovery with
+    // the setup wizard. The routing decision must read the current path.
+    /** @type {(value?: any) => void} */
+    let releaseMe = () => {};
+    const meGate = new Promise((resolve) => { releaseMe = resolve; });
+    let meCalls = 0;
+
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) {
+        meCalls += 1;
+        if (meCalls === 1) await meGate; // hold the startup read open
+        return new Response("null", { status: 401 });
+      }
+      if (u.endsWith("/api/v1/auth/status")) {
+        return new Response(JSON.stringify({ has_admin: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        return new Response(JSON.stringify({ name: "Luna", setup_completed: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+
+    // The browser tab starts on /login, which is what the startup read sees.
+    window.history.pushState({}, "", "/login");
+
+    function NavToRecover() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate("/recover")}>
+          OPEN RECOVERY
+        </button>
+      );
+    }
+    function Probe() {
+      const { loading } = useAuth();
+      const { pathname } = useLocation();
+      return (
+        <div>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`AT ${pathname}`}</span>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <AuthProvider>
+          <NavToRecover />
+          <Probe />
+          <Routes>
+            <Route path="/login" element={<div>LOGIN SCREEN</div>} />
+            <Route path="/recover" element={<div>RECOVERY WIZARD</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    // Open the recovery form while the startup read is still held open. Mirror
+    // the browser URL the way a real link in a BrowserRouter would, since
+    // MemoryRouter keeps its path in memory only.
+    await act(async () => { fireEvent.click(screen.getByText("OPEN RECOVERY")); });
+    window.history.pushState({}, "", "/recover");
+    expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
+
+    // The held read now lands with no Admin and nobody signed in.
+    await act(async () => { releaseMe(); });
+    expect(await screen.findByText("READY")).toBeInTheDocument();
+    expect(screen.getByText("AT /recover")).toBeInTheDocument();
+    expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
+  });
+});

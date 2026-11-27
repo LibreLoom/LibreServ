@@ -33,6 +33,17 @@ function Harness({ drives = DRIVES, onDropPaths = vi.fn() }) {
   );
 }
 
+/** @param {{ destinations: any[], onDropPaths: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void }} props */
+function DestinationHarness({ destinations, onDropPaths }) {
+  const location = useLocation();
+  return (
+    <>
+      <div data-testid="location">{location.pathname}{location.search}</div>
+      <DriveMenu destinations={destinations} currentDriveId="d1" onDropPaths={onDropPaths} />
+    </>
+  );
+}
+
 /** @param {{ drives?: any[], onDropPaths?: (driveId: string, path: string, paths: string[], sourceDriveId?: string) => void }} [opts] */
 function renderMenu({ drives, onDropPaths } = {}) {
   return render(
@@ -87,7 +98,7 @@ describe("DriveMenu", () => {
     expect(screen.getByTestId("location").textContent).toBe("/files/d1");
   });
 
-  it("sends a drop on a read-only drive so the refusal can be shown", async () => {
+  it("keeps a read-only drive browsable but does not drop into it", async () => {
     const onDropPaths = vi.fn();
     renderMenu({
       drives: [DRIVES[0], { id: "d4", label: "Read Only", state: "readonly" }],
@@ -97,9 +108,12 @@ describe("DriveMenu", () => {
     const item = await screen.findByRole("menuitem", { name: "Read Only" });
     const dataTransfer = lunaDrag();
     fireEvent.dragOver(item, { dataTransfer });
-    expect(item.className).toMatch(/ring-accent/);
+    expect(item.className).not.toMatch(/ring-accent/);
     fireEvent.drop(item, { dataTransfer });
-    expect(onDropPaths).toHaveBeenCalledWith("d4", "", ["a.txt"], "d1");
+    expect(onDropPaths).not.toHaveBeenCalled();
+    // Read-only places stay normal navigation targets.
+    fireEvent.click(item);
+    expect(screen.getByTestId("location").textContent).toBe("/files/d4");
   });
 
   it("auto-opens when a file drag hovers the trigger", async () => {
@@ -186,8 +200,8 @@ describe("DriveMenu", () => {
   it("member mode lists writable roots and drops into their paths", async () => {
     const onDropPaths = vi.fn();
     const destinations = /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "folder"|"drive", writable?: boolean }[]} */ ([
-      { driveId: "d1", path: "docs/drop", label: "drop", sub: "Photos Drive", icon: "folder" },
-      { driveId: "d2", path: "shared/inbox", label: "inbox", sub: "Spare Drive", icon: "folder" },
+      { driveId: "d1", path: "docs/drop", label: "drop", sub: "Photos Drive", icon: "folder", writable: true },
+      { driveId: "d2", path: "shared/inbox", label: "inbox", sub: "Spare Drive", icon: "folder", writable: true },
     ]);
     render(
       <MemoryRouter initialEntries={["/files/d1?path=docs"]}>
@@ -217,5 +231,34 @@ describe("DriveMenu", () => {
     fireEvent.dragOver(dropItem, { dataTransfer });
     fireEvent.drop(dropItem, { dataTransfer });
     expect(onDropPaths).toHaveBeenCalledWith("d1", "docs/drop", ["docs/a.txt"], "d1");
+  });
+
+  it("member mode keeps a read-only root browsable but refuses its drop", async () => {
+    const onDropPaths = vi.fn();
+    const destinations = /** @type {{ driveId: string, path: string, label: string, sub?: string, icon?: "folder"|"drive", writable?: boolean }[]} */ ([
+      { driveId: "d1", path: "inbox", label: "inbox", sub: "Photos Drive", icon: "folder", writable: true },
+      { driveId: "d2", path: "archive", label: "archive", sub: "Archive Drive", icon: "folder", writable: false },
+    ]);
+    render(
+      <MemoryRouter initialEntries={["/files/d1"]}>
+        <Routes>
+          <Route
+            path="/files/:id"
+            element={<DestinationHarness destinations={destinations} onDropPaths={onDropPaths} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Places/ }));
+    const menu = await screen.findByRole("menu", { name: "Places" });
+    const readOnly = within(menu).getByRole("menuitem", { name: /archive/ });
+    const dataTransfer = lunaDrag(["docs/a.txt"], "d1");
+    fireEvent.dragOver(readOnly, { dataTransfer });
+    expect(readOnly.className).not.toMatch(/ring-accent/);
+    fireEvent.drop(readOnly, { dataTransfer });
+    expect(onDropPaths).not.toHaveBeenCalled();
+    // It is still a normal place to navigate to.
+    fireEvent.click(readOnly);
+    expect(screen.getByTestId("location").textContent).toBe("/files/d2?path=archive");
   });
 });

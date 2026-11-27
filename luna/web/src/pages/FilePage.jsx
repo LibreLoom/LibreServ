@@ -75,14 +75,19 @@ export default function FilePage() {
   // file browser itself can render and more than one drive is ready.
   const presentDriveCount = (drives.data || []).filter(isPresentDrive).length;
 
-  // Members don't get a raw drive picker — their destinations are the
-  // shared roots they can put files in. Equity with the admin selector, not
-  // equality: the menu looks the same but holds different things.
+  // Members don't get a raw drive picker — their places are the shared roots
+  // they can open. Equity with the admin selector, not equality: the menu
+  // looks the same but holds different things. Only places that can take
+  // writes are drop/copy destinations; a mounted read-only drive still gets
+  // a browse-only entry so its files stay reachable.
   const userId = user?.id;
   const memberDests = useMemo(() => {
     if (isAdmin || !userId) return null;
     const present = new Set(
-      (drives.data || []).filter((d) => isPresentDrive(d) && isWritableDrive(d)).map((d) => d.id),
+      (drives.data || []).filter(isPresentDrive).map((d) => d.id),
+    );
+    const writable = new Set(
+      (drives.data || []).filter(isWritableDrive).map((d) => d.id),
     );
     const labelOf = (id) => (drives.data || []).find((d) => d.id === id)?.label;
     return memberWritableRoots(access.data, (id) => present.has(id), labelOf)
@@ -92,7 +97,7 @@ export default function FilePage() {
         label: r.label,
         sub: labelOf(r.driveId),
         icon: /** @type {"folder"|"drive"} */ (r.path ? "folder" : "drive"),
-        writable: true,
+        writable: writable.has(r.driveId),
       }));
   }, [isAdmin, userId, drives.data, access.data]);
 

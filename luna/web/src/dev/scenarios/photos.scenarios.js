@@ -415,10 +415,10 @@ export default [
   {
     id: "gallery/member-with-drive-share",
     area: "Photos",
-    title: "Member: no Rescan, no admin tools",
+    title: "Member with a shared drive: Rescan works, admin tools stay hidden",
     url: "/photos",
     seed: (w) => { lib(w, 30); asMember(w); w.access = [{ kind: "path", drive_id: "d1", path: "Photos", caps: "view" }]; },
-    check: ["No Rescan button", "Upload only appears if their access allows it", "Everything else browses normally"],
+    check: ["Rescan is offered and starts a scan of the shared drive", "Upload only appears if their access allows it", "Admin-only drive tools stay hidden", "Everything else browses normally"],
   },
   {
     id: "gallery/phone",

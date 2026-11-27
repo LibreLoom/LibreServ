@@ -1046,6 +1046,10 @@ export default function PhotosPage() {
   // Only a successful, empty drives answer means "no drives". An error (above
   // all status 0, offline) must never be dressed up as an empty library.
   const noDrives = drives.isSuccess && driveList.length === 0;
+  // lunad's rescan (api/photos.rs) queues a scan for every drive the caller can
+  // access, Members included. The drives list is access-filtered, so a member
+  // with a drive in it has something to rescan; one with no drives does not.
+  const canRescan = isAdmin || (drives.isSuccess && driveList.length > 0);
   const memberAlbumsGatePending =
     !isAdmin &&
     noDrives &&
@@ -1512,6 +1516,16 @@ export default function PhotosPage() {
   // day, then scroll the closest day header into view.
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
+    // A failed page fetch stays an error until someone retries it. Without
+    // this guard the guard below would fire the same request again as soon as
+    // isFetchingNextPage clears, up to the 1000-page runaway limit. Stop the
+    // jump and leave the page's error notice (with Try again) on screen.
+    if (photoQuery.isFetchNextPageError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- a failed jump must release the target so the page's Try again is usable
+      setJumpTarget(null);
+      jumpPagesRef.current = 0;
+      return;
+    }
     const target = jumpTarget.ymd;
     const { newest, oldest, undated } = loadedDaySpan;
     const covered =
@@ -1880,7 +1894,7 @@ export default function PhotosPage() {
         columns={columns}
         onColumnsChange={setColumns}
         showSelect={showTimeline || duplicatesView}
-        onRescan={isAdmin ? handleRescan : undefined}
+        onRescan={canRescan ? handleRescan : undefined}
         rescanPending={rescan.isPending}
         onOpenShortcuts={shortcutsSheet ? shortcutsSheet.open : undefined}
       />
@@ -2153,7 +2167,7 @@ export default function PhotosPage() {
           title="No photos yet"
           description="Add pictures to a drive, or drop them onto this page, and Luna will show them here."
           action={
-            isAdmin ? (
+            canRescan ? (
               <Button
                 variant="primary"
                 loading={rescan.isPending}

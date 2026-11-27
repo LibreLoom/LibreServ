@@ -29,8 +29,9 @@ const DEST_ICONS = { folder: Folder, drive: HardDrive };
  * the shared Dropdown in menu mode. The trigger shows the place being browsed;
  * opening it lists every OTHER destination as a menu item that navigates
  * there. For admins the destinations are whole drives; for members they
- * are the shared folders they can write to, since members can't address a
- * drive's unrestricted root.
+ * are their shared folder roots, since members can't address a drive's
+ * unrestricted root. A root on a mounted read-only drive stays browsable
+ * but carries `writable: false`, so it is never a drop/copy destination.
  * Renders nothing when no other destination exists.
  *
  * Drag and drop, while a file drag carrying `application/x-luna-paths` is
@@ -238,9 +239,9 @@ export default function DriveMenu({ drives, destinations, currentDriveId, curren
       optionProps={(option) => {
         const dest = otherItems.find((d) => destKey(d) === option.value);
         if (!dest) return undefined;
-        // Read-only places stay normal targets: lunad refuses the drop and the
-        // caller shows why.
-        const canDrop = true;
+        // A read-only place stays in the menu for browsing, but it is not a
+        // move/copy destination: no ring, no spring-load and no drop job.
+        const canDrop = dest.writable !== false;
         return {
           className: dragOverDriveId === option.value ? "ring-2 ring-inset ring-accent" : undefined,
           onDragOver: (e) => handleItemDragOver(dest, canDrop, e),
