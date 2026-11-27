@@ -126,10 +126,11 @@ for (let i = 0; i < scenarios.length; i++) {
         const theme = w.document.documentElement.classList.contains("dark") ? "dark" : "light";
         let storedTheme = "";
         try { storedTheme = w.localStorage.getItem("theme") || ""; } catch { /* storage blocked */ }
-        const { width } = f.getBoundingClientRect();
-        // The gallery constrains frame height to its own viewport, so classify
-        // by width (phone 390 / tablet 820 / desktop full) instead of height.
-        const viewport = width <= 500 ? "phone" : width <= 900 ? "tablet" : "desktop";
+        const { width, height } = f.getBoundingClientRect();
+        // The gallery renders phone at 390x800, tablet at 543x1000 and desktop
+        // at 543x714 in this harness: width alone cannot split tablet from
+        // desktop, but the tablet's 1000px height can.
+        const viewport = width <= 450 ? "phone" : height >= 950 ? "tablet" : "desktop";
         return {
           crashed,
           crashDetail: crashed ? JSON.stringify(snap.crashed).slice(0, 200) : "",
