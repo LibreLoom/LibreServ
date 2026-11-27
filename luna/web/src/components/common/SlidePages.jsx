@@ -163,7 +163,7 @@ export default function SlidePages({
   }, []);
 
   return (
-    <div ref={boxRef} className={`grid overflow-x-clip ${className}`}>
+    <div ref={boxRef} className={`-mx-1 grid overflow-x-clip px-1 ${className}`}>
       <AnimatePresence initial={false} custom={dir} onExitComplete={handleSettled}>
         <Motion.div
           key={pageKey}
