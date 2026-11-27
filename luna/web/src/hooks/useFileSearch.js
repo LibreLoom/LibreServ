@@ -84,6 +84,12 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
     isLoading: active && query.isLoading,
     /** Showing the previous answer while a newer one loads. */
     isUpdating: active && query.isPlaceholderData,
+    /**
+     * Any answer for this text is still on its way: the first one, a newer
+     * one replacing a stale one, or the full search (photos, meaning) that
+     * follows the quick one. "Nothing found" is only true once this is false.
+     */
+    searching: active && !query.isError && (query.isLoading || query.isPlaceholderData || (!useFull && !fullQuery.isError)),
     isError: active && query.isError,
     error: query.error,
     retry: query.refetch,

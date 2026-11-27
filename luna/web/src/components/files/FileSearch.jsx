@@ -620,7 +620,7 @@ export default function FileSearch({ initialRequest }) {
                 </PageNotice>
               )}
 
-              {search.isLoading && <SearchSkeleton />}
+              {search.searching && search.hits.length === 0 && <SearchSkeleton />}
 
               {search.incomplete && !search.isError && !search.isUpdating && trimmed === search.q && (
                 <PageNotice variant="warning" className="mb-3">
@@ -628,7 +628,7 @@ export default function FileSearch({ initialRequest }) {
                 </PageNotice>
               )}
 
-              {search.active && !search.isLoading && !search.isError && !search.incomplete && search.hits.length === 0 && (
+              {search.active && !search.searching && !search.isError && !search.incomplete && search.hits.length === 0 && (
                 search.scan?.scanning || search.scan?.contents_reading ? (
                   <EmptyState
                     className="mt-1"
