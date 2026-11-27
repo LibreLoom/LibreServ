@@ -494,10 +494,11 @@ describe("AuthProvider recovery poll", () => {
       const u = String(url);
       if (!online) throw new TypeError("Failed to fetch");
       if (u.endsWith("/api/v1/auth/me")) {
-        // Only the recovery probe passes a signal; refresh()'s getJson does
-        // not. Blackhole the first probe and ignore its abort, so only the
-        // deadline (not fetch) can free the in-flight guard.
-        if (options?.signal) {
+        // The probe passes `cache: "no-store"`; refresh() now passes a signal
+        // too, so the signal alone no longer identifies it. Blackhole the first
+        // probe and ignore its abort, so only the deadline (not fetch) can free
+        // the in-flight guard.
+        if (options?.cache === "no-store") {
           probeCalls += 1;
           if (probeCalls === 1) return new Promise(() => {});
         }
@@ -541,5 +542,184 @@ describe("AuthProvider recovery poll", () => {
     // Recovery cleared the interval and deadline: no further probes.
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
     expect(probeCalls).toBe(2);
+  });
+
+  it("a prompt probe with a stalled refresh is invalidated at the deadline, then a later tick recovers", async () => {
+    // Regression: the probe used to be the only request carrying a signal, so
+    // a hung refresh kept running after the race rejected. Its later response
+    // could overwrite state committed by a newer attempt.
+    vi.useFakeTimers();
+    let online = false;
+    let staleResolved = false;
+    /** @type {(value?: any) => void} */
+    let releaseFirstRefresh = () => {};
+    const firstRefreshGate = new Promise((resolve) => { releaseFirstRefresh = resolve; });
+    let refreshMeCalls = 0;
+    /** @type {{ me?: AbortSignal, setup?: AbortSignal, status?: AbortSignal } | null} */
+    let firstRefreshSignals = null;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) {
+        // The probe has `cache: "no-store"`; all three refresh requests carry
+        // the attempt's signal. Stall only the first recovery refresh and
+        // ignore its abort so only the deadline frees the in-flight guard.
+        if (options?.cache === "no-store") return new Response("null", { status: 401 });
+        refreshMeCalls += 1;
+        if (refreshMeCalls === 1) {
+          firstRefreshSignals = { me: options?.signal };
+          await firstRefreshGate;
+          staleResolved = true;
+          return json({ id: "old", username: "old", role: "user" });
+        }
+        return json({ id: "u2", username: "ada", role: "admin" });
+      }
+      if (u.endsWith("/api/v1/auth/status")) {
+        if (staleResolved && firstRefreshSignals) firstRefreshSignals.status = options?.signal;
+        return json({ has_admin: !staleResolved });
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        if (staleResolved && firstRefreshSignals) firstRefreshSignals.setup = options?.signal;
+        return json({ name: "Luna", setup_completed: !staleResolved });
+      }
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, unreachable, user, setup, hasAdmin } = useAuth();
+      return (
+        <div>
+          <span>{loading ? "LOADING" : unreachable ? "UNREACHABLE" : "REACHABLE"}</span>
+          <span>{`USER ${user ? user.username : "NONE"}`}</span>
+          <span>{`SETUP ${setup ? setup.setup_completed : "UNKNOWN"}`}</span>
+          <span>{`ADMIN ${hasAdmin === null ? "UNKNOWN" : hasAdmin}`}</span>
+        </div>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+    expect(screen.getByText("USER NONE")).toBeTruthy();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
+    expect(screen.getByText("ADMIN UNKNOWN")).toBeTruthy();
+
+    online = true;
+    // Probe answers at once; refresh's /auth/me hangs across the interval.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(refreshMeCalls).toBe(1);
+    expect(firstRefreshSignals?.me).toBeTruthy();
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+
+    // Deadline: the attempt's signal is aborted, so no state may be committed
+    // from the stalled refresh, and the in-flight guard is freed.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(firstRefreshSignals?.me?.aborted).toBe(true);
+    expect(screen.getByText("UNREACHABLE")).toBeTruthy();
+    expect(screen.getByText("USER NONE")).toBeTruthy();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
+    expect(screen.getByText("ADMIN UNKNOWN")).toBeTruthy();
+
+    // Next tick recovers with fast answers: the newer attempt owns the state.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(refreshMeCalls).toBe(2);
+    expect(screen.getByText("REACHABLE")).toBeTruthy();
+    expect(screen.getByText("USER ada")).toBeTruthy();
+    expect(screen.getByText("SETUP true")).toBeTruthy();
+    expect(screen.getByText("ADMIN true")).toBeTruthy();
+
+    // The stale refresh finally resolves with different data. Its signal (the
+    // same one threaded to /setup and /auth/status) was aborted, so it must not
+    // replace the state the newer tick just committed.
+    await act(async () => { releaseFirstRefresh(); await vi.advanceTimersByTimeAsync(0); });
+    expect(firstRefreshSignals?.setup).toBe(firstRefreshSignals?.me);
+    expect(firstRefreshSignals?.status).toBe(firstRefreshSignals?.me);
+    expect(screen.getByText("USER ada")).toBeTruthy();
+    expect(screen.getByText("SETUP true")).toBeTruthy();
+    expect(screen.getByText("ADMIN true")).toBeTruthy();
+  });
+
+  it("a stale refresh cannot overwrite a newer login", async () => {
+    vi.useFakeTimers();
+    let online = false;
+    let staleResolved = false;
+    /** @type {(value?: any) => void} */
+    let releaseFirstRefresh = () => {};
+    const firstRefreshGate = new Promise((resolve) => { releaseFirstRefresh = resolve; });
+    let refreshMeCalls = 0;
+    let probeCalls = 0;
+
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      const u = String(url);
+      if (!online) throw new TypeError("Failed to fetch");
+      if (u.endsWith("/api/v1/auth/me")) {
+        if (options?.cache === "no-store") {
+          probeCalls += 1;
+          // The first probe answers; later ones hang so no competing refresh
+          // completes after the login.
+          return probeCalls === 1
+            ? new Response("null", { status: 401 })
+            : new Promise(() => {});
+        }
+        refreshMeCalls += 1;
+        if (refreshMeCalls === 1) {
+          await firstRefreshGate;
+          staleResolved = true;
+          return json({ id: "old", username: "old" });
+        }
+        return json({ id: "other", username: "other" });
+      }
+      if (u.endsWith("/api/v1/auth/login")) {
+        return json({ id: "new", username: "newuser", role: "admin" });
+      }
+      if (u.endsWith("/api/v1/auth/status")) return json({ has_admin: !staleResolved });
+      if (u.endsWith("/api/v1/setup")) return json({ name: "Luna", setup_completed: !staleResolved });
+      return json({}, 404);
+    }));
+
+    function Probe() {
+      const { loading, user, setup, hasAdmin, login } = useAuth();
+      return (
+        <div>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`USER ${user ? user.username : "NONE"}`}</span>
+          <span>{`SETUP ${setup ? setup.setup_completed : "UNKNOWN"}`}</span>
+          <span>{`ADMIN ${hasAdmin === null ? "UNKNOWN" : hasAdmin}`}</span>
+          <button type="button" onClick={() => login("newuser", "pw").catch(() => {})}>LOGIN</button>
+        </div>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthProvider><Probe /></AuthProvider>
+      </MemoryRouter>
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("READY")).toBeTruthy();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
+
+    online = true;
+    // First tick: probe answers, refresh stalls, deadline frees the guard.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(refreshMeCalls).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+
+    // Next tick's probe hangs, so no other refresh can commit.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await act(async () => { fireEvent.click(screen.getByText("LOGIN")); });
+    expect(screen.getByText("USER newuser")).toBeTruthy();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
+    expect(screen.getByText("ADMIN UNKNOWN")).toBeTruthy();
+
+    // The aborted refresh resolves with old user and stale setup/admin data.
+    // None of it may replace the newer login.
+    await act(async () => { releaseFirstRefresh(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("USER newuser")).toBeTruthy();
+    expect(screen.getByText("SETUP UNKNOWN")).toBeTruthy();
+    expect(screen.getByText("ADMIN UNKNOWN")).toBeTruthy();
   });
 });
