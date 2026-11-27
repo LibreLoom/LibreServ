@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Check, Play } from "lucide-react";
+import { Check, Heart, Play } from "lucide-react";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import PrivateBadge from "../private/PrivateBadge.jsx";
 import { gridThumbSrcSet, isLunadThumb } from "./thumbSrc.js";
@@ -195,7 +195,7 @@ function PhotoThumb({
       className={`group relative block w-full aspect-square overflow-hidden surface-secondary motion-reduce:animate-none motion-reduce:transition-none motion-safe:transition-opacity hover:opacity-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent ${animateEntrance ? "animate-cascade-in" : ""} ${
  selected ? "ring-2 ring-accent" : ""
  }`}
-      aria-label={photo.private ? `${photo.name}, private` : photo.name}
+      aria-label={[photo.name, photo.private && "private", photo.favorited && "favorite"].filter(Boolean).join(", ")}
     >
       {photo.thumb ? (
         <img
@@ -254,6 +254,15 @@ function PhotoThumb({
           <PrivateBadge size={12} />
         </span>
       )}
+      {photo.favorited && (
+        <span
+          data-testid="photo-favorite-badge"
+          className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-pill surface-primary"
+          aria-hidden="true"
+        >
+          <Heart size={12} fill="currentColor" />
+        </span>
+      )}
       {selected && (
         <span
           className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-pill surface-secondary ring-2 ring-primary"
@@ -274,6 +283,7 @@ PhotoThumb.propTypes = {
     thumb: PropTypes.string,
     kind: PropTypes.string,
     private: PropTypes.bool,
+    favorited: PropTypes.bool,
   }).isRequired,
   onOpen: PropTypes.func,
   onToggle: PropTypes.func,

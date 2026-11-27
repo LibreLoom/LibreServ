@@ -142,3 +142,16 @@ describe("PhotoThumb loaded flag on the gated path", () => {
     }
   });
 });
+
+describe("PhotoThumb favorite", () => {
+  it("shows a heart on a favorited photo and names it in the button", () => {
+    const view = render(<PhotoThumb photo={{ name: "beach.jpg", kind: "image", favorited: true }} />);
+    expect(view.getByTestId("photo-favorite-badge")).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "beach.jpg, favorite" })).toBeInTheDocument();
+  });
+
+  it("shows no heart on a photo that is not a favorite", () => {
+    const view = render(<PhotoThumb photo={{ name: "beach.jpg", kind: "image" }} />);
+    expect(view.queryByTestId("photo-favorite-badge")).toBeNull();
+  });
+});
