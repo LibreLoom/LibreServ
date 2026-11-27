@@ -204,7 +204,7 @@ with per-account/per-device ownership enforced in parameterized SQL; local and
 B2 stores both re-validate keys and confine to account/device namespaces; admin
 login is rate-limited, staff sessions are HttpOnly cookies (refused as Bearer)
 and hashed at rest, and `/admin/seed` is loopback-only without an explicit seed
-token; device-token reveals require the staff member's current password;
+token; device tokens are hash-only and there is no reveal route;
 outbound HTTP clients (Resend, HIBP, providers) refuse redirects so credentials
 can't leak to a redirect target.
 

@@ -2,7 +2,7 @@
 
 ## Decided
 
-- **Device token replacement:** the credential rotates on the same box. The UID, device row and cloud identity survive rotation and unbind, and recovery from revoked is started from the account with a password step-up. See [connect-auth design](../connect-auth/DESIGN.md).
+- **Device token replacement:** local only. A new token is written on Luna and makes no Connect request; it does not rotate the rolling credential or change the device row, cloud identity, backups, tunnel, or binding. The token survives unbind and factory reset, and recovery from revoked is started from the account with a password step-up. See [connect-auth design](../connect-auth/DESIGN.md).
 - **Reader removal:** removing a reader deletes their future envelopes and share links, and retained snapshots are not re-encrypted. See [cloud backup model](ARCHIVE_MODEL.md).
 - **Legacy signing seeds on drives:** closed. There are no existing users (early development, per AGENTS.md), so no cleanup path is built and Luna keeps ignoring the legacy copies.
 - **Conflicting public keys stored in Connect:** closed for the same reason. No repair path is built.
