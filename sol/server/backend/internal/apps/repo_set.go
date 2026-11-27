@@ -208,6 +208,7 @@ func (rs *RepoSet) rebuildCatalog() {
 	}
 
 	catalog := &Catalog{apps: merged, catalogPath: rs.basePath}
+	catalog.buildListing()
 	rs.catalog = catalog
 	rs.logger.Info("rebuilt merged catalog", "apps", len(merged))
 }

@@ -124,19 +124,7 @@ func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	catalog := h.manager.GetCatalog()
-	allApps := catalog.ListApps(filters)
-	categories := catalog.GetCategories()
-
-	totalItems := int64(len(allApps))
-	start := params.Offset
-	end := start + params.Limit
-	if start > len(allApps) {
-		start = len(allApps)
-	}
-	if end > len(allApps) {
-		end = len(allApps)
-	}
-	paginatedApps := allApps[start:end]
+	paginatedApps, totalItems, categories := catalog.ListAppsPage(filters, params.Offset, params.Limit)
 
 	JSON(w, http.StatusOK, CatalogListResponse{
 		Apps:       paginatedApps,

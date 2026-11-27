@@ -25,6 +25,9 @@ type DB struct {
 	db   *sql.DB
 	path string
 
+	acmeJobsMu    sync.Mutex
+	acmeJobsReady atomic.Bool
+
 	// onReplace holds callbacks from services that cache rows from this DB.
 	// They run once a restored file is in place, before migration. The mutex
 	// allows a late registration without racing an in-flight restore.
@@ -48,12 +51,72 @@ func (d *DB) OnReplace(fn func()) {
 // InvalidateCaches runs every registered hook. Callers that replace or rewrite
 // the database outside ReplaceFile (for example a factory reset) use it.
 func (d *DB) InvalidateCaches() {
+	d.acmeJobsMu.Lock()
+	d.acmeJobsReady.Store(false)
+	d.acmeJobsMu.Unlock()
+
 	d.onReplaceMu.RLock()
 	hooks := append([]func(){}, d.onReplace...)
 	d.onReplaceMu.RUnlock()
 	for _, fn := range hooks {
 		fn()
 	}
+}
+
+// EnsureACMEJobs initializes queue storage once for the current database
+// file. A failed initialization can be retried on the next request.
+func (d *DB) EnsureACMEJobs() error {
+	if d.acmeJobsReady.Load() {
+		return nil
+	}
+	d.acmeJobsMu.Lock()
+	defer d.acmeJobsMu.Unlock()
+	if d.acmeJobsReady.Load() {
+		return nil
+	}
+	_, err := d.Exec(`
+		CREATE TABLE IF NOT EXISTS acme_jobs (
+			id TEXT PRIMARY KEY,
+			job_type TEXT NOT NULL DEFAULT 'issuance',
+			domain TEXT NOT NULL,
+			email TEXT NOT NULL,
+			route_id TEXT,
+			status TEXT NOT NULL,
+			priority INTEGER DEFAULT 5,
+			error TEXT,
+			retry_count INTEGER DEFAULT 0,
+			max_retries INTEGER DEFAULT 3,
+			panic_count INTEGER DEFAULT 0,
+			next_retry_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL,
+			started_at TIMESTAMP,
+			ended_at TIMESTAMP,
+			logs TEXT,
+			webhook_url TEXT,
+			worker_id TEXT
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create acme_jobs table: %w", err)
+	}
+
+	// Create indexes for efficient querying
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_status ON acme_jobs(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_domain ON acme_jobs(domain)`,
+		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_status_type ON acme_jobs(status, job_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_next_retry ON acme_jobs(next_retry_at) WHERE status IN ('pending', 'failed')`,
+		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_created ON acme_jobs(created_at DESC)`,
+	}
+
+	for _, idx := range indexes {
+		if _, err := d.Exec(idx); err != nil {
+			return fmt.Errorf("create index: %w", err)
+		}
+	}
+
+	d.acmeJobsReady.Store(true)
+	return nil
 }
 
 // Open opens or creates the SQLite database at dbPath.

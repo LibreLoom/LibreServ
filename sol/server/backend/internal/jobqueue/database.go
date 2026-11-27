@@ -13,52 +13,6 @@ import (
 	"gt.plainskill.net/LibreLoom/Sol/internal/database"
 )
 
-// ensureJobsTable creates the jobs table if it doesn't exist
-func ensureJobsTable(db *database.DB) error {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS acme_jobs (
-			id TEXT PRIMARY KEY,
-			job_type TEXT NOT NULL DEFAULT 'issuance',
-			domain TEXT NOT NULL,
-			email TEXT NOT NULL,
-			route_id TEXT,
-			status TEXT NOT NULL,
-			priority INTEGER DEFAULT 5,
-			error TEXT,
-			retry_count INTEGER DEFAULT 0,
-			max_retries INTEGER DEFAULT 3,
-			panic_count INTEGER DEFAULT 0,
-			next_retry_at TIMESTAMP,
-			created_at TIMESTAMP NOT NULL,
-			started_at TIMESTAMP,
-			ended_at TIMESTAMP,
-			logs TEXT,
-			webhook_url TEXT,
-			worker_id TEXT
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("create acme_jobs table: %w", err)
-	}
-
-	// Create indexes for efficient querying
-	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_status ON acme_jobs(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_domain ON acme_jobs(domain)`,
-		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_status_type ON acme_jobs(status, job_type)`,
-		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_next_retry ON acme_jobs(next_retry_at) WHERE status IN ('pending', 'failed')`,
-		`CREATE INDEX IF NOT EXISTS idx_acme_jobs_created ON acme_jobs(created_at DESC)`,
-	}
-
-	for _, idx := range indexes {
-		if _, err := db.Exec(idx); err != nil {
-			return fmt.Errorf("create index: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // validateJobInput validates job input parameters
 func validateJobInput(jobType JobType, domain, email string, priority JobPriority) error {
 	// Validate job type
@@ -104,21 +58,23 @@ func validateJobInput(jobType JobType, domain, email string, priority JobPriorit
 
 // HasPendingOrQueuedJob checks if there's already a pending or queued job for the domain and type
 func HasPendingOrQueuedJob(ctx context.Context, db *database.DB, domain string, jobType JobType) (bool, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return false, err
 	}
 
-	var count int
-	err := db.QueryRow(`
-		SELECT COUNT(*) FROM acme_jobs 
-		WHERE domain = ? AND job_type = ? AND status IN ('pending', 'queued', 'running')
-	`, domain, jobType).Scan(&count)
+	var exists bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM acme_jobs
+			WHERE domain = ? AND job_type = ? AND status IN ('pending', 'queued', 'running')
+		)
+	`, domain, jobType).Scan(&exists)
 
 	if err != nil {
 		return false, fmt.Errorf("check existing jobs: %w", err)
 	}
 
-	return count > 0, nil
+	return exists, nil
 }
 
 // CreateJob creates a new job in the database after validating the input parameters.
@@ -132,7 +88,7 @@ func CreateJob(ctx context.Context, db *database.DB, jobType JobType, domain, em
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 
@@ -180,7 +136,7 @@ func CreateJob(ctx context.Context, db *database.DB, jobType JobType, domain, em
 // GetJobByID retrieves a job by its unique ID. Returns the job as JobInfo interface
 // or an error if the job is not found or the database operation fails.
 func GetJobByID(ctx context.Context, db *database.DB, id string) (JobInfo, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 
@@ -196,7 +152,7 @@ func GetJobByID(ctx context.Context, db *database.DB, id string) (JobInfo, error
 // eligible for retry) ordered by priority (ascending) and creation time (ascending).
 // The limit parameter controls the maximum number of jobs returned.
 func GetPendingJobs(ctx context.Context, db *database.DB, limit int) ([]*Job, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 
@@ -224,7 +180,7 @@ func GetPendingJobs(ctx context.Context, db *database.DB, limit int) ([]*Job, er
 // time in descending order (most recent first). The limit parameter controls the
 // maximum number of jobs returned.
 func GetJobsByStatus(ctx context.Context, db *database.DB, status JobStatus, limit int) ([]*Job, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 
@@ -257,7 +213,7 @@ func GetRunningJobs(ctx context.Context, db *database.DB) ([]*Job, error) {
 // optionally filtered by job type. If jobType is empty, it returns the latest job
 // of any type for the domain.
 func GetLatestJobForDomain(ctx context.Context, db *database.DB, domain string, jobType JobType) (JobInfo, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 
@@ -427,7 +383,7 @@ func IncrementJobPanicCount(ctx context.Context, db *database.DB, jobID string, 
 // 7 days, including counts of jobs by status (pending, running, succeeded, failed).
 // Returns a QueueStats struct with the aggregated counts.
 func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
-	if err := ensureJobsTable(db); err != nil {
+	if err := db.EnsureACMEJobs(); err != nil {
 		return nil, err
 	}
 

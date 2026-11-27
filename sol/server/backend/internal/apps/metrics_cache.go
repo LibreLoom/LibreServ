@@ -67,10 +67,8 @@ func (c *AppMetricsCache) Stop() {
 func (c *AppMetricsCache) run(ctx context.Context) {
 	defer c.wg.Done()
 
-	// Every 10s, not every second: each tick fans out to one Podman stats
-	// round-trip plus two SQLite queries per tracked app, all serialized
-	// through the single SQLite connection. 10s keeps the dashboard fresh
-	// while cutting that background load by 10x.
+	// Refresh the dashboard on its normal cadence. Each tick shares a
+	// runtime sample across running apps and reads their availability.
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -91,17 +89,35 @@ func (c *AppMetricsCache) RefreshNow(ctx context.Context) {
 func (c *AppMetricsCache) refresh(ctx context.Context) {
 	c.mu.RLock()
 	appIDs := make([]string, 0, len(c.statuses))
-	for id := range c.statuses {
+	var running []string
+	for id, status := range c.statuses {
 		appIDs = append(appIDs, id)
+		if status == StatusRunning {
+			running = append(running, id)
+		}
 	}
 	c.mu.RUnlock()
 
+	var sampled []*monitoring.Metrics
+	if c.metricsCollector != nil {
+		var err error
+		sampled, err = c.metricsCollector.CollectAppsMetrics(ctx, running)
+		if err != nil {
+			c.logger.Debug("failed to collect app metrics", "error", err)
+		}
+	}
+	samples := make(map[string]*monitoring.Metrics, len(sampled))
+	for _, sample := range sampled {
+		if sample != nil {
+			samples[sample.AppID] = sample
+		}
+	}
 	for _, appID := range appIDs {
-		c.refreshApp(ctx, appID)
+		c.refreshApp(ctx, appID, samples[appID])
 	}
 }
 
-func (c *AppMetricsCache) refreshApp(ctx context.Context, appID string) {
+func (c *AppMetricsCache) refreshApp(ctx context.Context, appID string, sample *monitoring.Metrics) {
 	c.mu.RLock()
 	status := c.statuses[appID]
 	lastStarted := c.lastStarted[appID]
@@ -109,18 +125,12 @@ func (c *AppMetricsCache) refreshApp(ctx context.Context, appID string) {
 	c.mu.RUnlock()
 
 	metrics := &AppMetrics{}
-
-	if c.metricsCollector != nil && status == StatusRunning {
-		runtimeMetrics, err := c.metricsCollector.CollectAppMetrics(ctx, appID)
-		if err != nil {
-			c.logger.Debug("failed to collect metrics", "appID", appID, "error", err)
-		} else {
-			metrics.CPUPercent = runtimeMetrics.CPUPercent
-			metrics.MemoryUsage = runtimeMetrics.MemoryUsage
-			metrics.MemoryLimit = runtimeMetrics.MemoryLimit
-			metrics.NetworkRx = runtimeMetrics.NetworkRx
-			metrics.NetworkTx = runtimeMetrics.NetworkTx
-		}
+	if sample != nil && status == StatusRunning {
+		metrics.CPUPercent = sample.CPUPercent
+		metrics.MemoryUsage = sample.MemoryUsage
+		metrics.MemoryLimit = sample.MemoryLimit
+		metrics.NetworkRx = sample.NetworkRx
+		metrics.NetworkTx = sample.NetworkTx
 	}
 
 	now := time.Now()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -15,7 +16,16 @@ import (
 type Catalog struct {
 	mu          sync.RWMutex
 	apps        map[string]*AppDefinition
+	sorted      []catalogEntry
+	categories  []AppCategory
 	catalogPath string
+}
+
+type catalogEntry struct {
+	app               *AppDefinition
+	searchName        string
+	searchDescription string
+	searchCategory    string
 }
 
 // NewCatalog creates a new app catalog from the given path
@@ -38,6 +48,7 @@ func (c *Catalog) Load() error {
 	defer c.mu.Unlock()
 
 	c.apps = make(map[string]*AppDefinition)
+	defer c.buildListing()
 
 	if _, err := os.Stat(c.catalogPath); os.IsNotExist(err) {
 		return fmt.Errorf("catalog path does not exist: %s", c.catalogPath)
@@ -190,71 +201,99 @@ func (c *Catalog) GetApp(id string) (*AppDefinition, error) {
 	return app.Clone(), nil
 }
 
-// ListApps returns all apps matching the given filters
+func (c *Catalog) exposedInfo(id string) ([]ExposedInfoField, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	app, ok := c.apps[id]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(app.ExposedInfo), true
+}
+
+// buildListing builds the browse order and search keys after loading. Its
+// caller holds the catalog write lock.
+func (c *Catalog) buildListing() {
+	c.sorted = make([]catalogEntry, 0, len(c.apps))
+	categorySet := make(map[AppCategory]struct{})
+	for _, app := range c.apps {
+		c.sorted = append(c.sorted, catalogEntry{
+			app:               app,
+			searchName:        strings.ToLower(app.Name),
+			searchDescription: strings.ToLower(app.Description),
+			searchCategory:    strings.ToLower(string(app.Category)),
+		})
+		categorySet[app.Category] = struct{}{}
+	}
+	sort.Slice(c.sorted, func(i, j int) bool {
+		a, b := c.sorted[i].app, c.sorted[j].app
+		if a.Featured != b.Featured {
+			return a.Featured
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.ID < b.ID
+	})
+	c.categories = nil
+	for category := range categorySet {
+		c.categories = append(c.categories, category)
+	}
+	slices.Sort(c.categories)
+}
+
+func (entry catalogEntry) matches(filters CatalogFilters, query string) bool {
+	app := entry.app
+	return (filters.Category == "" || app.Category == filters.Category) &&
+		(filters.Type == "" || app.Type == filters.Type) &&
+		(!filters.Featured || app.Featured) &&
+		(query == "" || strings.Contains(entry.searchName, query) ||
+			strings.Contains(entry.searchDescription, query) ||
+			strings.Contains(entry.searchCategory, query))
+}
+
+// ListApps returns all apps matching the given filters.
 func (c *Catalog) ListApps(filters CatalogFilters) []*AppDefinition {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
+	query := strings.ToLower(filters.Search)
 	var result []*AppDefinition
-
-	for _, app := range c.apps {
-		// Apply filters
-		if filters.Category != "" && app.Category != filters.Category {
-			continue
+	for _, entry := range c.sorted {
+		if entry.matches(filters, query) {
+			result = append(result, entry.app)
 		}
-		if filters.Type != "" && app.Type != filters.Type {
-			continue
-		}
-		if filters.Featured && !app.Featured {
-			continue
-		}
-		if filters.Search != "" && !c.matchesSearch(app, filters.Search) {
-			continue
-		}
-
-		result = append(result, app)
 	}
-
-	// Sort by name
-	sort.Slice(result, func(i, j int) bool {
-		// Featured apps first
-		if result[i].Featured != result[j].Featured {
-			return result[i].Featured
-		}
-		return result[i].Name < result[j].Name
-	})
-
 	return result
 }
 
-// matchesSearch checks if an app matches a search query
-func (c *Catalog) matchesSearch(app *AppDefinition, query string) bool {
-	query = strings.ToLower(query)
-	return strings.Contains(strings.ToLower(app.Name), query) ||
-		strings.Contains(strings.ToLower(app.Description), query) ||
-		strings.Contains(strings.ToLower(string(app.Category)), query)
+// ListAppsPage returns one page, the total match count, and the categories
+// from the same catalog snapshot.
+func (c *Catalog) ListAppsPage(filters CatalogFilters, offset, limit int) ([]*AppDefinition, int64, []AppCategory) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	query := strings.ToLower(filters.Search)
+	total := 0
+	var page []*AppDefinition
+	for _, entry := range c.sorted {
+		if !entry.matches(filters, query) {
+			continue
+		}
+		if total >= offset && len(page) < limit {
+			page = append(page, entry.app)
+		}
+		total++
+	}
+	if total > 0 && page == nil {
+		page = []*AppDefinition{}
+	}
+	return page, int64(total), slices.Clone(c.categories)
 }
 
-// GetCategories returns all unique categories in the catalog
+// GetCategories returns all unique categories in the catalog.
 func (c *Catalog) GetCategories() []AppCategory {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	categoryMap := make(map[AppCategory]bool)
-	for _, app := range c.apps {
-		categoryMap[app.Category] = true
-	}
-
-	var categories []AppCategory
-	for cat := range categoryMap {
-		categories = append(categories, cat)
-	}
-
-	sort.Slice(categories, func(i, j int) bool {
-		return categories[i] < categories[j]
-	})
-
-	return categories
+	return slices.Clone(c.categories)
 }
 
 // Count returns the total number of apps in the catalog
@@ -279,9 +318,11 @@ type CatalogFilters struct {
 
 // GetComposeFilePath returns the full path to the compose file for an app
 func (c *Catalog) GetComposeFilePath(appID string) (string, error) {
-	app, err := c.GetApp(appID)
-	if err != nil {
-		return "", err
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	app, ok := c.apps[appID]
+	if !ok {
+		return "", fmt.Errorf("app not found: %s", appID)
 	}
 
 	composePath := app.Deployment.ComposeFile

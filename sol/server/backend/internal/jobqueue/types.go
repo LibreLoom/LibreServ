@@ -135,12 +135,13 @@ func (j *Job) CanRetry() bool {
 func (j *Job) calculateLogSize() int {
 	total := 0
 	for _, entry := range j.Logs {
-		// Count message length
-		total += len(entry.Message)
-		// Add overhead for timestamp (24 bytes for typical RFC3339 string) and level
-		total += len(entry.Level) + 24
+		total += logEntrySize(entry.Level, entry.Message)
 	}
 	return total
+}
+
+func logEntrySize(level, message string) int {
+	return len(message) + len(level) + 24 // RFC3339 timestamp overhead
 }
 
 // truncateMessage truncates a message to MaxLogMessageSize with "..." suffix if needed
@@ -161,30 +162,13 @@ func (j *Job) AddLog(level, message string) {
 	// First, truncate the message if it exceeds MaxLogMessageSize
 	truncatedMessage := truncateMessage(message)
 
-	// Calculate size of the new entry (estimate)
-	newEntrySize := len(truncatedMessage) + len(level) + 24 // 24 bytes for timestamp overhead
-
-	// Remove oldest logs until we have room for the new entry
-	// Also respect MaxJobLogs entry count limit
-	for (j.calculateLogSize()+newEntrySize > MaxTotalLogSize || len(j.Logs) >= MaxJobLogs) && len(j.Logs) > 0 {
-		// Remove oldest log entry
+	logSize := j.calculateLogSize() + logEntrySize(level, truncatedMessage)
+	// Drop the oldest entries until both limits have room. Their sizes
+	// have already been summed, so subtract each one as it is removed.
+	for len(j.Logs) > 0 && (logSize > MaxTotalLogSize || len(j.Logs) >= MaxJobLogs) {
+		logSize -= logEntrySize(j.Logs[0].Level, j.Logs[0].Message)
+		j.Logs[0] = JobLogEntry{}
 		j.Logs = j.Logs[1:]
-	}
-
-	// Check if we had to remove logs due to entry count limit
-	if len(j.Logs) >= MaxJobLogs {
-		// This shouldn't happen after the loop above, but handle just in case
-		// Remove oldest percentage to make room
-		truncateCount := MaxJobLogs * LogTruncatePercentage / 100
-		if truncateCount < 1 {
-			truncateCount = 1
-		}
-		j.Logs = j.Logs[truncateCount:]
-		j.Logs = append(j.Logs, JobLogEntry{
-			Timestamp: time.Now(),
-			Level:     "WARN",
-			Message:   fmt.Sprintf("Previous %d log entries truncated due to size limit", truncateCount),
-		})
 	}
 
 	// Add the new log entry

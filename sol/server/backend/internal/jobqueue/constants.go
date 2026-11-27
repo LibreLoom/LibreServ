@@ -47,9 +47,6 @@ const (
 	// MaxErrorLength is the maximum length of error messages stored in DB
 	MaxErrorLength = 1000
 
-	// LogTruncatePercentage is the percentage of logs to remove when truncating
-	LogTruncatePercentage = 10
-
 	// MaxLogMessageSize is the maximum size of a single log message in bytes (1KB)
 	// Messages exceeding this limit will be truncated with a "..." suffix
 	MaxLogMessageSize = 1024

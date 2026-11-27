@@ -77,10 +77,25 @@ fn join(parent: &str, name: &str) -> String {
 /// every lookup must ask in this form, or two spellings of one item could
 /// answer against different rows.
 fn canonical(path: &str) -> String {
-    path.split('/')
-        .filter(|s| !s.is_empty() && *s != ".")
-        .collect::<Vec<_>>()
-        .join("/")
+    canonical_path(path).into_owned()
+}
+
+fn canonical_path(path: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    if path.is_empty() || path.split('/').all(|part| !part.is_empty() && part != ".") {
+        return Cow::Borrowed(path);
+    }
+    let mut out = String::with_capacity(path.len());
+    for part in path
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+    {
+        if !out.is_empty() {
+            out.push('/');
+        }
+        out.push_str(part);
+    }
+    Cow::Owned(out)
 }
 
 /// Does `path` try to climb out of the folder it names? `canonical` keeps
@@ -246,8 +261,14 @@ fn read<T>(root: &Path, f: impl FnOnce(&Rows) -> T) -> Option<T> {
 
 /// The row for a real path, if that exact path is private.
 pub fn item_at(root: &Path, path: &str) -> Option<Item> {
-    let path = canonical(path);
-    read(root, |r| r.by_path.get(&path).cloned()).flatten()
+    let path = canonical_path(path);
+    read(root, |r| r.by_path.get(path.as_ref()).cloned()).flatten()
+}
+
+/// Whether the exact real path is private, without cloning its record.
+pub(crate) fn is_item_at(root: &Path, path: &str) -> bool {
+    let path = canonical_path(path);
+    read(root, |r| r.by_path.contains_key(path.as_ref())).unwrap_or(false)
 }
 
 /// Translate a real path into its on-disk path by swapping every private
@@ -289,7 +310,7 @@ pub struct Boundary {
 /// The deepest private item at or above `rel` (a real path, trash paths
 /// included).
 pub fn boundary_for(root: &Path, rel: &str) -> Option<Boundary> {
-    let rel = canonical(rel);
+    let rel = canonical_path(rel);
     read(root, |r| boundary_in(r, &rel)).flatten()
 }
 
@@ -527,11 +548,11 @@ pub fn prefix_of(root: &Path) -> Option<String> {
 /// Real names of the private entries sitting directly in directory
 /// `parent`, keyed by their on-disk name.
 pub fn children_of(root: &Path, parent: &str) -> HashMap<String, Item> {
-    let parent = canonical(parent);
+    let parent = canonical_path(parent);
     read(root, |r| {
         r.by_path
             .values()
-            .filter(|i| i.path.rsplit_once('/').map_or("", |(p, _)| p) == parent)
+            .filter(|i| i.path.rsplit_once('/').map_or("", |(p, _)| p) == parent.as_ref())
             .map(|i| (disk_name(&r.prefix, &i.id), i.clone()))
             .collect()
     })

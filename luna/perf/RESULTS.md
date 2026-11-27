@@ -457,3 +457,58 @@ work. This inventory includes Luna and Sol because both ship server backends.
 | 65 | Luna | Build listing invalidation prefixes once per tree. |
 | 66 | Luna | Release unused clean-cache storage when idle or under memory pressure. |
 | 67 | Luna | Allocate scan work paths and classify video only for media with missing or outdated index rows. |
+| 68 | Luna | Skip the SQLite upsert entirely for an unchanged file-index row. |
+| 69 | Luna | Match incoming index rows by borrowed name and copy only names that vanished. |
+| 70 | Luna | Cache the statement that reads a fresh file listing. |
+| 71 | Luna | Reuse prepared statements for directory freshness reads and writes. |
+| 72 | Luna | Stream index rows into folder totals without staging a copy of each directory. |
+| 73 | Luna | Skip path construction for unreadable leaf entries when totaling folders. |
+| 74 | Luna | Check for private items without cloning their registry records. |
+| 75 | Luna | Use a set to find vanished subfolders in linear time. |
+| 76 | Luna | Borrow canonical private paths and normalize aliases without a temporary segment list. |
+| 77 | Luna | Enqueue visible subfolders directly without building paths for skipped folders. |
+| 78 | Luna | Check the mount root separately only when the target folder lookup fails. |
+| 79 | Luna | Skip index batch timing checks while there is no queued write work. |
+| 80 | Sol | Batch runtime reads for all running apps in a dashboard metrics refresh. |
+| 81 | Sol | Aggregate the latest health checks in SQLite instead of loading their records for availability calculation. |
+| 82 | Sol | Sort the app catalog when it loads instead of sorting each browse request. |
+| 83 | Sol | Store searchable lowercase catalog fields and fold each search term once. |
+| 84 | Sol | Build the sorted category list once per catalog load. |
+| 85 | Sol | Keep only the requested page of catalog matches while counting the rest. |
+| 86 | Sol | Read the compose path without cloning an app definition. |
+| 87 | Sol | Copy only exposed fields when enriching installed apps from the catalog. |
+| 88 | Sol | Build backend references under one read lock without copying the backend list. |
+| 89 | Sol | Build one route lookup for the installed-app listing instead of scanning routes for each app. |
+| 90 | Sol | Release the SQLite result cursor before enriching installed-app listings. |
+| 91 | Luna | Reuse the opened backup source's metadata for the pre-read consistency stamp. |
+| 92 | Luna | Walk backup path components lazily and reuse the NUL-terminated name buffer across opens. |
+| 93 | Luna | Try the remembered upload drive directly before listing all drives. |
+| 94 | Luna | Move chunk-write paths and drive IDs out of the upload descriptor. |
+| 95 | Luna | Reuse the prepared statement when flushing upload range progress. |
+| 96 | Luna | Stream uploaded ranges and stop at the first gap or complete coverage. |
+| 97 | Sol | Initialize the ACME queue schema once per database file instead of issuing DDL on each poll. |
+| 98 | Sol | Stop checking for a matching ACME job after the first hit. |
+| 99 | Sol | Size the job log once per append and subtract evicted entry sizes. |
+| 100 | Sol | Release references to evicted job log messages immediately. |
+
+### Backend query measurements
+
+For the first photo timeline page, the production SQL returned identical rows
+with both indexes on SQLite 3.45.1. The comparison used two in-memory copies
+of 100,000 synthetic photo rows, a mix of capture dates and mtime fallbacks,
+and 30 alternating runs per index with a 41-row limit.
+
+| Timeline index | Median query time | p95 query time |
+|---|---:|---:|
+| Original capture-date and mtime index | 244.184 ms | 355.157 ms |
+| Effective capture-date index | 0.627 ms | 0.814 ms |
+
+The old query plan used a temporary ordering tree. The new plan reads the
+effective-date index in order. These timings cover SQLite and result fetching
+on the development host. They exclude HTTP handling, access checks, drive I/O,
+and thumbnail delivery.
+
+For Sol's availability query, the aggregate and reference row scan agreed on a
+150-row fixture with mixed statuses and null messages. Both counted 89 valid
+checks and 67 healthy checks in the latest 100 rows. The query plan used the
+existing health-check index by app.

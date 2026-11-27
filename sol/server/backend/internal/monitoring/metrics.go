@@ -94,10 +94,20 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 	return out, nil
 }
 
-// collectPeriodicMetrics uses one runtime snapshot for app history and the
-// system dashboard. A container can match more than one app, but its stats
-// are sampled only once per tick.
-func (m *MetricsCollector) collectPeriodicMetrics(ctx context.Context, appIDs []string) (*SystemMetrics, []*Metrics, error) {
+// CollectAppsMetrics returns one sample per requested app in input order.
+// A nil entry indicates that the runtime listed no matching containers.
+func (m *MetricsCollector) CollectAppsMetrics(ctx context.Context, appIDs []string) ([]*Metrics, error) {
+	if len(appIDs) == 0 {
+		return nil, nil
+	}
+	_, apps, err := m.collectMetrics(ctx, appIDs, false)
+	return apps, err
+}
+
+// collectMetrics shares one runtime snapshot across the requested apps and,
+// when requested, the system dashboard. Match each container's app IDs
+// before sampling so app-only requests skip unrelated containers.
+func (m *MetricsCollector) collectMetrics(ctx context.Context, appIDs []string, includeSystem bool) (*SystemMetrics, []*Metrics, error) {
 	if m.runtime == nil {
 		return nil, nil, fmt.Errorf("%w: runtime not available", ErrRuntimeUnavailable)
 	}
@@ -107,23 +117,34 @@ func (m *MetricsCollector) collectPeriodicMetrics(ctx context.Context, appIDs []
 	}
 
 	now := time.Now()
-	system := &SystemMetrics{Timestamp: now, RunningContainers: len(containers)}
+	var system *SystemMetrics
+	if includeSystem {
+		system = &SystemMetrics{Timestamp: now, RunningContainers: len(containers)}
+	}
 	apps := make([]*Metrics, len(appIDs))
+	var matches []int
 	for _, cont := range containers {
+		matches = matches[:0]
+		for i, appID := range appIDs {
+			if matchesApp(cont, appID) {
+				matches = append(matches, i)
+				if apps[i] == nil {
+					apps[i] = &Metrics{AppID: appID, Timestamp: now}
+				}
+			}
+		}
+		if system == nil && len(matches) == 0 {
+			continue
+		}
 		stats, err := m.runtime.GetContainerStats(ctx, cont.ID)
-		if err == nil {
+		if err != nil {
+			continue
+		}
+		if system != nil {
 			system.addStats(stats)
 		}
-		for i, appID := range appIDs {
-			if !matchesApp(cont, appID) {
-				continue
-			}
-			if apps[i] == nil {
-				apps[i] = &Metrics{AppID: appID, Timestamp: now}
-			}
-			if err == nil {
-				apps[i].addStats(stats)
-			}
+		for _, i := range matches {
+			apps[i].addStats(stats)
 		}
 	}
 	return system, apps, nil

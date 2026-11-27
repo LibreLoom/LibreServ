@@ -2589,23 +2589,12 @@ pub fn upsert_upload_chunk(
     start: u64,
     end: u64,
 ) -> anyhow::Result<()> {
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO upload_chunks (upload_id, start, end) VALUES (?1, ?2, ?3)
          ON CONFLICT(upload_id, start) DO UPDATE SET end = excluded.end",
-        params![upload_id, start as i64, end as i64],
-    )?;
+    )?
+    .execute(params![upload_id, start as i64, end as i64])?;
     Ok(())
-}
-
-/// All recorded covered ranges for an upload, sorted by start.
-pub fn list_upload_chunks(conn: &Connection, upload_id: &str) -> anyhow::Result<Vec<(u64, u64)>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT start, end FROM upload_chunks WHERE upload_id = ?1 ORDER BY start",
-    )?;
-    let rows = stmt.query_map(params![upload_id], |row| {
-        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
-    })?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 /// True when the recorded ranges fully cover `[0, size)` with no holes.
@@ -2614,7 +2603,12 @@ pub fn upload_fully_covered(conn: &Connection, upload_id: &str, size: u64) -> an
         return Ok(true);
     }
     let mut covered_end: u64 = 0;
-    for (start, end) in list_upload_chunks(conn, upload_id)? {
+    let mut stmt = conn.prepare_cached(
+        "SELECT start, end FROM upload_chunks WHERE upload_id = ?1 ORDER BY start",
+    )?;
+    let mut chunks = stmt.query(params![upload_id])?;
+    while let Some(row) = chunks.next()? {
+        let (start, end) = (row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64);
         if start > covered_end {
             return Ok(false); // gap
         }

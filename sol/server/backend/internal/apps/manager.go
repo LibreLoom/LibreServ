@@ -925,7 +925,7 @@ type ContainerStatus struct {
 
 // ListInstalledApps returns all installed apps
 func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error) {
-	rows, err := m.db.Query(`
+	rows, err := m.db.QueryContext(ctx, `
 		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at
 		FROM apps
 		ORDER BY installed_at DESC
@@ -946,12 +946,36 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			m.logger.Warn("Failed to scan installed app", "error", err)
 			continue
 		}
+		apps = append(apps, app)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate installed apps: %w", err)
+	}
+	if len(apps) == 0 {
+		return apps, nil
+	}
+
+	catalog := m.GetCatalog()
+	var routes map[string]*network.Route
+	var autoHTTPS bool
+	if m.caddyManager != nil {
+		routes = make(map[string]*network.Route)
+		autoHTTPS = m.caddyManager.Config().AutoHTTPS
+		for _, route := range m.caddyManager.ListRoutes() {
+			if routes[route.AppID] == nil {
+				routes[route.AppID] = route
+			}
+		}
+	}
+	for _, app := range apps {
 		app.Backends = m.listBackendRefs(app.ID)
-		m.maybeSetPublicURL(app)
+		if routes != nil {
+			setPublicURL(app, routes[app.ID], autoHTTPS)
+		}
 
 		// Populate exposed_info from catalog definition
-		if catalogApp, err := m.GetCatalog().GetApp(app.AppID); err == nil {
-			app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
+		if fields, ok := catalog.exposedInfo(app.AppID); ok {
+			app.ExposedInfo = mergeExposedFields(app, fields)
 		}
 
 		// Populate metrics from cache
@@ -964,13 +988,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			app.Downtime = metrics.Downtime
 			app.Availability = metrics.Availability
 		}
-
-		apps = append(apps, app)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate installed apps: %w", err)
-	}
-
 	return apps, nil
 }
 
@@ -989,9 +1007,8 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 	app.Backends = m.listBackendRefs(app.ID)
 	m.maybeSetPublicURL(app)
 
-	catalogApp, err := m.GetCatalog().GetApp(app.AppID)
-	if err == nil {
-		app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
+	if fields, ok := m.GetCatalog().exposedInfo(app.AppID); ok {
+		app.ExposedInfo = mergeExposedFields(app, fields)
 	}
 
 	return app, nil
@@ -1938,18 +1955,18 @@ type backendEntry struct {
 }
 
 func (m *Manager) listBackendRefs(appID string) []BackendRef {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	refs := []BackendRef{}
 	seen := make(map[string]bool)
-	for _, b := range m.GetBackends(appID) {
+	for _, b := range m.backendMap[appID] {
 		if seen[b] {
 			continue
 		}
 		seen[b] = true
 		refs = append(refs, BackendRef{URL: b})
 	}
-	// overlay names if available
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	// Overlay names if available.
 	if names, ok := m.backendByName[appID]; ok {
 		for name, list := range names {
 			for _, b := range list {
@@ -1973,15 +1990,19 @@ func (m *Manager) maybeSetPublicURL(app *InstalledApp) {
 		return
 	}
 
-	cfg := m.caddyManager.Config()
+	autoHTTPS := m.caddyManager.Config().AutoHTTPS
+	route, _ := m.caddyManager.GetRouteByApp(app.ID)
+	setPublicURL(app, route, autoHTTPS)
+}
 
+func setPublicURL(app *InstalledApp, route *network.Route, autoHTTPS bool) {
 	// Prefer the Caddy route's domain when one exists.
-	if route, err := m.caddyManager.GetRouteByApp(app.ID); err == nil && route != nil {
+	if route != nil {
 		scheme := "http"
-		if cfg.AutoHTTPS {
+		if autoHTTPS {
 			scheme = "https"
 		}
-		app.URL = fmt.Sprintf("%s://%s", scheme, route.FullDomain())
+		app.URL = scheme + "://" + route.FullDomain()
 		return
 	}
 
@@ -1992,7 +2013,7 @@ func (m *Manager) maybeSetPublicURL(app *InstalledApp) {
 	if app.Config != nil {
 		if domain, ok := app.Config["domain"].(string); ok && domain != "" {
 			if subdomain, ok := app.Config["subdomain"].(string); ok && subdomain != "" {
-				app.URL = fmt.Sprintf("https://%s.%s", subdomain, domain)
+				app.URL = "https://" + subdomain + "." + domain
 				return
 			}
 		}
@@ -2094,10 +2115,10 @@ func firstName(names []string) string {
 	return n
 }
 
-func (m *Manager) mergeExposedInfo(app *InstalledApp, catalogApp *AppDefinition) map[string]ExposedInfoValue {
+func mergeExposedFields(app *InstalledApp, fields []ExposedInfoField) map[string]ExposedInfoValue {
 	merged := make(map[string]ExposedInfoValue)
 
-	for _, field := range catalogApp.ExposedInfo {
+	for _, field := range fields {
 		val, ok := app.Config[field.Name]
 		if !ok {
 			continue

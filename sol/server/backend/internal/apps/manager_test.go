@@ -276,7 +276,6 @@ func TestRegisterNamedBackend(t *testing.T) {
 }
 
 func TestMergeExposedInfo(t *testing.T) {
-	m := &Manager{}
 
 	app := &InstalledApp{
 		Config: map[string]interface{}{
@@ -318,7 +317,7 @@ func TestMergeExposedInfo(t *testing.T) {
 		},
 	}
 
-	merged := m.mergeExposedInfo(app, catalogApp)
+	merged := mergeExposedFields(app, catalogApp.ExposedInfo)
 
 	if len(merged) != 3 {
 		t.Fatalf("expected 3 exposed info fields, got %d", len(merged))
@@ -361,7 +360,6 @@ func TestMergeExposedInfo(t *testing.T) {
 }
 
 func TestMergeExposedInfoGroupingAndAdvanced(t *testing.T) {
-	m := &Manager{}
 
 	app := &InstalledApp{
 		Config: map[string]interface{}{
@@ -397,7 +395,7 @@ func TestMergeExposedInfoGroupingAndAdvanced(t *testing.T) {
 		},
 	}
 
-	merged := m.mergeExposedInfo(app, catalogApp)
+	merged := mergeExposedFields(app, catalogApp.ExposedInfo)
 
 	if len(merged) != 3 {
 		t.Fatalf("expected 3 exposed info fields, got %d", len(merged))
@@ -426,7 +424,6 @@ func TestMergeExposedInfoGroupingAndAdvanced(t *testing.T) {
 }
 
 func TestMergeExposedInfoEmptyConfig(t *testing.T) {
-	m := &Manager{}
 
 	app := &InstalledApp{
 		Config: map[string]interface{}{},
@@ -438,7 +435,7 @@ func TestMergeExposedInfoEmptyConfig(t *testing.T) {
 		},
 	}
 
-	merged := m.mergeExposedInfo(app, catalogApp)
+	merged := mergeExposedFields(app, catalogApp.ExposedInfo)
 
 	if len(merged) != 0 {
 		t.Fatalf("expected 0 exposed info fields for empty config, got %d", len(merged))
@@ -446,7 +443,6 @@ func TestMergeExposedInfoEmptyConfig(t *testing.T) {
 }
 
 func TestMergeExposedInfoNoExposedInfoFields(t *testing.T) {
-	m := &Manager{}
 
 	app := &InstalledApp{
 		Config: map[string]interface{}{
@@ -458,7 +454,7 @@ func TestMergeExposedInfoNoExposedInfoFields(t *testing.T) {
 		ExposedInfo: nil,
 	}
 
-	merged := m.mergeExposedInfo(app, catalogApp)
+	merged := mergeExposedFields(app, catalogApp.ExposedInfo)
 
 	if len(merged) != 0 {
 		t.Fatalf("expected 0 exposed info fields when catalog has none, got %d", len(merged))

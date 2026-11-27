@@ -56,37 +56,40 @@ fn forget_drive(id: &str) {
 /// Locate an upload session by scanning mounted drive microdbs, the drive
 /// that held it last time first.
 fn find_upload(central: &Connection, id: &str) -> Result<(UploadRow, Connection), UploadError> {
-    let mut drives = db::list_drives(central).map_err(UploadError::Db)?;
     let hint = drive_hints().lock().ok().and_then(|m| m.get(id).cloned());
-    if let Some(hint) = hint
-        && let Some(pos) = drives.iter().position(|d| d.id == hint)
+    if let Some(hint) = hint.as_deref()
+        && let Ok(Some(drive)) = db::get_drive(central, hint)
+        && let Some(found) = read_upload_on_drive(central, &drive, id)
     {
-        let hinted = drives.remove(pos);
-        drives.insert(0, hinted);
+        return Ok(found);
     }
-    for drive in drives {
-        // A drive that filled up is marked "readonly" until it is free again; its
-        // uploads must stay findable, or the browser is told the upload does not
-        // exist instead of being told the drive is full.
-        if drive.mount_point.is_empty()
-            || !matches!(drive.state.as_str(), "as_is" | "readonly")
-            || crate::drives::format::drive_is_formatting(&drive.id)
-        {
-            continue;
-        }
-        let Ok(dconn) = crate::drives::drive_db::open_migrating(
-            Path::new(&drive.mount_point),
-            central,
-            &drive.id,
-        ) else {
-            continue;
-        };
-        if let Ok(Some(row)) = db::get_upload(&dconn, id) {
+    for drive in db::list_drives(central).map_err(UploadError::Db)? {
+        if let Some(found) = read_upload_on_drive(central, &drive, id) {
             remember_drive(id, &drive.id);
-            return Ok((row, dconn));
+            return Ok(found);
         }
     }
     Err(UploadError::NotFound)
+}
+
+fn read_upload_on_drive(
+    central: &Connection,
+    drive: &db::DriveRow,
+    id: &str,
+) -> Option<(UploadRow, Connection)> {
+    // A full drive is marked read-only until space is freed. Its sessions
+    // stay findable so callers can still report the drive's actual state.
+    if drive.mount_point.is_empty()
+        || !matches!(drive.state.as_str(), "as_is" | "readonly")
+        || crate::drives::format::drive_is_formatting(&drive.id)
+    {
+        return None;
+    }
+    let conn =
+        crate::drives::drive_db::open_migrating(Path::new(&drive.mount_point), central, &drive.id)
+            .ok()?;
+    let row = db::get_upload(&conn, id).ok()??;
+    Some((row, conn))
 }
 
 /// Flush upload progress to SQLite at least this often (bytes received).
@@ -331,10 +334,10 @@ pub fn write_chunk(
             .ok()
             .and_then(|m| m.get(id).map(|p| p.received));
         (
-            upload.temp.clone(),
+            upload.temp,
             upload.size,
             pending_received.unwrap_or(upload.received),
-            upload.drive_id.clone(),
+            upload.drive_id,
             dconn,
         )
     };

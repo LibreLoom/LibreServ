@@ -260,35 +260,34 @@ func (m *Monitor) GetSystemMetrics(ctx context.Context) (*SystemMetrics, error) 
 // CalculateAvailability calculates the availability percentage for an app based on recent health checks
 // Takes into account missing checks due to downtime (time since last check)
 func (m *Monitor) CalculateAvailability(ctx context.Context, appID string) float64 {
-	// Check if the app is currently stopped
+	// Count only the latest 100 checks. Rows with missing messages or
+	// timestamps were previously skipped when reading the check structs.
 	var appStatus string
-	err := m.db.QueryRow(`SELECT status FROM apps WHERE id = ?`, appID).Scan(&appStatus)
-	if err != nil {
+	var checks, healthy int
+	err := m.db.QueryRowContext(ctx, `
+		SELECT apps.status, summary.checks, summary.healthy
+		FROM apps CROSS JOIN (
+			SELECT COUNT(*) AS checks,
+				COUNT(*) FILTER (WHERE status = 'healthy') AS healthy
+			FROM (
+				SELECT status, message, checked_at
+				FROM health_checks
+				WHERE app_id = ?
+				ORDER BY checked_at DESC
+				LIMIT 100
+			) WHERE message IS NOT NULL AND checked_at IS NOT NULL
+		) AS summary
+		WHERE apps.id = ?
+	`, appID, appID).Scan(&appStatus, &checks, &healthy)
+	if err != nil || checks == 0 {
 		return 0
-	}
-
-	// Get health check counts
-	checks, err := m.getRecentChecks(ctx, appID, 100)
-	if err != nil || len(checks) == 0 {
-		// No checks at all - if stopped, 0% availability
-		if appStatus == "stopped" {
-			return 0
-		}
-		return 0
-	}
-
-	healthy := 0
-	for _, check := range checks {
-		if check.Status == HealthStatusHealthy {
-			healthy++
-		}
 	}
 
 	// For stopped apps, calculate availability including downtime
 	if appStatus == "stopped" {
 		// Get the timestamp of the last health check directly from DB
 		var lastCheckTime time.Time
-		err = m.db.QueryRow(`
+		err = m.db.QueryRowContext(ctx, `
 			SELECT checked_at FROM health_checks 
 			WHERE app_id = ? 
 			ORDER BY checked_at DESC LIMIT 1
@@ -305,7 +304,7 @@ func (m *Monitor) CalculateAvailability(ctx context.Context, appID string) float
 			}
 
 			// The total "slots" we're measuring: actual checks + missing checks (capped at 100)
-			totalSlots := len(checks) + missingChecks
+			totalSlots := checks + missingChecks
 			if totalSlots > 100 {
 				totalSlots = 100
 			}
@@ -315,16 +314,11 @@ func (m *Monitor) CalculateAvailability(ctx context.Context, appID string) float
 		}
 
 		// Fallback: if we can't get the time, just use the check count ratio
-		return float64(healthy) / float64(100) * 100
+		return float64(healthy) / 100 * 100
 	}
 
-	// Normal case for running apps: missing checks count as unhealthy
-	totalExpected := 100
-	if len(checks) < totalExpected {
-		return float64(healthy) / float64(totalExpected) * 100
-	}
-
-	return float64(healthy) / float64(len(checks)) * 100
+	// Running apps count missing checks as unhealthy.
+	return float64(healthy) / 100 * 100
 }
 
 // GetAppHealthStatus returns the current health status for an app
@@ -560,7 +554,7 @@ func (m *Monitor) collectAllMetrics() *SystemMetrics {
 	}
 	m.checkersMu.RUnlock()
 
-	system, apps, err := m.metricsCollector.collectPeriodicMetrics(context.Background(), appIDs)
+	system, apps, err := m.metricsCollector.collectMetrics(context.Background(), appIDs, true)
 	for i, appID := range appIDs {
 		if err != nil {
 			slog.Warn("failed to collect metrics", "app_id", appID, "error", err)

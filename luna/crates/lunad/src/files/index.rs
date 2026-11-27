@@ -9,6 +9,8 @@
 //! leaving files that exist on disk invisible to listings.
 //! Search therefore reads SQLite only, which is the <50ms listing target.
 
+use std::collections::{HashMap, HashSet};
+
 use rusqlite::{Connection, params};
 
 use crate::db;
@@ -127,17 +129,40 @@ fn replace_dir_rows(
     dir_mtime: i64,
     entries: &[FileEntry],
 ) -> anyhow::Result<()> {
-    // Names compare exactly (binary), like the primary key does.
-    let mut gone: std::collections::HashSet<String> = {
-        let mut stmt = conn
-            .prepare_cached("SELECT name FROM index_entries WHERE drive_id = ?1 AND parent = ?2")?;
-        stmt.query_map(params![drive_id, parent], |row| row.get::<_, String>(0))?
-            .collect::<Result<_, _>>()?
-    };
-    for entry in entries {
-        gone.remove(&entry.name);
+    // Match rows against borrowed incoming names. Keep the original upsert
+    // order if a caller supplied a name twice.
+    let mut by_name = HashMap::with_capacity(entries.len());
+    for (i, entry) in entries.iter().enumerate() {
+        by_name
+            .entry(entry.name.as_str())
+            .and_modify(|index| *index = None)
+            .or_insert(Some(i));
     }
+    let mut changed = vec![true; entries.len()];
+    let mut gone = Vec::new();
     {
+        let mut stmt = conn.prepare_cached(
+            "SELECT name, kind, size, modified, hidden FROM index_entries
+             WHERE drive_id = ?1 AND parent = ?2",
+        )?;
+        let mut rows = stmt.query(params![drive_id, parent])?;
+        while let Some(row) = rows.next()? {
+            let name = row.get_ref(0)?.as_str()?;
+            match by_name.get(name) {
+                None => gone.push(name.to_owned()),
+                Some(None) => {}
+                Some(Some(i)) => {
+                    let entry = &entries[*i];
+                    changed[*i] = row.get_ref(1)?.as_str().ok() != Some(entry.kind.as_str())
+                        || row.get::<_, i64>(2).ok() != Some(entry.size as i64)
+                        || row.get::<_, i64>(3).ok() != Some(entry.modified)
+                        || row.get::<_, i64>(4).ok() != Some(entry.hidden as i64);
+                }
+            }
+        }
+    }
+    drop(by_name);
+    if !gone.is_empty() {
         let mut stmt = conn.prepare_cached(
             "DELETE FROM index_entries WHERE drive_id = ?1 AND parent = ?2 AND name = ?3",
         )?;
@@ -145,7 +170,7 @@ fn replace_dir_rows(
             stmt.execute(params![drive_id, parent, name])?;
         }
     }
-    {
+    if changed.contains(&true) {
         let mut stmt = conn.prepare_cached(
             // Upsert, not INSERT OR REPLACE: the search table's triggers
             // only see an update, never a silent replace. The WHERE skips
@@ -159,7 +184,10 @@ fn replace_dir_rows(
              WHERE kind IS NOT excluded.kind OR size IS NOT excluded.size
                OR modified IS NOT excluded.modified OR hidden IS NOT excluded.hidden",
         )?;
-        for entry in entries {
+        for (entry, changed) in entries.iter().zip(changed) {
+            if !changed {
+                continue;
+            }
             stmt.execute(params![
                 drive_id,
                 parent,
@@ -171,11 +199,11 @@ fn replace_dir_rows(
             ])?;
         }
     }
-    conn.execute(
+    conn.prepare_cached(
         "INSERT OR REPLACE INTO indexed_dirs (drive_id, path, dir_mtime, indexed_at)
          VALUES (?1, ?2, ?3, ?4)",
-        params![drive_id, parent, dir_mtime, db::now_unix()],
-    )?;
+    )?
+    .execute(params![drive_id, parent, dir_mtime, db::now_unix()])?;
     Ok(())
 }
 
@@ -185,18 +213,12 @@ pub fn fresh_entries(
     parent: &str,
     dir_mtime: i64,
 ) -> Option<Vec<FileEntry>> {
-    let indexed_mtime: Option<i64> = conn
-        .query_row(
-            "SELECT dir_mtime FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2",
-            params![drive_id, parent],
-            |row| row.get(0),
-        )
-        .ok();
+    let indexed_mtime = indexed_mtime(conn, drive_id, parent);
     if indexed_mtime != Some(dir_mtime) {
         return None;
     }
     let mut stmt = conn
-        .prepare(
+        .prepare_cached(
             "SELECT name, kind, size, modified, hidden FROM index_entries
              WHERE drive_id = ?1 AND parent = ?2 ORDER BY (kind = 'dir') DESC, name COLLATE NOCASE",
         )
@@ -221,6 +243,13 @@ pub fn fresh_entries(
         })
         .ok()?;
     Some(rows.filter_map(|r| r.ok()).collect())
+}
+
+fn indexed_mtime(conn: &Connection, drive_id: &str, path: &str) -> Option<i64> {
+    conn.prepare_cached("SELECT dir_mtime FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2")
+        .ok()?
+        .query_row(params![drive_id, path], |row| row.get(0))
+        .ok()
 }
 
 /// Recursive folder totals served entirely from fresh index rows — no
@@ -251,13 +280,7 @@ pub fn folder_totals_indexed(
         }
         // Fresh means the indexed mtime still matches the filesystem: a dir
         // whose mtime moved has entries the index cannot vouch for.
-        let indexed: i64 = conn
-            .query_row(
-                "SELECT dir_mtime FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2",
-                params![drive_id, dir_rel],
-                |row| row.get(0),
-            )
-            .ok()?;
+        let indexed = indexed_mtime(conn, drive_id, &dir_rel)?;
         let current = std::fs::metadata(root.join(crate::private::disk_rel(root, &dir_rel)))
             .map(|m| dir_stamp(&m))
             .unwrap_or(0);
@@ -270,30 +293,18 @@ pub fn folder_totals_indexed(
                 "SELECT name, kind, size FROM index_entries WHERE drive_id = ?1 AND parent = ?2",
             )
             .ok()?;
-        let rows = stmt
-            .query_map(params![drive_id, dir_rel], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            })
-            .ok()?
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
-        for (name, kind, size) in rows {
-            if crate::files::is_internal_temp(&name) {
+        let mut rows = stmt.query(params![drive_id, dir_rel]).ok()?;
+        while let Some(row) = rows.next().ok()? {
+            let name = row.get_ref(0).ok()?.as_str().ok()?;
+            let kind = row.get_ref(1).ok()?.as_str().ok()?;
+            if crate::files::is_internal_temp(name) || (!readable && kind != "dir") {
                 continue;
             }
-            let child = if dir_rel.is_empty() {
-                name
-            } else {
-                format!("{dir_rel}/{name}")
-            };
+            let child = join_child(&dir_rel, name);
             // A private item counts only for people who may read it.
             let readable =
-                readable && (crate::private::item_at(root, &child).is_none() || include(&child));
-            match kind.as_str() {
+                readable && (!crate::private::is_item_at(root, &child) || include(&child));
+            match kind {
                 "dir" => {
                     if readable {
                         totals.dirs += 1;
@@ -302,7 +313,7 @@ pub fn folder_totals_indexed(
                 }
                 "file" if readable => {
                     totals.files += 1;
-                    totals.bytes += size.max(0) as u64;
+                    totals.bytes += row.get::<_, i64>(2).ok()?.max(0) as u64;
                 }
                 _ if readable => totals.other += 1,
                 _ => {}
@@ -330,7 +341,8 @@ pub fn sync_dir(
     force: bool,
 ) -> anyhow::Result<Vec<String>> {
     let read = read_dir_state(conn, drive_id, root, rel, force)?;
-    let children = read.children(rel);
+    let mut children = Vec::new();
+    read.visit_children(|name| children.push(join_child(rel, name)));
     apply_dir(conn, drive_id, rel, read)?;
     Ok(children)
 }
@@ -351,17 +363,16 @@ enum DirRead {
 
 impl DirRead {
     /// The folder's subfolders, as drive-relative paths.
-    fn children(&self, rel: &str) -> Vec<String> {
-        let names: Vec<&str> = match self {
-            DirRead::Fresh(names) => names.iter().map(String::as_str).collect(),
-            DirRead::Gone => Vec::new(),
-            DirRead::Changed { entries, .. } => entries
-                .iter()
-                .filter(|e| e.kind == "dir")
-                .map(|e| e.name.as_str())
-                .collect(),
-        };
-        names.into_iter().map(|n| join_child(rel, n)).collect()
+    fn visit_children(&self, mut visit: impl FnMut(&str)) {
+        match self {
+            DirRead::Fresh(names) => names.iter().for_each(|name| visit(name)),
+            DirRead::Gone => {}
+            DirRead::Changed { entries, .. } => {
+                for entry in entries.iter().filter(|e| e.kind == "dir") {
+                    visit(&entry.name);
+                }
+            }
+        }
     }
 
     /// Rough count of rows this folder will write, to bound a batch.
@@ -390,9 +401,6 @@ fn read_dir_state(
     rel: &str,
     force: bool,
 ) -> anyhow::Result<DirRead> {
-    if !root.is_dir() {
-        anyhow::bail!("drive is not reachable");
-    }
     // Private folders sit on disk under their `.luna-` names, so the folder
     // is found there and its private children are listed under real names;
     // reading the real path or skipping the rows would index a listing
@@ -404,16 +412,11 @@ fn read_dir_state(
     };
     let meta = match std::fs::metadata(&dir) {
         Ok(meta) if meta.is_dir() => meta,
+        _ if !root.is_dir() => anyhow::bail!("drive is not reachable"),
         _ => return Ok(DirRead::Gone),
     };
     let mtime = dir_stamp(&meta);
-    let indexed: Option<i64> = conn
-        .query_row(
-            "SELECT dir_mtime FROM indexed_dirs WHERE drive_id = ?1 AND path = ?2",
-            params![drive_id, rel],
-            |row| row.get(0),
-        )
-        .ok();
+    let indexed = indexed_mtime(conn, drive_id, rel);
     let indexed_children = |conn: &Connection| -> anyhow::Result<Vec<String>> {
         let mut stmt = conn.prepare_cached(
             "SELECT name FROM index_entries
@@ -461,7 +464,7 @@ fn apply_dir(conn: &Connection, drive_id: &str, rel: &str, read: DirRead) -> any
             before,
         } => {
             replace_dir(conn, drive_id, rel, mtime, &entries)?;
-            let now: Vec<&str> = entries
+            let now: HashSet<&str> = entries
                 .iter()
                 .filter(|e| e.kind == "dir")
                 .map(|e| e.name.as_str())
@@ -506,11 +509,11 @@ pub fn scan_tree(
             Ok(read) => {
                 // Hidden folders stay unread: search never shows them, and
                 // they're where tools keep huge caches.
-                queue.extend(
-                    read.children(&rel)
-                        .into_iter()
-                        .filter(|c| !c.rsplit('/').next().unwrap_or(c).starts_with('.')),
-                );
+                read.visit_children(|name| {
+                    if !name.starts_with('.') {
+                        queue.push_back(join_child(&rel, name));
+                    }
+                });
                 if !matches!(read, DirRead::Fresh(_)) {
                     if pending.is_empty() {
                         since = std::time::Instant::now();
@@ -525,7 +528,9 @@ pub fn scan_tree(
             Err(e) => tracing::debug!(drive_id, rel, error = %e, "search index skipped a folder"),
         }
         visited += 1;
-        if pending.len() >= BATCH_DIRS || rows >= BATCH_ROWS || since.elapsed() >= BATCH_TIME {
+        if !pending.is_empty()
+            && (pending.len() >= BATCH_DIRS || rows >= BATCH_ROWS || since.elapsed() >= BATCH_TIME)
+        {
             apply_batch(conn, drive_id, &mut pending);
             rows = 0;
         }

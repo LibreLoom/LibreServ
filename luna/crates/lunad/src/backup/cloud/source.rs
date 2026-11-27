@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -176,8 +176,7 @@ impl Walk {
         mut read: impl FnMut(&mut File) -> anyhow::Result<T>,
     ) -> anyhow::Result<Option<(T, Stamp)>> {
         for _ in 0..2 {
-            let mut file = open_rel(&self.dir, rel)?;
-            let before = Stamp::of(&file.metadata()?);
+            let (mut file, before) = open_rel(&self.dir, rel)?;
             let value = read(&mut file)?;
             if Stamp::of(&file.metadata()?) == before {
                 return Ok(Some((value, before)));
@@ -238,16 +237,20 @@ fn dir_identity(dir: &File) -> Option<(u64, u64)> {
 
 /// Opens `rel` one component at a time from `dir` with `openat` and `O_NOFOLLOW`, so a symlink
 /// anywhere on the path (including one swapped in after the walk) is refused, not followed.
-fn open_rel(dir: &File, rel: &str) -> io::Result<File> {
+fn open_rel(dir: &File, rel: &str) -> io::Result<(File, Stamp)> {
     let invalid = || io::Error::new(ErrorKind::InvalidInput, "unsafe path in the backup source");
-    let parts: Vec<&str> = rel.split('/').collect();
+    let mut parts = rel.split('/').peekable();
     let mut current: Option<File> = None;
-    for (index, part) in parts.iter().enumerate() {
-        if part.is_empty() || *part == "." || *part == ".." {
+    let mut component = Vec::new();
+    while let Some(part) = parts.next() {
+        if part.is_empty() || part == "." || part == ".." {
             return Err(invalid());
         }
-        let name = CString::new(*part).map_err(|_| invalid())?;
-        let last = index + 1 == parts.len();
+        component.clear();
+        component.extend_from_slice(part.as_bytes());
+        component.push(0);
+        let name = CStr::from_bytes_with_nul(&component).map_err(|_| invalid())?;
+        let last = parts.peek().is_none();
         // O_NONBLOCK keeps a FIFO swapped in at the last name from blocking the open; the
         // regular-file check below then refuses it.
         let flags = libc::O_RDONLY
@@ -269,10 +272,11 @@ fn open_rel(dir: &File, rel: &str) -> io::Result<File> {
         current = Some(unsafe { File::from_raw_fd(fd) });
     }
     let file = current.ok_or_else(invalid)?;
-    if !file.metadata()?.is_file() {
+    let meta = file.metadata()?;
+    if !meta.is_file() {
         return Err(io::Error::new(ErrorKind::InvalidData, "not a regular file"));
     }
-    Ok(file)
+    Ok((file, Stamp::of(&meta)))
 }
 
 #[cfg(test)]
