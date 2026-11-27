@@ -843,7 +843,7 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
             "heic_tools",
             "features",
             PASSED,
-            "iPhone photos show in Photos and Files.",
+            "iPhone and AVIF photos show in Photos and Files.",
             None,
         );
     } else {
@@ -852,10 +852,10 @@ fn add_feature_checks(checks: &mut Checks, data_dir: &Path, probes: &Probes) {
                 "heic_tools",
                 "features",
                 WARNING,
-                "Luna can't show most iPhone photos.",
+                "Luna can't show iPhone and AVIF photos.",
                 Some(json!({ "missing": ["heif-dec", "heif-convert"] })),
             )
-            .more("iPhones save photos as HEIC (.heic files), and the tool Luna uses to show them is missing. The photos are still on your drives and can be downloaded.");
+            .more("iPhones save photos as HEIC (.heic files), and some cameras and apps use AVIF (.avif files). The tool Luna uses to show them is missing. The photos are still on your drives and can be downloaded.");
     }
 
     add_search_checks(checks, probes);

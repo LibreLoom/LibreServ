@@ -1324,7 +1324,7 @@ fn open_checked(abs: &FsPath) -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
-/// Browser-safe media path: HEIC → JPEG preview; everything else → original.
+/// Browser-safe media path: HEIC, TIFF and RAW → JPEG preview; everything else → original.
 pub(crate) async fn resolve_browser_safe_file(
     mount: &FsPath,
     drive_id: &str,
@@ -1337,7 +1337,7 @@ pub(crate) async fn resolve_browser_safe_file(
     let src = luna_core::path::resolve_child_nofollow(mount, rel)
         .map_err(|_| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
     let original_name = crate::files::leaf_of(&src).unwrap_or_else(|| "photo".into());
-    if photos::is_heic_image(&src) {
+    if photos::needs_browser_preview(&src) {
         let thumb = photos::thumb_path(mount, drive_id, rel)
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna couldn't find that photo."))?;
         let src2 = src.clone();
@@ -1347,7 +1347,7 @@ pub(crate) async fn resolve_browser_safe_file(
             // A first scan's thumbnail may still be the small embedded
             // preview: the viewer needs the full-quality one.
             let _ = photos::ensure_full_thumb(&drive2, &mount2, &rel2);
-            photos::ensure_heic_preview_jpeg(&src2, &thumb2).map_err(|_| ())?;
+            photos::ensure_browser_preview_jpeg(&src2, &thumb2).map_err(|_| ())?;
             Ok::<PathBuf, ()>(thumb2)
         })
         .await

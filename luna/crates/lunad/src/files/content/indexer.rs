@@ -371,7 +371,7 @@ fn ocr_wait(conn: &Connection, rel: &str, name: &str) -> Option<&'static str> {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
     if matches!(
         ext.as_deref(),
-        Some("png" | "tif" | "tiff" | "bmp" | "webp")
+        Some("png" | "apng" | "gif" | "tif" | "tiff" | "bmp" | "webp")
     ) {
         return None;
     }

@@ -16,7 +16,7 @@ axum = { version = "0.8", features = ["multipart", "macros", "ws"] }
 base64 = "0.22"
 blake3 = "1"
 getrandom = "0.2"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff", "bmp"] }
 # SIMD resize for photo thumbnails (Lanczos3 over 12 MP was 3.6 s on a Wyse 3040).
 fast_image_resize = { version = "5", features = ["image"] }
 kamadak-exif = "0.6"

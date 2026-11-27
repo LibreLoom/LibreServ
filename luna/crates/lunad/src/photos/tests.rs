@@ -1339,3 +1339,114 @@ fn a_thumbnail_on_disk_counts_as_full_only_when_it_fills_the_box() {
         (4032, 3024)
     );
 }
+
+fn thumb_of(src: &Path) -> (u32, u32, image::DynamicImage) {
+    let dest = src.with_file_name(format!(
+        "{}.thumb.jpg",
+        src.file_name().unwrap().to_string_lossy()
+    ));
+    let (w, h, made) = ensure_thumb(src, &dest, "image").unwrap();
+    assert!(made, "{} got no thumbnail", src.display());
+    let thumb = image::open(&dest).unwrap();
+    assert!(thumb.width().max(thumb.height()) <= THUMB_MAX);
+    (w, h, thumb)
+}
+
+#[test]
+fn thumbnails_webp_bmp_and_tiff_stills() {
+    let dir = tempfile::tempdir().unwrap();
+    let rgb = image::RgbImage::from_pixel(1200, 800, image::Rgb([90, 140, 200]));
+    for name in ["a.bmp", "a.tif", "a.tiff"] {
+        let src = dir.path().join(name);
+        rgb.save(&src).unwrap();
+        let (w, h, thumb) = thumb_of(&src);
+        assert_eq!((w, h), (1200, 800), "{name}");
+        assert_eq!((thumb.width(), thumb.height()), (640, 427), "{name}");
+    }
+    // Lossy and lossless are different bitstreams; both decode through libwebp.
+    let lossy = webp::Encoder::from_rgb(rgb.as_raw(), 1200, 800).encode(80.0);
+    let src = dir.path().join("lossy.webp");
+    std::fs::write(&src, &*lossy).unwrap();
+    assert_eq!(thumb_of(&src).0, 1200);
+    let src = dir.path().join("lossless.webp");
+    rgb.save(&src).unwrap();
+    assert_eq!(thumb_of(&src).1, 800);
+}
+
+#[test]
+fn thumbnails_a_16_bit_tiff_scan() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("scan.tiff");
+    image::ImageBuffer::<image::Rgb<u16>, Vec<u16>>::from_pixel(
+        900,
+        600,
+        image::Rgb([30000, 40000, 50000]),
+    )
+    .save(&src)
+    .unwrap();
+    let (w, h, _) = thumb_of(&src);
+    assert_eq!((w, h), (900, 600));
+}
+
+#[test]
+fn thumbnails_a_camera_raw_from_its_stored_picture_and_turns_it_upright() {
+    let dir = tempfile::tempdir().unwrap();
+    let big = preview::tests::jpeg(1600, 1066);
+    let small = preview::tests::jpeg(160, 120);
+    // Orientation 6: the camera was held upright, the sensor lies sideways.
+    let raw = raw::tests::tiff_with_previews([0x2A, 0], 6, &big, &small);
+    for name in ["IMG_1.NEF", "IMG_2.dng", "IMG_3.arw"] {
+        let src = dir.path().join(name);
+        std::fs::write(&src, &raw).unwrap();
+        let (w, h, thumb) = thumb_of(&src);
+        assert_eq!((w, h), (1066, 1600), "{name} is reported as it shows");
+        assert!(thumb.height() > thumb.width(), "{name} stands upright");
+    }
+    let empty = dir.path().join("empty.cr2");
+    std::fs::write(&empty, b"II*\0\x08\0\0\0\0\0\0\0\0\0").unwrap();
+    assert!(ensure_thumb(&empty, &dir.path().join("e.jpg"), "image").is_err());
+}
+
+#[test]
+fn photos_take_every_common_still_extension_in_any_case() {
+    for name in [
+        "a.JPG", "a.jpe", "a.jfif", "a.PNG", "a.apng", "a.gif", "a.WebP", "a.avif", "a.bmp",
+        "a.TIF", "a.tiff", "a.heic", "a.HEIF", "a.hif", "a.CR3", "a.nef", "a.RAF", "a.orf",
+    ] {
+        assert!(is_image(Path::new(name)), "{name}");
+        assert!(is_media(Path::new(name)), "{name}");
+    }
+    for name in ["a.svg", "a.ico", "a.txt", "a.html", "a.mp4"] {
+        assert!(!is_image(Path::new(name)), "{name}");
+    }
+    // Browsers show these as they are; everything else gets a made preview.
+    for name in ["a.jpg", "a.webp", "a.avif", "a.bmp", "a.png", "a.gif"] {
+        assert!(!needs_browser_preview(Path::new(name)), "{name}");
+    }
+    for name in ["a.heic", "a.tiff", "a.cr2", "a.dng", "a.raf"] {
+        assert!(needs_browser_preview(Path::new(name)), "{name}");
+    }
+}
+
+#[test]
+fn the_upload_gate_knows_the_new_formats_and_still_refuses_markup() {
+    assert!(sniff_media_bytes(b"RIFF\x24\0\0\0WEBPVP8 "));
+    assert!(!sniff_media_bytes(b"RIFF\x24\0\0\0WAVEfmt "));
+    assert!(sniff_media_bytes(b"BM\x36\0\x0c\0\0\0\0\0\0\0"));
+    assert!(sniff_media_bytes(b"II*\0\x08\0\0\0\0\0"));
+    assert!(sniff_media_bytes(b"MM\0*\0\0\0\x08\0\0"));
+    assert!(sniff_media_bytes(b"IIRO\x08\0\0\0\0\0\0\0"));
+    assert!(sniff_media_bytes(b"FUJIFILMCCD-RAW 0201FF"));
+    assert!(sniff_media_bytes(b"\0\0\0\x1cftypavif\0\0\0\0"));
+    assert!(!sniff_media_bytes(
+        b"<svg xmlns=\"http://www.w3.org/2000/svg\">"
+    ));
+    assert!(!sniff_media_bytes(b"<!doctype html><script>"));
+}
+
+#[test]
+fn format_filter_counts_aliases_together() {
+    assert_eq!(normalize_format_ext("JPEG"), "jpg");
+    assert_eq!(normalize_format_ext(".jfif"), "jpg");
+    assert_eq!(normalize_format_ext("tif"), "tiff");
+}

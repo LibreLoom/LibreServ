@@ -19,7 +19,7 @@ import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { ActionTooltipGroup, Tooltip } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import LightboxMedia from "./LightboxMedia.jsx";
 import { contentHref, downloadHref, folderHref } from "../../lib/paths.js";
-import { isHeicFile } from "../../lib/fileKinds.js";
+import { needsPhotoPreview } from "../../lib/fileKinds.js";
 import { Link } from "react-router-dom";
 import { lockBodyScroll } from "../../utils/bodyScrollLock.js";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
@@ -75,14 +75,14 @@ export const ABOVE_LIGHTBOX_OVERLAY_CLASS = "z-[90]";
 
 
 /**
- * Prefer photos preview for HEIC when available; otherwise drive content URL.
+ * Prefer photos preview for HEIC, TIFF and RAW when available; otherwise drive content URL.
  * @param {PhotosPhoto} photo
  * @param {{ contentSrc?: string }} [opts]
  */
 export function resolveDisplaySrc(photo, opts = {}) {
   if (opts.contentSrc) return opts.contentSrc;
   if (photo?.content) return photo.content;
-  if (isHeicFile(photo?.name) && photo?.drive_id && photo?.path) {
+  if (needsPhotoPreview(photo?.name) && photo?.drive_id && photo?.path) {
     return `/api/v1/photos/preview?drive_id=${encodeURIComponent(photo.drive_id)}&path=${encodeURIComponent(photo.path)}`;
   }
   if (photo?.drive_id && photo?.path) return contentHref(photo.drive_id, photo.path);

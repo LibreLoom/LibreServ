@@ -14,6 +14,9 @@ use std::time::Duration;
 /// one child's peak stays bounded on a 2 GiB box.
 const DECODE_MEMORY: u64 = 768 * 1024 * 1024;
 
+/// The ISO-BMFF still-image family `heif-dec` decodes: HEIC, HEIF, HIF and
+/// AVIF. (AVIF needs the same decoder but is shown by browsers as is; see
+/// `photos::formats`.)
 pub fn is_heif(path: &Path) -> bool {
     let Some(leaf) = crate::files::leaf_of(path) else {
         return false;
@@ -21,7 +24,12 @@ pub fn is_heif(path: &Path) -> bool {
     Path::new(&leaf)
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "heic" | "heif" | "hif"))
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "heic" | "heif" | "hif" | "avif"
+            )
+        })
         .unwrap_or(false)
 }
 

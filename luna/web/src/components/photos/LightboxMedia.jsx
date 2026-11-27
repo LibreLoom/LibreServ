@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Download, ImageOff, VideoOff } from "lucide-react";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
-import { isHeicFile } from "../../lib/fileKinds.js";
+import { needsPhotoPreview } from "../../lib/fileKinds.js";
 import { perfCancel, perfEnd, perfPending } from "../../lib/perf.js";
 import { isLunadThumb, stageThumbSrcSet } from "./thumbSrc.js";
 
@@ -30,7 +30,7 @@ const THUMB_STAGE_CAP = "max-h-[45%] max-w-[45%]";
  *
  * Media the browser can't decode — a video codec it doesn't support, or a
  * corrupt file — swaps to a notice with a download link instead of hanging
- * forever on the thumbnail. HEIC stills whose transcoded preview isn't
+ * forever on the thumbnail. HEIC, TIFF and RAW stills whose transcoded preview isn't
  * ready are the one exception: they fall back to the drive thumbnail and
  * say so, since a stretched thumb beats a dead pane but is still a preview.
  *
@@ -114,13 +114,13 @@ function LightboxMedia({ photo, src, downloadSrc = "", autoPlay = true, lite = f
   }
 
   const isVideo = photo.kind === "video";
-  // The thumb swap exists for HEIC previews that 404 until the backend
+  // The thumb swap exists for transcoded previews (HEIC, TIFF, RAW) that 404 until the backend
   // preview lands. For anything else a failed load is a real failure — a
   // stretched thumbnail standing in for the photo reads as a broken render
   // with no explanation. Already showing the thumb src (or out of retries)
   // counts as a failure too.
   const canThumbFallback =
-    !isVideo && !thumbFallback && isHeicFile(photo.name)
+    !isVideo && !thumbFallback && needsPhotoPreview(photo.name)
     && photo.thumb && photo.thumb !== src;
   const mediaStyle =
     phase === "primed"

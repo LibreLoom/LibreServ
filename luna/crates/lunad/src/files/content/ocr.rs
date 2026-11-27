@@ -32,20 +32,42 @@ pub fn available() -> bool {
     sandbox::which("tesseract").is_some()
 }
 
-/// OCR one image file. HEIC is decoded to JPEG first (sandboxed).
+/// OCR one image file. Formats Tesseract cannot open (HEIC, AVIF, camera
+/// RAW) are turned into a JPEG first, sandboxed like every other parser; the
+/// 640 px grid thumbnail is too small to read text from, so this goes back
+/// to the original (a RAW's own stored picture, never a development).
 pub fn ocr_image(path: &Path) -> std::io::Result<Outcome> {
     let Some(tesseract) = sandbox::which("tesseract") else {
         return Ok(Outcome::Unavailable);
     };
-    if crate::photos::heif::is_heif(path) {
-        let tmp = tempfile::Builder::new().prefix("luna-ocr-").tempdir()?;
-        let jpeg = tmp.path().join("decoded.jpg");
-        if let Err(e) = crate::photos::heif::decode_heif_to_jpeg(path, &jpeg) {
-            return Ok(Outcome::Failed(format!("HEIC decode: {e}")));
-        }
-        return run_tesseract(&tesseract, &jpeg);
+    let Some(format) = crate::photos::formats::for_path(path) else {
+        return run_tesseract(&tesseract, path);
+    };
+    if format.ocr_direct {
+        return run_tesseract(&tesseract, path);
     }
-    run_tesseract(&tesseract, path)
+    let tmp = tempfile::Builder::new().prefix("luna-ocr-").tempdir()?;
+    let jpeg = tmp.path().join("decoded.jpg");
+    match format.decode {
+        crate::photos::formats::Decode::Raw => {
+            let max = crate::budget::limits().source_max_bytes;
+            let Some(found) = crate::photos::raw::preview_from_file(path, max) else {
+                return Ok(Outcome::Failed(
+                    "no picture stored inside this RAW file".into(),
+                ));
+            };
+            std::fs::write(&jpeg, &found.jpeg)?;
+        }
+        _ => {
+            // One decoder at a time, like the thumbnail builder: two peaks
+            // together can run a 2 GiB box out of memory.
+            let _permit = crate::budget::acquire_heif_slot_blocking();
+            if let Err(e) = crate::photos::heif::decode_heif_to_jpeg(path, &jpeg) {
+                return Ok(Outcome::Failed(format!("HEIC/AVIF decode: {e}")));
+            }
+        }
+    }
+    run_tesseract(&tesseract, &jpeg)
 }
 
 /// OCR the first pages of a PDF that has no text layer, one page at a time.

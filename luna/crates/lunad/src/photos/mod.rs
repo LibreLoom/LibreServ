@@ -34,7 +34,6 @@ pub const THUMB_FULL: i64 = 1;
 /// `photos.has_thumb`: made from the picture embedded in the file (D5 stage
 /// one); [`upgrade_thumbs`] replaces it with the full-quality one.
 pub const THUMB_PREVIEW: i64 = 2;
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "m4v", "webm"];
 const BATCH_UPSERT: usize = 64;
 
@@ -256,7 +255,7 @@ pub struct FilterFacets {
 }
 
 pub fn is_image(path: &Path) -> bool {
-    ext_in(path, IMAGE_EXTS)
+    formats::for_path(path).is_some()
 }
 
 pub fn is_video(path: &Path) -> bool {
@@ -487,8 +486,7 @@ fn path_ext_lower(path: &str) -> String {
 }
 
 fn normalize_format_ext(raw: &str) -> String {
-    let e = raw.trim().trim_start_matches('.').to_ascii_lowercase();
-    if e == "jpeg" { "jpg".into() } else { e }
+    formats::canonical_ext(raw)
 }
 
 /// `MM-DD` with plausible ranges (the caller derives it from today's date, so
@@ -1054,8 +1052,25 @@ pub(crate) fn sniff_media_bytes(head: &[u8]) -> bool {
     if head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a") {
         return true;
     }
-    // ISO-BMFF family — HEIC/HEIF/HIF and MP4/MOV/M4V all open with a box
-    // length followed by `ftyp` at offset 4.
+    // WebP: RIFF container tagged WEBP.
+    if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
+        return true;
+    }
+    // BMP.
+    if head.starts_with(b"BM") {
+        return true;
+    }
+    // TIFF, little or big endian. Most camera RAW files (DNG, CR2, NEF, ARW,
+    // PEF, SRW…) are TIFF underneath.
+    if head.starts_with(&[b'I', b'I', 0x2A, 0x00]) || head.starts_with(&[b'M', b'M', 0x00, 0x2A]) {
+        return true;
+    }
+    // RAW containers with their own headers (ORF, RW2, RAF).
+    if raw::sniff_raw_bytes(head) {
+        return true;
+    }
+    // ISO-BMFF family — HEIC/HEIF/HIF/AVIF, CR3 and MP4/MOV/M4V all open with
+    // a box length followed by `ftyp` at offset 4.
     if head.len() >= 12 && &head[4..8] == b"ftyp" {
         return true;
     }
@@ -1287,8 +1302,15 @@ pub(crate) fn displayed_size(
 }
 
 fn embedded_preview(src: &Path, dest: &Path) -> Option<preview::Embedded> {
+    // Only JPEG and HEIC store a smaller picture inside. PNG, GIF, WebP, BMP
+    // and TIFF have none, and a RAW's whole thumbnail is already that cheap,
+    // so none of them is read here just to be read again.
+    let decode = formats::for_path(src)?.decode;
+    if !matches!(decode, formats::Decode::Jpeg | formats::Decode::Heif) {
+        return None;
+    }
     let bytes = read_capped(src, crate::budget::limits().source_max_bytes).ok()?;
-    if crate::photos::heif::is_heif(src) {
+    if decode == formats::Decode::Heif {
         preview::heif_preview(src, &bytes, dest)
     } else {
         preview::jpeg_preview(&bytes)
@@ -1316,13 +1338,14 @@ fn write_thumb_jpeg(thumb: &image::DynamicImage, dest: &Path) -> anyhow::Result<
     }
     {
         let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
-        // JPEG has no alpha: PNG previews (HEIC) may carry one.
+        // JPEG takes 8-bit RGB or grey only: PNG previews (HEIC) may carry
+        // alpha, and TIFF scans are often 16-bit.
         let rgb;
-        let thumb = if thumb.color().has_alpha() {
+        let thumb = if matches!(thumb.color(), image::ColorType::Rgb8 | image::ColorType::L8) {
+            thumb
+        } else {
             rgb = image::DynamicImage::ImageRgb8(thumb.to_rgb8());
             &rgb
-        } else {
-            thumb
         };
         thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
             &mut out,
@@ -1469,8 +1492,37 @@ pub fn ensure_thumb(src: &Path, dest: &Path, kind: &str) -> anyhow::Result<(u32,
         perf.field("kind", "heic");
         return ensure_heif_thumb(src, dest);
     }
+    if raw::is_raw(src) {
+        perf.field("kind", "raw");
+        return ensure_raw_thumb(src, dest);
+    }
     perf.field("kind", "image");
     decode_and_save_thumb(src, dest)
+}
+
+/// A camera RAW's thumbnail: the JPEG the camera stored inside it, scaled
+/// down like any other JPEG. The raw's own EXIF turn applies when the
+/// picture carries none.
+fn ensure_raw_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
+    let max = crate::budget::limits().source_max_bytes;
+    let found = raw::preview_from_file(src, max)
+        .ok_or_else(|| anyhow::anyhow!("no picture is stored inside this RAW file"))?;
+    let (img, w, h, own) = decode_jpeg_scaled(&found.jpeg, THUMB_MAX)
+        .ok_or_else(|| anyhow::anyhow!("could not decode the picture inside this RAW file"))?;
+    let orientation = if own == image::metadata::Orientation::NoTransforms {
+        found.orientation
+    } else {
+        own
+    };
+    let mut thumb = if img.width().max(img.height()) > THUMB_MAX {
+        resize_lanczos3(&img, THUMB_MAX)
+    } else {
+        img
+    };
+    thumb.apply_orientation(orientation);
+    write_thumb_jpeg(&thumb, dest)?;
+    let (w, h) = displayed_size(w, h, orientation);
+    Ok((w, h, true))
 }
 
 fn ensure_video_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
@@ -1791,6 +1843,33 @@ fn decode_jpeg_scaled(
     Some((img, w, h, orientation))
 }
 
+/// Still WebP through libwebp (already linked for the small thumbnails): it
+/// decodes with SIMD, several times faster than the pure-Rust decoder on a
+/// small CPU. Animated and oversized files return `None`, and the caller's
+/// `image` decoder (which reads an animation's first frame, within limits)
+/// takes over.
+fn decode_webp_fast(src: &Path) -> Option<image::DynamicImage> {
+    if formats::for_path(src)?.ext != "webp" {
+        return None;
+    }
+    let limits = crate::budget::limits();
+    let bytes = read_capped(src, limits.source_max_bytes).ok()?;
+    let features = webp::BitstreamFeatures::new(&bytes)?;
+    let (w, h) = (features.width(), features.height());
+    let rgba = u64::from(w) * u64::from(h) * 4;
+    if features.has_animation() || w.max(h) > limits.max_image_dim || rgba > limits.decode_max_bytes
+    {
+        return None;
+    }
+    let decoded = webp::Decoder::new(&bytes).decode()?;
+    let (w, h) = (decoded.width(), decoded.height());
+    if decoded.is_alpha() {
+        image::RgbaImage::from_raw(w, h, decoded.to_vec()).map(image::DynamicImage::ImageRgba8)
+    } else {
+        image::RgbImage::from_raw(w, h, decoded.to_vec()).map(image::DynamicImage::ImageRgb8)
+    }
+}
+
 fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
     let is_jpeg = std::fs::File::open(src)
         .and_then(|mut f| {
@@ -1816,6 +1895,15 @@ fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, b
         return Ok((w, h, true));
     }
     let limits = crate::budget::limits();
+    if let Some(img) = decode_webp_fast(src) {
+        let (w, h) = (img.width(), img.height());
+        let thumb = resize_lanczos3(&img, THUMB_MAX);
+        drop(img);
+        // Still WebP carries no EXIF turn worth honouring: cameras do not
+        // write it, and phones that do store the pixels upright.
+        write_thumb_jpeg(&thumb, dest)?;
+        return Ok((w, h, true));
+    }
     let mut img_limits = image::Limits::default();
     img_limits.max_image_width = Some(limits.max_image_dim);
     img_limits.max_image_height = Some(limits.max_image_dim);
@@ -3451,16 +3539,17 @@ pub fn list_album_item_refs(
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
-/// True when path is HEIC/HEIF/HIF (browser cannot display the original).
-pub fn is_heic_image(path: &Path) -> bool {
-    is_image(path) && crate::photos::heif::is_heif(path)
+/// True when no browser we target can show the original (HEIC, TIFF, camera
+/// RAW), so the viewer gets a JPEG made on the server instead.
+pub fn needs_browser_preview(path: &Path) -> bool {
+    formats::for_path(path).is_some_and(|f| !f.browser_native)
 }
 
 /// Minimum JPEG thumb size (bytes) we treat as a usable browser preview.
 const PREVIEW_THUMB_MIN_BYTES: u64 = 2048;
 
 /// Ensure a browser-safe JPEG exists for a HEIC original (reuse thumb when large enough).
-pub fn ensure_heic_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result<PathBuf> {
+pub fn ensure_browser_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result<PathBuf> {
     if thumb_dest.exists()
         && let Ok(meta) = std::fs::metadata(thumb_dest)
         && meta.len() >= PREVIEW_THUMB_MIN_BYTES
@@ -3471,7 +3560,7 @@ pub fn ensure_heic_preview_jpeg(src: &Path, thumb_dest: &Path) -> anyhow::Result
     if thumb_dest.exists() {
         return Ok(thumb_dest.to_path_buf());
     }
-    anyhow::bail!("could not build HEIC preview")
+    anyhow::bail!("could not build a preview")
 }
 
 /// Write a zip of absolute files. `entries` is `(archive_path, absolute_file)`.
@@ -3583,7 +3672,9 @@ fn uuid_v4() -> String {
 mod tests;
 
 pub mod exif;
+pub mod formats;
 pub mod heif;
 pub mod photos_indexer;
 pub mod places;
 mod preview;
+pub mod raw;

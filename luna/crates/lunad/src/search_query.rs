@@ -159,11 +159,14 @@ const SEASONS: &[(&str, &[u32])] = &[
 ];
 
 const IMAGE_FORMATS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg", "dng", "cr2",
-    "cr3", "nef", "arw", "orf", "rw2",
+    "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "tif", "tiff", "bmp", "svg",
+    "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef", "srw",
 ];
 const VIDEO_FORMATS: &[&str] = &["mp4", "mov", "webm", "avi", "mkv", "m4v", "3gp", "mts"];
-const RAW_FORMATS: &[&str] = &["raw", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2"];
+const RAW_FORMATS: &[&str] = &[
+    "raw", "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef",
+    "srw",
+];
 
 /// Words that carry no signal on their own — fillers, chatty command verbs
 /// ("show me photos from…"), pronouns, auxiliaries, and linkers. A query of

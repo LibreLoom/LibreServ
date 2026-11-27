@@ -1,10 +1,10 @@
 /** Classify drive files for in-app open/edit. Matches lunad `inline_safe` for view. */
 
-// heic/heif/hif are left out on purpose: lunad transcodes them for photos
-// grids, but the file viewer loads raw bytes and no browser we target can
-// display them natively.
+// heic/heif/hif, tiff and camera RAW are left out on purpose: lunad makes a
+// JPEG for photos grids and the lightbox, but the file viewer loads raw bytes
+// and no browser we target can display them natively.
 const IMAGE_EXT = new Set([
-  "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "avif",
+  "jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "bmp", "ico", "avif",
 ]);
 
 // mkv, wmv etc. are not here: browsers can't play them in <video>, so a
@@ -15,7 +15,14 @@ const VIDEO_EXT = new Set([
 
 // HEIC/HEIF stills — no browser we target decodes them; lunad serves a
 // transcoded JPEG preview/thumb instead.
-const HEIC_EXT = new Set(["heic", "heif"]);
+const HEIC_EXT = new Set(["heic", "heif", "hif"]);
+
+// Everything else Photos accepts that a browser cannot show as is: TIFF and
+// camera RAW. Keep in step with `photos/formats.rs` (browser_native = false).
+const PREVIEW_ONLY_EXT = new Set([
+  "tif", "tiff",
+  "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef", "srw",
+]);
 
 /** Plaintext we let people edit in Luna (saved via upload). */
 const TEXT_EXT = new Set([
@@ -147,9 +154,14 @@ export function isVideoFile(name) {
   return VIDEO_EXT.has(fileExtension(name));
 }
 
-/** @param {string} name */
-export function isHeicFile(name) {
-  return HEIC_EXT.has(fileExtension(name));
+/**
+ * Photos the browser can't show as is (HEIC, TIFF, camera RAW): lunad serves
+ * a JPEG made from them to the lightbox.
+ * @param {string} name
+ */
+export function needsPhotoPreview(name) {
+  const ext = fileExtension(name);
+  return HEIC_EXT.has(ext) || PREVIEW_ONLY_EXT.has(ext);
 }
 
 /** @param {string} name */

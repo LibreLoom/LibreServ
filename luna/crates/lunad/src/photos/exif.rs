@@ -51,11 +51,65 @@ pub fn capture_meta(path: &Path) -> Option<CaptureMeta> {
         }
         return None;
     }
+    if crate::photos::raw::is_raw(path) {
+        return raw_capture_meta(path);
+    }
     let file = std::fs::File::open(path).ok()?;
+    // A TIFF is read whole (its directories can sit at the very end), so a
+    // scan too big for the memory budget is skipped rather than loaded.
+    if crate::photos::formats::for_path(path).is_some_and(|f| f.canonical == "tiff")
+        && file.metadata().ok()?.len() > crate::budget::limits().source_max_bytes
+    {
+        return None;
+    }
     let exif = Reader::new()
         .read_from_container(&mut BufReader::new(file))
         .ok()?;
     Some(meta_from_exif(&exif))
+}
+
+/// EXIF of a camera RAW without reading the whole file.
+fn raw_capture_meta(path: &Path) -> Option<CaptureMeta> {
+    let max = crate::budget::limits().source_max_bytes;
+    // Canon CR3 keeps its EXIF in four small boxes, not one TIFF.
+    if let Some(head) = crate::photos::raw::head(path, 2 * 1024 * 1024) {
+        let blocks = crate::photos::raw::cr3_blocks(&head);
+        if blocks.iter().any(Option::is_some) {
+            let mut merged = CaptureMeta::default();
+            for block in blocks.into_iter().flatten() {
+                if let Ok(exif) = Reader::new().read_raw(block) {
+                    merge_meta(&mut merged, meta_from_exif(&exif));
+                }
+            }
+            return Some(merged);
+        }
+    }
+    // TIFF-based RAW: the directories are at the start, so a prefix is enough.
+    if let Some(prefix) = crate::photos::raw::exif_prefix(path, max)
+        && let Ok(exif) = Reader::new().read_raw(prefix)
+    {
+        return Some(meta_from_exif(&exif));
+    }
+    // Fujifilm RAF, or a prefix that was cut short: the EXIF stored in the
+    // embedded picture.
+    let found = crate::photos::raw::preview_from_file(path, max)?;
+    let exif = Reader::new()
+        .read_from_container(&mut std::io::Cursor::new(found.jpeg))
+        .ok()?;
+    Some(meta_from_exif(&exif))
+}
+
+/// Fill what `into` lacks from `from`.
+fn merge_meta(into: &mut CaptureMeta, from: CaptureMeta) {
+    into.taken_at = into.taken_at.or(from.taken_at);
+    into.lat = into.lat.or(from.lat);
+    into.lon = into.lon.or(from.lon);
+    into.camera_make = into.camera_make.take().or(from.camera_make);
+    into.camera_model = into.camera_model.take().or(from.camera_model);
+    into.lens = into.lens.take().or(from.lens);
+    into.iso = into.iso.or(from.iso);
+    into.focal_mm = into.focal_mm.or(from.focal_mm);
+    into.flash = into.flash.or(from.flash);
 }
 
 fn meta_from_exif(exif: &exif::Exif) -> CaptureMeta {

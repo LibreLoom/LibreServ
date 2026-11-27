@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  needsPhotoPreview,
   isArchiveFile,
   isAudioFile,
   isComicFile,
@@ -150,6 +151,18 @@ describe("fileKinds", () => {
     // No browser plays these; he'd see a broken <video>/<img> instead.
     expect(openableKind("movie.mkv")).toBe(null);
     expect(openableKind("pic.heic")).toBe(null);
+  });
+
+  it("sends only photos a browser can't show to the server for a preview", () => {
+    for (const name of ["a.heic", "a.HEIF", "scan.tiff", "scan.tif", "IMG_1.NEF", "x.cr3", "x.dng", "x.raf"]) {
+      expect(needsPhotoPreview(name), name).toBe(true);
+      // The file viewer loads raw bytes, so it must not claim them either.
+      expect(openableKind(name), name).toBe(null);
+    }
+    for (const name of ["a.jpg", "a.jfif", "a.webp", "a.avif", "a.bmp", "a.png", "a.gif"]) {
+      expect(needsPhotoPreview(name), name).toBe(false);
+      expect(openableKind(name), name).toBe("image");
+    }
   });
 
   it("keeps save capability to formats that round-trip without silent loss", () => {
