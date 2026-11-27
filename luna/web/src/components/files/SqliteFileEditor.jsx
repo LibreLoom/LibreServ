@@ -17,11 +17,16 @@ import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
 import { ApiError, apiErrorMessage } from "../../lib/api.js";
 import { useFileSource } from "../../lib/fileSource.jsx";
 import { joinPath, parentPath, pathBasename } from "../../lib/paths.js";
+import { CollabDocSync } from "./collabDocSync.js";
 import EditorLoadingScreen from "./EditorLoadingScreen.jsx";
+import { sqliteLogAdapter } from "./forms/sqlite/sqliteCollab.js";
 import { SqliteEditorSession } from "./forms/sqlite/SqliteEditor.jsx";
 import { asBytes } from "./forms/sqlite/sqliteModel.js";
 
 const SIDECAR_SUFFIX = ".lunaform.responses.sqlite";
+/** How long to wait for the room's shared edits before opening anyway. */
+const HYDRATE_TIMEOUT_MS = 6_000;
+const HYDRATE_POLL_MS = 50;
 
 /**
  * The form whose answers live in this sidecar, or null for an ordinary
@@ -69,6 +74,22 @@ export default function SqliteFileEditor({
 }) {
   const source = useFileSource();
   const formPath = formPathForSidecar(path);
+  // Link guests have no session for the collab hub, and form answers load
+  // through their own revisioned endpoints, so neither edits live.
+  const live = source.collab !== false && !formPath;
+  const [peers, setPeers] = useState(
+    /** @type {import("./collabDocSync.js").PeerInfo[]} */ ([]),
+  );
+  const [sync] = useState(
+    () =>
+      new CollabDocSync({
+        driveId,
+        path,
+        solo: source.collab === false,
+        adapter: sqliteLogAdapter(),
+        onPeers: (next) => setPeers(next),
+      }),
+  );
   const [state, setState] = useState(
     /** @type {{
      *   loading: boolean,
@@ -117,10 +138,28 @@ export default function SqliteFileEditor({
           typeof source.stat === "function"
             ? source.stat(driveId, path).catch(() => null)
             : Promise.resolve(null);
+        if (live) {
+          sync.connect();
+          // The file never goes into the shared doc; adopting an empty seed
+          // only tells it this peer is ready once the room has answered.
+          sync.adoptContent("");
+        }
         const [raw, stat] = await Promise.all([
           source.fetchBytes(driveId, path),
           statPromise,
         ]);
+        if (cancelled) return;
+        // Opening before the room's edits arrive would start from the bare
+        // file and miss changes made since it was last saved.
+        const started = Date.now();
+        while (
+          live &&
+          !cancelled &&
+          !sync.hydrated &&
+          Date.now() - started < HYDRATE_TIMEOUT_MS
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
+        }
         if (cancelled) return;
         const bytes = asBytes(raw);
         setState({
@@ -149,8 +188,11 @@ export default function SqliteFileEditor({
     })();
     return () => {
       cancelled = true;
+      // Disconnect rather than destroy: StrictMode replays this effect and
+      // the same shared document has to survive into the second run.
+      if (live) sync.disconnect();
     };
-  }, [driveId, formPath, path, source]);
+  }, [driveId, formPath, live, path, source, sync]);
 
   /** The revision on the drive right now, or null when stat is unavailable. */
   async function diskRevision() {
@@ -258,6 +300,16 @@ export default function SqliteFileEditor({
       onSave={save}
       onReload={reload}
       frame={{ onRegisterSave, onSaveStateChange }}
+      collab={
+        live && state.mode === "file"
+          ? {
+              ydoc: sync.ydoc,
+              awareness: sync.awareness,
+              peerId: sync.peerId,
+              peers,
+            }
+          : null
+      }
       conflictTitle={formMode ? "New answers arrived" : "This database changed"}
       conflictMessage={
         formMode

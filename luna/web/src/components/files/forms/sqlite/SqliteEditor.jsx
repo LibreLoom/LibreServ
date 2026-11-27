@@ -39,6 +39,7 @@ import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.j
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import {
   InfoHint,
+  Tooltip,
   TooltipTargets,
 } from "@libreloom/ui/components/ui/Tooltip.jsx";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
@@ -58,6 +59,7 @@ import SqliteRenameTableDialog from "./SqliteRenameTableDialog.jsx";
 import SqliteTableDialog from "./SqliteTableDialog.jsx";
 import SqliteGrid from "./SqliteGrid.jsx";
 import { createSqliteClient } from "./sqliteClient.js";
+import { CollabSqliteClient } from "./sqliteCollab.js";
 import {
   GRID_PAGE_SIZE,
   MAX_DATABASE_BYTES,
@@ -138,6 +140,8 @@ const AUTOSAVE_IDLE_MS = 2_000;
 const AUTOSAVE_MAX_MS = 15_000;
 const AUTOSAVE_RETRY_MS = 5_000;
 const AUTOSAVE_TICK_MS = 250;
+/** Extra wait per earlier person editing together before autosaving. */
+const AUTOSAVE_TURN_MS = 2_000;
 
 /** What the run shortcut is called on this machine. */
 const RUN_SHORTCUT =
@@ -236,6 +240,12 @@ SqliteEditor.propTypes = {
  *     onRegisterSave: (save: (() => Promise<unknown>) | null, recovery?: { download?: () => Promise<{ blob: Blob, filename?: string } | null> } | null) => void,
  *     onSaveStateChange: (hasUnsaved: boolean) => void,
  *   },
+ *   collab?: {
+ *     ydoc: import("yjs").Doc,
+ *     peerId: number | null,
+ *     awareness: import("y-protocols/awareness").Awareness,
+ *     peers: import("../../collabDocSync.js").PeerInfo[],
+ *   } | null,
  *   conflictTitle?: string,
  *   conflictMessage?: string,
  *   conflictNoReloadMessage?: string,
@@ -251,6 +261,7 @@ export function SqliteEditorSession({
   onSave,
   onReload,
   frame,
+  collab = null,
   conflictTitle = "New answers arrived",
   conflictMessage = "Someone answered this form after you opened the database. Saving now would replace the newer answers.",
   conflictNoReloadMessage = "Close the editor and open the form again to load the new answers.",
@@ -323,6 +334,10 @@ export function SqliteEditorSession({
   const [deleteError, setDeleteError] = useState("");
 
   const clientRef = useRef(/** @type {any} */ (null));
+  // Read at open time only: the live peers list changes without reopening.
+  const collabRef = useRef(collab);
+  collabRef.current = collab;
+  const remoteRefreshRef = useRef(/** @type {(() => void) | null} */ (null));
   const mountedRef = useRef(true);
   const revisionRef = useRef(revision);
   const dirtyRef = useRef(false);
@@ -500,6 +515,49 @@ export function SqliteEditorSession({
     [loadTable, refreshSchema, selectTable],
   );
 
+  const markSavedRef = useRef(markSaved);
+  markSavedRef.current = markSaved;
+
+  // Someone else's change arrived: show it, and count it as unsaved, since
+  // the file on the drive doesn't have it yet.
+  useEffect(() => {
+    remoteRefreshRef.current = () => {
+      if (!mountedRef.current) return;
+      markDirty();
+      void reloadTable(selectedTableRef.current, pageRef.current).catch(() => {
+        setGridError("Someone else changed this database. Reload the table to see it.");
+      });
+    };
+    return () => {
+      remoteRefreshRef.current = null;
+    };
+  }, [markDirty, reloadTable]);
+
+  // Tell the others which table we're looking at.
+  const peerTableKey = collab?.awareness ? selectedTable : null;
+  useEffect(() => {
+    if (peerTableKey === null) return;
+    collab?.awareness?.setLocalStateField("table", peerTableKey || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- awareness is stable per session
+  }, [peerTableKey]);
+  const [awarenessTick, setAwarenessTick] = useState(0);
+  useEffect(() => {
+    const awareness = collab?.awareness;
+    if (!awareness) return undefined;
+    const bump = () => setAwarenessTick((tick) => tick + 1);
+    awareness.on("change", bump);
+    return () => awareness.off("change", bump);
+  }, [collab?.awareness]);
+  const peerTables = useMemo(() => {
+    /** @type {Map<number, string>} */
+    const byPeer = new Map();
+    for (const state of collab?.awareness?.getStates().values() ?? []) {
+      if (state?.peerId != null && state.table) byPeer.set(state.peerId, state.table);
+    }
+    return byPeer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- awarenessTick is the change signal
+  }, [collab?.awareness, awarenessTick]);
+
   const createTable = useCallback(
     async ({ name, columns }) => {
       const client = clientRef.current;
@@ -648,6 +706,18 @@ export function SqliteEditorSession({
     (async () => {
       try {
         created = createSqliteClient();
+        const shared = collabRef.current;
+        if (shared) {
+          created = new CollabSqliteClient(created, {
+            ydoc: shared.ydoc,
+            revision: revisionRef.current,
+            onRemoteChange: () => remoteRefreshRef.current?.(),
+            onPeerSaved: ({ revision: next, covered }) => {
+              if (next) revisionRef.current = next;
+              if (covered) markSavedRef.current?.();
+            },
+          });
+        }
         const opened = await created.open(sourceBytes, { readOnly: !canWrite });
         if (cancelled) {
           created.dispose();
@@ -713,6 +783,8 @@ export function SqliteEditorSession({
         );
       }
       const result = await onSave(bytes, revisionRef.current);
+      // The file now holds what was exported, whatever else changed meanwhile.
+      client.markSaved?.(result?.revision ?? "");
       if (mutationVersionRef.current !== version) {
         throw new Error("A change was made while saving. Save again.");
       }
@@ -773,7 +845,18 @@ export function SqliteEditorSession({
       if (now - lastSaveAttemptRef.current < AUTOSAVE_RETRY_MS) return;
       const idle = now - lastEditRef.current;
       const stale = now - dirtySinceRef.current;
-      if (idle >= AUTOSAVE_IDLE_MS || stale >= AUTOSAVE_MAX_MS) {
+      // Everyone editing together sees the same unsaved changes. Staggering
+      // by peer order lets the first saver cover the rest, so two people
+      // never save over each other.
+      const shared = collabRef.current;
+      const turn = shared
+        ? [shared.peerId, ...shared.peers.map((peer) => peer.peer_id)]
+            .filter((id) => id != null)
+            .sort((a, b) => a - b)
+            .indexOf(shared.peerId)
+        : 0;
+      const wait = Math.max(0, turn) * AUTOSAVE_TURN_MS;
+      if (idle >= AUTOSAVE_IDLE_MS + wait || stale >= AUTOSAVE_MAX_MS + wait) {
         lastSaveAttemptRef.current = now;
         void saveRef.current?.().catch(() => {
           // The frame and conflict modal own the visible error.
@@ -1737,6 +1820,37 @@ export function SqliteEditorSession({
           <span className="flex shrink-0 items-center gap-2 tabular-nums">
             {running || working || saving || grid.loading ? (
               <Spinner size="sm" decorative />
+            ) : null}
+            {collab?.peers?.length ? (
+              <span
+                className="flex items-center"
+                role="img"
+                aria-label={`Also here: ${collab.peers.map((p) => p.username).join(", ")}`}
+              >
+                {collab.peers.slice(0, 5).map((peer) => (
+                  <Tooltip
+                    key={peer.peer_id}
+                    content={
+                      peerTables.get(peer.peer_id)
+                        ? `${peer.username} is in ${peerTables.get(peer.peer_id)}`
+                        : peer.username
+                    }
+                  >
+                    <span
+                      className="-ml-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[0.65rem] text-primary ring-2 ring-primary first:ml-0"
+                      style={{ backgroundColor: peer.color }}
+                      aria-hidden="true"
+                    >
+                      {String(peer.username || "?").slice(0, 1).toUpperCase()}
+                    </span>
+                  </Tooltip>
+                ))}
+                {collab.peers.length > 5 ? (
+                  <span className="-ml-1.5 flex h-6 min-w-6 items-center justify-center rounded-full surface-secondary px-1 text-[0.65rem] ring-2 ring-primary">
+                    +{collab.peers.length - 5}
+                  </span>
+                ) : null}
+              </span>
             ) : null}
             {canWrite ? (
               <span>{dirty ? "Unsaved changes" : "No changes"}</span>

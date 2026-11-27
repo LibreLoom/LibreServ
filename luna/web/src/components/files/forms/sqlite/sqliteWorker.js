@@ -8,6 +8,8 @@
  * Protocol:
  *   open { bytes }            → { tables }   (bytes is a Uint8Array/ArrayBuffer)
  *   exec { sql, params? }     → { columns, rows, rowCount, changes, truncated }
+ *   apply { sql, params? }    → { changes }  (a shared edit from another
+ *                               person: runs even on a read-only copy)
  *   schema                    → { tables }
  *   export                    → { bytes }    (transferred)
  *   close                     → {}
@@ -245,6 +247,19 @@ async function handle(message) {
     case "exec": {
       if (!database) throw new Error("No database is open.");
       return runScript(database, String(message.sql || ""), message.params);
+    }
+    case "apply": {
+      if (!database) throw new Error("No database is open.");
+      // Edits other people made arrive here. A read-only copy must still
+      // show them, so lift query_only for exactly this call.
+      const lifted = Boolean(message.readOnly);
+      if (lifted) database.run("PRAGMA query_only = OFF");
+      try {
+        const result = runScript(database, String(message.sql || ""), message.params);
+        return { changes: result.changes };
+      } finally {
+        if (lifted) database.run("PRAGMA query_only = ON");
+      }
     }
     case "schema": {
       if (!database) throw new Error("No database is open.");

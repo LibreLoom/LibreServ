@@ -100,7 +100,7 @@ function maskLiterals(sql) {
 }
 
 /** @param {string} sql */
-function firstVerb(sql) {
+export function firstVerb(sql) {
   const match = stripLeadingComments(sql).match(/^([A-Za-z]+)/);
   return match ? match[1].toUpperCase() : "";
 }

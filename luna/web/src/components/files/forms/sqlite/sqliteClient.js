@@ -110,6 +110,20 @@ export class SqliteClient {
     return this.request("exec", payload);
   }
 
+  /**
+   * Replay an edit someone else made. Unlike `exec` it also runs on a
+   * read-only copy, so viewers still see live changes.
+   *
+   * @param {string} sql
+   * @param {any[]} [params]
+   * @param {boolean} [readOnly] true when this copy was opened read-only
+   * @returns {Promise<{ changes: number }>}
+   */
+  apply(sql, params, readOnly = false) {
+    const payload = params ? { sql, params, readOnly } : { sql, readOnly };
+    return this.request("apply", payload);
+  }
+
   /** @returns {Promise<SchemaResult>} */
   schema() {
     return this.request("schema");
