@@ -82,6 +82,34 @@ describe("FileBrowser", () => {
     expect(await screen.findByText("Still working…", {}, { timeout: 3000 })).toBeInTheDocument();
   });
 
+  it("does not carry another drive's rows into a pending drive switch", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      if (String(url).includes("/drives/d2/")) {
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        });
+      }
+      return new Response(JSON.stringify([{ name: "previous-drive.txt", kind: "file" }]), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (driveId) => (
+      <ShortcutsProvider>
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <FileBrowser driveId={driveId} driveLabel="Drive" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ShortcutsProvider>
+    );
+    const { rerender } = render(view("d1"));
+    expect(await screen.findByText("previous-drive.txt")).toBeInTheDocument();
+    rerender(view("d2"));
+    expect(screen.queryByText("previous-drive.txt")).not.toBeInTheDocument();
+    expect(document.querySelector("[aria-busy=true]")).toBeInTheDocument();
+  });
+
   it("says the drive database is missing instead of asking to unplug", async () => {
     vi.stubGlobal(
       "fetch",

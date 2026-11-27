@@ -1,6 +1,6 @@
 import { useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
@@ -433,10 +433,27 @@ function VirtualRowWindow({
   const bottomPad = items.length
     ? Math.max(0, virtualizer.getTotalSize() - (items[items.length - 1].end - scrollMargin))
     : 0;
+  // A pinned drag source can sit far outside the visible range. Retain the
+  // omitted rows between that source and the viewport as well as at the edges.
+  const hasGaps = dragIndexRef.current >= 0 && items.length > 1
+    && items[items.length - 1].index - items[0].index + 1 > items.length;
+  const rowsWithGaps = hasGaps ? rows.flatMap((row, index) => {
+    const previous = items[index - 1];
+    const item = items[index];
+    if (!previous || item.index <= previous.index + 1) return [row];
+    return [
+      <li
+        key={`virtual-gap-${previous.index}-${item.index}`}
+        aria-hidden="true"
+        style={{ height: Math.max(0, item.start - previous.end), ...stripes(previous.index + 1) }}
+      />,
+      row,
+    ];
+  }) : rows;
   return (
     <>
       <li ref={topSpacerRef} aria-hidden="true" style={{ height: topPad, ...stripes(0) }} />
-      {rows}
+      {rowsWithGaps}
       <li
         aria-hidden="true"
         style={{ height: bottomPad, ...stripes(items.length ? items[items.length - 1].index + 1 : 0) }}
@@ -688,6 +705,7 @@ export default function FileBrowser({
   const canPickFolder = browserCanPickFolder();
   const listRef = useRef(/** @type {HTMLUListElement|null} */ (null));
   const appliedSelectRef = useRef(/** @type {string|null} */ (null));
+  const revealFrame = useRef(0);
   const folderChromeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const folderChromeProbeRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const [measuredFolderChromeSplit, setMeasuredFolderChromeSplit] = useState(false);
@@ -723,6 +741,7 @@ export default function FileBrowser({
   }
 
   const listingKey = fileListKey(source, driveId, path);
+  const listingScope = fileSourceScope(source, driveId);
   /** @param {{ signal: AbortSignal }} context */
   const fetchListing = ({ signal }) => /** @type {Promise<FileEntry[]>} */ (source.listDir(driveId, path, signal));
   // Ask for the folder during the render that opens it. useQuery only starts
@@ -740,7 +759,7 @@ export default function FileBrowser({
     enabled: !!driveId,
     // Keep the previous folder visible while the next listing loads so the list
     // card does not collapse empty and pop back in.
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, query) => query?.queryKey[1] === listingScope ? previous : undefined,
     // Poll while any file is still flushing from RAM to the drive so "Saving…"
     // clears without a manual refresh.
     refetchInterval: (query) => (anySaving(query.state.data) ? 750 : false),
@@ -822,14 +841,14 @@ export default function FileBrowser({
 
   // A slow listing says so after a beat; fast ones never flash it.
   const [slowListing, setSlowListing] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!listBusy) return undefined;
     const id = setTimeout(() => setSlowListing(true), SLOW_LISTING_MS);
     return () => {
       clearTimeout(id);
       setSlowListing(false);
     };
-  }, [listBusy]);
+  }, [listBusy, listingScope, path]);
   const slowFg = surface === "primary" ? "text-secondary" : "text-primary";
   const stillWorking = slowListing ? (
     <div
@@ -977,33 +996,36 @@ export default function FileBrowser({
     if (virtualOn && idx >= 0 && !find()) {
       virtualizerRef.current?.scrollToIndex(idx, { align: "auto" });
     }
-    window.requestAnimationFrame(() => {
+    if (revealFrame.current) window.cancelAnimationFrame(revealFrame.current);
+    revealFrame.current = window.requestAnimationFrame(() => {
+      revealFrame.current = 0;
       find()?.scrollIntoView?.({ block: "nearest", behavior });
     });
   }
+  useLayoutEffect(() => () => {
+    if (revealFrame.current) window.cancelAnimationFrame(revealFrame.current);
+    revealFrame.current = 0;
+  }, [listingScope, path]);
 
   const narrowed = visibleEntries.length !== entries.length;
   const isFiltered = Boolean(filterText.trim() || kindFilter !== "all");
 
   useEffect(() => {
-    if (controlledSelected !== undefined) return;
+    if (controlledSelected !== undefined || !listingShown || listBusy) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
-    setInnerSelected((prev) => prev.filter((p) => {
-      const parent = parentPath(p);
-      if (parent === path || (parent === "" && path === "")) {
-        return entryByPath.has(p);
-      }
-      // Keep selection that lives outside this folder (bulk ops across nav).
-      return parent !== path;
-    }));
-  }, [entryByPath, path, controlledSelected]);
+    setInnerSelected((prev) => {
+      const next = prev.filter((p) => parentPath(p) !== path || entryByPath.has(p));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [entryByPath, path, controlledSelected, listBusy, listingShown]);
 
   // Link navigation (and search deep-links) change `path` without calling setPath,
   // so clear the previous folder's selection unless a fresh `select=` is pending.
-  const prevPathRef = useRef(path);
-  useEffect(() => {
-    if (prevPathRef.current === path) return;
-    prevPathRef.current = path;
+  const prevPathRef = useRef({ path, listingScope });
+  useLayoutEffect(() => {
+    if (prevPathRef.current.path === path && prevPathRef.current.listingScope === listingScope) return;
+    prevPathRef.current = { path, listingScope };
+    appliedSelectRef.current = null;
     // A typed name filter does not carry into the next folder.
     setFilterText("");
     if (selectPath) return;
@@ -1011,7 +1033,7 @@ export default function FileBrowser({
     setSelectedPaths([]);
     setLastClicked(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- path transition seed only
-  }, [path, selectPath]);
+  }, [path, selectPath, listingScope]);
 
   // A deep-linked select= row must be visible: clear the name filter so the
   // row renders before the select effect tries to scroll to it.
@@ -1019,6 +1041,7 @@ export default function FileBrowser({
     if (!selectPath) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link needs its row visible
     setFilterText("");
+    setKindFilter("all");
   }, [selectPath]);
 
   // Deep-link from search (`?select=`): select the file once the listing is
@@ -1035,6 +1058,7 @@ export default function FileBrowser({
       onSelectPathApplied?.();
       return;
     }
+    if (!visibleIndex.has(selectPath)) return;
     appliedSelectRef.current = selectPath;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link select= seed
     setSelectedPaths([selectPath]);
@@ -1043,7 +1067,7 @@ export default function FileBrowser({
     onSelectPathApplied?.();
     // setSelectedPaths is stable enough for this deep-link seed; listing/selectPath drive re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional seed-once-per-selectPath
-  }, [selectPath, entryByPath, listBusy, onSelectPathApplied]);
+  }, [selectPath, entryByPath, listBusy, onSelectPathApplied, visibleIndex]);
 
   const up = parentPath(path);
   const segments = path.split("/").filter(Boolean);
@@ -1232,20 +1256,28 @@ export default function FileBrowser({
     const probe = folderChromeProbeRef.current;
     if (!container) return;
 
-    const timeoutId = window.setTimeout(remeasureFolderChrome, 50);
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        remeasureFolderChrome();
+      });
+    };
+    schedule();
     /** @type {ResizeObserver | null} */
     let observer = null;
     if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(remeasureFolderChrome);
+      observer = new ResizeObserver(schedule);
       observer.observe(container);
       if (probe) observer.observe(probe);
     }
-    window.addEventListener("resize", remeasureFolderChrome);
+    window.addEventListener("resize", schedule);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      if (frame) window.cancelAnimationFrame(frame);
       observer?.disconnect();
-      window.removeEventListener("resize", remeasureFolderChrome);
+      window.removeEventListener("resize", schedule);
     };
   }, [
     hasFolderActions,
@@ -1273,7 +1305,7 @@ export default function FileBrowser({
   }, []);
 
   // A pending spring-load must not fire after unmount mid-drag.
-  useEffect(() => clearSpringLoad, [clearSpringLoad]);
+  useLayoutEffect(() => clearSpringLoad, [clearSpringLoad, listingScope, path]);
 
   /**
    * Spring-load: holding a drag over a folder drop target for

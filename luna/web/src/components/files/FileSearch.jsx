@@ -123,6 +123,8 @@ export default function FileSearch({ initialRequest }) {
     setActionHold(null);
   };
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const deleteTargetRef = useRef(deleteTarget);
+  deleteTargetRef.current = deleteTarget;
   const [copyTarget, setCopyTarget] = useState(null);
   const [copyKind, setCopyKind] = useState(/** @type {"copy" | "move"} */ ("copy"));
   const [accessTarget, setAccessTarget] = useState(null);
@@ -142,6 +144,7 @@ export default function FileSearch({ initialRequest }) {
   const isClosingRef = useRef(false);
   const bodyInnerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const bodyScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const focusAfterTrash = useRef(false);
 
   const focusTrigger = useCallback(() => {
     const button = searchTrigger()?.querySelector("button");
@@ -219,7 +222,7 @@ export default function FileSearch({ initialRequest }) {
   // folder can 403, so member links route through memberSearchHref.
   const memberAccess = useQuery({
     queryKey: ["my-access"],
-    queryFn: () => getJson("/api/v1/me/access"),
+    queryFn: ({ signal }) => getJson("/api/v1/me/access", { signal }),
     enabled: present && Boolean(user?.role) && user.role !== "admin",
   });
 
@@ -228,16 +231,15 @@ export default function FileSearch({ initialRequest }) {
       deleteJson(
         `/api/v1/drives/${item.drive_id}/files?path=${encodeURIComponent(item.path)}`,
       ),
-    onSuccess: () => {
-      setActionError(null);
+    onSuccess: (_result, target) => {
+      if (deleteTargetRef.current === target) setActionError(null);
       addToast({ type: "success", message: "Moved to Trash." });
       queryClient.invalidateQueries({ queryKey: ["search"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["trash"] });
-      // The row is gone; keep the keyboard in the list's search box.
-      window.setTimeout(() => inputRef.current?.focus(), 0);
     },
-    onError: (err) => {
+    onError: (err, target) => {
+      if (deleteTargetRef.current !== target) return;
       setActionError(apiErrorMessage(err, "Luna couldn't move that to trash. Try again."));
       setActionHold(holdsPrivateOf(err));
     },
@@ -364,6 +366,12 @@ export default function FileSearch({ initialRequest }) {
 
   useLayoutEffect(() => present ? lockBodyScroll() : undefined, [present]);
 
+  useLayoutEffect(() => {
+    if (actionModalOpen || !focusAfterTrash.current) return;
+    focusAfterTrash.current = false;
+    if (present && !isClosing) inputRef.current?.focus({ preventScroll: true });
+  }, [present, isClosing, actionModalOpen]);
+
   // Escape while the overlay is present.
   useEffect(() => {
     if (!present) return undefined;
@@ -448,10 +456,8 @@ export default function FileSearch({ initialRequest }) {
     if (!allLinks.length) return;
 
     const currentItem = /** @type {HTMLElement|null} */ (event.target instanceof HTMLElement ? event.target.closest('[data-slot="file-search-item"]') : null);
-    const allItems = /** @type {HTMLElement[]} */ ([
-      ...(panelRef.current?.querySelectorAll?.('[data-slot="file-search-item"]') ?? []),
-    ]);
-    const currentIndex = currentItem ? allItems.indexOf(currentItem) : -1;
+    const currentIndex = currentItem
+      ? allLinks.findIndex((link) => currentItem.contains(link)) : -1;
 
     if (event.key === "ArrowDown") {
       if (currentIndex >= 0 && currentIndex < allLinks.length - 1) {
@@ -747,9 +753,14 @@ export default function FileSearch({ initialRequest }) {
                 variant="danger"
                 loading={removeMutation.isPending}
                 onClick={() => {
-                  if (!deleteTarget) return;
-                  removeMutation.mutateAsync(deleteTarget)
-                    .then(() => close())
+                  const target = deleteTarget;
+                  if (!target) return;
+                  removeMutation.mutateAsync(target)
+                    .then(() => {
+                      if (deleteTargetRef.current !== target) return;
+                      focusAfterTrash.current = true;
+                      close();
+                    })
                     .catch(() => {});
                 }}
               >
