@@ -58,6 +58,26 @@ describe("AddToAlbumModal", () => {
     expect(screen.getByRole("button", { name: /^Apply$/i })).toBeEnabled();
   });
 
+  it("lets a checked album be changed while another album is still loading", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+      if (String(url).includes("/a1/items")) {
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        });
+      }
+      return new Response("[]", { headers: { "Content-Type": "application/json" } });
+    }));
+    const onApply = vi.fn();
+    render(<AddToAlbumModal open albums={ALBUMS} photos={PHOTOS} onApply={onApply} onClose={vi.fn()} />);
+
+    const family = await screen.findByRole("checkbox", { name: /Family/i });
+    await waitFor(() => expect(family).toBeEnabled());
+    expect(screen.getByRole("checkbox", { name: /Vacation/i })).toBeDisabled();
+    fireEvent.click(family);
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+    expect(onApply).toHaveBeenCalledWith([{ album: ALBUMS[1], add: PHOTOS }], expect.any(Function));
+  });
+
   it("filters the album list by search", async () => {
     const user = userEvent.setup();
     render(

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- page exports helpers used by tests */
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, Lock, PlugZap, Shield, Trash2, Unplug, Users } from "lucide-react";
@@ -271,6 +271,8 @@ function DriveFacts({ rows }) {
  * where a drive that has to be erased first hands off to FormatDriveFlow; the
  * card itself never offers to erase. `onShowProgress` reopens a running erase.
  */
+const DetectedCard = memo(
+/** @param {{ drive: any, onOpen: (drive: any) => void, onShowProgress?: (drive: any) => void }} props */
 function DetectedCard({ drive, onOpen, onShowProgress }) {
   // A card reader with nothing in it reports a size of 0.
   const empty = !drive.size_bytes;
@@ -284,7 +286,7 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
       isMockUnknownDrive(drive.name)
         ? Promise.resolve({ ...mockInspectResult(), sample: mockInspectResult().entries })
         : getJson(`/api/v1/drives/${encodeURIComponent(drive.name)}/peek`),
-    enabled: !empty,
+    enabled: !empty && !drive.formatting,
     // A good answer is kept for as long as this media stays in; a failed one
     // is tried again so one hiccup doesn't stick until the page reloads.
     staleTime: Infinity,
@@ -337,7 +339,7 @@ function DetectedCard({ drive, onOpen, onShowProgress }) {
       </div>
     </DriveCard>
   );
-}
+});
 
 const CANT_OPEN_MESSAGE =
   "Luna can't open this drive right now, so its files and free space aren't available.";
@@ -374,6 +376,19 @@ function DriveStatusSheet({ drive, health, actions }) {
   );
 }
 
+const AdoptedCard = memo(
+/**
+ * @param {{
+ *   drive: any,
+ *   showHealth: boolean,
+ *   onEject: (drive: any) => void,
+ *   onRemove: (drive: any) => void,
+ *   onShare?: (drive: any) => void,
+ *   onProtect?: (drive: any) => void,
+ *   onShowProgress?: (drive: any) => void,
+ *   onEncryption?: (drive: any) => void,
+ * }} props
+ */
 function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect, onShowProgress, onEncryption }) {
   const location = useLocation();
   const cardRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -473,7 +488,7 @@ function AdoptedCard({ drive, showHealth, onEject, onRemove, onShare, onProtect,
       </DriveCard>
     </div>
   );
-}
+});
 
 /**
  * Why Remove leaves the drive database on the drive, or "" when Remove deletes
@@ -529,7 +544,7 @@ export default function FilesPage() {
   const [encryptionDrive, setEncryptionDrive] = useState(null);
   const closeErase = () => { setEraseDevice(null); setErasePassword(undefined); };
   const protectAvailable = useCanProtect(isAdmin);
-  const unknownDrives = withDevMockDetected(detected.data);
+  const unknownDrives = useMemo(() => withDevMockDetected(detected.data), [detected.data]);
   // The dashboard's "New drive detected" card links to #unrecognized-drives. The drives load after
   // the page does, so the browser's own hash scrolling can't find the section; do it once it shows.
   const location = useLocation();
@@ -579,6 +594,24 @@ export default function FilesPage() {
       haptic("error");
     },
   });
+  const { mutate: inspectDrive, reset: resetInspect } = inspect;
+  const { reset: resetAdopt } = adopt;
+  const openDetectedDrive = useCallback((drive) => {
+    resetInspect();
+    resetAdopt();
+    setInspectFor(drive);
+    inspectDrive(drive);
+  }, [resetInspect, resetAdopt, inspectDrive]);
+  const showDetectedProgress = useCallback((drive) => {
+    setEraseDevice({ name: drive.name, model: drive.model, label: drive.model || "", format_id: drive.format_id });
+  }, []);
+  const showAdoptedProgress = useCallback((drive) => {
+    setEraseDevice({ name: drive.device, label: drive.label, format_id: drive.format_id });
+  }, []);
+  const shareDrive = useCallback((drive) => setSharingDrive({ id: drive.id, path: "" }), []);
+  const protectDrive = useCallback((drive) => setProtectingDrive({ id: drive.id, path: "" }), []);
+  const grants = useMemo(() => memberAccessRoots(access.data).filter((grant) => grant.kind !== KIND_ALBUM), [access.data]);
+  const lockedDriveIds = useMemo(() => new Set((drives.data || []).filter(isLocked).map((drive) => drive.id)), [drives.data]);
 
   const eject = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
@@ -616,13 +649,12 @@ export default function FilesPage() {
   useStrandedErrorToast(actionError, actionModalOpen, () => setActionError(null));
 
   if (user?.role === "user") {
-    const grants = memberAccessRoots(access.data || []).filter((g) => g.kind !== KIND_ALBUM);
     return (
       <Page title="Files" titleId="files-title" rightContent={<FileSearchButton />}>
         <div className="grid gap-4 md:grid-cols-2">
           {grants.map((grant) => {
             // A locked drive asks for its password right here; anyone with access may enter it.
-            const locked = (drives.data || []).some((d) => d.id === grant.drive_id && isLocked(d));
+            const locked = lockedDriveIds.has(grant.drive_id);
             return (
             <Card key={grant.id} icon={FolderOpen} title={grant.name || grant.drive_label}>
               <p className="text-primary text-sm">
@@ -714,12 +746,12 @@ export default function FilesPage() {
               key={drive.id}
               drive={drive}
               showHealth
-              onEject={(d) => setEjectTarget(d)}
-              onRemove={(d) => setRemoveTarget(d)}
-              onShare={(d) => setSharingDrive({ id: d.id, path: "" })}
-              onProtect={protectAvailable ? (d) => setProtectingDrive({ id: d.id, path: "" }) : undefined}
-              onShowProgress={isAdmin ? (d) => setEraseDevice({ name: d.device, label: d.label, format_id: d.format_id }) : undefined}
-              onEncryption={isAdmin ? (d) => setEncryptionDrive(d) : undefined}
+              onEject={setEjectTarget}
+              onRemove={setRemoveTarget}
+              onShare={shareDrive}
+              onProtect={protectAvailable ? protectDrive : undefined}
+              onShowProgress={isAdmin ? showAdoptedProgress : undefined}
+              onEncryption={isAdmin ? setEncryptionDrive : undefined}
             />
           ))}
         </div>
@@ -740,13 +772,8 @@ export default function FilesPage() {
               <DetectedCard
                 key={drive.name}
                 drive={drive}
-                onShowProgress={(d) => setEraseDevice({ name: d.name, model: d.model, label: d.model || "", format_id: d.format_id })}
-                onOpen={(d) => {
-                  inspect.reset();
-                  adopt.reset();
-                  setInspectFor(d);
-                  inspect.mutate(d);
-                }}
+                onShowProgress={showDetectedProgress}
+                onOpen={openDetectedDrive}
               />
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -14,10 +14,15 @@ import { parseCreateName } from "../../lib/createName.js";
 import { isTrashPath, joinPath } from "../../lib/paths.js";
 import { isPresentDrive, isWritableDrive } from "../../lib/drives.js";
 import { CAP } from "../../lib/access.js";
-import { capsOnPath, memberWritableRoots, pathContains } from "../../lib/shareTree.js";
+import { capsOnPath, memberWritableRoots, pathContains, pathKey } from "../../lib/shareTree.js";
 import { useOptionalAuth } from "../../context/AuthContext.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
+
+const EMPTY_LIST = [];
+const UPLOAD_ONLY = (
+  <p className="text-secondary text-sm">You can add files here, but you can't open this folder.</p>
+);
 
 /**
  * Pick a destination folder on a drive — replaces typed path fields.
@@ -47,7 +52,7 @@ export default function FolderPickerModal({
   open = true,
   busy = false,
   error = null,
-  movingPaths = [],
+  movingPaths = EMPTY_LIST,
 }) {
   const queryClient = useQueryClient();
   const source = useFileSource();
@@ -69,7 +74,7 @@ export default function FolderPickerModal({
   const isAdmin = user?.role === "admin";
   const access = useQuery({
     queryKey: ["my-access"],
-    queryFn: () => getJson("/api/v1/me/access"),
+    queryFn: ({ signal }) => getJson("/api/v1/me/access", { signal }),
     enabled: open && rooted && !isAdmin,
   });
   // Destinations live on every present drive — not just the subset
@@ -86,15 +91,24 @@ export default function FolderPickerModal({
   ), [rooted, drivesQuery.data]);
   const roots = useMemo(() => {
     if (!rooted || !(isAdmin ? drivesQuery.data : access.data)) return null;
-    const present = new Set(memberDrives.map((d) => d.id));
-    const labelOf = (id) => memberDrives.find((d) => d.id === id)?.label || id;
-    if (!isAdmin) return memberWritableRoots(access.data, (id) => present.has(id), labelOf);
+    if (!isAdmin) {
+      const labelById = new Map(memberDrives.map((drive) => [drive.id, drive.label]));
+      return memberWritableRoots(access.data, (id) => labelById.has(id), (id) => labelById.get(id) || id);
+    }
     return memberDrives
       .filter((d) => isWritableDrive(d))
       .map((d) => ({ driveId: d.id, path: "", label: d.label }));
   }, [rooted, isAdmin, access.data, drivesQuery.data, memberDrives]);
   const [rootIdx, setRootIdx] = useState(0);
   const root = rooted ? (roots?.[rootIdx] || roots?.[0] || null) : null;
+  const rootOptions = useMemo(() => (roots || EMPTY_LIST).map((candidate, index) => ({
+    value: String(index),
+    label: `${candidate.label}${candidate.driveId === initialDriveId && candidate.path === initialPath ? " (current)" : ""}`,
+  })), [roots, initialDriveId, initialPath]);
+  const driveOptions = useMemo(() => activeDrives.map((candidate) => ({
+    value: candidate.id,
+    label: `${candidate.label}${candidate.id === initialDriveId ? " (current)" : ""}`,
+  })), [activeDrives, initialDriveId]);
 
   const [driveId, setDriveId] = useState(initialDriveId);
   const [path, setPath] = useState(initialPath);
@@ -110,8 +124,17 @@ export default function FolderPickerModal({
 
   // Moving a folder into itself can't work: nothing at or below the items
   // being moved (on their own drive) is offered as a destination.
-  const isInsideMoved = (p) => browseDriveId === initialDriveId
-    && movingPaths.some((moving) => pathContains(moving, p));
+  const moved = useMemo(() => new Set(movingPaths.map(pathKey)), [movingPaths]);
+  const isInsideMoved = useCallback((path) => {
+    if (browseDriveId !== initialDriveId || moved.size === 0) return false;
+    let candidate = pathKey(path);
+    while (candidate) {
+      if (moved.has(candidate)) return true;
+      candidate = candidate.slice(0, Math.max(0, candidate.lastIndexOf("/")));
+    }
+    return moved.has("");
+  }, [browseDriveId, initialDriveId, moved]);
+  const pickFolder = useCallback((ctx) => setPicked(ctx.fullPath), []);
 
   /** Capability bits for `p` on the browsed drive (member mode only). */
   const capsAt = (p) => (isAdmin
@@ -177,11 +200,15 @@ export default function FolderPickerModal({
     }
   }
 
-  function openCreateFolder() {
+  const openCreateFolder = useCallback(() => {
     setCreateError(null);
     setCreateName("");
     setCreating(true);
-  }
+  }, []);
+  const canCreateFolder = !isTrashPath(path) && (!rooted || canWriteAt(path));
+  const folderActions = useMemo(() => canCreateFolder
+    ? <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />
+    : null, [canCreateFolder, openCreateFolder]);
 
   return (
     <ModalCard open={open} title={title} size="lg" onClose={onClose}>
@@ -201,11 +228,8 @@ export default function FolderPickerModal({
                   Destination
                 </label>
                 <Dropdown
-                  options={roots.map((r, i) => ({
-                    value: String(i),
-                    label: `${r.label}${r.driveId === initialDriveId && r.path === initialPath ? " (current)" : ""}`,
-                  }))}
-                  value={String(roots.indexOf(root))}
+                  options={rootOptions}
+                  value={String(root === roots[rootIdx] ? rootIdx : 0)}
                   onChange={(v) => {
                     const next = roots[Number(v)];
                     if (!next) return;
@@ -224,10 +248,7 @@ export default function FolderPickerModal({
                 Destination drive
               </label>
               <Dropdown
-                options={activeDrives.map((d) => ({
-                  value: d.id,
-                  label: `${d.label}${d.id === initialDriveId ? " (current)" : ""}`,
-                }))}
+                options={driveOptions}
                 value={driveId}
                 onChange={(id) => {
                   setDriveId(id);
@@ -246,23 +267,18 @@ export default function FolderPickerModal({
               driveLabel={drive.label}
               path={path}
               pathFloor={rooted ? (root?.path || "") : ""}
-              forbiddenState={rooted ? (
-                <p className="text-secondary text-sm">
-                  You can add files here, but you can't open this folder.
-                </p>
-              ) : null}
+              forbiddenState={rooted ? UPLOAD_ONLY : null}
               onPathChange={setPath}
               pickerMode="folder"
               selectedPath={picked}
-              onSelect={(ctx) => setPicked(ctx.fullPath)}
+              onSelect={pickFolder}
               multiSelect={false}
               enableDownload={false}
               enableUploadDrop={false}
               dense
               surface="primary"
               isPickBlocked={movingPaths.length > 0 ? isInsideMoved : undefined}
-              folderActions={isTrashPath(path) || (rooted && !canWriteAt(path)) ? null
-                : <NewItemMenu ids={["folder"]} onPick={openCreateFolder} surface="primary" />}
+              folderActions={folderActions}
             />
           ) : rooted && roots && roots.length === 0 ? null : (
             <p className="text-primary text-sm">No drives are available. Make sure a drive is plugged in. If it is, unplug it and plug it back in.</p>

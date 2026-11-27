@@ -205,6 +205,8 @@ const placesUrlFor = (listUrl) =>
   listUrl.replace("/api/v1/photos?", "/api/v1/photos/places?");
 /** Shared empty list so an unloaded places query keeps a stable prop identity. */
 const NO_PLACES = [];
+const NO_ALBUMS = [];
+const NO_PHOTOS = [];
 const ALBUM_NAME_COLLATOR = new Intl.Collator(undefined, { sensitivity: "base" });
 
 const PlacesMap = lazyWithPreload(() => import("../components/photos/PlacesMap.jsx"));
@@ -894,6 +896,7 @@ export default function PhotosPage() {
   // Compared as timestamps, then turned into day keys once: a later moment is
   // never an earlier day.
   const loadedDaySpan = useMemo(() => {
+    if (!jumpTarget) return { newest: null, oldest: null, undated: false };
     let newest = null;
     let oldest = null;
     let undated = false;
@@ -911,7 +914,7 @@ export default function PhotosPage() {
       oldest: oldest == null ? null : dayKey(oldest),
       undated,
     };
-  }, [photos]);
+  }, [jumpTarget, photos]);
 
   // Keep multi-select items in sync with visible photos.
   const selection = useMultiSelect({ items: photos });
@@ -921,15 +924,15 @@ export default function PhotosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset when the segment changes
   }, [activeSegment]);
 
+  const { selectMode, exit: exitPhotoSelection } = selection;
   useEffect(() => {
+    if (!selectMode) return undefined;
     function onKey(e) {
-      if (e.key === "Escape" && selection.selectMode) {
-        selection.exit();
-      }
+      if (e.key === "Escape") exitPhotoSelection();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection]);
+  }, [selectMode, exitPhotoSelection]);
 
   // Beats the all-files search on `/`: here it means "search these photos".
   useShortcut("/", () => {
@@ -2519,8 +2522,8 @@ export default function PhotosPage() {
 
       <AddToAlbumModal
         open={!!albumPick}
-        albums={albums.data || []}
-        photos={/** @type {Array<{ drive_id: string, path: string }>} */ (albumPick || [])}
+        albums={albums.data || NO_ALBUMS}
+        photos={/** @type {Array<{ drive_id: string, path: string }>} */ (albumPick || NO_PHOTOS)}
         albumsLoading={!!albumPick && (albums.isLoading || albums.isPending || (albums.isFetching && !albums.data))}
         applying={applyAlbumPick.isPending}
         error={albumPick ? error : null}

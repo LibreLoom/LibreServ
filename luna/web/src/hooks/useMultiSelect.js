@@ -31,23 +31,26 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     const keys = items.map((item) => keyOf(item));
     /** @type {Map<string, number>} */
     const indices = new Map();
+    let hasDuplicates = false;
     keys.forEach((key, index) => {
-      if (key && !indices.has(key)) indices.set(key, index);
+      if (!key) return;
+      if (indices.has(key)) hasDuplicates = true;
+      else indices.set(key, index);
     });
-    return { keys, indices };
+    return { keys, indices, hasDuplicates };
   }, [items, keyOf]);
   const viewRef = useRef(view);
   viewRef.current = view;
   const indexOfKey = useCallback((key) => view.indices.get(key) ?? -1, [view]);
 
   const clear = useCallback(() => {
-    setSelected(new Set());
+    setSelected((previous) => previous.size ? new Set() : previous);
     anchorRef.current = null;
   }, []);
 
   const exit = useCallback(() => {
     setSelectMode(false);
-    setSelected(new Set());
+    setSelected((previous) => previous.size ? new Set() : previous);
     anchorRef.current = null;
   }, []);
 
@@ -64,18 +67,21 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
       const { keys, indices } = viewRef.current;
       const anchorKey = anchorRef.current;
       setSelected((prev) => {
-        const next = new Set(prev);
         if (range && anchorKey) {
           const a = indices.get(anchorKey);
           const b = indices.get(key);
           if (a !== undefined && b !== undefined) {
             const [lo, hi] = a < b ? [a, b] : [b, a];
+            let next = prev;
             for (let i = lo; i <= hi; i += 1) {
-              if (keys[i]) next.add(keys[i]);
+              if (!keys[i] || next.has(keys[i])) continue;
+              if (next === prev) next = new Set(prev);
+              next.add(keys[i]);
             }
             return next;
           }
         }
+        const next = new Set(prev);
         if (next.has(key)) next.delete(key);
         else next.add(key);
         return next;
@@ -95,10 +101,12 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
     (list) => {
       setSelectMode(true);
       setSelected((prev) => {
-        const next = new Set(prev);
+        let next = prev;
         for (const item of list || []) {
           const key = keyOf(item);
-          if (key) next.add(key);
+          if (!key || next.has(key)) continue;
+          if (next === prev) next = new Set(prev);
+          next.add(key);
         }
         return next;
       });
@@ -110,10 +118,12 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
   const deselectItems = useCallback(
     (list) => {
       setSelected((prev) => {
-        const next = new Set(prev);
+        let next = prev;
         for (const item of list || []) {
           const key = keyOf(item);
-          if (key) next.delete(key);
+          if (!key || !next.has(key)) continue;
+          if (next === prev) next = new Set(prev);
+          next.delete(key);
         }
         return next;
       });
@@ -124,8 +134,20 @@ export default function useMultiSelect({ items = [], keyOf = photoSelectionKey }
   // Only bulk actions need the items themselves. Keep the library scan off
   // the selection path and resolve in view order when an action is invoked.
   const getSelectedItems = useCallback(
-    () => selected.size ? items.filter((item) => selected.has(keyOf(item))) : [],
-    [items, keyOf, selected],
+    () => {
+      if (!selected.size) return [];
+      if (view.hasDuplicates || selected.size * 8 > items.length) {
+        return items.filter((_item, index) => selected.has(view.keys[index]));
+      }
+      const positions = [];
+      for (const key of selected) {
+        const index = view.indices.get(key);
+        if (index !== undefined) positions.push(index);
+      }
+      positions.sort((a, b) => a - b);
+      return positions.map((index) => items[index]);
+    },
+    [items, selected, view],
   );
 
   const isSelected = useCallback((item) => selected.has(keyOf(item)), [keyOf, selected]);
