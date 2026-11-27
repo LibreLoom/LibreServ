@@ -11,7 +11,7 @@ mod auth;
 pub use auth::{
     CONNECT_CREDENTIAL_FILE, CREDENTIAL_MALFORMED_MSG, CREDENTIAL_REJECTED_MSG, ConnectError,
     ConnectService, ConnectState, ConnectStatus, DEVICE_TOKEN_FILE, DEVICE_TOKEN_MALFORMED_MSG,
-    LAN_OVERRIDE_FILE, UNBIND_PENDING_FILE, UNBIND_PENDING_MSG,
+    DISCONNECT_FIRST_MSG, LAN_OVERRIDE_FILE, UNBIND_PENDING_FILE, UNBIND_PENDING_MSG,
 };
 pub(crate) use auth::{is_device_token_format, normalize_device_token};
 use serde_json::{Value, json};

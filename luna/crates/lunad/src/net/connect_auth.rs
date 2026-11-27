@@ -25,8 +25,8 @@ pub const CONNECT_CREDENTIAL_FILE: &str = "connect-credential";
 pub const UNBIND_PENDING_FILE: &str = "connect-unbind-pending";
 pub const LAN_OVERRIDE_FILE: &str = "lan-override";
 
-pub const DEVICE_TOKEN_MALFORMED_MSG: &str =
-    "This Luna's device token is not valid. Enter the device token from the quick-start guide.";
+pub const DEVICE_TOKEN_MALFORMED_MSG: &str = "This Luna's device token is not valid. Enter the device token from the quick-start guide in Settings → About → Advanced → Device token.";
+pub const DISCONNECT_FIRST_MSG: &str = "Disconnect Luna Connect first.";
 pub const CREDENTIAL_MALFORMED_MSG: &str =
     "This Luna's Luna Connect connection is damaged. Reconnect this Luna from Luna Connect.";
 pub const CREDENTIAL_REJECTED_MSG: &str = "Luna Connect no longer accepts this Luna's connection. Open Luna Connect to reconnect this Luna.";
@@ -507,6 +507,40 @@ impl ConnectService {
         Ok(())
     }
 
+    /// Opt out of Connect: forget the device token and stop polling. Refused
+    /// while the device is bound, pairing, holds a credential, or still owes
+    /// Connect an unbind, because Connect would keep a link Luna can no longer
+    /// end.
+    pub fn remove_device_token(&self) -> Result<(), ConnectError> {
+        let _operation = self
+            .auth
+            .operation_mu
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if self.can_unbind() || self.connect_state(&self.load(), false) == ConnectState::Bound {
+            return Err(ConnectError::Other(DISCONNECT_FIRST_MSG.into()));
+        }
+        match std::fs::remove_file(&self.auth.device_token_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                return Err(ConnectError::Other(
+                    "Luna couldn't remove the device token. Try again.".into(),
+                ));
+            }
+        }
+        let _ = crate::datadir::sync_parent_directory(&self.auth.device_token_path);
+        *self
+            .auth
+            .pairing_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        self.clear_unreachable();
+        self.poll_wake.wake();
+        crate::system::console::request_refresh();
+        Ok(())
+    }
+
     pub fn public_hostname(&self) -> Option<String> {
         if !self.is_connect_active() {
             return None;
@@ -911,7 +945,7 @@ impl ConnectService {
             Err(ConnectError::PairingRejected) => {
                 self.clear_unreachable();
                 *self.auth.pairing_error.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some("Luna Connect did not accept this Luna's device token. Check it in Settings → Luna Connect → Device token.".into());
+                    Some("Luna Connect did not accept this Luna's device token. Check it in Settings → About → Advanced → Device token.".into());
                 false
             }
             Err(err) => {

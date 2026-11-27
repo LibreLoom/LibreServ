@@ -21,6 +21,7 @@ Backup formats, backup keys, retention, and cloud archive behavior are out of sc
 - Unbind, reset-with-disconnect, and explicit revocation invalidate the auth token immediately.
 - The device token, Connect device row, and cloud identity survive credential refresh, unbind, and factory reset.
 - Off-LAN first-Admin setup requires the full device token, **checked by Luna against its own file**. Connect is not asked, and no separate setup grant or setup key exists.
+- An Admin may **remove** the saved device token in Settings → About → Advanced → Device token, which turns Luna Connect off on a Luna that is not connected. Removal is refused while the device is bound or has an unbind pending, so reset or removal never strands a credential. Replacing and removing are local-only.
 - Physical access to a Luna is ownership. The token is not rotated on resale or handover.
 - The current one-device-per-Connect-account limit remains unchanged.
 - The old permanent-token authentication path stays removed.
@@ -197,7 +198,7 @@ The device token survives both choices. Reset must never delete the only credent
 ## First local Admin
 
 - LAN first registration remains available under the existing Host, Origin, and client-IP checks.
-- Off-LAN first registration requires the full device token. Luna compares it, case-insensitively and ignoring grouping, with `device-token` on disk and creates the first Admin only on a match. A missing or wrong token is refused with plain-language copy; remote first login never fails open.
+- Off-LAN first registration requires the full device token. Luna compares it, case-insensitively and ignoring grouping, with `device-token` on disk and creates the first Admin only on a match. A missing or wrong token is refused with plain-language copy; a Luna with no token says to set up from the same network, and a Luna with an unbind pending refuses off-LAN setup entirely. Remote first login never fails open.
 - Connect's onboarding links to `/setup#token=<token>` to prefill the field. The token is in the URL fragment, never the query string, and Luna removes it from the visible URL after reading it.
 - The setup page asks for the token only when the request is off-LAN. The daemon makes the authoritative client-IP decision.
 - The auth token and the setup URL query string are not accepted as substitutes.

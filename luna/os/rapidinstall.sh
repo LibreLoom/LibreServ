@@ -261,7 +261,7 @@ if ! mount -o rw "$_datap" "$_data_mnt"; then
 	echo "The OS image checksum is missing. This install did not finish."
 	exit 1
 fi
-if ! factory_apply_device_token "$_data_mnt"; then
+if ! factory_apply_device_token "$_data_mnt" "$HERE"; then
 	umount "$_data_mnt" 2>/dev/null || true
 	echo
 	echo "Install wrote the disk, but the device token step failed."

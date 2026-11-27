@@ -1,6 +1,9 @@
 //! Read one device token from the LUNAASSETS `TOKENS` magazine.
 //!
-//! Each data line has exactly one field: a 20-character Crockford device token.
+//! Each data line holds one device token. A line is normalized first (dashes,
+//! spaces and underscores dropped, uppercased, I/L read as 1, O as 0) so a
+//! hand-edited or grouped export still works, then it must be exactly 20
+//! Crockford characters.
 
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -45,15 +48,10 @@ impl Default for MagFetchOptions {
     }
 }
 
-/// Parse the factory contract exactly: one field, a 20-character Crockford
-/// token. Grouping, comments, and extra fields are rejected.
+/// Normalize a magazine line, then require exactly 20 Crockford characters.
+/// A line that is still invalid after normalizing yields `None` and is dropped.
 pub fn parse_factory_token_line(line: &str) -> Option<String> {
-    let mut fields = line.split_whitespace();
-    let field = fields.next()?;
-    if fields.next().is_some() || field.len() != 20 {
-        return None;
-    }
-    let token = normalize_device_token(field);
+    let token = normalize_device_token(line);
     is_device_token_format(&token).then_some(token)
 }
 
@@ -334,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_line_requires_exactly_one_valid_field() {
+    fn factory_line_is_normalized_then_must_be_twenty_crockford_characters() {
         assert_eq!(
             parse_factory_token_line(&format!("  {TOKEN}  ")).as_deref(),
             Some(TOKEN)
@@ -343,10 +341,41 @@ mod tests {
             parse_factory_token_line("7k4m2q9xr8n36t5w1pzh").as_deref(),
             Some(TOKEN)
         );
+        assert_eq!(
+            parse_factory_token_line("7K4M-2Q9X-R8N3-6T5W-1PZH").as_deref(),
+            Some(TOKEN)
+        );
+        assert_eq!(
+            parse_factory_token_line("7k4m 2q9x r8n3 6t5w 1pzh").as_deref(),
+            Some(TOKEN)
+        );
+        // Lookalikes: I and L read as 1, O as 0.
+        assert_eq!(
+            parse_factory_token_line("7K4M2Q9XR8N36T5WIPZH").as_deref(),
+            Some("7K4M2Q9XR8N36T5W1PZH")
+        );
         assert_eq!(parse_factory_token_line(&format!("{TOKEN} A3F91C")), None);
-        assert_eq!(parse_factory_token_line("7K4M-2Q9X-R8N3-6T5W-1PZH"), None);
         assert_eq!(parse_factory_token_line(&TOKEN[..19]), None);
+        assert_eq!(parse_factory_token_line(&format!("{TOKEN}2")), None);
         assert_eq!(parse_factory_token_line("7K4M2Q9XR8N36T5W1PZU"), None);
+    }
+
+    #[test]
+    fn grouped_and_lowercase_magazine_lines_are_peeled() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        write_tokens(&assets, "7k4m-2q9x-r8n3-6t5w-1pzh\nZZZZYYYYXXXXWWWWVVVV\n");
+        let path = dir.path().join("device-token");
+        assert_eq!(
+            fetch_device_token_from_mag(&path, &opts(&assets, 3)),
+            MagFetchOutcome::Fetched { attempts: 1 }
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), TOKEN);
+        assert_eq!(
+            std::fs::read_to_string(assets.join("TOKENS")).unwrap(),
+            "ZZZZYYYYXXXXWWWWVVVV\n"
+        );
     }
 
     #[test]
@@ -428,5 +457,35 @@ mod tests {
             MagFetchOutcome::ExhaustedRetries { .. }
         ));
         assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_tokens_file_is_not_read_or_written_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        // The stick's TOKENS is a link to a file the Luna owns.
+        let canary = dir.path().join("canary.txt");
+        std::fs::write(&canary, format!("keep me\n{TOKEN}\n")).unwrap();
+        std::os::unix::fs::symlink(&canary, assets.join("TOKENS")).unwrap();
+        let token = dir.path().join("device-token");
+        let out = fetch_device_token_from_mag(&token, &opts(&assets, 1));
+        assert_eq!(out, MagFetchOutcome::NoMagazine);
+        assert_eq!(
+            std::fs::read_to_string(&canary).unwrap(),
+            format!("keep me\n{TOKEN}\n")
+        );
+        assert!(!token.exists());
+    }
+
+    #[test]
+    fn empty_magazine_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        write_tokens(&assets, "# comments only\n\n");
+        let out = fetch_device_token_from_mag(&dir.path().join("device-token"), &opts(&assets, 2));
+        assert_eq!(out, MagFetchOutcome::NoMagazine);
     }
 }

@@ -1,6 +1,6 @@
 use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -20,7 +20,10 @@ pub fn router() -> Router<AppState> {
         // The device token identifies and pairs this Luna; it is never a
         // bearer credential. PUT sets or replaces it locally without asking
         // Connect; nothing reads it back (status only says whether it is set).
-        .route("/api/v1/connect/device-token", put(save_device_token))
+        .route(
+            "/api/v1/connect/device-token",
+            axum::routing::put(save_device_token).delete(remove_device_token),
+        )
         .route("/api/v1/connect/unbind", post(unbind))
 }
 
@@ -172,6 +175,36 @@ async fn save_device_token(
         "ok": true,
         "message": "Luna will use this device token to pair with Luna Connect. Keep this page open."
     })))
+}
+
+/// Opt out of Connect: forget the device token. Admin only, and only once
+/// Luna is no longer linked to (or disconnecting from) Luna Connect.
+async fn remove_device_token(
+    State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !current.as_ref().is_some_and(|u| u.role == "admin") {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an Admin can remove the device token.",
+        ));
+    }
+    let service = state.connect.clone();
+    tokio::task::spawn_blocking(move || service.remove_device_token())
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't remove the device token.",
+            )
+        })?
+        .map_err(|err| match err {
+            ConnectError::Other(msg) if msg == crate::net::connect::DISCONNECT_FIRST_MSG => {
+                json_error(StatusCode::CONFLICT, msg)
+            }
+            other => map_connect_err(other),
+        })?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
@@ -536,6 +569,95 @@ mod tests {
             h.state.connect.public_hostname().as_deref(),
             Some("photos.luna.servers.libreloom.org")
         );
+    }
+
+    #[tokio::test]
+    async fn only_an_admin_can_remove_the_device_token() {
+        let h = harness(true);
+        h.state.connect.set_device_token(TOKEN).unwrap();
+        for token in [h.member.as_deref(), None] {
+            let (status, _) = send(
+                &h,
+                Method::DELETE,
+                "/api/v1/connect/device-token",
+                token,
+                None,
+            )
+            .await;
+            assert!(
+                status == StatusCode::FORBIDDEN || status == StatusCode::UNAUTHORIZED,
+                "{status}"
+            );
+        }
+        assert!(h.data_dir.join(DEVICE_TOKEN_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn the_device_token_cannot_be_removed_while_linked() {
+        let h = harness(true);
+        seed_bound(&h);
+        let (status, body) = send(
+            &h,
+            Method::DELETE,
+            "/api/v1/connect/device-token",
+            h.admin.as_deref(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["error"], "Disconnect Luna Connect first.");
+        assert!(h.data_dir.join(DEVICE_TOKEN_FILE).exists());
+        // An owed unbind blocks it too.
+        std::fs::remove_file(
+            h.data_dir
+                .join(crate::net::connect::CONNECT_CREDENTIAL_FILE),
+        )
+        .unwrap();
+        std::fs::write(
+            h.data_dir.join(crate::net::connect::UNBIND_PENDING_FILE),
+            "{}",
+        )
+        .unwrap();
+        let (status, _) = send(
+            &h,
+            Method::DELETE,
+            "/api/v1/connect/device-token",
+            h.admin.as_deref(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(h.data_dir.join(DEVICE_TOKEN_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn removing_the_device_token_deletes_it_and_stops_polling() {
+        let h = harness(true);
+        h.state.connect.set_device_token(TOKEN).unwrap();
+        assert!(h.state.connect.poll_needed());
+        let (status, body) = send(
+            &h,
+            Method::DELETE,
+            "/api/v1/connect/device-token",
+            h.admin.as_deref(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "ok": true }));
+        assert!(!h.data_dir.join(DEVICE_TOKEN_FILE).exists());
+        assert!(!h.state.connect.has_device_token());
+        assert!(!h.state.connect.poll_needed());
+        // Removing it again is harmless.
+        let (status, _) = send(
+            &h,
+            Method::DELETE,
+            "/api/v1/connect/device-token",
+            h.admin.as_deref(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

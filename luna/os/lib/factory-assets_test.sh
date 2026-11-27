@@ -95,12 +95,18 @@ mkdir -p "$WORK/assets-old"
 printf '%s\n' "$TOK1 A3F91C" "$TOK2" >"$WORK/assets-old/TOKENS"
 assert_eq "$(factory_peel_token_from_dir "$WORK/assets-old")" "$TOK2" "two-field line is skipped"
 
-# Leading/trailing whitespace is not silently canonicalized.
+# The first line is returned as written; peeling then normalizes it.
 mkdir -p "$WORK/assets3"
 printf '  %s  \n%s\n' "$TOK1" "$TOK2" >"$WORK/assets3/TOKENS"
 assert_eq "$(factory_tokens_first_line "$WORK/assets3/TOKENS")" "  $TOK1  " "first line preserves field whitespace"
-assert_false factory_magazine_token "  $TOK1  "
-assert_eq "$(factory_peel_token_from_dir "$WORK/assets3")" "$TOK2" "non-exact line is skipped"
+assert_eq "$(factory_magazine_token "  $TOK1  ")" "$TOK1" "surrounding spaces are tolerated"
+assert_eq "$(factory_peel_token_from_dir "$WORK/assets3")" "$TOK1" "padded line is peeled"
+
+# Grouped, lowercase, and look-alike lines are normalized; junk is dropped.
+mkdir -p "$WORK/assets4"
+printf '%s\n' '7k4m-2q9x-r8n3-6t5w-1pzh' 'short' "$TOK2" >"$WORK/assets4/TOKENS"
+assert_eq "$(factory_peel_token_from_dir "$WORK/assets4")" "$TOK1" "grouped lowercase line is peeled"
+assert_eq "$(factory_peel_token_from_dir "$WORK/assets4")" "$TOK2" "invalid line is dropped"
 
 # CR-stripped Windows line endings.
 printf '%s\r\n%s\r\n' "$TOK1" "$TOK2" >"$WORK/crlf"
@@ -124,10 +130,13 @@ assert_eq "$(factory_normalize_device_token '7K4M-2Q9X-R8N3-6T5W-IPZH')" "$TOK1"
 
 # TOKENS lines are exact: one token, nothing else.
 assert_eq "$(factory_magazine_token "$TOK1")" "$TOK1" "accept exact token line"
-assert_false factory_magazine_token "7K4M-2Q9X-R8N3-6T5W-1PZH"
-assert_false factory_magazine_token "7k4m2q9xr8n36t5w1pzh"
+assert_eq "$(factory_magazine_token "7K4M-2Q9X-R8N3-6T5W-1PZH")" "$TOK1" "grouped line is normalized"
+assert_eq "$(factory_magazine_token "7k4m2q9xr8n36t5w1pzh")" "$TOK1" "lowercase line is normalized"
+assert_eq "$(factory_magazine_token "7K4M2Q9XR8N36T5WIPZH")" "$TOK1" "look-alike letter is normalized"
 assert_false factory_magazine_token "$TOK1 A3F91C"
-assert_false factory_magazine_token "$TOK1 "
+assert_false factory_magazine_token "${TOK1%?}"
+assert_false factory_magazine_token "${TOK1}2"
+assert_false factory_magazine_token "7K4M2Q9XR8N36T5W1PZU"
 
 # Write device-token onto the fake LUNA_DATA volume with mode 0600.
 mkdir -p "$WORK/root"
@@ -163,17 +172,28 @@ grep -q 'Device token taken from LUNAASSETS' "$WORK/apply.out" || {
 # shellcheck disable=SC1091
 . "$HERE/factory-assets.sh"
 
-# Without a magazine or a TTY, apply writes nothing. Legacy device-token and
-# setup-token files on the installer payload are never read.
+# Without a magazine or a TTY, apply writes nothing. A malformed device-token
+# file and any setup-token file on the installer payload are never used.
 mkdir -p "$WORK/payload" "$WORK/root2"
 printf '%s\n' 'LEGACY-TOKEN-AAAA-BBBB-CCCC' >"$WORK/payload/device-token"
-printf '%s\n' 'LEGACY-TOKEN-AAAA-BBBB-CCCC' >"$WORK/payload/setup-token"
+printf '%s\n' "$TOK1" >"$WORK/payload/setup-token"
 factory_assets_device() { printf ''; }
 _mnt=/sentinel-luna-data
-assert_true factory_apply_device_token "$WORK/root2" </dev/null >/dev/null
+assert_true factory_apply_device_token "$WORK/root2" "$WORK/payload" </dev/null >/dev/null
 assert_false test -e "$WORK/root2/device-token"
 assert_false test -e "$WORK/root2/setup-token"
 assert_eq "$_mnt" "/sentinel-luna-data" "factory apply must not clobber caller _mnt"
+
+# A valid device-token file on the installer USB is used, normalized.
+mkdir -p "$WORK/payload2" "$WORK/root3"
+printf '%s\n' '7k4m-2q9x-r8n3-6t5w-1pzh' >"$WORK/payload2/device-token"
+assert_true factory_apply_device_token "$WORK/root3" "$WORK/payload2" </dev/null >"$WORK/usb.out"
+assert_eq "$(cat "$WORK/root3/device-token")" "$TOK1" "installer USB token is saved"
+assert_mode "$WORK/root3/device-token" 600 "installer USB token is private"
+grep -q 'installer USB' "$WORK/usb.out" || {
+	echo "FAIL USB fallback must say where the token came from" >&2
+	fail=$((fail + 1))
+}
 
 # Manual prompt takes one grouped, lowercase value and re-prompts on bad input.
 printf 'bad\n%s\n' "7k4m-2q9x-r8n3-6t5w-1pzh" |
@@ -187,6 +207,14 @@ grep -q 'Check the device token' "$WORK/prompt.out" || {
 # Empty Enter skips Connect without creating the file.
 printf '\n' | factory_prompt_device_token "$WORK/skipped" >"$WORK/skip.out"
 assert_false test -e "$WORK/skipped/device-token"
+
+# EOF on the prompt is a skip too: success, no file, a note that Connect is optional.
+printf '' | factory_prompt_device_token "$WORK/eof" >"$WORK/eof.out"
+assert_false test -e "$WORK/eof/device-token"
+grep -q 'works fully without Luna Connect' "$WORK/eof.out" || {
+	echo "FAIL EOF skip must say Luna works without Connect" >&2
+	fail=$((fail + 1))
+}
 
 # Whitespace-only input also skips.
 printf '   \n' | factory_prompt_device_token "$WORK/skipped2" >"$WORK/skip2.out"

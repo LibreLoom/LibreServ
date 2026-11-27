@@ -465,6 +465,8 @@ async fn status(
     Json(json!({
         "has_admin": has_admin,
         "connect_active": state.connect.is_connect_active(),
+        // Without a device token, off-LAN setup cannot work at all.
+        "device_token_set": state.connect.has_device_token(),
         // First registration from off the LAN needs the device token.
         "setup_off_lan": !has_admin && !is_lan_request(&addr, &headers),
     }))
@@ -565,6 +567,21 @@ pub(crate) fn login_user_key(username: &str) -> String {
 /// the saved `device-token` file (ignoring case and grouping, in constant
 /// time). The rolling credential and the query string are not accepted.
 fn first_user_device_token(state: &AppState, body: &RegisterBody) -> Result<(), String> {
+    // An owed unbind means the old Connect account may still know this
+    // token, so it proves nothing about who is setting Luna up.
+    if state.connect.unbind_pending() {
+        return Err(
+            "Luna is still disconnecting from Luna Connect. Create the first account from the same network as Luna."
+                .into(),
+        );
+    }
+    // Connect is opt-in: with no token on this Luna, nothing can match.
+    if !state.connect.has_device_token() {
+        return Err(
+            "This Luna has no device token. Create the first account from the same network as Luna."
+                .into(),
+        );
+    }
     let Some(token) = body
         .device_token
         .as_deref()
@@ -910,6 +927,104 @@ mod tests {
             );
         }
         assert_eq!(state.auth.count_users().unwrap(), 0);
+    }
+
+    async fn register_body(
+        state: &AppState,
+        peer: SocketAddr,
+        header_pairs: &[(&str, &str)],
+        body: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let router = axum::Router::new()
+            .merge(super::router())
+            .with_state(state.clone());
+        let mut req = axum::http::Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/api/v1/auth/register")
+            .header("content-type", "application/json");
+        for (k, v) in header_pairs {
+            req = req.header(*k, *v);
+        }
+        let mut http = req.body(axum::body::Body::from(body.to_string())).unwrap();
+        http.extensions_mut().insert(ConnectInfo(peer));
+        let res = router.oneshot(http).await.unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn an_owed_connect_unbind_stops_the_device_token_proving_anything() {
+        let (dir, state) = state();
+        seed_token(&state);
+        // A reset chose to disconnect, Connect didn't answer, the Admin skipped.
+        std::fs::write(
+            dir.path().join(crate::net::connect::UNBIND_PENDING_FILE),
+            "{}",
+        )
+        .unwrap();
+        assert!(state.connect.unbind_pending());
+        let remote = addr("127.0.0.1");
+        let fwd = [("x-forwarded-for", "203.0.113.7")];
+        let (status, body) = register_body(&state, remote, &fwd, &with_token(TOKEN)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "the old account may know it");
+        assert!(body.to_string().contains("still disconnecting"), "{body}");
+        assert_eq!(state.auth.count_users().unwrap(), 0);
+        // On the LAN, setup still works.
+        assert_eq!(
+            register_status(&state, addr("192.168.1.30"), &[], FIRST_USER).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn off_lan_setup_with_no_device_token_says_so() {
+        let (_dir, state) = state();
+        let (status, body) = register_body(
+            &state,
+            addr("127.0.0.1"),
+            &[("x-forwarded-for", "203.0.113.7")],
+            &with_token(TOKEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.to_string().contains("has no device token"), "{body}");
+        // With a token on file the refusal is a different one.
+        seed_token(&state);
+        let (status, body) = register_body(
+            &state,
+            addr("127.0.0.1"),
+            &[("x-forwarded-for", "203.0.113.7")],
+            &with_token("ZZZZYYYYXXXXWWWWVVVV"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!body.to_string().contains("has no device token"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn auth_status_says_whether_a_device_token_is_set() {
+        let (_dir, state) = state();
+        let status = |state: AppState| async move {
+            let router = axum::Router::new().merge(super::router()).with_state(state);
+            let mut http = axum::http::Request::builder()
+                .method(axum::http::Method::GET)
+                .uri("/api/v1/auth/status")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            http.extensions_mut()
+                .insert(ConnectInfo(addr("192.168.1.30")));
+            let res = router.oneshot(http).await.unwrap();
+            let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+        };
+        assert_eq!(status(state.clone()).await["device_token_set"], false);
+        seed_token(&state);
+        assert_eq!(status(state.clone()).await["device_token_set"], true);
     }
 
     #[tokio::test]

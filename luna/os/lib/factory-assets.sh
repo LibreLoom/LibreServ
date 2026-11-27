@@ -1,7 +1,8 @@
 #!/bin/sh
 # Factory stick helpers: LUNAASSETS partition + TOKENS magazine (dash-safe).
-# Each official TOKENS line is exactly one 20-character uppercase Crockford
-# device token, such as 7K4M2Q9XR8N36T5W1PZH, with no grouping and no spaces.
+# Each official TOKENS line is one 20-character uppercase Crockford device
+# token, such as 7K4M2Q9XR8N36T5W1PZH. A hand-edited line may be grouped,
+# lowercase, or use look-alike letters: it is normalized before validating.
 
 # Print the first non-empty, non-# line from $1 without normalizing its fields.
 # Returns 1 if none. Only CR from FAT / Windows line endings is removed.
@@ -99,10 +100,11 @@ factory_is_valid_device_token() {
 	return 0
 }
 
-# Validate one TOKENS line and print its token. The line must be exactly the
-# 20-character token: no grouping, no spaces, no leading or trailing whitespace.
+# Validate one TOKENS line and print its token. The line is normalized first
+# (dashes and spaces dropped, uppercased, I/L to 1, O to 0) and must then be
+# exactly 20 Crockford characters.
 factory_magazine_token() {
-	_tok=$(printf '%s' "$1" | tr -d '\r')
+	_tok=$(factory_normalize_device_token "$1")
 	factory_is_valid_device_token "$_tok" || return 1
 	printf '%s\n' "$_tok"
 }
@@ -145,17 +147,17 @@ factory_prompt_device_token() {
 	_root="$1"
 	printf '%s\n' \
 		"" \
-		"Enter the device token from your Luna Connect quick-start card." \
-		"Open connect.luna.libreloom.org/onboarding in a browser on the same network, or press Enter to set up without Connect."
+		"Enter the device token from your quick-start card." \
+		"You can also add or change it later in Settings → About → Advanced → Device token. Press Enter to set up without Luna Connect."
 	while :; do
 		printf '%s' "Device token: "
 		if ! read -r _tok; then
-			echo "No device token entered." >&2
-			return 1
+			echo "No device token entered. Luna works fully without Luna Connect."
+			return 0
 		fi
 		_tok=$(printf '%s' "$_tok" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 		if [ -z "$_tok" ]; then
-			echo "Skipped. You can connect Luna later in Settings > Luna Connect."
+			echo "Skipped. You can add a device token later in Settings → About → Advanced → Device token."
 			return 0
 		fi
 		_tok=$(factory_normalize_device_token "$_tok")
@@ -172,11 +174,13 @@ factory_prompt_device_token() {
 	return 0
 }
 
-# Full post-flash path: peel from LUNAASSETS, else prompt on a TTY.
-# $1 = mounted LUNA_DATA volume. Returns 0 on success/skip; 1 on hard failure
+# Full post-flash path: peel from LUNAASSETS, else a device-token file on the
+# installer USB, else prompt on a TTY.
+# $1 = mounted LUNA_DATA volume. $2 = HERE (installer payload dir). Returns 0 on success/skip; 1 on hard failure
 # (e.g. magazine rewrite failed).
 factory_apply_device_token() {
 	_root="$1"
+	_here="${2:-}"
 	_assets_mnt="$(mktemp -d)" || return 1
 	if factory_assets_mount "$_assets_mnt"; then
 		_peel_rc=0
@@ -198,6 +202,25 @@ factory_apply_device_token() {
 		factory_assets_umount "$_assets_mnt"
 	else
 		rmdir "$_assets_mnt" 2>/dev/null || true
+	fi
+
+	_token_src=""
+	for _c in "${_here:+$_here/device-token}" /src/device-token /iso/device-token; do
+		if [ -n "$_c" ] && [ -f "$_c" ]; then
+			_token_src="$_c"
+			break
+		fi
+	done
+	if [ -n "$_token_src" ]; then
+		_usb=$(factory_normalize_device_token "$(cat "$_token_src")")
+		if factory_is_valid_device_token "$_usb"; then
+			if ! factory_write_device_token "$_root" "$_usb"; then
+				echo "Could not save the device token onto Luna." >&2
+				return 1
+			fi
+			echo "Device token saved from the installer USB."
+			return 0
+		fi
 	fi
 
 	if [ -t 0 ]; then
