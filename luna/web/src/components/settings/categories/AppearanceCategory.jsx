@@ -1,6 +1,16 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState } from "react";
-import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate } from "lucide-react";
+import { LayoutGroup, MotionConfig, motion as Motion } from "motion/react";
+import {
+  Palette,
+  Moon,
+  Sun,
+  Monitor,
+  RotateCcw,
+  Check,
+  Lightbulb,
+  Vibrate,
+} from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
@@ -8,9 +18,17 @@ import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
 import SettingsCard from "@libreloom/ui/components/settings/SettingsCard.jsx";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
 import { useTheme } from "@libreloom/ui/hooks/useTheme.jsx";
-import { useHapticsEnabled, setHapticsEnabled, haptic } from "@libreloom/ui/utils/haptics.js";
+import {
+  useHapticsEnabled,
+  setHapticsEnabled,
+  haptic,
+} from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
-import { restoreDismissedTips, setTipsEnabled, useTipState } from "../../../lib/tips.js";
+import {
+  restoreDismissedTips,
+  setTipsEnabled,
+  useTipState,
+} from "../../../lib/tips.js";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -23,7 +41,8 @@ const HEX = /^#[0-9A-Fa-f]{6}$/;
 
 function getLuminance(hex) {
   const rgb = parseInt(hex.slice(1), 16);
-  const toLinear = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const toLinear = (c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   const r = toLinear(((rgb >> 16) & 0xff) / 255);
   const g = toLinear(((rgb >> 8) & 0xff) / 255);
   const b = toLinear((rgb & 0xff) / 255);
@@ -36,26 +55,62 @@ function getContrastRatio(hex1, hex2) {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-const LIGHT_DEFAULTS = { primary: "#ffffff", secondary: "#000000", accent: "#767676" };
-const DARK_DEFAULTS = { primary: "#000000", secondary: "#ffffff", accent: "#767676" };
+const LIGHT_DEFAULTS = {
+  primary: "#ffffff",
+  secondary: "#000000",
+  accent: "#767676",
+};
+const DARK_DEFAULTS = {
+  primary: "#000000",
+  secondary: "#ffffff",
+  accent: "#767676",
+};
 
 const PRESETS = [
-  { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
-  { label: "Forest", colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" } },
-  { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" } },
-  { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" } },
-  { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
-  { label: "Muted", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" } },
-  { label: "Soft dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
+  {
+    label: "Ocean",
+    colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" },
+  },
+  {
+    label: "Forest",
+    colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" },
+  },
+  {
+    label: "Sunset",
+    colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" },
+  },
+  {
+    label: "Lavender",
+    colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" },
+  },
+  {
+    label: "Midnight",
+    colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" },
+  },
+  {
+    label: "Muted",
+    colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" },
+  },
+  {
+    label: "Soft dark",
+    colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" },
+  },
 ];
 
 const sameColors = (a, b) =>
-  a?.primary === b.primary && a?.secondary === b.secondary && a?.accent === b.accent;
+  a?.primary === b.primary &&
+  a?.secondary === b.secondary &&
+  a?.accent === b.accent;
+
+// Pills grow, shrink and slide into place together when the selection moves.
+/** @type {import("motion/react").Transition} */
+const PILL_LAYOUT = { type: "spring", stiffness: 500, damping: 38, mass: 0.8 };
 
 /** A selectable palette: three overlapping dots plus its name. */
 function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
   return (
-    <button
+    <Motion.button
+      layout
       type="button"
       onClick={() => {
         haptic("selection");
@@ -63,14 +118,25 @@ function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
       }}
       aria-label={ariaLabel}
       aria-pressed={selected}
+      whileTap={{ scale: 0.95 }}
+      transition={{ layout: PILL_LAYOUT }}
+      // Inline radius: the layout animation stretches the box, and a class
+      // radius would be stretched with it.
+      style={{ borderRadius: 9999 }}
       className={cn(
         "relative inline-flex items-center gap-2 rounded-pill border-2 py-1.5 pl-2 pr-3.5 text-sm",
-        "motion-safe:transition-all motion-safe:duration-200 active:motion-safe:scale-95",
+        "motion-safe:transition-colors motion-safe:duration-200",
         "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-        selected ? "border-accent" : "border-primary/10 hover:border-primary/30",
+        selected
+          ? "border-accent"
+          : "border-primary/10 hover:border-primary/30",
       )}
     >
-      <span className="flex -space-x-2" aria-hidden="true">
+      <Motion.span
+        layout="position"
+        className="flex -space-x-2"
+        aria-hidden="true"
+      >
         {dots.map((color, i) => (
           <span
             key={i}
@@ -78,10 +144,20 @@ function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
             style={{ backgroundColor: color }}
           />
         ))}
-      </span>
-      <span>{label}</span>
-      {selected && <Check size={ICON_SIZE.xs} aria-hidden="true" />}
-    </button>
+      </Motion.span>
+      <Motion.span layout="position">{label}</Motion.span>
+      {selected && (
+        <Motion.span
+          layout="position"
+          initial={{ opacity: 0, scale: 0.4 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={PILL_LAYOUT}
+          className="flex"
+        >
+          <Check size={ICON_SIZE.xs} aria-hidden="true" />
+        </Motion.span>
+      )}
+    </Motion.button>
   );
 }
 
@@ -149,12 +225,19 @@ export default function AppearanceCategory() {
   const darkMode = resolvedTheme === "dark";
   // You edit the palette of the mode you are looking at.
   const editingDark = darkMode && useSeparateDarkColors;
-  const palette = editingDark ? (darkColors || DARK_DEFAULTS) : isCustomTheme ? colors : LIGHT_DEFAULTS;
+  const palette = editingDark
+    ? darkColors || DARK_DEFAULTS
+    : isCustomTheme
+      ? colors
+      : LIGHT_DEFAULTS;
   const save = editingDark ? setDarkColors : setColors;
 
   // Without separate dark colors, dark mode swaps background and text.
   const flip = darkMode && !useSeparateDarkColors;
-  const dotsFor = (c) => (flip ? [c.secondary, c.primary, c.accent] : [c.primary, c.secondary, c.accent]);
+  const dotsFor = (c) =>
+    flip
+      ? [c.secondary, c.primary, c.accent]
+      : [c.primary, c.secondary, c.accent];
 
   const matchesPreset = PRESETS.some((p) => sameColors(palette, p.colors));
   const readable = getContrastRatio(palette.primary, palette.secondary) >= 4.5;
@@ -162,53 +245,95 @@ export default function AppearanceCategory() {
   return (
     <div className="space-y-4" data-slot="appearance-category">
       <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
-        <SettingsRow label="Color scheme" description="Choose light, dark, or your device's setting." stack>
-          <SegmentedControl options={THEME_OPTIONS} value={theme} onChange={setTheme} />
+        <SettingsRow
+          label="Color scheme"
+          description="Choose light, dark, or your device's setting."
+          stack
+        >
+          <SegmentedControl
+            options={THEME_OPTIONS}
+            value={theme}
+            onChange={setTheme}
+          />
         </SettingsRow>
       </SettingsCard>
 
       <SettingsCard icon={Palette} title="Colors" padding={false} index={1}>
         <div className="space-y-4 p-4">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Color presets">
-            <PaletteChip
-              label="Default"
-              ariaLabel="Use the default colors"
-              dots={dotsFor(darkMode && !flip ? DARK_DEFAULTS : LIGHT_DEFAULTS)}
-              selected={!isCustomTheme}
-              onSelect={resetColors}
-            />
-            {PRESETS.map((preset) => (
-              <PaletteChip
-                key={preset.label}
-                label={preset.label}
-                ariaLabel={`Apply ${preset.label} preset`}
-                dots={dotsFor(preset.colors)}
-                selected={isCustomTheme && sameColors(palette, preset.colors)}
-                onSelect={() => save(preset.colors)}
-              />
-            ))}
-            <PaletteChip
-              label="Custom"
-              ariaLabel="Make your own colors"
-              dots={dotsFor(palette)}
-              selected={isCustomTheme && !matchesPreset}
-              onSelect={() => save(palette)}
-            />
-          </div>
+          <MotionConfig reducedMotion="user">
+            <LayoutGroup>
+              <Motion.div
+                layout="position"
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Color presets"
+              >
+                <PaletteChip
+                  label="Default"
+                  ariaLabel="Use the default colors"
+                  dots={dotsFor(
+                    darkMode && !flip ? DARK_DEFAULTS : LIGHT_DEFAULTS,
+                  )}
+                  selected={!isCustomTheme}
+                  onSelect={resetColors}
+                />
+                {PRESETS.map((preset) => (
+                  <PaletteChip
+                    key={preset.label}
+                    label={preset.label}
+                    ariaLabel={`Apply ${preset.label} preset`}
+                    dots={dotsFor(preset.colors)}
+                    selected={
+                      isCustomTheme && sameColors(palette, preset.colors)
+                    }
+                    onSelect={() => save(preset.colors)}
+                  />
+                ))}
+                <PaletteChip
+                  label="Custom"
+                  ariaLabel="Make your own colors"
+                  dots={dotsFor(palette)}
+                  selected={isCustomTheme && !matchesPreset}
+                  onSelect={() => save(palette)}
+                />
+              </Motion.div>
 
-          {isCustomTheme && (
-            <div className="space-y-3 rounded-large-element surface-primary p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm">{editingDark ? "Dark mode colors" : "Light mode colors"}</div>
-                {!readable && <Pill variant="warning">Text is hard to read on this background</Pill>}
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <ColorSwatch label="Background" value={palette.primary} onChange={(v) => save({ ...palette, primary: v })} />
-                <ColorSwatch label="Text" value={palette.secondary} onChange={(v) => save({ ...palette, secondary: v })} />
-                <ColorSwatch label="Accent" value={palette.accent} onChange={(v) => save({ ...palette, accent: v })} />
-              </div>
-            </div>
-          )}
+              {isCustomTheme && (
+                <Motion.div
+                  layout="position"
+                  className="mt-4 space-y-3 rounded-large-element surface-primary p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm">
+                      {editingDark ? "Dark mode colors" : "Light mode colors"}
+                    </div>
+                    {!readable && (
+                      <Pill variant="warning">
+                        Text is hard to read on this background
+                      </Pill>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <ColorSwatch
+                      label="Background"
+                      value={palette.primary}
+                      onChange={(v) => save({ ...palette, primary: v })}
+                    />
+                    <ColorSwatch
+                      label="Text"
+                      value={palette.secondary}
+                      onChange={(v) => save({ ...palette, secondary: v })}
+                    />
+                    <ColorSwatch
+                      label="Accent"
+                      value={palette.accent}
+                      onChange={(v) => save({ ...palette, accent: v })}
+                    />
+                  </div>
+                </Motion.div>
+              )}
+            </LayoutGroup>
+          </MotionConfig>
         </div>
 
         {isCustomTheme && (
@@ -260,7 +385,12 @@ export default function AppearanceCategory() {
             iconOff={Lightbulb}
           />
           {tips.dismissed.length > 0 ? (
-            <Button variant="primary" surface="secondary" size="sm" onClick={restoreDismissedTips}>
+            <Button
+              variant="primary"
+              surface="secondary"
+              size="sm"
+              onClick={restoreDismissedTips}
+            >
               <RotateCcw size={ICON_SIZE.sm} />
               <span>Show hidden tips again</span>
             </Button>
