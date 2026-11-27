@@ -22,7 +22,7 @@
     "@codemirror/language-data": "^6.5.2",
     "@excalidraw/excalidraw": "0.18.1",
     "@lezer/highlight": "^1.2.3",
-    "@lezer/markdown": "^1.7.2",
+    "@lezer/markdown": "^1.8.2",
     "@libreloom/ui": "file:../../shared/ui",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
