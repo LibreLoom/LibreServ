@@ -75,7 +75,7 @@ func TestStreamLogsTTY(t *testing.T) {
 	rt := &fakeRuntime{
 		containers: []runtime.ContainerInfo{{ID: "c1", Names: []string{"app"}}},
 		inspect:    &runtime.ContainerInspectResult{ID: "c1", TTY: true},
-		logs:       "line one\nline two\n",
+		logs:       "line one\n\nline two\n",
 	}
 	h := NewLogsHandler(rt)
 	rec := httptest.NewRecorder()
@@ -84,8 +84,11 @@ func TestStreamLogsTTY(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "line one") {
-		t.Fatalf("missing log content: %s", rec.Body.String())
+	want := "data: {\"content\":\"line one\",\"type\":\"stdout\"}\n\n" +
+		"data: {\"content\":\"\",\"type\":\"stdout\"}\n\n" +
+		"data: {\"content\":\"line two\",\"type\":\"stdout\"}\n\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("log frames = %q, want %q", got, want)
 	}
 }
 

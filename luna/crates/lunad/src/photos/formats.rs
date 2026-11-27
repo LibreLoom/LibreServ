@@ -96,16 +96,23 @@ pub fn lookup(ext: &str) -> Option<&'static Format> {
 
 /// The format for a file's name, by its extension.
 pub fn for_path(path: &Path) -> Option<&'static Format> {
-    let leaf = crate::files::leaf_of(path)?;
-    let ext = Path::new(&leaf).extension()?.to_str()?;
+    let leaf = crate::files::leaf_name(path)?;
+    let ext = Path::new(leaf.as_ref()).extension()?.to_str()?;
     lookup(ext)
 }
 
 /// Format-filter name for an extension: `jpeg` and `jfif` count as `jpg`,
 /// `tif` as `tiff`. Unknown extensions keep their own (lower-cased) name.
-pub fn canonical_ext(ext: &str) -> String {
-    let lower = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-    lookup(&lower).map_or(lower, |f| f.canonical.to_string())
+pub fn canonical_ext(ext: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    let ext = ext.trim().trim_start_matches('.');
+    if let Some(format) = lookup(ext) {
+        Cow::Borrowed(format.canonical)
+    } else if ext.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Owned(ext.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(ext)
+    }
 }
 
 /// Extensions of one decode route, for callers that need a list (SQL).

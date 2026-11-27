@@ -136,17 +136,18 @@ fn read_small(big: &Path, if_none_match: Option<&str>) -> Option<super::ThumbFet
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+    let etag = crate::drives::ram_cache::thumb_etag_header(meta.len(), mtime_secs);
     if if_none_match.is_some_and(|v| v.split(',').any(|c| c.trim() == etag)) {
         return Some(super::ThumbFetch::NotModified(etag));
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
     std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
-    Some(super::ThumbFetch::Bytes {
-        bytes,
-        mtime_secs,
-        etag,
-    })
+    Some(super::ThumbFetch::Bytes(
+        crate::drives::ram_cache::ThumbBytes {
+            bytes: bytes.into(),
+            etag,
+        },
+    ))
 }
 
 struct Builder {
@@ -254,18 +255,9 @@ pub(super) async fn serve_if_built(
             Ok(None)
         }
         Some(super::ThumbFetch::NotModified(etag)) => Ok(Some(super::not_modified_response(etag))),
-        Some(super::ThumbFetch::Bytes {
-            bytes,
-            mtime_secs,
-            etag,
-        }) => super::serve_thumb_bytes(
-            std::sync::Arc::from(bytes.into_boxed_slice()),
-            SMALL_CONTENT_TYPE,
-            mtime_secs,
-            etag,
-            headers,
-        )
-        .map(Some),
+        Some(super::ThumbFetch::Bytes(entry)) => {
+            super::serve_thumb_bytes(entry.bytes, SMALL_CONTENT_TYPE, entry.etag, headers).map(Some)
+        }
     }
 }
 
@@ -307,9 +299,9 @@ mod tests {
         (img.width(), img.height())
     }
 
-    fn bytes(fetch: Option<super::super::ThumbFetch>) -> Vec<u8> {
+    fn bytes(fetch: Option<super::super::ThumbFetch>) -> bytes::Bytes {
         match fetch {
-            Some(super::super::ThumbFetch::Bytes { bytes, .. }) => bytes,
+            Some(super::super::ThumbFetch::Bytes(entry)) => entry.bytes,
             _ => panic!("expected the small thumbnail's bytes"),
         }
     }
@@ -352,12 +344,11 @@ mod tests {
 
     #[tokio::test]
     async fn stand_in_is_not_kept_for_an_hour() {
-        let bytes: std::sync::Arc<[u8]> = std::sync::Arc::from(&b"jpeg"[..]);
+        let bytes = bytes::Bytes::from_static(b"jpeg");
         let mut resp = super::super::serve_thumb_bytes(
             bytes,
             "image/jpeg",
-            0,
-            "\"e\"".into(),
+            header::HeaderValue::from_static("\"e\""),
             &HeaderMap::new(),
         )
         .unwrap();
@@ -378,11 +369,11 @@ mod tests {
         write_jpeg(&big, 640, 480);
         build_small(&big, &small_path(&big).unwrap()).unwrap();
         let etag = match read_small(&big, None) {
-            Some(super::super::ThumbFetch::Bytes { etag, .. }) => etag,
+            Some(super::super::ThumbFetch::Bytes(entry)) => entry.etag,
             _ => panic!("expected the small thumbnail"),
         };
         assert!(matches!(
-            read_small(&big, Some(&etag)),
+            read_small(&big, Some(etag.to_str().unwrap())),
             Some(super::super::ThumbFetch::NotModified(_))
         ));
     }

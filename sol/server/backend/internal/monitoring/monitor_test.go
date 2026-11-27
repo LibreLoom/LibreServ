@@ -602,21 +602,51 @@ func TestMonitor_CollectAndCacheSystemResources_FallsBackToHostWhenRuntimeUnavai
 	}
 }
 
+type countingMetricsRuntime struct {
+	*fakeRuntime
+	lists   int
+	samples map[string]int
+}
+
+func (r *countingMetricsRuntime) ListContainersAll(ctx context.Context) ([]rt.ContainerInfo, error) {
+	r.lists++
+	return r.fakeRuntime.ListContainersAll(ctx)
+}
+
+func (r *countingMetricsRuntime) GetContainerStats(ctx context.Context, id string) (*rt.ContainerStats, error) {
+	r.samples[id]++
+	return r.fakeRuntime.GetContainerStats(ctx, id)
+}
+
 func TestMonitor_CollectAllMetrics_PersistsRegisteredApps(t *testing.T) {
 	db := newTestDB(t)
 	insertApp(t, db, "myapp", "running")
-	fake := &fakeRuntime{
-		containers: []rt.ContainerInfo{{ID: "c1", Names: []string{"/myapp"}}},
-		stats:      map[string]*rt.ContainerStats{"c1": {CPUPercent: 3, MemoryUsage: 30, MemoryLimit: 300}},
+	fake := &countingMetricsRuntime{
+		fakeRuntime: &fakeRuntime{
+			containers: []rt.ContainerInfo{
+				{ID: "c1", Names: []string{"/myapp"}},
+				{ID: "c2", Names: []string{"/other"}},
+			},
+			stats: map[string]*rt.ContainerStats{
+				"c1": {CPUPercent: 3, MemoryUsage: 30, MemoryLimit: 300},
+				"c2": {CPUPercent: 1, MemoryUsage: 10, MemoryLimit: 100},
+			},
+		},
+		samples: make(map[string]int),
 	}
 	m := NewMonitor(db, fake, t.TempDir())
 
-	if err := m.RegisterApp("myapp", HealthCheckConfig{Interval: time.Hour, Timeout: time.Second}); err != nil {
-		t.Fatalf("RegisterApp: %v", err)
-	}
-	defer m.UnregisterApp("myapp")
+	// Register metrics collection without starting an independent health
+	// check, which can also list containers.
+	m.checkers["myapp"] = &HealthChecker{AppID: "myapp"}
 
-	m.collectAllMetrics()
+	system := m.collectAllMetrics()
+	if fake.lists != 1 || fake.samples["c1"] != 1 || fake.samples["c2"] != 1 {
+		t.Fatalf("expected one snapshot and one sample per container, got %d lists and %v samples", fake.lists, fake.samples)
+	}
+	if system == nil || system.RunningContainers != 2 || system.CPUPercent != 4 {
+		t.Fatalf("incorrect system aggregate: %+v", system)
+	}
 
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM metrics WHERE app_id = ?`, "myapp").Scan(&count); err != nil {

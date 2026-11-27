@@ -90,7 +90,11 @@ pub fn marker_file_name(prefix: &str) -> String {
 /// True when `name` is exactly a marker file name (`.luna-<uuid>.sqlite3`) —
 /// not a sidecar like `-wal` and not a sibling dir like `-trash`.
 pub fn is_marker_name(name: &str) -> bool {
-    extract_prefix(name).is_some_and(|p| marker_file_name(&p) == name)
+    let Some(rest) = name.strip_prefix(MARKER_PREFIX) else {
+        return false;
+    };
+    rest.strip_suffix(MARKER_EXT)
+        .is_some_and(|uuid| uuid.len() == 36 && namespace_uuid(uuid).is_some())
 }
 
 /// Every marker file at a drive root, as `(prefix, path)` pairs sorted by name
@@ -99,19 +103,29 @@ pub fn find_markers(root: &Path) -> Vec<(String, PathBuf)> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
-    let mut out: Vec<(String, PathBuf)> = entries
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_str()?.to_string();
-            if is_marker_name(&name) && e.path().is_file() {
-                extract_prefix(&name).map(|p| (p, e.path()))
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut out: Vec<_> = entries.flatten().filter_map(marker_entry).collect();
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
+}
+
+/// The first marker in the same order as [`find_markers`].
+pub fn first_marker(root: &Path) -> Option<(String, PathBuf)> {
+    fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .filter_map(marker_entry)
+        .min_by(|a, b| a.0.cmp(&b.0))
+}
+
+fn marker_entry(entry: fs::DirEntry) -> Option<(String, PathBuf)> {
+    let name = entry.file_name();
+    let name = name.to_str()?;
+    let prefix = name.strip_suffix(MARKER_EXT)?;
+    if !is_marker_name(name) {
+        return None;
+    }
+    let path = entry.path();
+    path.is_file().then(|| (prefix.to_owned(), path))
 }
 
 /// Read every marker identity at `root`. Marker files that cannot be opened

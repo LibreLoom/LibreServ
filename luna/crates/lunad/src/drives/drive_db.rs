@@ -21,18 +21,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 /// The drive's marker/microdb path: first `.luna-<uuid>.sqlite3` at `root`.
 pub fn find_db_file(root: &Path) -> Option<PathBuf> {
-    marker::find_markers(root)
-        .into_iter()
-        .next()
-        .map(|(_, p)| p)
+    marker::first_marker(root).map(|(_, path)| path)
 }
 
 /// The drive's `.luna-<uuid>` prefix, if it carries a marker.
 pub fn prefix_for(root: &Path) -> Option<String> {
-    marker::find_markers(root)
-        .into_iter()
-        .next()
-        .map(|(p, _)| p)
+    marker::first_marker(root).map(|(prefix, _)| prefix)
 }
 
 /// The drive has no marker file at all — nothing was opened, nothing failed
@@ -546,8 +540,6 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
             has_thumb INTEGER NOT NULL DEFAULT 0,
             duration_secs INTEGER NOT NULL DEFAULT 0
          );
-         CREATE INDEX IF NOT EXISTS photos_timeline
-            ON photos(taken_at DESC, mtime DESC, path);
          CREATE INDEX IF NOT EXISTS photos_place
             ON photos(lat, lon);
          CREATE TABLE IF NOT EXISTS favorites (
@@ -654,6 +646,16 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
         "TEXT NOT NULL DEFAULT ''",
     )?;
     backfill_photo_places(conn)?;
+    // Timeline ordering uses mtime only when the capture date is unknown.
+    // The plain (taken_at, mtime, path) index cannot supply that order.
+    // Keep the slower query available where an index cannot be written.
+    if let Err(err) = conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS photos_effective_timeline
+            ON photos(COALESCE(NULLIF(taken_at, 0), mtime) DESC, path);
+         DROP INDEX IF EXISTS photos_timeline;",
+    ) {
+        tracing::debug!(%err, "could not update the photo timeline index");
+    }
     Ok(())
 }
 
@@ -662,14 +664,16 @@ pub fn migrate_schema(conn: &Connection) -> anyhow::Result<()> {
 /// becomes a no-op once caught up. Rows that enrich to all-empty (e.g. open
 /// ocean) are re-checked on each open, which is a handful of rows at most.
 fn backfill_photo_places(conn: &Connection) -> anyhow::Result<()> {
-    let pending: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM photos
-         WHERE lat IS NOT NULL AND lon IS NOT NULL
-           AND place_city = '' AND place_region = '' AND place_country = ''",
+    let pending: bool = conn.query_row(
+        "SELECT EXISTS (
+            SELECT 1 FROM photos
+            WHERE lat IS NOT NULL AND lon IS NOT NULL
+              AND place_city = '' AND place_region = '' AND place_country = ''
+         )",
         [],
         |r| r.get(0),
     )?;
-    if pending == 0 {
+    if !pending {
         return Ok(());
     }
     let places = crate::photos::places::index();

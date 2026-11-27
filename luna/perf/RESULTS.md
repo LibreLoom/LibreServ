@@ -423,3 +423,37 @@ work. This inventory includes Luna and Sol because both ship server backends.
 | 31 | Luna | Skip constructing the snippet query expression when names fill the answer. |
 | 32 | Luna | Stop validating the minimum query length after the second character. |
 | 33 | Luna | Keep the first sorted result list when later passes add no candidates. |
+| 34 | Luna | Index the timeline's effective capture date so SQLite can return pages in order. |
+| 35 | Luna | Partition merged timeline results and sort only the requested page. |
+| 36 | Luna | Move timeline photos into page-sized storage instead of cloning their metadata. |
+| 37 | Luna | Stop reading a drive's album or format results once it has enough matches for the page. |
+| 38 | Luna | Check album and format filters before constructing photo rows and thumbnail URLs. |
+| 39 | Luna | Skip opening drives that contain none of the requested album's items. |
+| 40 | Luna | Check per-drive album membership using a borrowed row path. |
+| 41 | Luna | Open photo databases directly where the open already handles marker discovery. |
+| 42 | Luna | Use directory-entry types to skip file metadata reads for non-media during scans. |
+| 43 | Luna | Borrow ordinary media filenames when classifying extensions. |
+| 44 | Luna | Cache the photo scanner's per-path thumbnail lookup statement. |
+| 45 | Luna | Prepare the scanner's photo upsert once for each write batch. |
+| 46 | Luna | Materialize only vanished paths during photo index cleanup. |
+| 47 | Luna | Reuse the prepared cleanup deletes across all vanished paths. |
+| 48 | Luna | Size thumbnail worker startup to the amount of pending scan work. |
+| 49 | Luna | Move filename and path strings from scanner work items into index rows. |
+| 50 | Luna | Resolve the filename extension once when checking whether a file is media. |
+| 51 | Luna | Borrow canonical format names during filtering instead of allocating per photo. |
+| 52 | Luna | Percent-encode thumbnail paths directly into the final URL. |
+| 53 | Luna | Hash photo identifiers and thumbnail keys without assembling intermediate strings. |
+| 54 | Luna | Reject non-marker filenames without rebuilding or allocating a marker name. |
+| 55 | Luna | Find the first drive marker without sorting or retaining a list of markers. |
+| 56 | Luna | Stop the photo-place backfill preflight at the first eligible row. |
+| 57 | Sol | Share one container listing per periodic monitoring sample. |
+| 58 | Sol | Collect each container's stats once and share them across monitoring aggregates. |
+| 59 | Sol | Iterate log stream lines without allocating a split slice. |
+| 60 | Sol | Encode log events directly into a reusable SSE frame buffer. |
+| 61 | Luna | Move disk thumbnail bytes into the response buffer without copying the payload. |
+| 62 | Luna | Serve cached thumbnail buffers without allocating a new shared wrapper per hit. |
+| 63 | Luna | Reuse the thumbnail ETag header across cache insertion and response handling. |
+| 64 | Luna | Update recency, evict entries, and invalidate keys in ordered caches without scanning separate queues. |
+| 65 | Luna | Build listing invalidation prefixes once per tree. |
+| 66 | Luna | Release unused clean-cache storage when idle or under memory pressure. |
+| 67 | Luna | Allocate scan work paths and classify video only for media with missing or outdated index rows. |

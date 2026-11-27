@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,25 +31,27 @@ type sseWriter struct {
 	typ string
 }
 
+type logEvent struct {
+	Content string `json:"content"`
+	Type    string `json:"type"`
+}
+
 func (sw *sseWriter) Write(p []byte) (n int, err error) {
-	lines := strings.Split(string(p), "\n")
-
-	for i, line := range lines {
-		if i == len(lines)-1 && line == "" {
-			continue
+	if len(p) > 0 {
+		// A trailing newline ends the last line without adding an event.
+		// Blank lines earlier in the chunk still produce events.
+		text := strings.TrimSuffix(string(p), "\n")
+		var frame bytes.Buffer
+		encoder := json.NewEncoder(&frame)
+		for line := range strings.SplitSeq(text, "\n") {
+			frame.Reset()
+			frame.WriteString("data: ")
+			if err := encoder.Encode(logEvent{Content: line, Type: sw.typ}); err != nil {
+				continue
+			}
+			frame.WriteByte('\n')
+			_, _ = sw.w.Write(frame.Bytes())
 		}
-
-		event := map[string]string{
-			"type":    sw.typ,
-			"content": line,
-		}
-
-		data, err := json.Marshal(event)
-		if err != nil {
-			continue
-		}
-
-		fmt.Fprintf(sw.w, "data: %s\n\n", data)
 	}
 
 	if sw.rc != nil {
@@ -67,9 +70,10 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	query := r.URL.Query()
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		instanceID = r.URL.Query().Get("instanceId")
+		instanceID = query.Get("instanceId")
 	}
 	if instanceID == "" {
 		instanceID = r.PathValue("instanceId")
@@ -79,10 +83,10 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	followParam := r.URL.Query().Get("follow")
+	followParam := query.Get("follow")
 	follow := followParam == "true" || followParam == "1"
 
-	tail := r.URL.Query().Get("tail")
+	tail := query.Get("tail")
 	if tail == "" {
 		tail = "all"
 	}

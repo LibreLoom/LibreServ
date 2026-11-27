@@ -544,8 +544,7 @@ func (m *Monitor) collectMetricsLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			m.collectAllMetrics()
-			m.collectAndCacheSystemResources()
+			m.cacheSystemResources(m.collectAllMetrics())
 		case <-m.stopCh:
 			return
 		}
@@ -553,7 +552,7 @@ func (m *Monitor) collectMetricsLoop() {
 }
 
 // collectAllMetrics collects metrics for all registered apps
-func (m *Monitor) collectAllMetrics() {
+func (m *Monitor) collectAllMetrics() *SystemMetrics {
 	m.checkersMu.RLock()
 	appIDs := make([]string, 0, len(m.checkers))
 	for appID := range m.checkers {
@@ -561,18 +560,19 @@ func (m *Monitor) collectAllMetrics() {
 	}
 	m.checkersMu.RUnlock()
 
-	ctx := context.Background()
-
-	for _, appID := range appIDs {
-		metrics, err := m.metricsCollector.CollectAppMetrics(ctx, appID)
+	system, apps, err := m.metricsCollector.collectPeriodicMetrics(context.Background(), appIDs)
+	for i, appID := range appIDs {
 		if err != nil {
 			slog.Warn("failed to collect metrics", "app_id", appID, "error", err)
 			continue
 		}
-
-		// Save to database
-		m.saveMetrics(metrics)
+		if apps[i] == nil {
+			slog.Warn("failed to collect metrics", "app_id", appID, "error", fmt.Errorf("%w for app: %s", ErrNoContainers, appID))
+			continue
+		}
+		m.saveMetrics(apps[i])
 	}
+	return system
 }
 
 // saveMetrics saves metrics to the database
@@ -595,12 +595,9 @@ func (m *Monitor) saveMetrics(metrics *Metrics) {
 	}
 }
 
-func (m *Monitor) collectAndCacheSystemResources() {
-	ctx := context.Background()
-
-	systemMetrics, err := m.metricsCollector.CollectSystemMetrics(ctx)
-	if err != nil {
-		systemMetrics = &SystemMetrics{Timestamp: time.Now()}
+func (m *Monitor) cacheSystemResources(systemMetrics *SystemMetrics) {
+	if systemMetrics == nil {
+		systemMetrics = &SystemMetrics{}
 	}
 
 	diskTotal, diskFree := m.hostCollector.DiskUsage(m.dataPath)
@@ -662,7 +659,8 @@ func (m *Monitor) GetCachedSystemResources() *CachedSystemResources {
 }
 
 func (m *Monitor) CollectAndCacheSystemResourcesSync() {
-	m.collectAndCacheSystemResources()
+	metrics, _ := m.metricsCollector.CollectSystemMetrics(context.Background())
+	m.cacheSystemResources(metrics)
 }
 
 // CleanupOldData removes old health checks and metrics

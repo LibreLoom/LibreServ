@@ -41,6 +41,7 @@ tower.workspace = true
 ureq.workspace = true
 dav-server.workspace = true
 bytes = "1"
+hashlink = "0.12.2"
 libc = "0.2"
 futures-util = "0.3"
 getrandom.workspace = true

@@ -949,13 +949,7 @@ async fn thumb(
     }
     let small = query.size.as_deref() == Some("s");
     if !small && let Some(cached) = state.ram_cache.get_thumb(&query.drive_id, &query.path) {
-        return serve_thumb_bytes(
-            cached.bytes,
-            "image/jpeg",
-            cached.mtime_secs,
-            cached.etag,
-            &headers,
-        );
+        return serve_thumb_bytes(cached.bytes, "image/jpeg", cached.etag, &headers);
     }
     let root = resolve_mount(&state, &query.drive_id)?;
     let Some(thumb_path) = photos::thumb_path(&root, &query.drive_id, &query.path) else {
@@ -1044,21 +1038,20 @@ async fn serve_thumb_file(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let etag = crate::drives::ram_cache::thumb_etag(meta.len(), mtime_secs);
+        let etag = crate::drives::ram_cache::thumb_etag_header(meta.len(), mtime_secs);
         let not_modified = if_none_match
             .as_deref()
-            .is_some_and(|v| v.split(',').any(|c| c.trim() == etag));
+            .is_some_and(|v| v.split(',').any(|c| etag == c.trim()));
         if not_modified {
             return Ok::<_, (StatusCode, Json<Value>)>(ThumbFetch::NotModified(etag));
         }
         let mut bytes = Vec::with_capacity(meta.len().min(1024 * 1024) as usize);
         std::io::Read::read_to_end(&mut file, &mut bytes)
             .map_err(|_| json_error(StatusCode::NOT_FOUND, "This thumbnail isn't ready yet."))?;
-        Ok(ThumbFetch::Bytes {
-            bytes,
-            mtime_secs,
+        Ok(ThumbFetch::Bytes(crate::drives::ram_cache::ThumbBytes {
+            bytes: bytes.into_boxed_slice().into(),
             etag,
-        })
+        }))
     })
     .await
     .map_err(|_| {
@@ -1067,36 +1060,26 @@ async fn serve_thumb_file(
             "Luna couldn't read the thumbnail.",
         )
     })??;
-    let (bytes, mtime_secs, etag) = match fetched {
-        ThumbFetch::NotModified(etag) => {
-            return Ok(not_modified_response(etag));
-        }
-        ThumbFetch::Bytes {
-            bytes,
-            mtime_secs,
-            etag,
-        } => (bytes, mtime_secs, etag),
+    let entry = match fetched {
+        ThumbFetch::NotModified(etag) => return Ok(not_modified_response(etag)),
+        ThumbFetch::Bytes(entry) => entry,
     };
-    // One allocation, shared with the cache — no second copy of the bytes.
-    let arc: std::sync::Arc<[u8]> = std::sync::Arc::from(bytes.into_boxed_slice());
+    // Move the file buffer into Bytes. Clones for the response and cache
+    // share the allocation and the already-validated ETag.
     state
         .ram_cache
-        .put_thumb_arc(drive_id, rel, arc.clone(), mtime_secs);
-    serve_thumb_bytes(arc, "image/jpeg", mtime_secs, etag, headers)
+        .put_thumb_bytes(drive_id, rel, entry.clone());
+    serve_thumb_bytes(entry.bytes, "image/jpeg", entry.etag, headers)
 }
 
 /// What the blocking read produced: the bytes to serve, or just the
 /// validator when `If-None-Match` already matched.
 enum ThumbFetch {
-    NotModified(String),
-    Bytes {
-        bytes: Vec<u8>,
-        mtime_secs: u64,
-        etag: String,
-    },
+    NotModified(axum::http::HeaderValue),
+    Bytes(crate::drives::ram_cache::ThumbBytes),
 }
 
-fn not_modified_response(etag: String) -> Response {
+fn not_modified_response(etag: axum::http::HeaderValue) -> Response {
     Response::builder()
         .status(StatusCode::NOT_MODIFIED)
         .header(axum::http::header::ETAG, etag)
@@ -1127,16 +1110,15 @@ async fn thumb_build_slot() -> tokio::sync::OwnedSemaphorePermit {
 }
 
 fn serve_thumb_bytes(
-    bytes: std::sync::Arc<[u8]>,
+    bytes: bytes::Bytes,
     content_type: &'static str,
-    _mtime_secs: u64,
-    etag: String,
+    etag: axum::http::HeaderValue,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     if let Some(if_none_match) = headers
         .get(axum::http::header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
-        && if_none_match.split(',').any(|c| c.trim() == etag)
+        && if_none_match.split(',').any(|c| etag == c.trim())
     {
         return Ok(not_modified_response(etag));
     }
@@ -1148,7 +1130,7 @@ fn serve_thumb_bytes(
         .header(axum::http::header::CACHE_CONTROL, THUMB_CACHE_CONTROL)
         .header(axum::http::header::ETAG, etag)
         // Shares the RAM cache's buffer instead of copying it per request.
-        .body(axum::body::Body::from(bytes::Bytes::from_owner(bytes)))
+        .body(axum::body::Body::from(bytes))
         .unwrap()
         .into_response())
 }

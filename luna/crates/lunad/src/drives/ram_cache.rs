@@ -12,10 +12,13 @@
 //! it closes the drive to new buffers, then flushes and waits for every
 //! in-flight write before unmounting.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
+use std::hash::RandomState;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use hashlink::LinkedHashMap;
 
 use crate::budget::{self, CacheBudget};
 use crate::files::{self, FileEntry, FilesError};
@@ -32,16 +35,8 @@ const MAX_FAILED_SAVES: usize = 1024;
 
 #[derive(Clone, Debug)]
 pub struct ThumbBytes {
-    pub bytes: Arc<[u8]>,
-    pub mtime_secs: u64,
-    pub etag: String,
-}
-
-#[derive(Clone, Debug)]
-struct ThumbEntry {
-    bytes: Arc<[u8]>,
-    mtime_secs: u64,
-    etag: String,
+    pub bytes: bytes::Bytes,
+    pub etag: axum::http::HeaderValue,
 }
 
 #[derive(Clone, Debug)]
@@ -83,12 +78,12 @@ struct FailedSave {
     modified: i64,
 }
 
+type OrderedCache<V> = LinkedHashMap<String, V, RandomState>;
+
 struct Inner {
-    thumbs: HashMap<String, ThumbEntry>,
-    thumb_order: VecDeque<String>,
+    thumbs: OrderedCache<ThumbBytes>,
     thumb_bytes: u64,
-    listings: HashMap<String, ListingEntry>,
-    listing_order: VecDeque<String>,
+    listings: OrderedCache<ListingEntry>,
     dirty: HashMap<String, DirtyFile>,
     dirty_bytes: u64,
     /// Drives being ejected or removed: new dirty accepts are refused.
@@ -102,11 +97,9 @@ impl Inner {
     fn new() -> Self {
         Self {
             last_used: Instant::now(),
-            thumbs: HashMap::new(),
-            thumb_order: VecDeque::new(),
+            thumbs: OrderedCache::default(),
             thumb_bytes: 0,
-            listings: HashMap::new(),
-            listing_order: VecDeque::new(),
+            listings: OrderedCache::default(),
             dirty: HashMap::new(),
             dirty_bytes: 0,
             closing: HashSet::new(),
@@ -335,6 +328,11 @@ pub fn thumb_etag(len: u64, mtime_secs: u64) -> String {
     format!("\"{len:x}-{mtime_secs:x}\"")
 }
 
+pub(crate) fn thumb_etag_header(len: u64, mtime_secs: u64) -> axum::http::HeaderValue {
+    axum::http::HeaderValue::try_from(thumb_etag(len, mtime_secs))
+        .expect("thumbnail ETags contain only ASCII")
+}
+
 impl RamCache {
     pub fn new() -> Self {
         let inner = Arc::new(Mutex::new(Inner::new()));
@@ -352,7 +350,6 @@ impl RamCache {
     fn remove_thumb_locked(g: &mut Inner, key: &str) {
         if let Some(old) = g.thumbs.remove(key) {
             g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
-            g.thumb_order.retain(|k| k != key);
         }
     }
 
@@ -361,11 +358,9 @@ impl RamCache {
     pub fn expire_idle(&self, idle: Duration) -> bool {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if g.last_used.elapsed() >= idle {
-            g.thumbs.clear();
-            g.thumb_order.clear();
+            g.thumbs = OrderedCache::default();
             g.thumb_bytes = 0;
-            g.listings.clear();
-            g.listing_order.clear();
+            g.listings = OrderedCache::default();
         }
         g.thumbs.is_empty() && g.listings.is_empty() && g.dirty.is_empty()
     }
@@ -386,30 +381,22 @@ impl RamCache {
     }
 
     /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
-    pub fn put_thumb_arc(&self, drive_id: &str, rel: &str, bytes: Arc<[u8]>, mtime_secs: u64) {
-        if bytes.is_empty() {
+    pub fn put_thumb_bytes(&self, drive_id: &str, rel: &str, entry: ThumbBytes) {
+        if entry.bytes.is_empty() {
             return;
         }
         let budget = Self::budget();
-        if bytes.len() as u64 > budget.thumb_bytes.max(1) {
+        if entry.bytes.len() as u64 > budget.thumb_bytes.max(1) {
             return;
         }
         let key = thumb_key(drive_id, rel);
-        let etag = thumb_etag(bytes.len() as u64, mtime_secs);
-        let entry = ThumbEntry {
-            bytes,
-            mtime_secs,
-            etag,
-        };
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(old) = g.thumbs.remove(&key) {
+        let size = entry.bytes.len() as u64;
+        if let Some(old) = g.thumbs.insert(key, entry) {
             g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
-            g.thumb_order.retain(|k| k != &key);
         }
-        g.thumb_bytes += entry.bytes.len() as u64;
+        g.thumb_bytes += size;
         g.last_used = Instant::now();
-        g.thumbs.insert(key.clone(), entry);
-        g.thumb_order.push_back(key);
         self.filled.notify_one();
         while g.thumb_bytes > budget.thumb_bytes {
             if !Self::evict_one_thumb(&mut g) {
@@ -418,29 +405,25 @@ impl RamCache {
         }
     }
 
-    /// Insert or refresh a served thumbnail. Evicts LRU thumbs if over budget.
-    pub fn put_thumb(&self, drive_id: &str, rel: &str, bytes: Vec<u8>, mtime_secs: u64) {
-        self.put_thumb_arc(
+    #[cfg(test)]
+    fn put_thumb(&self, drive_id: &str, rel: &str, bytes: Vec<u8>, mtime_secs: u64) {
+        let etag = thumb_etag_header(bytes.len() as u64, mtime_secs);
+        self.put_thumb_bytes(
             drive_id,
             rel,
-            Arc::from(bytes.into_boxed_slice()),
-            mtime_secs,
-        )
+            ThumbBytes {
+                bytes: bytes.into_boxed_slice().into(),
+                etag,
+            },
+        );
     }
 
     pub fn get_thumb(&self, drive_id: &str, rel: &str) -> Option<ThumbBytes> {
         let key = thumb_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let entry = g.thumbs.get(&key)?.clone();
+        let entry = g.thumbs.to_back(&key)?.clone();
         g.last_used = Instant::now();
-        // LRU touch
-        g.thumb_order.retain(|k| k != &key);
-        g.thumb_order.push_back(key);
-        Some(ThumbBytes {
-            bytes: entry.bytes,
-            mtime_secs: entry.mtime_secs,
-            etag: entry.etag,
-        })
+        Some(entry)
     }
 
     pub fn invalidate_thumb(&self, drive_id: &str, rel: &str) {
@@ -457,9 +440,8 @@ impl RamCache {
         if !g.listings.contains_key(&key) && g.listings.len() >= MAX_LISTINGS {
             Self::evict_one_listing(&mut g);
         }
-        g.listing_order.retain(|k| k != &key);
         g.listings.insert(
-            key.clone(),
+            key,
             ListingEntry {
                 entries,
                 dir_mtime,
@@ -467,7 +449,6 @@ impl RamCache {
                 write_gen: drive_write_gen(drive_id),
             },
         );
-        g.listing_order.push_back(key);
         g.last_used = Instant::now();
         self.filled.notify_one();
     }
@@ -484,7 +465,6 @@ impl RamCache {
         let entry = g.listings.get(&key)?;
         if entry.write_gen != drive_write_gen(drive_id) {
             g.listings.remove(&key);
-            g.listing_order.retain(|k| k != &key);
             return None;
         }
         let fresh_ttl = entry.filled_at.elapsed() <= LISTING_TRUST_TTL;
@@ -494,8 +474,7 @@ impl RamCache {
         }
         let out = entry.entries.clone();
         g.last_used = Instant::now();
-        g.listing_order.retain(|k| k != &key);
-        g.listing_order.push_back(key);
+        let _ = g.listings.to_back(&key);
         Some(out)
     }
 
@@ -504,14 +483,15 @@ impl RamCache {
         let key = listing_key(drive_id, rel);
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         g.listings.remove(&key);
-        g.listing_order.retain(|k| k != &key);
     }
 
     pub fn invalidate_listing_tree(&self, drive_id: &str, rel: &str) {
         let parent = parent_rel(rel);
+        let drive_prefix = format!("{drive_id}\0");
+        let tree_prefix = format!("{rel}/");
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         g.listings.retain(|k, _| {
-            let Some(rest) = k.strip_prefix(&format!("{drive_id}\0")) else {
+            let Some(rest) = k.strip_prefix(&drive_prefix) else {
                 return true;
             };
             if rest == parent || rest == rel {
@@ -520,10 +500,8 @@ impl RamCache {
             if rel.is_empty() {
                 return false;
             }
-            !rest.starts_with(&format!("{rel}/"))
+            !rest.starts_with(&tree_prefix)
         });
-        let keep: std::collections::HashSet<String> = g.listings.keys().cloned().collect();
-        g.listing_order.retain(|k| keep.contains(k));
     }
 
     /// Accept a small complete file into the dirty map. Returns Err when the
@@ -815,11 +793,7 @@ impl RamCache {
             }
         });
         g.thumb_bytes = g.thumb_bytes.saturating_sub(freed_thumbs);
-        let keep_thumbs: std::collections::HashSet<String> = g.thumbs.keys().cloned().collect();
-        g.thumb_order.retain(|k| keep_thumbs.contains(k));
         g.listings.retain(|k, _| !k.starts_with(&prefix));
-        let keep_listings: std::collections::HashSet<String> = g.listings.keys().cloned().collect();
-        g.listing_order.retain(|k| keep_listings.contains(k));
         // Anything still buffered never reached the drive (it was unplugged,
         // or a flush failed): remember it as a failed save, don't drop it.
         let unsaved: Vec<String> = g
@@ -1043,6 +1017,11 @@ impl RamCache {
             }
         }
 
+        if pressure {
+            g.thumbs.shrink_to_fit();
+            g.listings.shrink_to_fit();
+        }
+
         // Snapshot dirty keys to flush outside the lock when possible.
         let dirty_keys: Vec<(String, String)> = g
             .dirty
@@ -1069,23 +1048,15 @@ impl RamCache {
     }
 
     fn evict_one_thumb(g: &mut Inner) -> bool {
-        let Some(key) = g.thumb_order.pop_front() else {
+        let Some((_, old)) = g.thumbs.pop_front() else {
             return false;
         };
-        if let Some(old) = g.thumbs.remove(&key) {
-            g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
-            true
-        } else {
-            !g.thumb_order.is_empty()
-        }
+        g.thumb_bytes = g.thumb_bytes.saturating_sub(old.bytes.len() as u64);
+        true
     }
 
     fn evict_one_listing(g: &mut Inner) -> bool {
-        let Some(key) = g.listing_order.pop_front() else {
-            return false;
-        };
-        g.listings.remove(&key);
-        true
+        g.listings.pop_front().is_some()
     }
 }
 
@@ -1188,12 +1159,17 @@ mod tests {
     #[test]
     fn thumb_round_trip_and_lru_evict() {
         let cache = RamCache::new();
-        // Force small budget by putting many large-ish thumbs; eviction is
-        // relative to live MemAvailable — put one and get it back.
         cache.put_thumb("d1", "a.jpg", b"jpeg-a".to_vec(), 10);
+        cache.put_thumb("d1", "b.jpg", b"jpeg-b".to_vec(), 11);
         let hit = cache.get_thumb("d1", "a.jpg").unwrap();
         assert_eq!(&hit.bytes[..], b"jpeg-a");
-        assert_eq!(hit.etag, thumb_etag(6, 10));
+        assert_eq!(hit.etag.to_str().unwrap(), thumb_etag(6, 10));
+
+        // A hit makes the item most recent. Evict without relying on the
+        // amount of memory available on the test host.
+        assert!(RamCache::evict_one_thumb(&mut cache.inner.lock().unwrap()));
+        assert!(cache.get_thumb("d1", "b.jpg").is_none());
+        assert!(cache.get_thumb("d1", "a.jpg").is_some());
         cache.invalidate_thumb("d1", "a.jpg");
         assert!(cache.get_thumb("d1", "a.jpg").is_none());
     }

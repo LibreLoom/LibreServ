@@ -56,11 +56,7 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 			if err != nil {
 				continue
 			}
-			aggregated.CPUPercent += stats.CPUPercent
-			aggregated.MemoryUsage += stats.MemoryUsage
-			aggregated.MemoryLimit += stats.MemoryLimit
-			aggregated.NetworkRx += stats.NetworkRx
-			aggregated.NetworkTx += stats.NetworkTx
+			aggregated.addStats(stats)
 		}
 	}
 
@@ -92,14 +88,61 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 		if err != nil {
 			continue
 		}
-		out.CPUPercent += stats.CPUPercent
-		out.MemoryUsage += stats.MemoryUsage
-		out.MemoryLimit += stats.MemoryLimit
-		out.NetworkRx += stats.NetworkRx
-		out.NetworkTx += stats.NetworkTx
+		out.addStats(stats)
 	}
 
 	return out, nil
+}
+
+// collectPeriodicMetrics uses one runtime snapshot for app history and the
+// system dashboard. A container can match more than one app, but its stats
+// are sampled only once per tick.
+func (m *MetricsCollector) collectPeriodicMetrics(ctx context.Context, appIDs []string) (*SystemMetrics, []*Metrics, error) {
+	if m.runtime == nil {
+		return nil, nil, fmt.Errorf("%w: runtime not available", ErrRuntimeUnavailable)
+	}
+	containers, err := m.runtime.ListContainersAll(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: failed to list containers: %v", ErrRuntimeUnavailable, err)
+	}
+
+	now := time.Now()
+	system := &SystemMetrics{Timestamp: now, RunningContainers: len(containers)}
+	apps := make([]*Metrics, len(appIDs))
+	for _, cont := range containers {
+		stats, err := m.runtime.GetContainerStats(ctx, cont.ID)
+		if err == nil {
+			system.addStats(stats)
+		}
+		for i, appID := range appIDs {
+			if !matchesApp(cont, appID) {
+				continue
+			}
+			if apps[i] == nil {
+				apps[i] = &Metrics{AppID: appID, Timestamp: now}
+			}
+			if err == nil {
+				apps[i].addStats(stats)
+			}
+		}
+	}
+	return system, apps, nil
+}
+
+func (m *Metrics) addStats(stats *rt.ContainerStats) {
+	m.CPUPercent += stats.CPUPercent
+	m.MemoryUsage += stats.MemoryUsage
+	m.MemoryLimit += stats.MemoryLimit
+	m.NetworkRx += stats.NetworkRx
+	m.NetworkTx += stats.NetworkTx
+}
+
+func (m *SystemMetrics) addStats(stats *rt.ContainerStats) {
+	m.CPUPercent += stats.CPUPercent
+	m.MemoryUsage += stats.MemoryUsage
+	m.MemoryLimit += stats.MemoryLimit
+	m.NetworkRx += stats.NetworkRx
+	m.NetworkTx += stats.NetworkTx
 }
 
 // matchesApp checks if a container belongs to the given app

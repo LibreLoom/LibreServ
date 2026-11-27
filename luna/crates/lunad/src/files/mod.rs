@@ -228,11 +228,17 @@ pub(crate) use luna_core::path::{resolve_child, resolve_for_create_nofollow};
 /// `.luna-` name) the real one. Names, extensions and types come from this,
 /// never from the storage name.
 pub fn leaf_of(path: &Path) -> Option<String> {
+    leaf_name(path).map(std::borrow::Cow::into_owned)
+}
+
+/// Borrow the ordinary filename, resolving an allocated name only for a
+/// private item whose storage name differs from its display name.
+pub(crate) fn leaf_name(path: &Path) -> Option<std::borrow::Cow<'_, str>> {
     let name = path.file_name()?.to_str()?;
     if crate::drives::layout::Layout::is_luna_name(name) {
-        return crate::private::name_for_disk(name);
+        return crate::private::name_for_disk(name).map(std::borrow::Cow::Owned);
     }
-    Some(name.to_string())
+    Some(std::borrow::Cow::Borrowed(name))
 }
 
 /// Where `name` lives in the folder at `dir`: its own path, or the
