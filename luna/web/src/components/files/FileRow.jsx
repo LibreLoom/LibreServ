@@ -91,15 +91,18 @@ function FileRow({
   const stripeBg = surface === "primary"
     ? "bg-[color-mix(in_oklab,var(--primary)_92%,var(--secondary))]"
     : "bg-[color-mix(in_oklab,var(--secondary)_92%,var(--primary))]";
-  // min-h pins every row to one whole-pixel height, so the list window knows
-  // it before measuring anything (see VirtualRowWindow).
   // Selected rows dim whichever background they sit on (plain or striped), so
   // all four row looks stay distinguishable from one another.
-  const baseBg = surface === "primary" ? "var(--primary)" : "var(--secondary)";
-  const stripeMix = surface === "primary"
-    ? "color-mix(in_oklab,var(--primary)_92%,var(--secondary))"
-    : "color-mix(in_oklab,var(--secondary)_92%,var(--primary))";
-  const selectedBg = `bg-[color-mix(in_oklab,currentColor_14%,${striped ? stripeMix : baseBg})]`;
+  // Whole literal class strings: Tailwind can't see classes assembled at runtime.
+  const selectedBg = surface === "primary"
+    ? (striped
+      ? "bg-[color-mix(in_oklab,currentColor_14%,color-mix(in_oklab,var(--primary)_92%,var(--secondary)))]"
+      : "bg-[color-mix(in_oklab,currentColor_14%,var(--primary))]")
+    : (striped
+      ? "bg-[color-mix(in_oklab,currentColor_14%,color-mix(in_oklab,var(--secondary)_92%,var(--primary)))]"
+      : "bg-[color-mix(in_oklab,currentColor_14%,var(--secondary))]");
+  // min-h pins every row to one whole-pixel height, so the list window knows
+  // it before measuring anything (see VirtualRowWindow).
   const padY = dense ? "py-2 min-h-11" : "py-2.5 min-h-12";
 
   const openable = canOpenRow(entry, displayName, trashView);
