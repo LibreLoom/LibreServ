@@ -515,3 +515,64 @@ existing health-check index by app.
 
 The Luna backend at `7a8f386d` passed a locked release-profile type check for
 `x86_64-unknown-linux-musl`. This covers the daemon and its dependencies.
+
+### Luna daemon comparison
+
+Locked musl release builds with the standard LTO profile compared the
+pre-pass revision `b66b67c3` with `7a8f386d`. The mock drive held 7,739
+indexed entries, including a 2,000-item folder and 240 JPEG photos. The
+backend bench used 24 timed samples per HTTP journey after three warmups.
+Transfer journeys used three 64 MiB samples per run. The model pack was
+absent, so W11 measures the text-query path without model inference.
+
+The constrained runs used the local Wyse stand-in image with 0.7 CPU,
+2 GiB of RAM and simulated 2 GiB `/proc/meminfo`, in
+after/before/before/after order. All four runs finished with zero request
+errors. Each table cell gives the range of the two runs' p95s.
+
+| HTTP workload | Before p95 (ms) | After p95 (ms) |
+|---|---:|---:|
+| W4 Small folder | 50–55 | 39–66 |
+| W5 Large folder | 117–130 | 99–136 |
+| W7 Timeline and 24 thumbnails | 124–169 | 99–103 |
+| W10 Name search | 64–91 | 51–85 |
+| W11 Phrase search | 70–82 | 78–87 |
+| W13 Upload 64 MiB | 1,590–1,603 | 1,166–1,394 |
+| W14 Download 64 MiB | 223–386 | 260–261 |
+| W15 Public link | 29–64 | 41–47 |
+
+Mean process CPU time for the constrained workload fell from 7.06 s to
+6.52 s, about 7.6%. Peak daemon RSS remained about 37 MiB. The unconstrained
+single-core run gave mixed results, including 3.72 s to 3.92 s of daemon
+CPU time. Its initial RSS went from 18.3 MiB to 17.5 MiB and peak RSS from
+38.1 MiB to 37.3 MiB. The 2 GiB result applies to this synthetic workload
+on the stand-in. It does not establish the minimum RAM for a full library
+with models running.
+
+The dedicated large-folder comparison returned byte-identical responses
+for all four runs. Across 150 warm requests per run, median server time
+was 30.3–33.2 ms before and 29.2–32.8 ms after. The p95 ranges were
+49.0–53.4 ms before and 49.4–53.2 ms after. This isolated pass did not
+reproduce a consistent slowdown.
+
+Folder listings, four search queries and the final upload SHA-256 matched
+across all the compared captures. Photo path order and pagination also
+matched. Some photo dimensions differed in the independently seeded
+constrained runs while thumbnail upgrades were still running. Replaying
+from identical persisted photo rows and cached thumbnails with no pending
+upgrades produced identical photo projections, including dimensions.
+The unconstrained photo projections matched as well. The projection
+excludes drive-specific IDs and thumbnail URLs and the `date_estimated`
+field added by a separate change.
+
+The same-snapshot replay used 5.23 s before and 4.69 s after in daemon
+CPU time, with peak RSS of about 37 MiB on both builds. In this replay
+download p95 was 235 ms before and 395 ms after. Downloads also took
+longer in the unconstrained pair, while the main constrained runs
+overlapped. In a dedicated pass with 13 warm downloads per run, medians
+ranged from 109–126 ms before and 119–147 ms after on one pinned host CPU.
+Daemon CPU for the four dedicated runs ranged from 1.40–1.79 s before and
+1.45–1.91 s after. These samples do not establish a download speedup.
+
+Raw benchmark and response snapshots are under `perf/results/backend-pass/`
+in the local checkout.
