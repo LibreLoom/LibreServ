@@ -1,6 +1,7 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useRef } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Lightbulb, Vibrate } from "lucide-react";
+import Pill from "@libreloom/ui/components/common/Pill.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
@@ -50,7 +51,7 @@ function ColorInput({ label, value, onChange, description }) {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-large-element surface-primary px-4 py-3">
+    <div className="flex items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0">
         <div className="text-sm">{label}</div>
         {description && <div className="text-xs mt-0.5">{description}</div>}
@@ -64,7 +65,7 @@ function ColorInput({ label, value, onChange, description }) {
           // rounded input alone leaves the corners poking out. Round the swatch
           // itself (and drop its default padding/border) to match.
           className={cn(
-            "w-8 h-8 p-0 rounded-full cursor-pointer border border-secondary/20 bg-transparent appearance-none overflow-hidden shrink-0",
+            "w-9 h-9 p-0 rounded-full cursor-pointer border border-secondary/20 bg-transparent appearance-none overflow-hidden shrink-0",
             "[&::-webkit-color-swatch-wrapper]:p-0",
             "[&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full",
             "[&::-moz-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full",
@@ -83,6 +84,54 @@ function ColorInput({ label, value, onChange, description }) {
           )}
           aria-label={`${label} hex value`}
         />
+      </div>
+    </div>
+  );
+}
+
+/** Live mock-up of the palette: page, a card on it, and an accent outline. */
+function PalettePreview({ palette }) {
+  const ratio = getContrastRatio(palette.primary, palette.secondary);
+  const readability =
+    ratio >= 7
+      ? { variant: "success", text: "Easy to read" }
+      : ratio >= 4.5
+        ? { variant: "default", text: "Readable" }
+        : { variant: "warning", text: "Hard to read" };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm">Preview</div>
+        <Pill variant={readability.variant}>{readability.text}</Pill>
+      </div>
+      <div
+        role="img"
+        aria-label="Preview of your colors"
+        className="rounded-large-element border p-3 space-y-3 motion-safe:transition-colors motion-safe:duration-200"
+        style={{
+          backgroundColor: palette.primary,
+          color: palette.secondary,
+          borderColor: `${palette.secondary}33`,
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm">Photos</span>
+          <span
+            className="rounded-pill border-2 px-3 py-0.5 text-xs"
+            style={{ borderColor: palette.accent }}
+          >
+            Share
+          </span>
+        </div>
+        <div
+          className="rounded-large-element px-3 py-2.5 space-y-1.5"
+          style={{ backgroundColor: palette.secondary, color: palette.primary }}
+        >
+          <div className="text-sm">Backup finished</div>
+          <div className="text-xs">Last night at 2:14 AM</div>
+          <div className="h-0.5 rounded-full" style={{ backgroundColor: palette.accent }} />
+        </div>
       </div>
     </div>
   );
@@ -218,6 +267,8 @@ function createValidatedPresets() {
 }
 
 const COLOR_PRESETS = createValidatedPresets();
+const LIGHT_DEFAULTS = { primary: "#ffffff", secondary: "#000000", accent: "#767676" };
+const DARK_DEFAULTS = { primary: "#000000", secondary: "#ffffff", accent: "#767676" };
 
 export default function AppearanceCategory() {
   const {
@@ -234,26 +285,32 @@ export default function AppearanceCategory() {
     isCustomTheme,
   } = useTheme();
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
+  const [editTarget, setEditTarget] = useState(null);
   const hapticsEnabled = useHapticsEnabled();
   const tips = useTipState();
 
   const darkMode = resolvedTheme === "dark";
 
-  // In dark mode with separate dark colors, presets edit the dark palette;
-  // otherwise they edit the base palette (which dark mode auto-inverts).
-  const editingDarkPalette = darkMode && useSeparateDarkColors;
+  // The base palette is always stored in its light form; dark mode flips
+  // background and text unless the person set separate dark colors.
+  const basePalette = isCustomTheme ? colors : LIGHT_DEFAULTS;
+  const darkPalette = darkColors || DARK_DEFAULTS;
 
+  // Which palette the editor changes: the dark one only when it exists and is selected.
+  const editingDarkPalette =
+    useSeparateDarkColors && (editTarget ?? (darkMode ? "dark" : "light")) === "dark";
+  const palette = editingDarkPalette ? darkPalette : basePalette;
+
+  const flipPreview = darkMode && !useSeparateDarkColors;
   const presetPreview = (c) =>
-    darkMode && !useSeparateDarkColors
-      ? { primary: c.secondary, secondary: c.primary, accent: c.accent }
-      : c;
+    flipPreview ? { primary: c.secondary, secondary: c.primary, accent: c.accent } : c;
 
   const handleColorChange = (key, value) => {
-    setColors({ ...colors, [key]: value });
-  };
-
-  const handleDarkColorChange = (key, value) => {
-    setDarkColors({ ...darkColors, [key]: value });
+    if (editingDarkPalette) {
+      setDarkColors({ ...darkPalette, [key]: value });
+    } else {
+      setColors({ ...basePalette, [key]: value });
+    }
   };
 
   const handlePresetSelect = (presetColors) => {
@@ -267,6 +324,7 @@ export default function AppearanceCategory() {
 
   const handleReset = () => {
     resetColors();
+    setEditTarget(null);
     setShowCustomColors(false);
   };
 
@@ -304,6 +362,10 @@ export default function AppearanceCategory() {
           {showCustomColors && (
             <div className="mt-4 pb-4 space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
               <div className="pt-4 border-t border-primary/10">
+                <PalettePreview palette={presetPreview(palette)} />
+              </div>
+
+              <div className="pt-4 border-t border-primary/10">
                 <div className="text-sm mb-3">Color presets</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {COLOR_PRESETS.map((preset) => (
@@ -312,34 +374,45 @@ export default function AppearanceCategory() {
                       label={preset.label}
                       colors={preset.colors}
                       previewColors={presetPreview(preset.colors)}
-                      currentColors={editingDarkPalette ? darkColors : colors}
+                      currentColors={palette}
                       onSelect={handlePresetSelect}
                     />
                   ))}
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-primary/10">
-                <div className="text-sm mb-3">
-                  {darkMode ? "Dark mode colors" : "Light mode colors"}
+              <div className="pt-4 border-t border-primary/10 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm">Your colors</div>
+                  {useSeparateDarkColors && (
+                    <SegmentedControl
+                      aria-label="Which colors to edit"
+                      options={[
+                        { value: "light", icon: Sun, label: "Light" },
+                        { value: "dark", icon: Moon, label: "Dark" },
+                      ]}
+                      value={editingDarkPalette ? "dark" : "light"}
+                      onChange={setEditTarget}
+                    />
+                  )}
                 </div>
-                <div className="space-y-2">
+                <div className="rounded-large-element surface-primary divide-y divide-secondary/10 overflow-hidden">
                   <ColorInput
-                    label="Primary"
-                    description="Main background color"
-                    value={colors?.primary || "#ffffff"}
+                    label="Background"
+                    description="Page and window background"
+                    value={palette.primary}
                     onChange={(v) => handleColorChange("primary", v)}
                   />
                   <ColorInput
-                    label="Secondary"
-                    description="Main text and elements"
-                    value={colors?.secondary || "#000000"}
+                    label="Text"
+                    description="Text, icons and cards"
+                    value={palette.secondary}
                     onChange={(v) => handleColorChange("secondary", v)}
                   />
                   <ColorInput
                     label="Accent"
-                    description="Highlights and emphasis"
-                    value={colors?.accent || "#767676"}
+                    description="Borders, outlines and highlights"
+                    value={palette.accent}
                     onChange={(v) => handleColorChange("accent", v)}
                   />
                 </div>
@@ -348,38 +421,17 @@ export default function AppearanceCategory() {
               <div className="pt-4 border-t border-primary/10">
                 <Toggle
                   checked={useSeparateDarkColors}
-                  onChange={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
+                  onChange={() => {
+                    setEditTarget(null);
+                    setUseSeparateDarkColors(!useSeparateDarkColors);
+                  }}
                   label="Separate dark mode colors"
-                  description="Use different colors when dark mode is active"
+                  description={
+                    useSeparateDarkColors
+                      ? "Light and dark mode each keep their own colors."
+                      : "Dark mode swaps background and text. Turn on to pick its colors yourself."
+                  }
                 />
-
-                {useSeparateDarkColors && (
-                  <div className="mt-4 pt-4 border-t border-primary/10 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-                    <div className="text-sm mb-3">
-                      {darkMode ? "Dark mode colors (active)" : "Dark mode colors"}
-                    </div>
-                    <div className="space-y-2">
-                      <ColorInput
-                        label="Primary (dark)"
-                        description="Background in dark mode"
-                        value={darkColors?.primary || "#000000"}
-                        onChange={(v) => handleDarkColorChange("primary", v)}
-                      />
-                      <ColorInput
-                        label="Secondary (dark)"
-                        description="Text in dark mode"
-                        value={darkColors?.secondary || "#ffffff"}
-                        onChange={(v) => handleDarkColorChange("secondary", v)}
-                      />
-                      <ColorInput
-                        label="Accent (dark)"
-                        description="Highlights in dark mode"
-                        value={darkColors?.accent || "#767676"}
-                        onChange={(v) => handleDarkColorChange("accent", v)}
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="pt-4 border-t border-primary/10 flex justify-end">

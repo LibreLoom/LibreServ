@@ -72,4 +72,37 @@ describe("AppearanceCategory", () => {
     expect(screen.getByText("Color presets")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Apply Classic preset/i })).toBeTruthy();
   });
+
+  it("shows a preview with a readability check and plain color names", async () => {
+    const user = userEvent.setup();
+    renderAppearance();
+
+    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
+    expect(screen.getByRole("img", { name: /Preview of your colors/i })).toBeTruthy();
+    expect(screen.getByText("Easy to read")).toBeTruthy();
+    expect(screen.getByLabelText("Background hex value")).toBeTruthy();
+    expect(screen.getByLabelText("Text hex value")).toBeTruthy();
+    expect(screen.getByLabelText("Accent hex value")).toBeTruthy();
+  });
+
+  it("warns when the chosen colors are hard to read", async () => {
+    const user = userEvent.setup();
+    renderAppearance();
+
+    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
+    const text = screen.getByLabelText("Text hex value");
+    await user.clear(text);
+    await user.type(text, "#eeeeee");
+    expect(screen.getByText("Hard to read")).toBeTruthy();
+  });
+
+  it("edits one palette at a time with a Light / Dark switch", async () => {
+    const user = userEvent.setup();
+    renderAppearance();
+
+    await user.click(screen.getByRole("switch", { name: /Enable custom colors/i }));
+    await user.click(screen.getByRole("switch", { name: /Separate dark mode colors/i }));
+    await user.click(screen.getByRole("radio", { name: /^Dark$/i, hidden: false }));
+    expect(screen.getAllByLabelText("Background hex value")).toHaveLength(1);
+  });
 });
