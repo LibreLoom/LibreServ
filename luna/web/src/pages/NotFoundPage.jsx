@@ -290,7 +290,7 @@ function FindFile({ initialTerm, user, className }) {
           type="search"
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
-          placeholder="A name, or words inside a file"
+          placeholder="Search your files"
           aria-label="Search your files"
           autoComplete="off"
           className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm text-secondary outline-none no-focus-outline"

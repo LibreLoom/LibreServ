@@ -118,7 +118,7 @@ describe("FileSearch", () => {
     const dialog = await openSearchOverlay();
     expect(dialog).toBeInTheDocument();
     const box = screen.getByRole("textbox", { name: "Search for a file" });
-    expect(box).toHaveAttribute("placeholder", "A name, or words inside a file");
+    expect(box).toHaveAttribute("placeholder", "Search your files");
     // No cycling example text on top of it.
     expect(document.querySelector("[data-slot=file-search-example]")).toBeNull();
     expect(screen.getByRole("button", { name: "Close search" })).toBeInTheDocument();
@@ -894,7 +894,7 @@ describe("FileSearch", () => {
       { drive_id: "d1", path: "Tax notes.txt", parent: "", name: "Tax notes.txt", kind: "file", size: 10, modified: 1, private: false },
     ]);
     await openSearchOverlay();
-    fireEvent.change(screen.getByPlaceholderText("A name, or words inside a file"), { target: { value: "tax" } });
+    fireEvent.change(screen.getByPlaceholderText("Search your files"), { target: { value: "tax" } });
     expect(await screen.findByLabelText("Open Tax notes.txt")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Private")).toHaveLength(1);
   });

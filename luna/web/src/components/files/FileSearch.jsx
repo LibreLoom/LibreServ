@@ -545,7 +545,7 @@ export default function FileSearch({ initialRequest }) {
                       <input
                         ref={inputRef}
                         className="file-search-input w-full min-w-0 appearance-none bg-transparent text-secondary text-sm border-0 shadow-none outline-none no-focus-outline"
-                        placeholder="A name, or words inside a file"
+                        placeholder="Search your files"
                         value={typed}
                         onChange={(e) => {
                           perfStart("W10");
