@@ -18,7 +18,11 @@ export default function useSetupProgress() {
       step_data: stepData || {},
     };
 
-    const promise = postJson("/api/v1/setup", body).then(() => ({ seq }));
+    // The newest click owns the newest record even if an earlier request is
+    // slow. Serial writes keep a late response from moving setup backwards.
+    const write = () => postJson("/api/v1/setup", body).then(() => ({ seq }));
+    const pending = inFlightRef.current;
+    const promise = pending ? pending.then(write, write) : write();
 
     inFlightRef.current = promise;
     // Swallow derived rejection so a failed save is not an unhandled rejection;
@@ -35,11 +39,11 @@ export default function useSetupProgress() {
   }, []);
 
   const flushProgress = useCallback(async () => {
-    if (inFlightRef.current) {
+    while (inFlightRef.current) {
       try {
         await inFlightRef.current;
       } catch {
-        /* best-effort flush */
+        // A failed write has still left the queue.
       }
     }
   }, []);

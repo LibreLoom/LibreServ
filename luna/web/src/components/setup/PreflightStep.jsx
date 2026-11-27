@@ -52,9 +52,9 @@ function worstStatus(list) {
  * Runs the checks. A failure says why: `reach` when no answer came back,
  * `answer` when Luna answered without check results.
  */
-async function loadPreflight() {
+async function loadPreflight(signal) {
   try {
-    const data = await getJsonAllowErrorStatus("/api/v1/setup/preflight");
+    const data = await getJsonAllowErrorStatus("/api/v1/setup/preflight", { signal });
     return data?.checks ? { checks: data.checks, healthy: data.healthy } : { failure: "answer" };
   } catch (err) {
     return { failure: /** @type {any} */ (err)?.status === 0 ? "reach" : "answer" };
@@ -191,80 +191,76 @@ PassedList.propTypes = {
   count: PropTypes.number.isRequired,
 };
 
-export default function PreflightStep({ onPass }) {
+export default function PreflightStep({ onPass, advancing = false }) {
   const [checks, setChecks] = useState(null);
   const [healthy, setHealthy] = useState(null);
   const [error, setError] = useState(/** @type {false | "reach" | "answer"} */ (false));
   const [running, setRunning] = useState(true);
-  const alive = useRef(true);
+  const requestRef = useRef(/** @type {AbortController|null} */ (null));
 
-  const apply = useCallback((result) => {
-    if (!alive.current) return;
-    if (result.checks) {
-      setChecks(result.checks);
-      setHealthy(result.healthy);
-    } else {
-      setError(result.failure || "answer");
-    }
-    setRunning(false);
+  const run = useCallback((announce) => {
+    requestRef.current?.abort();
+    const request = new AbortController();
+    requestRef.current = request;
+    return loadPreflight(request.signal).then((result) => {
+      if (request.signal.aborted || requestRef.current !== request) return;
+      requestRef.current = null;
+      if (result.checks) {
+        setChecks(result.checks);
+        setHealthy(result.healthy);
+      } else {
+        setError(result.failure === "reach" ? "reach" : "answer");
+      }
+      setRunning(false);
+      if (announce) haptic(outcomeOf(result));
+    });
   }, []);
 
   const rerun = async () => {
     setRunning(true);
     setError(false);
-    const result = await loadPreflight();
-    apply(result);
-    // The button already buzzed on press; this is the result of that press.
-    haptic(outcomeOf(result));
+    await run(true);
   };
 
   useEffect(() => {
-    alive.current = true;
-    loadPreflight().then(apply);
+    void run(false);
     return () => {
-      alive.current = false;
+      requestRef.current?.abort();
+      requestRef.current = null;
     };
-  }, [apply]);
+  }, [run]);
 
   const entries = useMemo(() => (checks ? Object.entries(checks) : []), [checks]);
   const hasResults = entries.length > 0;
   const rerunning = running && hasResults;
   const done = hasResults && !running;
 
-  const issues = useMemo(
-    () => entries.filter(([, c]) => c?.status !== "passed").sort(byStatusThenLabel),
-    [entries],
-  );
-  const failedCount = issues.filter(([, c]) => c?.status === "failed").length;
-  const warningCount = issues.length - failedCount;
-  const passedCount = entries.length - issues.length;
-
-  const grouped = useMemo(() => {
-    const out = {};
+  const { issues, failedCount, warningCount, passedCount, passedGrouped, categories } = useMemo(() => {
+    const grouped = {};
+    const passedGrouped = {};
+    const issues = [];
+    let failedCount = 0;
     for (const [name, check] of entries) {
       const cat = check?.category || "system";
-      (out[cat] ||= []).push([name, check]);
+      const entry = [name, check];
+      (grouped[cat] ||= []).push(entry);
+      if (check?.status === "passed") (passedGrouped[cat] ||= []).push(entry);
+      else {
+        issues.push(entry);
+        if (check?.status === "failed") failedCount++;
+      }
     }
-    for (const list of Object.values(out)) list.sort(byStatusThenLabel);
-    return out;
+    issues.sort(byStatusThenLabel);
+    for (const list of Object.values(passedGrouped)) list.sort(byStatusThenLabel);
+    const categories = entries.length
+      ? CATEGORY_ORDER.filter((id) => grouped[id]?.length).map((id) => ({ id, status: worstStatus(grouped[id]) }))
+      : SETUP_CATEGORY_ORDER.map((id) => ({ id, status: "pending" }));
+    return {
+      issues, failedCount, passedGrouped, categories,
+      passedCount: entries.length - issues.length,
+      warningCount: issues.length - failedCount,
+    };
   }, [entries]);
-
-  const passedGrouped = useMemo(() => {
-    const out = {};
-    for (const [cat, list] of Object.entries(grouped)) {
-      const passed = list.filter(([, c]) => c?.status === "passed");
-      if (passed.length) out[cat] = passed;
-    }
-    return out;
-  }, [grouped]);
-
-  // Before results arrive, show every area as pending so the panel keeps its shape.
-  const categories = hasResults
-    ? CATEGORY_ORDER.filter((id) => grouped[id]?.length).map((id) => ({
-        id,
-        status: worstStatus(grouped[id]),
-      }))
-    : SETUP_CATEGORY_ORDER.map((id) => ({ id, status: "pending" }));
 
   let verdict = "pending";
   let title = "Checking Luna…";
@@ -338,6 +334,7 @@ export default function PreflightStep({ onPass }) {
             variant="primary"
             fullWidth
             onClick={onPass}
+            loading={advancing}
             className="group py-4 font-mono hover:scale-[1.02] animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
             Continue
@@ -351,6 +348,7 @@ export default function PreflightStep({ onPass }) {
             fullWidth
             onClick={rerun}
             loading={running}
+            disabled={advancing}
             className="py-3.5 font-mono animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
             Re-run checks
@@ -363,4 +361,5 @@ export default function PreflightStep({ onPass }) {
 
 PreflightStep.propTypes = {
   onPass: PropTypes.func.isRequired,
+  advancing: PropTypes.bool,
 };

@@ -1,6 +1,7 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useReducedMotion } from "motion/react";
 import { AlertCircle, ArrowRight, Check, ChevronLeft, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { LunaMark } from "@libreloom/ui/components/common/ProductMark.jsx";
@@ -75,7 +76,8 @@ const ONE_SHOT_SLIDE_MS = 300;
 
 function OneShotSlide({ children, className = "", direction = "right", enabled = true }) {
   const [done, setDone] = useState(false);
-  const animating = enabled && !done;
+  const reducedMotion = useReducedMotion();
+  const animating = enabled && !done && !reducedMotion;
 
   // Timeout fallback matches ModalCard: animationend can be skipped (reduced
   // motion, jsdom) and must not leave animation-name live permanently.
@@ -134,18 +136,19 @@ function SetupCard({ children, className = "", header = null, loading = false })
   const { outerRef, innerRef } = useAnimatedHeight();
   const { key: tKey, direction } = useContext(StepTransitionContext);
   const [loaderGone, setLoaderGone] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   // Keep the loader mounted until its fade-out has finished.
   useEffect(() => {
-    if (loading) return undefined;
+    if (loading || reducedMotion) return undefined;
     const id = window.setTimeout(() => setLoaderGone(true), LOADER_FADE_MS);
     return () => window.clearTimeout(id);
-  }, [loading]);
+  }, [loading, reducedMotion]);
 
   return (
     <div
       ref={outerRef}
-      className="relative w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="relative w-full max-w-md surface-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden motion-safe:transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <div
@@ -159,7 +162,7 @@ function SetupCard({ children, className = "", header = null, loading = false })
           {children}
         </OneShotSlide>
       </div>
-      {(loading || !loaderGone) && (
+      {(loading || (!reducedMotion && !loaderGone)) && (
         <div
           className={cn(
             "absolute inset-0 z-10 surface-secondary motion-safe:transition-opacity ease-out",
@@ -248,7 +251,7 @@ function cascadeProps(cascade, index) {
   };
 }
 
-function WelcomeStep({ onBegin, cascade = false }) {
+function WelcomeStep({ onBegin, cascade = false, advancing = false }) {
   const logo = cascadeProps(cascade, 1);
   const title = cascadeProps(cascade, 2);
   const lead = cascadeProps(cascade, 3);
@@ -271,6 +274,7 @@ function WelcomeStep({ onBegin, cascade = false }) {
         <Button
           variant="primary"
           onClick={onBegin}
+          loading={advancing}
           className="group px-9 py-4 font-mono hover:scale-[1.03]"
         >
           Begin setup
@@ -283,6 +287,7 @@ function WelcomeStep({ onBegin, cascade = false }) {
 WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
   cascade: PropTypes.bool,
+  advancing: PropTypes.bool,
 };
 
 
@@ -944,13 +949,19 @@ export default function SetupPage() {
   const { user, refresh } = useAuth();
   // null until saved progress is loaded — avoids flashing Welcome over a resume.
   const [step, setStep] = useState(null);
-  const [animationDirection, setAnimationDirection] = useState("right");
-  const prevStepRef = useRef(null);
+  const [transition, setTransition] = useState({ step, direction: "right" });
+  if (step !== transition.step) {
+    setTransition({
+      step,
+      direction: STEP_ORDER.indexOf(step) < STEP_ORDER.indexOf(transition.step) ? "left" : "right",
+    });
+  }
   const [hasAdmin, setHasAdmin] = useState(false);
   const [deviceName, setDeviceName] = useState("Luna");
   const { saveProgress, flushProgress } = useSetupProgress();
   const progressRef = useRef(/** @type {{ step?: string, stepData?: Record<string, unknown> }} */ ({}));
   const savingRef = useRef(false);
+  const [advancing, setAdvancing] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [hydrated, setHydrated] = useState(false);
   const [offLan, setOffLan] = useState(false);
@@ -987,26 +998,27 @@ export default function SetupPage() {
   // Whether an account already exists (decides if the account step creates or
   // signs in). Re-checked whenever the signed-in user changes.
   useEffect(() => {
-    let alive = true;
-    getJson("/api/v1/auth/status")
+    const request = new AbortController();
+    getJson("/api/v1/auth/status", { signal: request.signal })
       .then((data) => {
-        if (!alive) return;
+        if (request.signal.aborted) return;
         setHasAdmin(Boolean(data?.has_admin));
         setOffLan(Boolean(data?.setup_off_lan));
         setDeviceTokenSet(typeof data?.device_token_set === "boolean" ? data.device_token_set : null);
       })
       .catch(() => { /* offline — the account step will surface the error */ });
-    return () => { alive = false; };
+    return () => request.abort();
   }, [user]);
 
   // Restore wizard position from the device so a refresh mid-setup continues
   // where the user left off (same behavior as Sol).
   useEffect(() => {
-    let alive = true;
+    const request = new AbortController();
+    const { signal } = request;
     (async () => {
       try {
-        const setup = await getJson("/api/v1/setup");
-        if (!alive) return;
+        const setup = await getJson("/api/v1/setup", { signal });
+        if (signal.aborted) return;
         if (setup?.name) setDeviceName(setup.name);
 
         if (setup?.setup_completed) {
@@ -1023,70 +1035,41 @@ export default function SetupPage() {
           stepData: savedData,
         };
 
-        let next = STEP.WELCOME;
-        if (savedStep && savedStep !== STEP.WELCOME) {
-          next = savedStep;
-          if (savedStep === STEP.WELCOME && savedData.preflight_passed) {
-            next = STEP.ACCOUNT;
-          }
-          // A wizard saved before the phrase step was dropped resumes at naming.
-          if (next === "phrase") next = STEP.NAME;
-          if (!STEP_ORDER.includes(next)) {
-            next = STEP.WELCOME;
-          }
-        }
+        let next = savedStep || STEP.WELCOME;
+        if (next === STEP.WELCOME && savedData.preflight_passed) next = STEP.ACCOUNT;
+        // A wizard saved before the phrase step was dropped resumes at naming.
+        if (next === "phrase") next = STEP.NAME;
+        if (!STEP_ORDER.includes(next)) next = STEP.WELCOME;
         // "done" is only shown after a successful finish in this session.
         // A stale/partial record should resume at naming.
         if (next === STEP.DONE) next = STEP.NAME;
         // Read the signed-in person fresh: the `user` captured on mount may be from before sign-in finished.
-        const me = await getJson("/api/v1/auth/me").catch(() => null);
-        if (!alive) return;
-        // Account already exists but session is gone → land on sign-in gate.
-        let signedOutGate = false;
-        if ((next === STEP.NAME || next === STEP.DONE) && !user && !me) {
-          const status = await getJson("/api/v1/auth/status").catch(() => null);
-          if (!alive) return;
-          if (status?.has_admin) {
-            next = STEP.ACCOUNT;
-            signedOutGate = true;
+        if (next === STEP.NAME || (next === STEP.ACCOUNT && savedData.account_completed)) {
+          const me = user || await getJson("/api/v1/auth/me", { signal }).catch(() => null);
+          if (signal.aborted) return;
+          if (me) next = STEP.NAME;
+          else {
+            const status = await getJson("/api/v1/auth/status", { signal }).catch(() => null);
+            if (signal.aborted) return;
+            if (status?.has_admin) next = STEP.ACCOUNT;
           }
-        }
-        // Skip account form if that step already finished.
-        if (next === STEP.ACCOUNT && savedData.account_completed && !signedOutGate) {
-          next = STEP.NAME;
         }
         setStep(next);
       } catch {
         // After the first account exists, setup reads are signed-in only. If an
         // admin exists but this browser isn't signed in, land on the account
         // step so they can sign in and finish — not Welcome.
-        const status = await getJson("/api/v1/auth/status").catch(() => null);
-        if (!alive) return;
+        if (signal.aborted) return;
+        const status = await getJson("/api/v1/auth/status", { signal }).catch(() => null);
+        if (signal.aborted) return;
         setStep(status?.has_admin ? STEP.ACCOUNT : STEP.WELCOME);
       } finally {
-        if (alive) setHydrated(true);
+        if (!signal.aborted) setHydrated(true);
       }
     })();
-    return () => { alive = false; };
+    return () => request.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
   }, [navigate]);
-
-  // Derive the slide direction from the linear step order so the transition
-  // matches travel direction: advancing slides the new step in from the right,
-  // going back slides it in from the left. Initial mount has no slide.
-  useEffect(() => {
-    if (step == null || prevStepRef.current == null) {
-      prevStepRef.current = step;
-      return;
-    }
-    if (step === prevStepRef.current) return;
-    const prevIdx = STEP_ORDER.indexOf(prevStepRef.current);
-    const nextIdx = STEP_ORDER.indexOf(step);
-    if (prevIdx >= 0 && nextIdx >= 0) {
-      setAnimationDirection(nextIdx > prevIdx ? "right" : "left");
-    }
-    prevStepRef.current = step;
-  }, [step]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1099,10 +1082,11 @@ export default function SetupPage() {
   const advanceStep = useCallback(
     /** @param {string} nextStep @param {Record<string, unknown>} [stepData] */
     async (nextStep, stepData) => {
+      if (savingRef.current) return;
       const data = stepData || progressRef.current.stepData || {};
-      progressRef.current = { step: nextStep, stepData: data };
       setSaveError(null);
       savingRef.current = true;
+      setAdvancing(true);
       try {
         await saveProgress(nextStep, data);
       } catch (err) {
@@ -1122,12 +1106,13 @@ export default function SetupPage() {
                 ? "Luna couldn't save your setup progress. Try again."
                 : "Luna couldn't save your setup progress. Check your connection and try again.",
           );
-          savingRef.current = false;
           return;
         }
       } finally {
         savingRef.current = false;
+        setAdvancing(false);
       }
+      progressRef.current = { step: nextStep, stepData: data };
       setStep(nextStep);
     },
     [saveProgress],
@@ -1169,9 +1154,9 @@ export default function SetupPage() {
 
   let renderedStep;
   if (shownStep === STEP.WELCOME) {
-    renderedStep = <WelcomeStep onBegin={handleBegin} cascade={!loading} />;
+    renderedStep = <WelcomeStep onBegin={handleBegin} cascade={!loading} advancing={advancing} />;
   } else if (shownStep === STEP.PREFLIGHT) {
-    renderedStep = <PreflightStep onPass={handlePreflightPass} />;
+    renderedStep = <PreflightStep onPass={handlePreflightPass} advancing={advancing} />;
   } else if (shownStep === STEP.ACCOUNT) {
     renderedStep = (
       <AccountStep
@@ -1194,7 +1179,7 @@ export default function SetupPage() {
   // resizes smoothly (useAnimatedHeight) as you move between steps — only the
   // inner content remounts and slides. Each step is content-only for this.
   return (
-    <StepTransitionProvider stepKey={shownStep} direction={animationDirection}>
+    <StepTransitionProvider stepKey={shownStep} direction={transition.direction}>
       <SetupShell>
         <SetupCard header={<StepDots current={shownStep} />} loading={loading}>
           {saveError && (

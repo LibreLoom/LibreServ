@@ -51,4 +51,19 @@ describe("useSetupProgress", () => {
     await flushPromise;
     expect(flushed).toBe(true);
   });
+
+  it("writes a later step only after the previous save settles", async () => {
+    let finishFirst = () => {};
+    mockedPostJson.mockImplementationOnce(() => new Promise((resolve) => {
+      finishFirst = () => resolve({ ok: true });
+    }));
+    const { result } = renderHook(() => useSetupProgress());
+    const first = result.current.saveProgress("preflight", {});
+    const second = result.current.saveProgress("account", {});
+    expect(mockedPostJson).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await Promise.all([first, second, result.current.flushProgress()]);
+    expect(mockedPostJson.mock.calls.map(([, body]) => body.current_step)).toEqual(["preflight", "account"]);
+  });
 });
