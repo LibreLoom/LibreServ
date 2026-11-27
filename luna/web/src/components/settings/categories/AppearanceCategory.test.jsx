@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import AppearanceCategory from "./AppearanceCategory";
@@ -83,7 +83,7 @@ describe("AppearanceCategory", () => {
     await user.click(screen.getByRole("button", { name: /Make your own colors/i }));
     expect(screen.getByRole("button", { name: /Make your own colors/i }).getAttribute("aria-pressed")).toBe("true");
     await user.click(screen.getByRole("button", { name: /Use the default colors/i }));
-    expect(screen.queryByLabelText("Background hex value")).toBeNull();
+    await waitFor(() => expect(screen.queryByLabelText("Background hex value")).toBeNull());
     expect(localStorage.getItem("theme-colors")).toBeNull();
   });
 

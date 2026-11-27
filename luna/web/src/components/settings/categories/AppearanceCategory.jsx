@@ -1,6 +1,5 @@
 import { cn } from "@libreloom/ui/lib/utils.js";
 import { useState } from "react";
-import { LayoutGroup, MotionConfig, motion as Motion } from "motion/react";
 import {
   Palette,
   Moon,
@@ -12,6 +11,7 @@ import {
   Vibrate,
 } from "lucide-react";
 import Pill from "@libreloom/ui/components/common/Pill.jsx";
+import SlideCollapse from "@libreloom/ui/components/common/SlideCollapse.jsx";
 import Toggle from "@libreloom/ui/components/common/Toggle.jsx";
 import SegmentedControl from "@libreloom/ui/components/common/SegmentedControl.jsx";
 import SettingsRow from "@libreloom/ui/components/settings/SettingsRow.jsx";
@@ -102,15 +102,10 @@ const sameColors = (a, b) =>
   a?.secondary === b.secondary &&
   a?.accent === b.accent;
 
-// Pills grow, shrink and slide into place together when the selection moves.
-/** @type {import("motion/react").Transition} */
-const PILL_LAYOUT = { type: "spring", stiffness: 500, damping: 38, mass: 0.8 };
-
 /** A selectable palette: three overlapping dots plus its name. */
 function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
   return (
-    <Motion.button
-      layout
+    <button
       type="button"
       onClick={() => {
         haptic("selection");
@@ -118,25 +113,16 @@ function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
       }}
       aria-label={ariaLabel}
       aria-pressed={selected}
-      whileTap={{ scale: 0.95 }}
-      transition={{ layout: PILL_LAYOUT }}
-      // Inline radius: the layout animation stretches the box, and a class
-      // radius would be stretched with it.
-      style={{ borderRadius: 9999 }}
       className={cn(
-        "relative inline-flex items-center gap-2 rounded-pill border-2 py-1.5 pl-2 pr-3.5 text-sm",
-        "motion-safe:transition-colors motion-safe:duration-200",
+        "inline-flex items-center rounded-pill border-2 py-1.5 pl-2 pr-3 text-sm",
+        "gap-2 motion-safe:transition-[color,border-color,scale] motion-safe:duration-200 active:motion-safe:scale-95",
         "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
         selected
           ? "border-accent"
           : "border-primary/10 hover:border-primary/30",
       )}
     >
-      <Motion.span
-        layout="position"
-        className="flex -space-x-2"
-        aria-hidden="true"
-      >
+      <span className="flex -space-x-2" aria-hidden="true">
         {dots.map((color, i) => (
           <span
             key={i}
@@ -144,20 +130,14 @@ function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
             style={{ backgroundColor: color }}
           />
         ))}
-      </Motion.span>
-      <Motion.span layout="position">{label}</Motion.span>
-      {selected && (
-        <Motion.span
-          layout="position"
-          initial={{ opacity: 0, scale: 0.4 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={PILL_LAYOUT}
-          className="flex"
-        >
-          <Check size={ICON_SIZE.xs} aria-hidden="true" />
-        </Motion.span>
-      )}
-    </Motion.button>
+      </span>
+      <span>{label}</span>
+      {/* The check grows the pill's width instead of popping in, so it fits
+          snugly and the pills beside it glide aside. */}
+      <SlideCollapse show={selected} gap="0.5rem">
+        <Check size={ICON_SIZE.xs} aria-hidden="true" className="block" />
+      </SlideCollapse>
+    </button>
   );
 }
 
@@ -259,84 +239,72 @@ export default function AppearanceCategory() {
       </SettingsCard>
 
       <SettingsCard icon={Palette} title="Colors" padding={false} index={1}>
-        <div className="space-y-4 p-4">
-          <MotionConfig reducedMotion="user">
-            <LayoutGroup>
-              <Motion.div
-                layout="position"
-                className="flex flex-wrap gap-2"
-                role="group"
-                aria-label="Color presets"
-              >
-                <PaletteChip
-                  label="Default"
-                  ariaLabel="Use the default colors"
-                  dots={dotsFor(
-                    darkMode && !flip ? DARK_DEFAULTS : LIGHT_DEFAULTS,
-                  )}
-                  selected={!isCustomTheme}
-                  onSelect={resetColors}
-                />
-                {PRESETS.map((preset) => (
-                  <PaletteChip
-                    key={preset.label}
-                    label={preset.label}
-                    ariaLabel={`Apply ${preset.label} preset`}
-                    dots={dotsFor(preset.colors)}
-                    selected={
-                      isCustomTheme && sameColors(palette, preset.colors)
-                    }
-                    onSelect={() => save(preset.colors)}
-                  />
-                ))}
-                <PaletteChip
-                  label="Custom"
-                  ariaLabel="Make your own colors"
-                  dots={dotsFor(palette)}
-                  selected={isCustomTheme && !matchesPreset}
-                  onSelect={() => save(palette)}
-                />
-              </Motion.div>
+        <div className="flex flex-col gap-4 p-4">
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label="Color presets"
+          >
+            <PaletteChip
+              label="Default"
+              ariaLabel="Use the default colors"
+              dots={dotsFor(darkMode && !flip ? DARK_DEFAULTS : LIGHT_DEFAULTS)}
+              selected={!isCustomTheme}
+              onSelect={resetColors}
+            />
+            {PRESETS.map((preset) => (
+              <PaletteChip
+                key={preset.label}
+                label={preset.label}
+                ariaLabel={`Apply ${preset.label} preset`}
+                dots={dotsFor(preset.colors)}
+                selected={isCustomTheme && sameColors(palette, preset.colors)}
+                onSelect={() => save(preset.colors)}
+              />
+            ))}
+            <PaletteChip
+              label="Custom"
+              ariaLabel="Make your own colors"
+              dots={dotsFor(palette)}
+              selected={isCustomTheme && !matchesPreset}
+              onSelect={() => save(palette)}
+            />
+          </div>
 
-              {isCustomTheme && (
-                <Motion.div
-                  layout="position"
-                  className="mt-4 space-y-3 rounded-large-element surface-primary p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm">
-                      {editingDark ? "Dark mode colors" : "Light mode colors"}
-                    </div>
-                    {!readable && (
-                      <Pill variant="warning">
-                        Text is hard to read on this background
-                      </Pill>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <ColorSwatch
-                      label="Background"
-                      value={palette.primary}
-                      onChange={(v) => save({ ...palette, primary: v })}
-                    />
-                    <ColorSwatch
-                      label="Text"
-                      value={palette.secondary}
-                      onChange={(v) => save({ ...palette, secondary: v })}
-                    />
-                    <ColorSwatch
-                      label="Accent"
-                      value={palette.accent}
-                      onChange={(v) => save({ ...palette, accent: v })}
-                    />
-                  </div>
-                </Motion.div>
-              )}
-            </LayoutGroup>
-          </MotionConfig>
+          <SlideCollapse show={isCustomTheme} axis="y" gap="1rem">
+            <div className="space-y-3 rounded-large-element surface-primary p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm">
+                  {editingDark ? "Dark mode colors" : "Light mode colors"}
+                </div>
+                {!readable && (
+                  <Pill variant="warning">
+                    Text is hard to read on this background
+                  </Pill>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <ColorSwatch
+                  label="Background"
+                  value={palette.primary}
+                  onChange={(v) => save({ ...palette, primary: v })}
+                />
+                <ColorSwatch
+                  label="Text"
+                  value={palette.secondary}
+                  onChange={(v) => save({ ...palette, secondary: v })}
+                />
+                <ColorSwatch
+                  label="Accent"
+                  value={palette.accent}
+                  onChange={(v) => save({ ...palette, accent: v })}
+                />
+              </div>
+            </div>
+          </SlideCollapse>
         </div>
 
-        {isCustomTheme && (
+        <SlideCollapse show={isCustomTheme} axis="y" gap="0rem">
           <SettingsRow
             label="Dark mode colors"
             description={
@@ -357,7 +325,7 @@ export default function AppearanceCategory() {
               onChange={(v) => setUseSeparateDarkColors(v === "separate")}
             />
           </SettingsRow>
-        )}
+        </SlideCollapse>
       </SettingsCard>
 
       {/* Existing Luna vibration preference — Toggle matches shared primitives */}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,32 +32,42 @@ const HEALTH_GIVE_UP_DOWN_MS = 20_000;
  * @param {{ giveUp?: boolean }} [options] giveUp: reload even if Luna never looked down (false while an install is still running)
  */
 function useReloadWhenLunaIsBack(active, { giveUp = true } = {}) {
+  const fallback = useRef(giveUp);
+  fallback.current = giveUp;
   useEffect(() => {
     if (!active) return undefined;
-    let cancelled = false;
+    const lifetime = new AbortController();
     let sawDown = false;
     const startedAt = Date.now();
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer;
     async function poll() {
+      const attempt = new AbortController();
+      const timeout = setTimeout(() => attempt.abort(), HEALTH_POLL_MS * 2);
+      const cancel = () => attempt.abort();
+      lifetime.signal.addEventListener("abort", cancel, { once: true });
       try {
-        const res = await fetch("/health", { cache: "no-store" });
-        if (res.ok && (sawDown || (giveUp && Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS))) {
-          if (!cancelled) window.location.reload();
+        const res = await fetch("/health", { cache: "no-store", signal: attempt.signal });
+        if (lifetime.signal.aborted) return;
+        if (res.ok && (sawDown || (fallback.current && Date.now() - startedAt > HEALTH_GIVE_UP_DOWN_MS))) {
+          window.location.reload();
           return;
         }
         if (!res.ok) sawDown = true;
       } catch {
-        sawDown = true;
+        if (!attempt.signal.aborted) sawDown = true;
+      } finally {
+        clearTimeout(timeout);
+        lifetime.signal.removeEventListener("abort", cancel);
       }
-      if (!cancelled) timer = setTimeout(poll, HEALTH_POLL_MS);
+      if (!lifetime.signal.aborted) timer = setTimeout(poll, HEALTH_POLL_MS);
     }
     timer = setTimeout(poll, HEALTH_POLL_MS);
     return () => {
-      cancelled = true;
+      lifetime.abort();
       clearTimeout(timer);
     };
-  }, [active, giveUp]);
+  }, [active]);
 }
 
 export default function SystemUpdatesCard({ index = 0 }) {
@@ -69,10 +79,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [retrying, setRetrying] = useState(false);
   // "installing" while lunad downloads and installs; "restarting" once it has answered and is going down.
   const [phase, setPhase] = useState(/** @type {null | "installing" | "restarting"} */ (null));
+  const installRequested = useRef(false);
 
   const updates = useQuery({
     queryKey: ["system-updates"],
-    queryFn: () => getJson("/api/v1/system/updates"),
+    queryFn: ({ signal }) => getJson("/api/v1/system/updates", { signal }),
     // While an install runs (even one started before a page refresh), keep asking.
     refetchInterval: (query) => (query.state.data?.applying ? 3000 : 60 * 60 * 1000),
   });
@@ -83,8 +94,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
   });
 
   const check = useMutation({
-    mutationFn: () => getJson("/api/v1/system/updates?force=true"),
-    onSuccess: (data) => {
+    mutationFn: async () => {
+      await queryClient.cancelQueries({ queryKey: ["system-updates"], exact: true });
+      return getJson("/api/v1/system/updates?force=true");
+    },
+    onSuccess: async (data) => {
+      await queryClient.cancelQueries({ queryKey: ["system-updates"], exact: true });
       queryClient.setQueryData(["system-updates"], data);
       addToast({
         type: data.update_available ? "success" : "info",
@@ -104,6 +119,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
   };
 
   const installFailed = (err) => {
+    installRequested.current = false;
     setPhase(null);
     queryClient.invalidateQueries({ queryKey: ["system-updates"] });
     addToast({
@@ -158,12 +174,13 @@ export default function SystemUpdatesCard({ index = 0 }) {
   });
 
   const checkForUpdates = () => {
+    if (check.isPending || installRequested.current) return;
     setCheckMessage(null);
     check.mutate();
   };
 
   const updateInfo = updates.data;
-  const error = updates.isError
+  const error = updates.isError && !updateInfo
     ? apiErrorMessage(updates.error, "Couldn't check for updates. Try again.")
     : check.isError
       ? apiErrorMessage(check.error, "Couldn't check for updates. Try again.")
@@ -369,7 +386,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
           setShowUpdateModal(false);
           setRetrying(false);
         }}
-        onConfirm={() => (retrying ? retry.mutate() : apply.mutate())}
+        onConfirm={() => {
+          if (installRequested.current || serverInstalling) return;
+          installRequested.current = true;
+          if (retrying) retry.mutate();
+          else apply.mutate();
+        }}
         icon={Download}
         title={retrying ? "Try the update again" : "Install update"}
         message={
