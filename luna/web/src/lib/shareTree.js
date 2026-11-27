@@ -53,7 +53,59 @@ function rowCovers(parent, row) {
  */
 export function memberAccessRoots(rows) {
   const list = Array.isArray(rows) ? rows : [];
-  return list.filter((row) => !list.some((parent) => rowCovers(parent, row)));
+  const byDrive = new Map();
+  for (const row of list) {
+    const drive = driveIdOf(row);
+    let groups = byDrive.get(drive);
+    if (!groups) {
+      groups = { paths: new Map(), albums: new Map() };
+      byDrive.set(drive, groups);
+    }
+    const album = row.kind === KIND_ALBUM;
+    const group = album ? groups.albums : groups.paths;
+    const key = album ? row.album_id : pathKey(row.path);
+    const entries = group.get(key);
+    if (entries) entries.push(row);
+    else group.set(key, [row]);
+  }
+  return list.filter((row) => {
+    const groups = byDrive.get(driveIdOf(row));
+    const coveredBy = (candidates) => candidates?.some((parent) => rowCovers(parent, row));
+    if (row.kind === KIND_ALBUM) return !coveredBy(groups.albums.get(row.album_id));
+    let path = pathKey(row.path);
+    while (path) {
+      if (coveredBy(groups.paths.get(path))) return false;
+      path = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+    }
+    return !coveredBy(groups.paths.get(""));
+  });
+}
+
+// Query results are immutable. Each render can check every visible path
+// against the same table without repeatedly scanning unrelated grants.
+const indexedGrants = new WeakMap();
+function grantsByPath(rows, driveId) {
+  if (!Array.isArray(rows)) return undefined;
+  let byDrive = indexedGrants.get(rows);
+  if (!byDrive) {
+    byDrive = new Map();
+    for (const row of rows) {
+      if (row.kind === KIND_ALBUM) continue;
+      const bits = capsBits(row.caps);
+      if (!bits) continue;
+      const id = driveIdOf(row);
+      let drive = byDrive.get(id);
+      if (!drive) {
+        drive = { paths: new Map(), bits: 0 };
+        byDrive.set(id, drive);
+      }
+      const path = pathKey(row.path);
+      drive.paths.set(path, (drive.paths.get(path) || 0) | bits);
+      drive.bits |= bits;
+    }
+    indexedGrants.set(rows, byDrive);
+  }
+  return byDrive.get(driveId);
 }
 
 /**
@@ -62,29 +114,20 @@ export function memberAccessRoots(rows) {
  * to filesystem paths.
  */
 export function capsOnPath(rows, driveId, path) {
-  const list = Array.isArray(rows) ? rows : [];
-  const target = pathKey(path);
-  let bits = 0;
-  for (const row of list) {
-    if (row.kind === KIND_ALBUM) continue;
-    if (driveIdOf(row) !== driveId) continue;
-    if (pathContains(row.path, target)) bits |= capsBits(row.caps);
+  const drive = grantsByPath(rows, driveId);
+  if (!drive) return 0;
+  let target = pathKey(path);
+  let bits = drive.paths.get("") || 0;
+  while (target && bits !== drive.bits) {
+    bits |= drive.paths.get(target) || 0;
+    target = target.slice(0, Math.max(0, target.lastIndexOf("/")));
   }
   return bits;
 }
 
 /** True when any path row on this drive grants `bit` somewhere. */
 export function hasCapOnDrive(rows, driveId, bit) {
-  const list = Array.isArray(rows) ? rows : [];
-  return list.some((row) => (
-    row.kind !== KIND_ALBUM
-    && driveIdOf(row) === driveId
-    && (capsBits(row.caps) & bit) !== 0
-  ));
-}
-
-function segmentCount(path) {
-  return path ? path.split("/").length : 0;
+  return ((grantsByPath(rows, driveId)?.bits || 0) & bit) !== 0;
 }
 
 /**
@@ -99,23 +142,14 @@ function segmentCount(path) {
  * `path` itself — nothing above it can be reached anyway.
  */
 export function memberPathFloor(rows, driveId, path) {
-  const list = Array.isArray(rows) ? rows : [];
+  const drive = grantsByPath(rows, driveId);
+  if (!drive || drive.paths.has("")) return "";
   const target = pathKey(path);
-  let floor = null;
-  let hasDriveRow = false;
-  for (const row of list) {
-    if (row.kind === KIND_ALBUM) continue;
-    if (driveIdOf(row) !== driveId) continue;
-    if (capsBits(row.caps) === 0) continue;
-    hasDriveRow = true;
-    const grant = pathKey(row.path);
-    if (!pathContains(grant, target)) continue;
-    if (floor === null || segmentCount(grant) < segmentCount(floor)) {
-      floor = grant;
-    }
+  let floor = target;
+  for (let candidate = target; candidate; candidate = candidate.slice(0, Math.max(0, candidate.lastIndexOf("/")))) {
+    if (drive.paths.has(candidate)) floor = candidate;
   }
-  if (floor !== null) return floor;
-  return hasDriveRow ? target : "";
+  return floor;
 }
 
 /**

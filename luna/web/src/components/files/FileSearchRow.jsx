@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -108,12 +108,6 @@ function FileSearchRow({
   // actions, so a long list isn't six Tab presses per row.
   // The wide layout passes tabIndex to its buttons itself; the phone menu
   // has no prop for it.
-  useEffect(() => {
-    if (isSmUp) return;
-    actionsRef.current
-      ?.querySelectorAll("a, button")
-      .forEach((el) => el.setAttribute("tabindex", "-1"));
-  });
   const href = memberAccess ? memberSearchHref(memberAccess, item) : searchResultHref(item);
   // Hits only prove VIEW. Everything else is gated on the member's real
   // caps — the share sheet opens on Read (links belong to the item), the
@@ -135,12 +129,12 @@ function FileSearchRow({
     ? `Open ${item.name}`
     : `Show ${item.name} in its folder`;
   // A near miss wasn't typed exactly, so underlining "the match" would lie.
-  const detail = detailLine(item, driveLabel, isDir);
+  const detail = useMemo(() => detailLine(item, driveLabel, isDir), [item, driveLabel, isDir]);
   // Only a name match underlines the name: a file found by its words or
   // meaning would otherwise show a few stray letters underlined.
-  const parts = item.match === "name"
+  const parts = useMemo(() => item.match === "name"
     ? highlightParts(item.name, query)
-    : [{ text: item.name, hit: false }];
+    : [{ text: item.name, hit: false }], [item.match, item.name, query]);
   const snippet = Array.isArray(item.snippet) && item.snippet.length ? item.snippet : null;
 
   // One action list, rendered two ways: icon buttons in the row on wide
@@ -298,7 +292,7 @@ function FileSearchRow({
             className="shrink-0 pointer-events-auto"
             onClick={(event) => event.stopPropagation()}
           >
-            <RowActionMenu label={item.name} actions={actions} surface="primary" />
+            <RowActionMenu label={item.name} actions={actions} surface="primary" tabIndex={-1} />
           </div>
         )}
       </div>

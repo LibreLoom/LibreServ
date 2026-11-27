@@ -54,6 +54,8 @@ export default function MapAreaDraw({
   const [draft, setDraft] = useState(/** @type {[[number, number], [number, number]]|null} */ (null));
   const isDrawingRef = useRef(false);
   const originRef = useRef(/** @type {[number, number]|null} */ (null));
+  const handlers = useRef({ onChange, onDraftChange });
+  handlers.current = { onChange, onDraftChange };
 
   useEffect(() => {
     if (!active) return undefined;
@@ -78,6 +80,13 @@ export default function MapAreaDraw({
   useEffect(() => {
     if (!active) return undefined;
     const container = map.getContainer();
+    let frame = 0;
+    let pointer = null;
+    function cancelFrame() {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      pointer = null;
+    }
 
     const handlePointerDown = (e) => {
       if (e.button != null && e.button !== 0) return;
@@ -102,20 +111,24 @@ export default function MapAreaDraw({
     const handlePointerMove = (e) => {
       if (!isDrawingRef.current || !originRef.current) return;
       e.preventDefault();
-      const latlng = map.mouseEventToLatLng(e);
-      /** @type {[number, number]} */
-      const current = [latlng.lat, latlng.lng];
-      setDraft([originRef.current, current]);
-      if (onDraftChange) {
-        onDraftChange(
-          boundsToBbox(/** @type {[[number, number], [number, number]]} */ ([originRef.current, current])),
-        );
-      }
+      pointer = e;
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (!pointer || !originRef.current) return;
+        const latlng = map.mouseEventToLatLng(pointer);
+        pointer = null;
+        /** @type {[[number, number], [number, number]]} */
+        const next = [originRef.current, [latlng.lat, latlng.lng]];
+        setDraft(next);
+        handlers.current.onDraftChange?.(boundsToBbox(next));
+      });
     };
 
     const finishDraw = (e) => {
       if (!isDrawingRef.current || !originRef.current) return;
       isDrawingRef.current = false;
+      cancelFrame();
       e.preventDefault();
       try {
         container.releasePointerCapture(e.pointerId);
@@ -136,13 +149,14 @@ export default function MapAreaDraw({
         Math.abs(bbox[2] - bbox[0]) < 0.0001 && Math.abs(bbox[3] - bbox[1]) < 0.0001;
       if (!tiny) {
         haptic("success");
-        onChange?.(bbox);
+        handlers.current.onChange?.(bbox);
       }
     };
 
     const cancelDraw = (e) => {
       if (!isDrawingRef.current) return;
       isDrawingRef.current = false;
+      cancelFrame();
       originRef.current = null;
       setDraft(null);
       try {
@@ -158,14 +172,17 @@ export default function MapAreaDraw({
     container.addEventListener("pointercancel", cancelDraw, { passive: false });
 
     return () => {
+      cancelFrame();
+      isDrawingRef.current = false;
+      originRef.current = null;
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", finishDraw);
       container.removeEventListener("pointercancel", cancelDraw);
     };
-  }, [map, active, onChange, onDraftChange]);
+  }, [map, active]);
 
-  const shown = draft || bboxToBounds(value);
+  const shown = (active && isDrawingRef.current && draft) || bboxToBounds(value);
   if (!shown) return null;
 
   return (

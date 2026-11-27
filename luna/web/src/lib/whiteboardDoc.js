@@ -402,9 +402,10 @@ export function syncSceneCache(ydoc) {
  * missing from it (a concurrent-insert race) appends after, sorted by id
  * so every peer resolves the same layout.
  * @param {Y.Doc} ydoc
+ * @param {{ knownFiles?: Record<string, unknown> }} [options]
  * @returns {Required<Scene>}
  */
-export function readScene(ydoc) {
+export function readScene(ydoc, { knownFiles } = {}) {
   const elements = elementsMap(ydoc);
   const order = orderList(ydoc);
   const appState = appStateMap(ydoc);
@@ -457,7 +458,7 @@ export function readScene(ydoc) {
   const fileMap = {};
   if (files) {
     files.forEach((raw, id) => {
-      if (typeof raw !== "string") return;
+      if (typeof raw !== "string" || (knownFiles && Object.hasOwn(knownFiles, id))) return;
       try {
         fileMap[id] = JSON.parse(raw);
       } catch {

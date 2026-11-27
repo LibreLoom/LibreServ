@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation } from "@tanstack/react-query";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -45,6 +45,10 @@ export default function AddPersonModal({
   const [error, setError] = useState(/** @type {string|null} */ (null));
 
   const picked = options.some((o) => o.value === caps) ? caps : options[0]?.value || "";
+  const peopleOptions = useMemo(
+    () => people.map((person) => ({ value: person.id, label: person.display_name || person.username })),
+    [people],
+  );
 
   const mutation = useMutation({
     mutationFn: (/** @type {Record<string, unknown>} */ body) => postJson("/api/v1/access/members", body),
@@ -66,7 +70,7 @@ export default function AddPersonModal({
           {error && <InlineError>{error}</InlineError>}
           <ShakeTarget shake={error}>
             <Dropdown
-              options={people.map((u) => ({ value: u.id, label: u.display_name || u.username }))}
+              options={peopleOptions}
               value={personId}
               onChange={setPersonId}
               placeholder="Pick someone"

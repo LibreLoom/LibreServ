@@ -358,6 +358,11 @@ export function writeForm(ydoc, doc) {
  * @param {{ withIds?: boolean }} [opts]
  */
 export function readForm(ydoc, { withIds = false } = {}) {
+  return readFormWith(ydoc, (question) => readQuestion(question, withIds));
+}
+
+/** @param {Y.Doc} ydoc @param {(question: Y.Map<unknown>) => Record<string, unknown>} read */
+function readFormWith(ydoc, read) {
   const map = formMap(ydoc);
   if (map.size === 0) return null;
   const settings = map.get("settings");
@@ -372,8 +377,52 @@ export function readForm(ydoc, { withIds = false } = {}) {
       ? questions
         .toArray()
         .filter((q) => q instanceof Y.Map)
-        .map((q) => readQuestion(/** @type {Y.Map<unknown>} */ (q), withIds))
+        .map(read)
       : [],
+  };
+}
+
+/**
+ * Keep unchanged question objects while the builder is listening. Yjs
+ * batches local and remote changes before firing the document update.
+ * @param {Y.Doc} ydoc
+ */
+export function observeForm(ydoc) {
+  const form = formMap(ydoc);
+  const questions = new WeakMap();
+  /** @type {ReturnType<typeof readForm>} */
+  let previous = null;
+  /** @param {Y.YEvent<any>[]} events */
+  function invalidate(events) {
+    const list = form.get("questions");
+    for (const event of events) {
+      // Walk up the changed branch to the question that owns it.
+      let type = event.target;
+      while (type.parent && type.parent !== list && type.parent !== form) {
+        type = type.parent;
+      }
+      if (type.parent === list) questions.delete(type);
+    }
+  }
+  form.observeDeep(invalidate);
+  return {
+    read: () => {
+      const next = readFormWith(ydoc, (question) => {
+        let value = questions.get(question);
+        if (!value) {
+          value = readQuestion(question, true);
+          questions.set(question, value);
+        }
+        return value;
+      });
+      if (next && previous && next.questions.length === previous.questions.length &&
+          next.questions.every((question, index) => question === previous.questions[index])) {
+        next.questions = previous.questions;
+      }
+      previous = next;
+      return next;
+    },
+    dispose: () => form.unobserveDeep(invalidate),
   };
 }
 

@@ -265,22 +265,27 @@ export function buildQuestionVisibility(questions) {
   indexed.forEach(({ id }, index) => {
     if (!first.has(id)) first.set(id, index);
   });
-  const rules = indexed.map((question) => {
+  const rules = indexed.flatMap((question, index) => {
     const logic = question.logic;
-    if (!logic || typeof logic.questionId !== "string" || !logic.questionId) return null;
+    if (!logic || typeof logic.questionId !== "string" || !logic.questionId) return [];
     const trigger = first.get(logic.questionId);
-    if (trigger === undefined || trigger >= first.get(question.id)) return null;
-    return { trigger, id: logic.questionId, expected: logic.equals == null ? "" : String(logic.equals) };
+    if (trigger === undefined || trigger >= first.get(question.id)) return [];
+    return [{ index, trigger, id: logic.questionId, expected: logic.equals == null ? "" : String(logic.equals) }];
   });
-  if (rules.every((rule) => rule === null)) return () => indexed;
+  if (rules.length === 0) return () => indexed;
+  const skipped = new Uint8Array(indexed.length);
+  let visible = indexed;
   return (/** @type {Record<string, unknown>} */ answers) => {
-    const skipped = new Uint8Array(indexed.length);
-    return indexed.filter((_question, index) => {
-      const rule = rules[index];
-      if (!rule || skipped[rule.trigger] || !answerMatches(answers?.[rule.id], rule.expected)) return true;
-      skipped[index] = 1;
-      return false;
-    });
+    let changed = false;
+    let anySkipped = false;
+    for (const { index, trigger, id, expected } of rules) {
+      const next = !skipped[trigger] && answerMatches(answers?.[id], expected) ? 1 : 0;
+      if (skipped[index] !== next) changed = true;
+      if (next) anySkipped = true;
+      skipped[index] = next;
+    }
+    if (changed) visible = anySkipped ? indexed.filter((_question, index) => !skipped[index]) : indexed;
+    return visible;
   };
 }
 

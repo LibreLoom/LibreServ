@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "../../lib/utils.js";
@@ -166,11 +166,10 @@ export default function Dropdown({
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-    updatePosition();
     setIsClosing(false);
     setIsOpen(true);
     onOpenChangeRef.current?.(true);
-  }, [updatePosition]);
+  }, []);
 
   // A controlled `open` drives the menu; internal opens report back above.
   useEffect(() => {
@@ -193,14 +192,20 @@ export default function Dropdown({
         focusTrigger();
       }
     }
+    let frame = 0;
     function handleScroll() {
-      updatePosition();
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updatePosition();
+      });
     }
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
-    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
     window.addEventListener("resize", handleScroll);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
       window.removeEventListener("scroll", handleScroll, true);
@@ -211,7 +216,6 @@ export default function Dropdown({
   useLayoutEffect(() => {
     if (!isOpen) return;
     updatePosition();
-    if (portalRef.current) updatePosition();
   }, [isOpen, updatePosition]);
 
   const handleSelect = (optionValue) => {
@@ -235,7 +239,14 @@ export default function Dropdown({
     }
   };
 
-  const enabledIndexes = options.flatMap((o, i) => (o.disabled ? [] : [i]));
+  const enabledIndexes = useMemo(() => {
+    if (!isOpen) return [];
+    const result = [];
+    options.forEach((option, index) => {
+      if (!option.disabled) result.push(index);
+    });
+    return result;
+  }, [isOpen, options]);
   const stepActive = (dir) => {
     if (!enabledIndexes.length) return;
     const at = enabledIndexes.indexOf(activeIndex);
@@ -252,7 +263,10 @@ export default function Dropdown({
         event.preventDefault();
         haptic("light");
         openMenu();
-        setActiveIndex(event.key === "ArrowDown" ? (enabledIndexes[0] ?? -1) : (enabledIndexes[enabledIndexes.length - 1] ?? -1));
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        let index = direction > 0 ? 0 : options.length - 1;
+        while (options[index]?.disabled) index += direction;
+        setActiveIndex(options[index] ? index : -1);
       }
       return;
     }

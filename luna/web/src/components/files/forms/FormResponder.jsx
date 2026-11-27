@@ -218,7 +218,8 @@ function Responder({
   const getVisibleQuestions = useMemo(() => buildQuestionVisibility(questions), [questions]);
   const shown = useMemo(() => getVisibleQuestions(answers), [getVisibleQuestions, answers]);
   const order = useMemo(() => JSON.stringify(shown.map((question) => question.id)), [shown]);
-  const layoutRevision = `${order}:${JSON.stringify(Object.keys(errors))}`;
+  const errorOrder = useMemo(() => JSON.stringify(Object.keys(errors)), [errors]);
+  const layoutRevision = `${order}:${errorOrder}`;
 
   // Scrub ?edit=/?edit_token= once read — replace, so Back doesn't land on it.
   useEffect(() => {
@@ -231,12 +232,13 @@ function Responder({
 
   useEffect(() => {
     if (!editLinkToken) return undefined;
+    const request = new AbortController();
     let cancelled = false;
     const headers = { Accept: "application/json" };
     if (sharePassword) headers["X-Share-Password"] = sharePassword;
     fetch(
       `/s/${encodeURIComponent(token)}/respond?edit_token=${encodeURIComponent(editLinkToken)}`,
-      { headers },
+      { headers, signal: request.signal },
     )
       .then(async (res) => {
         const data = await res.json().catch(() => null);
@@ -264,12 +266,15 @@ function Responder({
       .finally(() => {
         if (!cancelled) setCheckingEdit(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      request.abort();
+    };
   }, [token, sharePassword, editLinkToken]);
 
-  const editableResponses = allowEdits
+  const editableResponses = useMemo(() => allowEdits
     ? storedResponses.filter((r) => typeof r.edit_token === "string" && r.edit_token !== "")
-    : [];
+    : [], [allowEdits, storedResponses]);
   // A return visit still gets its edit link: the newest response this
   // browser can change, unless one was just sent or opened.
   const linkToken = editToken || editableResponses[editableResponses.length - 1]?.edit_token || "";
@@ -278,7 +283,8 @@ function Responder({
     : "";
 
   const setAnswer = useCallback((questionId, value) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+    setAnswers((prev) => Object.hasOwn(prev, questionId) && Object.is(prev[questionId], value)
+      ? prev : { ...prev, [questionId]: value });
     setErrors((prev) => {
       if (!prev[questionId]) return prev;
       const next = { ...prev };

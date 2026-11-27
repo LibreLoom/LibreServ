@@ -78,7 +78,6 @@ RowActionSheet.propTypes = {
  *
  * `surface` is the only thing the two contexts disagree on: search results are
  * `surface-primary` rows, file rows sit on whatever surface the listing uses.
- * It is the one prop.
  *
  * A caller with its own sheet body (the explorer, whose rows carry more
  * actions than the built-in set) passes `renderSheet` instead of `actions`;
@@ -90,12 +89,13 @@ RowActionSheet.propTypes = {
  *   renderSheet?: (close: () => void) => import('react').ReactNode,
  *   surface?: "primary" | "secondary",
  *   size?: "md" | "sm",
+ *   tabIndex?: number,
  * }} props
  *
  * `size="sm"` matches the small buttons beside it on a card's button row.
  */
-export default function RowActionMenu({ label, actions, renderSheet, surface = "secondary", size = "md" }) {
-  const [open, setOpen] = useState(false);
+export default function RowActionMenu({ label, actions, renderSheet, surface = "secondary", size = "md", tabIndex }) {
+  const [status, setStatus] = useState("unused");
   return (
     <>
       <Button
@@ -105,13 +105,16 @@ export default function RowActionMenu({ label, actions, renderSheet, surface = "
         className={size === "sm" ? undefined : "size-11"}
         aria-label={`Actions for ${label}`}
         aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
+        tabIndex={tabIndex}
+        onClick={() => setStatus("open")}
       >
         <Ellipsis size={size === "sm" ? 16 : 24} aria-hidden="true" />
       </Button>
-      <ModalCard open={open} title={label} size="sm" onClose={() => setOpen(false)}>
-        {({ close }) => (renderSheet ? renderSheet(close) : <RowActionSheet actions={actions} close={close} />)}
-      </ModalCard>
+      {status !== "unused" && (
+        <ModalCard open={status === "open"} title={label} size="sm" onClose={() => setStatus("closed")}>
+          {({ close }) => (renderSheet ? renderSheet(close) : <RowActionSheet actions={actions} close={close} />)}
+        </ModalCard>
+      )}
     </>
   );
 }
@@ -130,4 +133,5 @@ RowActionMenu.propTypes = {
   renderSheet: PropTypes.func,
   surface: PropTypes.oneOf(["primary", "secondary"]),
   size: PropTypes.oneOf(["md", "sm"]),
+  tabIndex: PropTypes.number,
 };

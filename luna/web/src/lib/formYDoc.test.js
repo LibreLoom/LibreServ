@@ -10,6 +10,7 @@ import {
   addFormQuestion,
   formCollabAdapter,
   moveFormQuestion,
+  observeForm,
   patchFormQuestion,
   readForm,
   removeFormQuestion,
@@ -23,6 +24,30 @@ import {
 } from "./formYDoc.js";
 
 describe("formYDoc", () => {
+  it("reuses unchanged questions across local and remote edits", () => {
+    const doc = new Y.Doc();
+    const peer = new Y.Doc();
+    seedForm(doc, JSON.stringify({ questions: [
+      { id: "a", type: "choice", label: "First", config: { options: ["Yes"] } },
+      { id: "b", type: "short_text", label: "Second" },
+    ] }));
+    const form = observeForm(doc);
+    const initial = form.read();
+    setFormTitle(doc, "New title");
+    expect(form.read().questions).toBe(initial.questions);
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const option = initial.questions[0].config.optionIds[0];
+    setFormOptionLabel(peer, "a", option, "Maybe");
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc)));
+    const next = form.read();
+    expect(next).toEqual(readForm(doc, { withIds: true }));
+    expect(next.questions[0].config.options).toEqual(["Maybe"]);
+    expect(next.questions[1]).toBe(initial.questions[1]);
+    form.dispose();
+    doc.destroy();
+    peer.destroy();
+  });
+
   it("round-trips a form, including fields the editor does not draw", () => {
     const raw = JSON.stringify({
       version: 1,

@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Crop, ImageIcon, MapPin, Pencil, X } from "lucide-react";
-import Supercluster from "supercluster";
 import {
   MapContainer,
   TileLayer,
@@ -9,7 +8,6 @@ import {
   Popup,
   Tooltip,
   useMap,
-  useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -18,7 +16,8 @@ import EmptyState from "@libreloom/ui/components/common/EmptyState.jsx";
 import Spinner from "@libreloom/ui/components/ui/Spinner.jsx";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { useSmoothResize } from "@libreloom/ui/hooks/useSmoothResize.js";
-import MapAreaDraw from "./MapAreaDraw.jsx";
+import MapAreaDraw, { bboxToBounds } from "./MapAreaDraw.jsx";
+import { usePlacesIndex } from "./usePlacesIndex.js";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -28,8 +27,18 @@ function FitBounds({ points }) {
       map.setView([points[0].lat, points[0].lon], 10);
       return;
     }
-    const bounds = points.map((p) => [p.lat, p.lon]);
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    let west = Infinity;
+    let south = Infinity;
+    let east = -Infinity;
+    let north = -Infinity;
+    for (const { lat, lon } of points) {
+      west = Math.min(west, lon);
+      south = Math.min(south, lat);
+      east = Math.max(east, lon);
+      north = Math.max(north, lat);
+    }
+    const bounds = bboxToBounds([west, south, east, north]);
+    if (bounds) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
   }, [map, points]);
   return null;
 }
@@ -72,75 +81,6 @@ function clusterRadius(count, zoom) {
   const base = 8 + Math.log2(count + 1) * 3.5;
   const zoomScale = Math.max(0.75, 1.15 - zoom * 0.03);
   return Math.min(34, base * zoomScale);
-}
-
-function dominantLabel(leaves) {
-  const counts = new Map();
-  for (const leaf of leaves) {
-    const label = leaf.properties.label;
-    if (!label || label === "Photos from this place") continue;
-    counts.set(label, (counts.get(label) || 0) + 1);
-  }
-  let best = "";
-  let bestCount = 0;
-  for (const [label, n] of counts) {
-    if (n > bestCount) {
-      best = label;
-      bestCount = n;
-    }
-  }
-  return best;
-}
-
-function bboxFromLeaves(leaves) {
-  let minLon = Infinity;
-  let minLat = Infinity;
-  let maxLon = -Infinity;
-  let maxLat = -Infinity;
-  for (const leaf of leaves) {
-    const [lon, lat] = leaf.geometry.coordinates;
-    minLon = Math.min(minLon, lon);
-    minLat = Math.min(minLat, lat);
-    maxLon = Math.max(maxLon, lon);
-    maxLat = Math.max(maxLat, lat);
-  }
-  const pad = 0.0002;
-  return [minLon - pad, minLat - pad, maxLon + pad, maxLat + pad];
-}
-
-/** @param {import('supercluster').AnyProps} cluster @param {Supercluster} index */
-function clusterToPlace(cluster, index) {
-  const [lon, lat] = cluster.geometry.coordinates;
-  const props = cluster.properties;
-
-  if (props.cluster) {
-    const count = props.point_count;
-    const leaves = index.getLeaves(cluster.id, Infinity);
-    const bbox = bboxFromLeaves(leaves);
-    const cover =
-      leaves.find((leaf) => leaf.properties.cover_thumb)?.properties.cover_thumb || "";
-    const label = dominantLabel(leaves) || (count === 1 ? "1 photo" : `${count} photos`);
-    return {
-      key: `bbox:${bbox.map((n) => n.toFixed(5)).join(",")}`,
-      label,
-      count,
-      lat,
-      lon,
-      cover_thumb: cover,
-      place_bbox: bbox,
-    };
-  }
-
-  const pad = 0.00005;
-  return {
-    key: props.key,
-    label: props.label,
-    count: 1,
-    lat,
-    lon,
-    cover_thumb: props.cover_thumb || "",
-    place_bbox: [lon - pad, lat - pad, lon + pad, lat + pad],
-  };
 }
 
 export function PlacePopupContent({ place, onSelect }) {
@@ -212,59 +152,56 @@ PlacePopupContent.propTypes = {
 
 function ClusterMarkers({ markers, onSelect }) {
   const map = useMap();
-  const [clusters, setClusters] = useState([]);
-  const [zoom, setZoom] = useState(() => map.getZoom());
+  const [viewport, setViewport] = useState(null);
 
-  const index = useMemo(() => {
-    const sc = new Supercluster({
-      radius: 56,
-      maxZoom: 18,
-      minZoom: 0,
-      minPoints: 2,
-    });
-    sc.load(
-      markers.map((m) => ({
-        type: "Feature",
-        properties: {
-          key: m.key,
-          id: m.id || `${m.lat},${m.lon}`,
-          label: m.label,
-          cover_thumb: m.cover_thumb || "",
-        },
-        geometry: { type: "Point", coordinates: [m.lon, m.lat] },
-      })),
-    );
-    return sc;
-  }, [markers]);
-
-  const refreshClusters = useCallback(() => {
-    const bounds = map.getBounds();
-    const z = map.getZoom();
-    setZoom(z);
-    const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
-    setClusters(index.getClusters(bbox, Math.floor(z)));
-  }, [index, map]);
-
-  useMapEvents({
-    moveend: refreshClusters,
-    zoomend: refreshClusters,
-  });
-
+  const index = usePlacesIndex(markers);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- props/open seed draft UI state
-    refreshClusters();
-  }, [refreshClusters]);
+    if (!index) return undefined;
+    let frame = 0;
+    let latest = 0;
+    let lastViewport = "";
+    function refresh() {
+      frame = 0;
+      const bounds = map.getBounds();
+      const z = map.getZoom();
+      /** @type {[number, number, number, number]} */
+      const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+      const key = `${bbox.join(",")}:${z}`;
+      if (key === lastViewport) return;
+      lastViewport = key;
+      const serial = ++latest;
+      const result = index.clusters(bbox, Math.floor(z));
+      if (Array.isArray(result)) {
+        setViewport({ index, zoom: z, clusters: result });
+      } else {
+        result.then((next) => {
+          if (serial !== latest) return;
+          setViewport({ index, zoom: z, clusters: next });
+        }).catch(() => {});
+      }
+    }
+    function schedule() {
+      if (!frame) frame = window.requestAnimationFrame(refresh);
+    }
+    map.on?.("moveend zoomend", schedule);
+    refresh();
+    return () => {
+      latest++;
+      if (frame) window.cancelAnimationFrame(frame);
+      map.off?.("moveend zoomend", schedule);
+    };
+  }, [index, map]);
 
   return (
     <>
-      {clusters.map((cluster) => {
+      {viewport && viewport.index === index && viewport.clusters.map((cluster) => {
         const isCluster = Boolean(cluster.properties.cluster);
         return (
           <ClusterMarker
             key={isCluster ? `cluster-${cluster.id}` : cluster.properties.id}
             cluster={cluster}
             index={index}
-            zoom={zoom}
+            zoom={viewport.zoom}
             onSelect={onSelect}
           />
         );
@@ -279,7 +216,7 @@ function ClusterMarkers({ markers, onSelect }) {
  * opens, not for every dot on every move.
  */
 const ClusterMarker = memo(
-  /** @param {{ cluster: any, index: Supercluster, zoom: number, onSelect?: (place: any) => void }} props */
+  /** @param {{ cluster: any, index: ReturnType<typeof usePlacesIndex>, zoom: number, onSelect?: (place: any) => void }} props */
   function ClusterMarker({ cluster, index, zoom, onSelect }) {
     const map = useMap();
     const popupRef = useRef(/** @type {import("leaflet").Popup|null} */ (null));
@@ -288,10 +225,17 @@ const ClusterMarker = memo(
     const isCluster = Boolean(cluster.properties.cluster);
     const count = isCluster ? cluster.properties.point_count : 1;
     const radius = clusterRadius(count, zoom);
-    const place = useMemo(
-      () => (popupOpen ? clusterToPlace(cluster, index) : null),
-      [popupOpen, cluster, index],
-    );
+    const [loadedPlace, setLoadedPlace] = useState(null);
+    useEffect(() => {
+      if (!popupOpen) return undefined;
+      let cancelled = false;
+      Promise.resolve(index.place(cluster)).then((place) => {
+        if (!cancelled) setLoadedPlace({ cluster, index, place });
+      }).catch(() => {});
+      return () => { cancelled = true; };
+    }, [popupOpen, cluster, index]);
+    const place = popupOpen && loadedPlace?.cluster === cluster && loadedPlace.index === index
+      ? loadedPlace.place : null;
 
     // The popup was measured while empty; re-measure once its content exists.
     useEffect(() => {
@@ -310,8 +254,9 @@ const ClusterMarker = memo(
             if (!isCluster) return;
             e.originalEvent?.preventDefault?.();
             haptic("medium");
-            const expandZoom = Math.min(index.getClusterExpansionZoom(cluster.id), 18);
-            map.setView([lat, lon], expandZoom, { animate: true });
+            Promise.resolve(index.expansionZoom(cluster.id)).then((nextZoom) => {
+              map.setView([lat, lon], Math.min(nextZoom, 18), { animate: true });
+            }).catch(() => {});
           },
           popupopen: () => setPopupOpen(true),
           popupclose: () => setPopupOpen(false),

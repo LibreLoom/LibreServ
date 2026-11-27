@@ -31,9 +31,10 @@ export default function useFileSearch(typed, { enabled = true, kind = "all" } = 
   const q = trimmed;
 
   useEffect(() => {
+    if (!enabled || trimmed.length < MIN_SEARCH_LENGTH) return undefined;
     const full = setTimeout(() => setFullQ(trimmed), FULL_DEBOUNCE_MS);
     return () => clearTimeout(full);
-  }, [trimmed]);
+  }, [enabled, trimmed]);
 
   const active = enabled && q.length >= MIN_SEARCH_LENGTH;
 

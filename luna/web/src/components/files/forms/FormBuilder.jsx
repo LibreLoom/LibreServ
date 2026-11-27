@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, MotionConfig, Reorder, motion as Motion, useDragControls } from "motion/react";
@@ -30,7 +30,6 @@ import { useToast } from "@libreloom/ui/context/ToastContext.jsx";
 import ShareSheet from "../../share/ShareSheet.jsx";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import FormResponses from "./FormResponses.jsx";
-import SqliteEditor from "./sqlite/SqliteEditor.jsx";
 import SlidePages from "../../common/SlidePages.jsx";
 import FormInput from "../../common/forms/FormInput.jsx";
 import FileBrowser from "../FileBrowser.jsx";
@@ -46,6 +45,7 @@ import {
   DEFAULT_THANK_YOU,
 } from "./questionTypes.js";
 import { apiErrorMessage } from "../../../lib/api.js";
+import lazyWithPreload from "../../../lib/lazyWithPreload.js";
 import { CAP } from "../../../lib/access.js";
 import {
   latestResponses,
@@ -58,8 +58,8 @@ import {
   addFormQuestion,
   formCollabAdapter,
   moveFormQuestion,
+  observeForm,
   patchFormQuestion,
-  readForm,
   removeFormOption,
   removeFormQuestion,
   repairQuestionIds,
@@ -86,6 +86,8 @@ const AUTOSAVE_TICK_MS = 250;
 
 /** One page of the Responses tab. The summary covers every page at once. */
 const RESPONSES_PAGE_SIZE = 100;
+const EMPTY_LIST = [];
+const SqliteEditor = lazyWithPreload(() => import("./sqlite/SqliteEditor.jsx"));
 
 const TYPE_OPTIONS = QUESTION_TYPE_IDS.map((id) => ({
   value: id,
@@ -261,7 +263,7 @@ function BuilderSession({
   const usageQuery = useQuery({
     queryKey: ["form-usage", scope, path],
     queryFn: () => source.formUsage(driveId, path),
-    enabled: typeof source.formUsage === "function",
+    enabled: !loading && !error && typeof source.formUsage === "function",
     staleTime: 30_000,
   });
   const usage = usageQuery.data;
@@ -269,7 +271,11 @@ function BuilderSession({
     if (!source.formSqlite || dbOpening) return;
     setDbOpening(true);
     try {
-      setDbEditor(await source.formSqlite(driveId, path));
+      const [database] = await Promise.all([
+        source.formSqlite(driveId, path),
+        SqliteEditor.preload(),
+      ]);
+      setDbEditor(database);
     } catch (err) {
       addToast({
         type: "error",
@@ -282,8 +288,10 @@ function BuilderSession({
   }
 
   const answers = responsesQuery.data;
-  const responses = latestResponses(
-    Array.isArray(answers?.responses) ? answers.responses : [],
+  const responseRows = answers?.responses;
+  const responses = useMemo(
+    () => Array.isArray(responseRows) ? latestResponses(responseRows) : EMPTY_LIST,
+    [responseRows],
   );
   const summary = summaryQuery.data;
   const answersNotice = typeof answers?.notice === "string" ? answers.notice : "";
@@ -292,18 +300,23 @@ function BuilderSession({
   const nextOffset =
     typeof answers?.next_offset === "number" ? answers.next_offset : null;
   /** Summary totals cover every page; the loaded rows fill in for guests. */
-  const summaryById = new Map(
-    (Array.isArray(summary?.questions) ? summary.questions : []).map((q) => [q.id, q]),
+  const questionSummaries = summary?.questions;
+  const summaryById = useMemo(
+    () => new Map((Array.isArray(questionSummaries) ? questionSummaries : EMPTY_LIST).map((q) => [q.id, q])),
+    [questionSummaries],
   );
   /** Question ids that already have answers — editing those warns first. */
-  const answeredIds = new Set();
-  for (const rec of responses) {
-    const recAnswers = rec && typeof rec.answers === "object" ? rec.answers : null;
-    for (const id of Object.keys(recAnswers || {})) answeredIds.add(id);
-  }
-  for (const entry of summaryById.values()) {
-    if (entry.answered > 0) answeredIds.add(entry.id);
-  }
+  const answeredIds = useMemo(() => {
+    const ids = new Set();
+    for (const rec of responses) {
+      const recAnswers = rec && typeof rec.answers === "object" ? rec.answers : null;
+      for (const id of Object.keys(recAnswers || {})) ids.add(id);
+    }
+    for (const entry of summaryById.values()) {
+      if (entry.answered > 0) ids.add(entry.id);
+    }
+    return ids;
+  }, [responses, summaryById]);
 
   // Autosave bookkeeping — mirrors TextFileEditor.
   const baselineRef = useRef(/** @type {string | null} */ (null));
@@ -323,6 +336,7 @@ function BuilderSession({
   useEffect(() => {
     let cancelled = false;
     let repaired = false;
+    const snapshot = observeForm(sync.ydoc);
     // Seeding can wait for the hub's welcome, so repair once the doc has content.
     const repairOnce = () => {
       if (repaired || !canWrite || !sync.hydrated) return;
@@ -332,7 +346,7 @@ function BuilderSession({
     /** @param {Uint8Array} _update @param {unknown} _origin @param {unknown} _doc @param {{ local?: boolean }} tr */
     const pull = (_update, _origin, _doc, tr) => {
       repairOnce();
-      setDoc(readForm(sync.ydoc, { withIds: true }));
+      setDoc(snapshot.read());
       // Only our own typing holds autosave back — a peer's edits must not
       // keep pushing our save later.
       if (tr?.local) lastEditRef.current = Date.now();
@@ -356,7 +370,7 @@ function BuilderSession({
       setFocusHere(here);
     };
     sync.ydoc.on("update", pull);
-    sync.awareness.on("update", onAware);
+    sync.awareness.on("change", onAware);
     sync.connect();
 
     (async () => {
@@ -381,7 +395,7 @@ function BuilderSession({
         // Questions sharing an id would share every answer; give each its
         // own before anyone fills the form in again.
         repairOnce();
-        setDoc(readForm(sync.ydoc, { withIds: true }));
+        setDoc(snapshot.read());
       } catch (err) {
         if (!cancelled) {
           setError(apiErrorMessage(err, "Luna couldn't open this form. Try downloading it."));
@@ -394,7 +408,8 @@ function BuilderSession({
     return () => {
       cancelled = true;
       sync.ydoc.off("update", pull);
-      sync.awareness.off("update", onAware);
+      sync.awareness.off("change", onAware);
+      snapshot.dispose();
       sync.disconnect();
     };
   }, [sync, driveId, path, source, canWrite]);
@@ -463,10 +478,10 @@ function BuilderSession({
   // Register the save thunk once the document is up — same "no session, no
   // save" contract as the text editor.
   useEffect(() => {
-    if (loading || error || !doc || !canWrite) return undefined;
+    if (loading || error || !canWrite) return undefined;
     onRegisterSave(save);
     return () => onRegisterSave(null);
-  }, [loading, error, doc, canWrite, save, onRegisterSave]);
+  }, [loading, error, canWrite, save, onRegisterSave]);
 
   /** Local edit. Viewers never write — the hub would reject the op. */
   function edit(apply) {
@@ -568,12 +583,22 @@ function BuilderSession({
         ? "Connecting…"
         : "Offline. Keep this tab open. Luna saves your changes when the connection comes back.";
 
-  const questions = Array.isArray(doc?.questions) ? doc.questions : [];
+  const questions = Array.isArray(doc?.questions) ? doc.questions : EMPTY_LIST;
   const settings = doc?.settings || {};
-  const byId = new Map(questions.map((q) => [q.id, q]));
-  const orderedIds = dragOrder
-    ? dragOrder.filter((id) => byId.has(id))
-    : questions.map((q) => q.id);
+  const byId = useMemo(() => new Map(questions.map((question, index) => [question.id, { question, index }])), [questions]);
+  const orderedIds = useMemo(
+    () => dragOrder ? dragOrder.filter((id) => byId.has(id)) : Array.from(byId.keys()),
+    [dragOrder, byId],
+  );
+  const watchersById = useMemo(() => {
+    const groups = new Map();
+    for (const person of focusHere) {
+      const group = groups.get(person.id);
+      if (group) group.push(person);
+      else groups.set(person.id, [person]);
+    }
+    return groups;
+  }, [focusHere]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -762,15 +787,15 @@ function BuilderSession({
                     className="space-y-4"
                   >
                     <AnimatePresence initial={false}>
-                      {orderedIds.map((id) => {
-                        const question = byId.get(id);
-                        if (!question) return null;
-                        const index = questions.findIndex((q) => q.id === id);
+                      {orderedIds.map((id, position) => {
+                        const entry = byId.get(id);
+                        if (!entry) return null;
+                        const { question, index } = entry;
                         return (
                           <QuestionItem
                             key={id}
                             question={question}
-                            index={orderedIds.indexOf(id)}
+                            index={position}
                             count={questions.length}
                             canWrite={canWrite}
                             autoFocus={focusNewId === id}
@@ -779,7 +804,7 @@ function BuilderSession({
                             answerSummary={summaryById.get(id) || null}
                             hasAnswers={answeredIds.has(id)}
                             earlier={questions.slice(0, index)}
-                            watchers={focusHere.filter((p) => p.id === id)}
+                            watchers={watchersById.get(id) || EMPTY_LIST}
                             imageHref={question.image
                               ? source.formFileHref(driveId, path, question.image)
                               : ""}
@@ -975,35 +1000,37 @@ function BuilderSession({
       </div>
 
       {dbEditor && source.saveFormSqlite && (
-        <SqliteEditor
-          name="answers.sqlite"
-          sessionKey={`${driveId}:${path}`}
-          canWrite={canWrite}
-          initialBytes={dbEditor.bytes}
-          revision={dbEditor.revision}
-          onClose={() => setDbEditor(null)}
-          onSave={async (bytes, revision) => {
-            const next = await source.saveFormSqlite(driveId, path, bytes, revision);
-            setDbEditor((current) =>
-              current ? { ...current, revision: next.revision } : current,
-            );
-            queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
-            queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
-            queryClient.invalidateQueries({ queryKey: responsesKey });
-            queryClient.invalidateQueries({ queryKey: summaryKey });
-            return next;
-          }}
-          onReload={
-            source.formSqlite
-              ? async () => {
-                  const next = await source.formSqlite(driveId, path);
-                  setDbEditor(next);
-                  return next;
-                }
-              : null
-          }
-          formMode
-        />
+        <Suspense fallback={null}>
+          <SqliteEditor
+            name="answers.sqlite"
+            sessionKey={`${driveId}:${path}`}
+            canWrite={canWrite}
+            initialBytes={dbEditor.bytes}
+            revision={dbEditor.revision}
+            onClose={() => setDbEditor(null)}
+            onSave={async (bytes, revision) => {
+              const next = await source.saveFormSqlite(driveId, path, bytes, revision);
+              setDbEditor((current) =>
+                current ? { ...current, revision: next.revision } : current,
+              );
+              queryClient.invalidateQueries({ queryKey: ["form-response-count", scope, path] });
+              queryClient.invalidateQueries({ queryKey: ["form-usage", scope, path] });
+              queryClient.invalidateQueries({ queryKey: responsesKey });
+              queryClient.invalidateQueries({ queryKey: summaryKey });
+              return next;
+            }}
+            onReload={
+              source.formSqlite
+                ? async () => {
+                    const next = await source.formSqlite(driveId, path);
+                    setDbEditor(next);
+                    return next;
+                  }
+                : null
+            }
+            formMode
+          />
+        </Suspense>
       )}
 
       {sharing && !source.guest && (
@@ -1257,25 +1284,25 @@ function QuestionCard({
   // Option values people already picked — removing or renaming one of
   // those warns first; untouched ones just change. Summary totals cover the
   // whole answers file; the loaded page is the fallback before it arrives.
-  const pickedCounts = new Map();
-  if (Array.isArray(answerSummary?.values) && answerSummary.values.length > 0) {
-    for (const item of answerSummary.values) {
-      const picks = Array.isArray(item.value) ? item.value : [item.value];
+  const pickedCounts = useMemo(() => {
+    const counts = new Map();
+    if (!info.options) return counts;
+    function add(value, count) {
+      const picks = Array.isArray(value) ? value : value != null ? [value] : EMPTY_LIST;
       for (const pick of picks) {
         const key = String(pick);
-        pickedCounts.set(key, (pickedCounts.get(key) || 0) + (Number(item.count) || 0));
+        counts.set(key, (counts.get(key) || 0) + count);
       }
     }
-  } else {
-    for (const r of responses) {
-      const value = r?.answers?.[question.id];
-      const picks = Array.isArray(value) ? value : value != null ? [value] : [];
-      for (const pick of picks) {
-        const key = String(pick);
-        pickedCounts.set(key, (pickedCounts.get(key) || 0) + 1);
+    if (Array.isArray(answerSummary?.values) && answerSummary.values.length > 0) {
+      for (const item of answerSummary.values) {
+        add(item.value, Number(item.count) || 0);
       }
+    } else {
+      for (const response of responses) add(response?.answers?.[question.id], 1);
     }
-  }
+    return counts;
+  }, [info.options, answerSummary, responses, question.id]);
 
   function setBound(key, raw) {
     if (raw === "") {
@@ -1426,6 +1453,8 @@ function QuestionCard({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
             src={imageHref}
+            loading="lazy"
+            decoding="async"
             alt={question.imageAlt || ""}
             className="max-h-48 w-full rounded-large-element surface-primary object-contain"
           />
@@ -1893,8 +1922,18 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
   const logic = question.logic && typeof question.logic.questionId === "string"
     ? question.logic
     : null;
-  const triggers = earlier.filter((q) => canTriggerSkip(q.type));
-  const linked = logic ? earlier.find((q) => q.id === logic.questionId) || null : null;
+  const questionOptions = [{ value: "", label: "Don't skip" }];
+  const triggers = new Map();
+  let linked = null;
+  for (const [index, candidate] of earlier.entries()) {
+    if (logic?.questionId === candidate.id) linked = candidate;
+    if (!canTriggerSkip(candidate.type)) continue;
+    triggers.set(candidate.id, candidate);
+    questionOptions.push({
+      value: candidate.id,
+      label: candidate.label || `Question ${index + 1}`,
+    });
+  }
   const trigger = linked && canTriggerSkip(linked.type) ? linked : null;
 
   function setLogic(questionId, equals) {
@@ -1908,15 +1947,7 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
     return answerOptions(next)[0] || "";
   }
 
-  if (triggers.length === 0 && !logic) return null;
-
-  const questionOptions = [
-    { value: "", label: "Don't skip" },
-    ...triggers.map((q) => ({
-      value: q.id,
-      label: q.label || `Question ${earlier.indexOf(q) + 1}`,
-    })),
-  ];
+  if (triggers.size === 0 && !logic) return null;
   const equalsOptions = trigger?.type === "yes_no"
     ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]
     : answerOptions(trigger).map((option) => ({ value: option, label: option }));
@@ -1939,7 +1970,7 @@ function SkipRow({ question, earlier, canWrite, onPatch }) {
           bg="primary"
           aria-label="Skip when this earlier question"
           onChange={(id) => {
-            const next = triggers.find((q) => q.id === id) || null;
+            const next = triggers.get(id) || null;
             setLogic(id, defaultEquals(next));
           }}
         />

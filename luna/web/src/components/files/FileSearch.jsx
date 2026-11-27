@@ -140,7 +140,7 @@ export default function FileSearch({ initialRequest }) {
   const exitTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
   const isClosingRef = useRef(false);
   const bodyInnerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
-  const [bodyHeight, setBodyHeight] = useState(/** @type {number | null} */ (null));
+  const bodyScrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
 
   const focusTrigger = useCallback(() => {
     const button = searchTrigger()?.querySelector("button");
@@ -212,7 +212,7 @@ export default function FileSearch({ initialRequest }) {
   const rowIconColor = search.hits.length > 0 && usualTextSize() ? toneColor : null;
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives, enabled: present });
-  const labels = Object.fromEntries((drives.data || []).map((d) => [d.id, d.label]));
+  const labels = useMemo(() => Object.fromEntries((drives.data || []).map((d) => [d.id, d.label])), [drives.data]);
 
   // Member grants make ancestors unbrowsable — a search hit's parent
   // folder can 403, so member links route through memberSearchHref.
@@ -314,9 +314,6 @@ export default function FileSearch({ initialRequest }) {
     isClosingRef.current = false;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setIsClosing(false);
-    // Start from the natural height, not the last answer's: a stale fixed
-    // height would animate down as soon as the new body was measured.
-    setBodyHeight(null);
     setPresent(true);
     haptic("medium");
   }, [isClosing, present]);
@@ -351,10 +348,16 @@ export default function FileSearch({ initialRequest }) {
   // open frame already has this open's height (openOverlay clears the old one).
   useLayoutEffect(() => {
     const el = bodyInnerRef.current;
-    if (!present || !el || typeof ResizeObserver === "undefined") return undefined;
-    setBodyHeight(el.offsetHeight);
-    const ro = new ResizeObserver(() => setBodyHeight(el.offsetHeight));
-    ro.observe(el);
+    const scroll = bodyScrollRef.current;
+    if (!present || !el || !scroll || typeof ResizeObserver === "undefined") return undefined;
+    scroll.style.height = `${el.offsetHeight}px`;
+    const ro = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const height = entry.borderBoxSize?.[0]?.blockSize;
+      const next = `${Math.round(height ?? el.offsetHeight)}px`;
+      if (scroll.style.height !== next) scroll.style.height = next;
+    });
+    ro.observe(el, { box: "border-box" });
     return () => ro.disconnect();
   }, [present]);
 
@@ -590,8 +593,8 @@ export default function FileSearch({ initialRequest }) {
             </div>
 
             <div
+              ref={bodyScrollRef}
               className="flex-[0_1_auto] min-h-0 overflow-y-auto overscroll-contain motion-safe:transition-[height] motion-safe:duration-150 motion-safe:ease-[var(--motion-easing-emphasized)]"
-              style={bodyHeight != null ? { height: bodyHeight } : undefined}
             >
              <div ref={bodyInnerRef} className="px-4 py-3">
               {showPageLevelError(actionError, actionModalOpen) && (

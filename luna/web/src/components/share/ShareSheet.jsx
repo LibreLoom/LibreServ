@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +34,8 @@ import { isFormFile } from "../../lib/fileKinds.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { ICON_SIZE } from "@libreloom/ui/lib/ui-tokens.js";
 
+const EMPTY_LIST = [];
+
 function expiryLabel(expiresAt) {
   if (!expiresAt) return "never expires";
   const when = new Date(expiresAt * 1000);
@@ -46,7 +48,7 @@ function asList(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.items)) return data.items;
   if (data && Array.isArray(data.users)) return data.users;
-  return [];
+  return EMPTY_LIST;
 }
 
 /** @param {{ label: string, onClick: () => void, surface?: "primary"|"secondary" }} props */
@@ -110,14 +112,15 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const key = subjectKey(subject);
   const stateQuery = useQuery({
     queryKey: ["access-subject", ...key],
-    queryFn: () => getJson(`/api/v1/access/subject?${subjectQuery(subject)}`),
+    queryFn: ({ signal }) => getJson(`/api/v1/access/subject?${subjectQuery(subject)}`, { signal }),
     enabled: open && !!subject?.driveId,
     retry: false,
   });
   const directory = useQuery({
     queryKey: ["users-directory"],
-    queryFn: () => getJson("/api/v1/users/directory"),
-    enabled: open,
+    queryFn: ({ signal }) => getJson("/api/v1/users/directory", { signal }),
+    enabled: open && !startWithNewLink,
+    staleTime: 15_000,
     retry: false,
   });
 
@@ -138,7 +141,7 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     { kind: subj?.kind, isFile },
     myCaps,
   );
-  const members = data?.members || [];
+  const members = data?.members || EMPTY_LIST;
   const memberCount = typeof data?.member_count === "number" ? data.member_count : members.length;
   const links = data?.links || [];
   // A private item (or one inside a private folder) takes nothing from
@@ -146,27 +149,31 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
   const isPrivate = subj?.private === true;
   // This folder is itself the boundary — vs. an ordinary thing inside one.
   const isPrivateFolder = subj?.private_folder === true;
-  const inheritedMembers = data?.inherited_members || [];
-  const inheritedLinks = data?.inherited_links || [];
+  const inheritedMembers = data?.inherited_members || EMPTY_LIST;
+  const inheritedLinks = data?.inherited_links || EMPTY_LIST;
   // A link belongs to the item and keeps working when the person who made
   // it loses access, so every row names its maker. A deleted account has no
   // directory entry; the fallback still says the maker is gone.
-  const nameById = new Map(
-    (directory.data || []).map((person) => [
+  const nameById = useMemo(() => new Map(
+    asList(directory.data).map((person) => [
       person.id,
       person.display_name || person.username,
     ]),
-  );
+  ), [directory.data]);
   // Unique parents carrying grants this subject inherits — deduped across
   // the member and link lists so one parent gets one button.
-  const parentByKey = new Map();
-  for (const row of [...inheritedMembers, ...inheritedLinks]) {
-    const from = row.inherited_from;
-    if (!from?.drive_id) continue;
-    parentByKey.set(`${from.kind}:${from.drive_id}:${from.path}`, from);
-  }
-  const parentSources = [...parentByKey.values()];
-  const inspectableParents = parentSources.filter((p) => p.can_inspect !== false);
+  const { parentSources, inspectableParents } = useMemo(() => {
+    const parentByKey = new Map();
+    for (const rows of [inheritedMembers, inheritedLinks]) {
+      for (const row of rows) {
+        const from = row.inherited_from;
+        if (!from?.drive_id) continue;
+        parentByKey.set(`${from.kind}:${from.drive_id}:${from.path}`, from);
+      }
+    }
+    const parents = Array.from(parentByKey.values());
+    return { parentSources: parents, inspectableParents: parents.filter((p) => p.can_inspect !== false) };
+  }, [inheritedMembers, inheritedLinks]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["access-subject"] });
@@ -215,13 +222,23 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
     },
   });
 
-  const memberUserIds = new Set(members.map((m) => m.user_id));
-  const others = asList(directory.data).filter((u) => u.shareable !== false && u.id !== user?.id);
   // Admins already open ordinary items, so the server refuses a member row
   // for one there. A private item is the exception: Admins are people to
   // share with like anyone else.
-  const candidates = isPrivate ? others : others.filter((u) => u.admin !== true);
-  const people = candidates.filter((u) => !memberUserIds.has(u.id));
+  const { people, hasOthers, hasCandidates } = useMemo(() => {
+    const memberUserIds = new Set(members.map((m) => m.user_id));
+    const eligible = [];
+    let hasOthers = false;
+    let hasCandidates = false;
+    for (const person of asList(directory.data)) {
+      if (person.shareable === false || person.id === user?.id) continue;
+      hasOthers = true;
+      if (!isPrivate && person.admin === true) continue;
+      hasCandidates = true;
+      if (!memberUserIds.has(person.id)) eligible.push(person);
+    }
+    return { people: eligible, hasOthers, hasCandidates };
+  }, [members, directory.data, user?.id, isPrivate]);
   const noPeopleToAdd = directory.isSuccess && people.length === 0;
   const sheetError =
     error ||
@@ -407,9 +424,9 @@ function ShareSheetSession({ subject, open = true, startWithNewLink = false, onC
                 ) : noPeopleToAdd ? (
                   <div className="space-y-3 rounded-large-element surface-primary p-3">
                     <p className="text-secondary text-sm">
-                      {candidates.length > 0
+                      {hasCandidates
                         ? "Everyone already has access."
-                        : others.length > 0
+                        : hasOthers
                           ? "Admins can already open everything except other people's private items."
                           : "No people to share with yet."}
                     </p>

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- albumKey shared with PhotosPage tests */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Check, Minus, Search } from "lucide-react";
 import ModalCard from "@libreloom/ui/components/cards/ModalCard.jsx";
@@ -10,6 +10,10 @@ import { cn } from "@libreloom/ui/lib/utils.js";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { getJson } from "../../lib/api";
 import { photoSelectionKey } from "../../hooks/useMultiSelect.js";
+
+const EMPTY_LIST = [];
+const EMPTY_SET = new Set();
+const MAX_MEMBERSHIP_REQUESTS = 4;
 
 /**
  * @param {{ home_drive_id: string, id: string }} album
@@ -38,8 +42,8 @@ export function albumKey(album) {
  */
 export default function AddToAlbumModal({
   open,
-  albums = [],
-  photos = [],
+  albums = EMPTY_LIST,
+  photos = EMPTY_LIST,
   albumsLoading = false,
   applying = false,
   error = null,
@@ -55,6 +59,8 @@ export default function AddToAlbumModal({
   const searchRef = useRef(/** @type {HTMLInputElement|null} */ (null));
 
   const photoKeys = useMemo(() => photos.map(photoSelectionKey), [photos]);
+  const selected = useMemo(() => new Set(photoKeys), [photoKeys]);
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     if (!open) return;
@@ -62,60 +68,79 @@ export default function AddToAlbumModal({
     setQuery("");
     setOverrides(new Map());
     setMembershipError(null);
+    setMembership(null);
     if (!albums.length || !photos.length) {
       setMembership(new Map());
+      setMembershipLoading(false);
       return;
     }
-    let cancelled = false;
+    const request = new AbortController();
     setMembershipLoading(true);
-    Promise.allSettled(
-      albums.map(async (album) => {
-        const items = await getJson(
-          `/api/v1/photos/albums/${album.home_drive_id}/${album.id}/items`,
-        );
-        return /** @type {[string, Set<string>]} */ ([
-          albumKey(album),
-          new Set((items || []).map(photoSelectionKey)),
-        ]);
-      }),
-    )
-      .then((results) => {
-        if (cancelled) return;
-        const entries = /** @type {Array<[string, Set<string>]>} */ ([]);
-        const failures = [];
-        for (const r of results) {
-          if (r.status === "fulfilled") entries.push(r.value);
-          else failures.push(r.reason);
-        }
-        setMembership(new Map(entries));
-        if (failures.length) {
+    let batch = [];
+    let frame = 0;
+    const flush = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      if (batch.length === 0) return;
+      const updates = batch;
+      batch = [];
+      setMembership((previous) => {
+        const next = new Map(previous);
+        for (const [key, refs] of updates) next.set(key, refs);
+        return next;
+      });
+    };
+    let next = 0;
+    async function checkAlbums() {
+      while (!request.signal.aborted && next < albums.length) {
+        const album = albums[next++];
+        const refs = new Set();
+        try {
+          const items = await getJson(
+            `/api/v1/photos/albums/${album.home_drive_id}/${album.id}/items`,
+            { signal: request.signal },
+          );
+          for (const item of Array.isArray(items) ? items : EMPTY_LIST) {
+            const key = photoSelectionKey(item);
+            if (selected.has(key)) refs.add(key);
+          }
+        } catch {
+          if (request.signal.aborted) return;
           setMembershipError(
             "Luna could not check every album. Some albums may not show the photos they already hold.",
           );
         }
-        setMembershipLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setMembership(new Map());
-        setMembershipLoading(false);
-      });
+        if (request.signal.aborted) return;
+        batch.push([albumKey(album), refs]);
+        if (!frame) frame = window.requestAnimationFrame(flush);
+      }
+    }
+    Promise.all(Array.from({ length: Math.min(albums.length, MAX_MEMBERSHIP_REQUESTS) }, checkAlbums)).then(() => {
+      if (request.signal.aborted) return;
+      flush();
+      setMembershipLoading(false);
+    });
     return () => {
-      cancelled = true;
+      request.abort();
+      if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [open, albums, photos]);
+  }, [open, albums, selected]);
 
+  const albumNames = useMemo(
+    () => albums.map((album) => ({ album, search: album.name.toLowerCase() })),
+    [albums],
+  );
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return albums;
-    return albums.filter((album) => album.name.toLowerCase().includes(needle));
-  }, [albums, query]);
+    return albumNames.filter(({ search }) => search.includes(needle)).map(({ album }) => album);
+  }, [albums, albumNames, deferredQuery]);
 
   /** How many of the selected photos an album already holds. */
   const inCount = (key) => {
     const refs = membership?.get(key);
     if (!refs) return 0;
-    return photoKeys.filter((k) => refs.has(k)).length;
+    return refs.size;
   };
 
   /** "checked" | "mixed" | "unchecked" — what the pill should display. */
@@ -123,7 +148,7 @@ export default function AddToAlbumModal({
     if (overrides.has(key)) return overrides.get(key) ? "checked" : "unchecked";
     const n = inCount(key);
     if (n === 0) return "unchecked";
-    return n >= photoKeys.length ? "checked" : "mixed";
+    return n >= selected.size ? "checked" : "mixed";
   };
 
   const toggle = (key) => {
@@ -140,17 +165,13 @@ export default function AddToAlbumModal({
     for (const album of albums) {
       const key = albumKey(album);
       if (!overrides.has(key)) continue;
-      const refs = membership?.get(key) || new Set();
+      const refs = membership?.get(key) || EMPTY_SET;
       const want = overrides.get(key);
-      const add = photos.filter((p) => !refs.has(photoSelectionKey(p)));
-      const remove = photos.filter((p) => refs.has(photoSelectionKey(p)));
-      if (want && add.length) list.push({ album, add });
-      if (!want && remove.length) list.push({ album, remove });
+      const match = photos.filter((_photo, index) => want !== refs.has(photoKeys[index]));
+      if (match.length) list.push(want ? { album, add: match } : { album, remove: match });
     }
     return list;
-  }, [albums, overrides, membership, photos]);
-
-  const rowsDisabled = applying || membershipLoading;
+  }, [albums, overrides, membership, photos, photoKeys]);
 
   return (
     <ModalCard
@@ -207,7 +228,7 @@ export default function AddToAlbumModal({
               >
                 {filtered.length === 0 ? (
                   <p className="px-3 py-4 text-sm text-secondary">
-                    No albums match “{query.trim()}”. Try another name.
+                    No albums match “{deferredQuery.trim()}”. Try another name.
                   </p>
                 ) : (
                   filtered.map((album) => {
@@ -220,7 +241,7 @@ export default function AddToAlbumModal({
                         type="button"
                         role="checkbox"
                         aria-checked={state === "mixed" ? "mixed" : checked}
-                        disabled={rowsDisabled}
+                        disabled={applying || (photoKeys.length > 0 && !membership?.has(key))}
                         onClick={() => toggle(key)}
                         className={cn(
                           "w-full flex items-center gap-2.5 rounded-pill px-3 py-1.5 text-left motion-safe:transition-colors",
@@ -272,7 +293,7 @@ export default function AddToAlbumModal({
               variant="primary"
               surface="secondary"
               disabled={
-                changes.length === 0 || albumsLoading || albums.length === 0 || membershipLoading
+                changes.length === 0 || albumsLoading || albums.length === 0
               }
               loading={applying}
               onClick={() => {

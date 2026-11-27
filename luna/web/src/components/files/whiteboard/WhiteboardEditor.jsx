@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import EditorLoadingScreen from "../EditorLoadingScreen.jsx";
 import PageNotice from "@libreloom/ui/components/common/PageNotice.jsx";
@@ -141,14 +141,16 @@ function loadExcalidraw() {
     excalidrawPromise = Promise.all([
       import("@excalidraw/excalidraw"),
       import("@excalidraw/excalidraw/index.css"),
-    ]).then(([mod]) => (excalidraw = mod));
+    ]).then(
+      ([mod]) => (excalidraw = mod),
+      (error) => {
+        excalidrawPromise = null;
+        throw error;
+      },
+    );
   }
   return excalidrawPromise;
 }
-
-const ExcalidrawLazy = lazy(() =>
-  loadExcalidraw().then(() => ({ default: excalidraw.Excalidraw })),
-);
 
 /**
  * Error boundary that catches any runtime crash inside Excalidraw or its
@@ -304,6 +306,7 @@ function EditorSession({
   onSaveStateChangeRef.current = onSaveStateChange;
   onPresenceChangeRef.current = onPresenceChange;
   onCloseRef.current = onClose;
+  const hasPeers = useRef(false);
 
   // One CollabDocSync per mount — the parent remounts this session for
   // retries (key on driveId:path:attempt), so no in-place reset is needed.
@@ -316,7 +319,10 @@ function EditorSession({
       solo,
       socket: url ? () => new CollabSocket(driveId, path, url) : undefined,
       adapter: whiteboardCollabAdapter(),
-      onPeers: (next) => setPeers(next),
+      onPeers: (next) => {
+        hasPeers.current = next.length > 0;
+        setPeers(next);
+      },
       onStatus: (status) => setConnStatus(status),
       onPeerSaved: () => {
         // Their file contains everything the shared doc holds. Adopting our
@@ -362,9 +368,10 @@ function EditorSession({
     // Real doc changes only — onChange also fires for hover, scroll and
     // selection, which must not keep pushing the idle autosave back.
     lastEditRef.current = Date.now();
+    const wasDirty = dirtyRef.current;
     dirtyRef.current = true;
     if (!dirtySinceRef.current) dirtySinceRef.current = Date.now();
-    onSaveStateChangeRef.current?.(true);
+    if (!wasDirty) onSaveStateChangeRef.current?.(true);
   }, []);
 
   const isApplyingSceneRef = useRef(false);
@@ -377,7 +384,7 @@ function EditorSession({
     const session = syncRef.current;
     const mod = excalidraw;
     if (!api || !session || !mod) return;
-    const { elements, appState, files } = readScene(session.ydoc);
+    const { elements, appState, files } = readScene(session.ydoc, { knownFiles: api.getFiles() });
     const patch = {};
     for (const [key, value] of Object.entries(appState)) {
       if (value !== undefined) patch[key] = value;
@@ -390,12 +397,11 @@ function EditorSession({
     update.elements = mod.reconcileElements
       ? mod.reconcileElements(api.getSceneElements(), elements, api.getAppState())
       : elements;
-    const known = api.getFiles() || {};
     // readScene hands back plain objects (it just JSON-parses what the doc
     // holds); the canvas only accepts files excalidraw wrote.
     const missing = Object.values(
       /** @type {Record<string, import("@excalidraw/excalidraw/types").BinaryFileData>} */ (files),
-    ).filter((f) => f && !known[f.id]);
+    ).filter(Boolean);
     if (missing.length) api.addFiles(missing);
     isApplyingSceneRef.current = true;
     try {
@@ -454,13 +460,29 @@ function EditorSession({
   // A peer dragging a shape sends an update per frame (or several, when
   // their frames outpace ours) — apply at most one scene per frame here.
   const remoteRafRef = useRef(/** @type {number | null} */ (null));
+  const remoteCacheDirty = useRef(false);
+  const remoteSceneDirty = useRef(false);
+  const remotePresenceDirty = useRef(false);
+  const refreshSceneCache = useCallback(() => {
+    if (!remoteCacheDirty.current || !syncRef.current) return;
+    remoteCacheDirty.current = false;
+    syncSceneCache(syncRef.current.ydoc);
+  }, []);
   const scheduleRemotePush = useCallback(() => {
     if (remoteRafRef.current != null) return;
     remoteRafRef.current = requestAnimationFrame(() => {
       remoteRafRef.current = null;
-      pushSceneToEditor();
+      if (remoteSceneDirty.current) {
+        remoteSceneDirty.current = false;
+        refreshSceneCache();
+        pushSceneToEditor();
+      }
+      if (remotePresenceDirty.current) {
+        remotePresenceDirty.current = false;
+        pushCollaborators();
+      }
     });
-  }, [pushSceneToEditor]);
+  }, [pushSceneToEditor, pushCollaborators, refreshSceneCache]);
 
   // Load the file, join the room, mount the canvas once the doc is hydrated.
   useEffect(() => {
@@ -470,7 +492,8 @@ function EditorSession({
     const onYUpdate = (_update, origin) => {
       if (cancelled) return;
       if (origin === "remote") {
-        syncSceneCache(session.ydoc);
+        remoteCacheDirty.current = true;
+        remoteSceneDirty.current = true;
         scheduleRemotePush();
       }
       // The seed is the file itself — only real edits mark the doc dirty.
@@ -479,15 +502,20 @@ function EditorSession({
     const onAwarenessUpdate = ({ added, updated, removed }) => {
       if (cancelled) return;
       const localId = session.ydoc.clientID;
-      const hasRemote = [...added, ...updated, ...removed].some((id) => id !== localId);
+      const hasRemote = [added, updated, removed].some((ids) => ids.some((id) => id !== localId));
       if (hasRemote) {
-        pushCollaborators();
+        remotePresenceDirty.current = true;
+        scheduleRemotePush();
       }
     };
     session.ydoc.on("update", onYUpdate);
-    session.awareness.on("update", onAwarenessUpdate);
+    session.awareness.on("change", onAwarenessUpdate);
     session.connect();
 
+    const moduleRequest = loadExcalidraw().then(
+      (mod) => ({ mod, error: null }),
+      (error) => ({ mod: null, error }),
+    );
     (async () => {
       let text;
       try {
@@ -519,8 +547,13 @@ function EditorSession({
         await new Promise((resolve) => setTimeout(resolve, HYDRATE_POLL_MS));
       }
       if (cancelled) return;
-      const mod = await loadExcalidraw();
+      const { mod, error: moduleError } = await moduleRequest;
       if (cancelled) return;
+      if (!mod) {
+        setPhase("error");
+        setError(apiErrorMessage(moduleError, "Luna couldn't open the whiteboard."));
+        return;
+      }
       await ancestorAnimationsSettled(hostRef.current);
       if (cancelled) return;
       const scene = readScene(session.ydoc);
@@ -543,7 +576,7 @@ function EditorSession({
     return () => {
       cancelled = true;
       session.ydoc.off("update", onYUpdate);
-      session.awareness.off("update", onAwarenessUpdate);
+      session.awareness.off("change", onAwarenessUpdate);
       if (remoteRafRef.current != null) {
         cancelAnimationFrame(remoteRafRef.current);
         remoteRafRef.current = null;
@@ -552,7 +585,7 @@ function EditorSession({
       // the same document must survive into the second mount.
       session.disconnect();
     };
-  }, [sync, source, driveId, path, markDirty, scheduleRemotePush, pushCollaborators]);
+  }, [sync, source, driveId, path, markDirty, scheduleRemotePush]);
 
   const pendingSceneRef = useRef(null);
   const syncTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
@@ -574,10 +607,11 @@ function EditorSession({
     // a real local change, and the doc's version check already refuses to
     // let anything older overwrite a peer's newer element.
     if (!session || !session.hydrated || !canWrite) return;
+    refreshSceneCache();
     session.ydoc.transact(() => {
       applySceneToYDoc(session.ydoc, pending);
     }, "local");
-  }, [canWrite]);
+  }, [canWrite, refreshSceneCache]);
 
   /**
    * Local canvas edits → shared doc. Remote applies echo back through
@@ -605,7 +639,7 @@ function EditorSession({
       const now = performance.now();
       if (!pendingSinceRef.current) pendingSinceRef.current = now;
       let wait;
-      if (session.otherPeers().length > 0) {
+      if (hasPeers.current) {
         // Throttle: a queued write already carries this change.
         if (syncTimerRef.current != null) return;
         wait = Math.max(0, LOCAL_SYNC_MS - (now - lastSyncRef.current));
@@ -758,6 +792,7 @@ function EditorSession({
   }
 
   const showLoading = phase === "loading" || !initialData || !editorReady;
+  const Excalidraw = excalidraw?.Excalidraw;
 
   return (
     <div ref={hostRef} className="relative flex min-h-0 flex-1 flex-col surface-primary">
@@ -767,22 +802,20 @@ function EditorSession({
           className="absolute inset-0 z-10"
         />
       ) : null}
-      {initialData ? (
-        <Suspense fallback={null}>
-          <div className="h-full min-h-0 w-full flex-1">
-            <ExcalidrawLazy
-              excalidrawAPI={handleExcalidrawAPI}
-              initialData={initialData}
-              onChange={onSceneChange}
-              onPointerUpdate={onPointerUpdate}
-              theme={theme}
-              name={name}
-              viewModeEnabled={!canWrite}
-              autoFocus
-              UIOptions={UI_OPTIONS}
-            />
-          </div>
-        </Suspense>
+      {initialData && Excalidraw ? (
+        <div className="h-full min-h-0 w-full flex-1">
+          <Excalidraw
+            excalidrawAPI={handleExcalidrawAPI}
+            initialData={initialData}
+            onChange={onSceneChange}
+            onPointerUpdate={onPointerUpdate}
+            theme={theme}
+            name={name}
+            viewModeEnabled={!canWrite}
+            autoFocus
+            UIOptions={UI_OPTIONS}
+          />
+        </div>
       ) : null}
     </div>
   );
