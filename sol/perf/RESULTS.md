@@ -132,3 +132,28 @@ run on the Wyse 3040 stand-in. The existing `luna/perf` harness remains the
 source of truth for W/D/K/C journeys. Several of those journeys sit at a
 network or hardware floor and a 1.5x end-to-end improvement there would be
 dishonest to claim without a clean A/B run.
+
+## Backend catalog request comparison
+
+The catalog HTTP handler was built from `b66b67c3` and `7a8f386d` and called
+in-process with the same GET for page 2 of a case-insensitive search. The
+fixture held 2,000 apps across ten categories, with one in five featured.
+All four runs returned byte-identical JSON with 20 apps, ten categories,
+and 2,000 total matches.
+
+Each run recorded 600 requests after 30 warmups. Runs alternated in
+before/after/after/before order on one pinned host CPU with `GOMAXPROCS=1`
+and `GOGC=50`. The server's middleware, network, and container runtime were
+outside this measurement.
+
+| Build | Median per run | p95 per run | Allocated bytes per request |
+|---|---:|---:|---:|
+| Before | 2.41–3.58 ms | 5.78–7.78 ms | 176,134 |
+| After | 0.21–0.28 ms | 0.49–0.67 ms | 15,041 |
+
+Both complete Sol backend binaries also built successfully.
+
+An instrumented container runtime also exercised the dashboard refresh with
+40 running apps. Container listing calls fell from 40 to one. Both versions
+made 40 stats calls and returned the same CPU and memory values for the
+sampled app. This counts runtime calls without measuring Podman latency.
