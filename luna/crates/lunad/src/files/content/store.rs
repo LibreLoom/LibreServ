@@ -14,7 +14,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::formats::{self, Format};
 
 /// Bump to re-read every file (new extractor, new OCR settings).
-pub const EXTRACT_VERSION: i64 = 1;
+pub const EXTRACT_VERSION: i64 = 2;
 
 /// What happened when Luna last read a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,15 +108,6 @@ impl Pending {
     }
 }
 
-fn image_case(column: &str) -> String {
-    let images: Vec<String> = formats::EXTENSIONS
-        .iter()
-        .filter(|(_, f)| f.is_ocr())
-        .map(|(e, _)| format!("{column} LIKE '%.{e}'"))
-        .collect();
-    format!("CASE WHEN {} THEN 1 ELSE 0 END", images.join(" OR "))
-}
-
 /// The next files to read on this drive: new, changed, or read by an older
 /// extractor. Documents before images, newest first within each.
 pub fn pending(
@@ -137,7 +128,7 @@ pub fn pending(
          ORDER BY {images}, e.modified DESC
          LIMIT ?3",
         filter = formats::sql_name_filter("e.name", include_images),
-        images = image_case("e.name"),
+        images = formats::sql_priority("e.name"),
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt

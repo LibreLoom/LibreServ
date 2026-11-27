@@ -91,11 +91,106 @@ pub fn extract<R: Read + Seek>(format: Format, mut input: R) -> Result<String> {
         }
         Format::Doc => doc_text(input, &mut out)?,
         Format::Ppt => ppt_text(input, &mut out)?,
+        Format::Strings => strings_text(&mut input, &mut out)?,
         Format::Pdf | Format::Image => {
             return Err(ExtractError::bad("read by an outside tool"));
         }
     }
     Ok(out.finish())
+}
+
+/// Most bytes of an unlisted file that are looked at.
+const STRINGS_SCAN_BYTES: u64 = 4 * 1024 * 1024;
+/// Shortest run of characters kept from a binary file.
+const STRINGS_MIN_RUN: usize = 8;
+
+/// Start bytes of files that hold no searchable words: media, archives,
+/// programs, databases.
+const BINARY_MAGIC: &[&[u8]] = &[
+    b"\x7fELF",
+    b"MZ\x90\0",
+    b"PK\x03\x04",
+    b"\x1f\x8b",
+    b"BZh9",
+    b"BZh1",
+    b"7z\xbc\xaf",
+    b"Rar!",
+    b"\x89PNG",
+    b"\xff\xd8\xff",
+    b"GIF89a",
+    b"GIF87a",
+    b"RIFF",
+    b"ID3\x03",
+    b"ID3\x04",
+    b"OggS",
+    b"fLaC",
+    b"SQLite format 3",
+    b"\0asm",
+    b"\xfd7zXZ",
+    b"\x28\xb5\x2f\xfd",
+    b"\0\0\0\x18ftyp",
+    b"\0\0\0\x20ftyp",
+    b"\x1a\x45\xdf\xa3",
+    b"-----BEGIN PGP",
+    b"\xca\xfe\xba\xbe",
+];
+
+/// Text of a file with no listed type: the file itself if it is text,
+/// otherwise the readable runs inside it. Media and archives give nothing.
+fn strings_text<R: Read>(input: &mut R, out: &mut TextSink) -> Result<()> {
+    let bytes = read_capped(input, STRINGS_SCAN_BYTES)?;
+    if BINARY_MAGIC.iter().any(|m| bytes.starts_with(m)) {
+        return Ok(());
+    }
+    let capped = bytes.len() as u64 == STRINGS_SCAN_BYTES;
+    if let Ok(text) = decode_text_capped(&bytes, capped) {
+        // Text in a legacy encoding decodes to anything, so a file that is
+        // mostly control characters is still treated as binary.
+        let ctrl = text
+            .chars()
+            .take(8192)
+            .filter(|c| c.is_control() && !c.is_whitespace())
+            .count();
+        if ctrl * 100 <= text.chars().take(8192).count() {
+            out.push(&text);
+            return Ok(());
+        }
+    }
+    // Readable runs, ASCII/UTF-8 first, then UTF-16LE (Windows programs).
+    let lossy = String::from_utf8_lossy(&bytes);
+    let mut run = String::new();
+    let mut flush = |run: &mut String, out: &mut TextSink| {
+        if run.chars().count() >= STRINGS_MIN_RUN
+            && run.chars().filter(|c| c.is_alphabetic()).count() * 2 >= run.chars().count()
+        {
+            out.push(run);
+            out.line_break();
+        }
+        run.clear();
+    };
+    for c in lossy.chars() {
+        if out.is_full() {
+            return Ok(());
+        }
+        if c == '\t' || (!c.is_control() && c != '\u{FFFD}') {
+            run.push(c);
+        } else {
+            flush(&mut run, out);
+        }
+    }
+    flush(&mut run, out);
+    for pair in bytes.chunks_exact(2) {
+        if out.is_full() {
+            return Ok(());
+        }
+        if pair[1] == 0 && (pair[0] == b'\t' || (0x20..0x7f).contains(&pair[0])) {
+            run.push(pair[0] as char);
+        } else {
+            flush(&mut run, out);
+        }
+    }
+    flush(&mut run, out);
+    Ok(())
 }
 
 /// Starts with the OLE compound-file signature.
@@ -1089,6 +1184,27 @@ fn rtf_text(bytes: &[u8], out: &mut TextSink) {
 mod tests {
     use super::*;
     use std::io::{Cursor, Write};
+
+    #[test]
+    fn strings_reads_unlisted_text_and_binary_runs_but_not_media() {
+        let text = extract(
+            Format::Strings,
+            Cursor::new(b"fn main() { println!(\"quarterly budget\"); }".to_vec()),
+        )
+        .unwrap();
+        assert!(text.contains("quarterly budget"));
+        let mut bin = vec![0u8, 1, 2, 3, 0, 0];
+        bin.extend_from_slice(b"Copyright Example Corporation");
+        bin.extend_from_slice(&[0, 0, 7, 0, 9]);
+        let got = extract(Format::Strings, Cursor::new(bin)).unwrap();
+        assert!(got.contains("Copyright Example Corporation"));
+        let png = extract(
+            Format::Strings,
+            Cursor::new(b"\x89PNG\r\n\x1a\nsome readable words here".to_vec()),
+        )
+        .unwrap();
+        assert!(png.is_empty());
+    }
 
     fn zip_with(files: &[(&str, &str)]) -> Vec<u8> {
         let mut buf = Cursor::new(Vec::new());

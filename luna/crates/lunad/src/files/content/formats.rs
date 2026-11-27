@@ -26,6 +26,10 @@ pub enum Format {
     Pdf,
     /// Photos and scans: read by OCR only.
     Image,
+    /// Any other file: plain text if it is text, otherwise the readable
+    /// strings inside it (like `strings`). Chosen for every extension that
+    /// is neither listed below nor known to be media or program data.
+    Strings,
 }
 
 impl Format {
@@ -44,6 +48,7 @@ impl Format {
             Self::Ppt => "ppt",
             Self::Pdf => "pdf",
             Self::Image => "image",
+            Self::Strings => "strings",
         }
     }
 
@@ -63,6 +68,8 @@ impl Format {
             Self::Doc | Self::Ppt => 64 * MIB,
             Self::Pdf => 300 * MIB,
             Self::Image => 64 * MIB,
+            // Only the first few MiB are read, so the size hardly matters.
+            Self::Strings => 1024 * MIB,
         }
     }
 
@@ -72,7 +79,7 @@ impl Format {
     }
 }
 
-const ALL: [Format; 12] = [
+const ALL: [Format; 13] = [
     Format::Text,
     Format::Html,
     Format::Rtf,
@@ -85,6 +92,7 @@ const ALL: [Format; 12] = [
     Format::Ppt,
     Format::Pdf,
     Format::Image,
+    Format::Strings,
 ];
 
 /// (extension, format). Lowercase, no dot.
@@ -130,31 +138,180 @@ pub const EXTENSIONS: &[(&str, Format)] = &[
     ("pdf", Format::Pdf),
     ("jpg", Format::Image),
     ("jpeg", Format::Image),
+    ("jpe", Format::Image),
+    ("jfif", Format::Image),
     ("png", Format::Image),
+    ("apng", Format::Image),
+    ("gif", Format::Image),
     ("webp", Format::Image),
     ("tif", Format::Image),
     ("tiff", Format::Image),
     ("bmp", Format::Image),
     ("heic", Format::Image),
     ("heif", Format::Image),
+    ("hif", Format::Image),
+    ("avif", Format::Image),
+    ("dng", Format::Image),
+    ("cr2", Format::Image),
+    ("cr3", Format::Image),
+    ("nef", Format::Image),
+    ("nrw", Format::Image),
+    ("arw", Format::Image),
+    ("srf", Format::Image),
+    ("sr2", Format::Image),
+    ("orf", Format::Image),
+    ("rw2", Format::Image),
+    ("raf", Format::Image),
+    ("pef", Format::Image),
+    ("srw", Format::Image),
 ];
 
-/// The format for a file name, by its extension.
+/// Extensions that are never read: media, archives, program and database
+/// files, fonts, and download leftovers. Nothing a person would search for
+/// words in, and some are huge. Lowercase, no dot.
+pub const NOT_READ: &[&str] = &[
+    "zip",
+    "gz",
+    "tgz",
+    "bz2",
+    "xz",
+    "zst",
+    "7z",
+    "rar",
+    "tar",
+    "iso",
+    "img",
+    "dmg",
+    "cab",
+    "lz4",
+    "mp3",
+    "flac",
+    "wav",
+    "ogg",
+    "oga",
+    "opus",
+    "m4a",
+    "aac",
+    "mka",
+    "aiff",
+    "wma",
+    "mid",
+    "midi",
+    "mp4",
+    "mkv",
+    "avi",
+    "mov",
+    "webm",
+    "m4v",
+    "wmv",
+    "mpg",
+    "mpeg",
+    "flv",
+    "ts",
+    "m2ts",
+    "3gp",
+    "gif",
+    "ico",
+    "icns",
+    "avif",
+    "jxl",
+    "psd",
+    "xcf",
+    "kra",
+    "raw",
+    "cr2",
+    "cr3",
+    "nef",
+    "arw",
+    "dng",
+    "orf",
+    "rw2",
+    "exe",
+    "dll",
+    "so",
+    "o",
+    "a",
+    "bin",
+    "dat",
+    "db",
+    "sqlite",
+    "sqlite3",
+    "wasm",
+    "class",
+    "jar",
+    "apk",
+    "deb",
+    "rpm",
+    "appimage",
+    "pyc",
+    "ttf",
+    "otf",
+    "woff",
+    "woff2",
+    "blend",
+    "part",
+    "tmp",
+    "crdownload",
+    "swp",
+    "lock",
+    "vmdk",
+    "qcow2",
+    "vdi",
+    "luks",
+    "gpg",
+    "age",
+    "enc",
+];
+
+/// The format for a file name: by its extension, or [`Format::Strings`] for
+/// an extension that is not listed and not in [`NOT_READ`].
 pub fn format_for(name: &str) -> Option<Format> {
-    let (_, ext) = name.rsplit_once('.')?;
+    let Some((_, ext)) = name.rsplit_once('.') else {
+        return Some(Format::Strings);
+    };
     let ext = ext.to_ascii_lowercase();
-    EXTENSIONS.iter().find(|(e, _)| *e == ext).map(|(_, f)| *f)
+    if let Some((_, f)) = EXTENSIONS.iter().find(|(e, _)| *e == ext) {
+        return Some(*f);
+    }
+    if NOT_READ.contains(&ext.as_str()) {
+        return None;
+    }
+    Some(Format::Strings)
 }
 
-/// SQL that keeps only names with a readable extension. Built from
-/// [`EXTENSIONS`], which are fixed literals, so nothing user-typed reaches it.
+fn like_any(column: &str, exts: impl Iterator<Item = &'static str>) -> String {
+    let parts: Vec<String> = exts.map(|e| format!("{column} LIKE '%.{e}'")).collect();
+    parts.join(" OR ")
+}
+
+/// SQL that keeps only names Luna reads: everything except [`NOT_READ`] and,
+/// unless `include_ocr`, the image types. Built from fixed literals, so
+/// nothing user-typed reaches it.
 pub fn sql_name_filter(column: &str, include_ocr: bool) -> String {
-    let parts: Vec<String> = EXTENSIONS
-        .iter()
-        .filter(|(_, f)| include_ocr || !f.is_ocr())
-        .map(|(e, _)| format!("{column} LIKE '%.{e}'"))
-        .collect();
-    format!("({})", parts.join(" OR "))
+    let mut skip: Vec<&'static str> = NOT_READ.to_vec();
+    if !include_ocr {
+        skip.extend(
+            EXTENSIONS
+                .iter()
+                .filter(|(_, f)| f.is_ocr())
+                .map(|(e, _)| *e),
+        );
+    }
+    format!("NOT ({})", like_any(column, skip.into_iter()))
+}
+
+/// SQL sort key: listed document types first (0), other files (1), then
+/// images (2), so slow OCR and guesswork never hold up real documents.
+pub fn sql_priority(column: &str) -> String {
+    let images = like_any(
+        column,
+        EXTENSIONS
+            .iter()
+            .filter(|(_, f)| f.is_ocr())
+            .map(|(e, _)| *e),
+    );
+    let known = like_any(column, EXTENSIONS.iter().map(|(e, _)| *e));
+    format!("CASE WHEN {images} THEN 2 WHEN {known} THEN 0 ELSE 1 END")
 }
 
 #[cfg(test)]
@@ -168,7 +325,22 @@ mod tests {
         assert_eq!(format_for("budget.xls"), Some(Format::Sheet));
         assert_eq!(format_for("scan.HEIC"), Some(Format::Image));
         assert_eq!(format_for("archive.zip"), None);
-        assert_eq!(format_for("README"), None);
+        assert_eq!(format_for("README"), Some(Format::Strings));
+        assert_eq!(format_for("main.rs"), Some(Format::Strings));
+        assert_eq!(format_for("movie.MKV"), None);
+    }
+
+    #[test]
+    fn every_photo_format_can_be_read_for_text() {
+        // The text index and Photos must never disagree about what an image is.
+        for f in crate::photos::formats::FORMATS {
+            assert_eq!(
+                format_for(&format!("scan.{}", f.ext)),
+                Some(Format::Image),
+                "{} is a photo format but has no text-reading entry",
+                f.ext
+            );
+        }
     }
 
     #[test]
@@ -184,6 +356,7 @@ mod tests {
         let docs = sql_name_filter("name", false);
         assert!(all.contains("'%.jpg'"));
         assert!(!docs.contains("'%.jpg'"));
-        assert!(docs.contains("'%.pdf'"));
+        assert!(!docs.contains("'%.pdf'"));
+        assert!(docs.contains("'%.zip'"));
     }
 }
