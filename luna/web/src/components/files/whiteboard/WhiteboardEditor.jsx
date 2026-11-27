@@ -526,9 +526,9 @@ function EditorSession({
       let text;
       try {
         if (typeof source.fetchText === "function") {
-          text = await source.fetchText(driveId, path);
+          text = await source.fetchText(driveId, path, hydration.signal);
         } else {
-          const res = await source.fetch(source.contentHref(driveId, path));
+          const res = await source.fetch(source.contentHref(driveId, path), { signal: hydration.signal });
           await requireOk(res, "Luna couldn't open this file.");
           text = await res.text();
         }

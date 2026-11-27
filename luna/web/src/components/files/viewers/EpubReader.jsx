@@ -21,6 +21,7 @@ import {
 
 const isEditableTarget = (target) =>
   Boolean(target?.closest?.("input, textarea, select, [contenteditable='true'], [role='textbox']"));
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 /**
  * Paginated EPUB reader. foliate-js (<foliate-view>) owns rendering —
@@ -31,9 +32,11 @@ const isEditableTarget = (target) =>
 export default function EpubReader({ bytes, driveId, path, fill = false }) {
   const hostRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const viewRef = useRef(/** @type {any} */ (null));
-  const saveTimerRef = useRef(/** @type {ReturnType<typeof setTimeout>|null} */ (null));
   const touchRef = useRef(/** @type {{ x: number, y: number }|null} */ (null));
-  const suppressTapRef = useRef(false);
+  const suppressTapUntil = useRef(0);
+  const headingFocus = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const closeContents = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const pageTurn = useRef(/** @type {object|null} */ (null));
 
   const [phase, setPhase] = useState(/** @type {"loading"|"ready"|"error"} */ ("loading"));
   const [error, setError] = useState(/** @type {string|null} */ (null));
@@ -48,21 +51,50 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
 
   const turn = useCallback((dir) => {
     const view = viewRef.current;
-    if (!view) return;
+    if (!view || pageTurn.current === view || tocOpenRef.current) return;
     const atEdge = dir < 0 ? view.renderer?.atStart : view.renderer?.atEnd;
     if (atEdge) {
       haptic("rigid");
       return;
     }
     haptic("selection");
-    if (dir < 0) void view.goLeft();
-    else void view.goRight();
+    pageTurn.current = view;
+    Promise.resolve().then(() => {
+      if (viewRef.current !== view) return;
+      return dir < 0 ? view.goLeft() : view.goRight();
+    }).catch(() => {}).finally(() => {
+      if (pageTurn.current === view) pageTurn.current = null;
+    });
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     let coverUrlLocal = /** @type {string|null} */ (null);
     let themeObserver = /** @type {MutationObserver|null} */ (null);
+    let saveTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
+    let pendingPosition = null;
+    const savePosition = () => {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      if (!pendingPosition) return;
+      saveReadingPosition(storageKey, pendingPosition);
+      pendingPosition = null;
+    };
+    let ownedView = null;
+    let ownedBook = null;
+    let opening = false;
+    const releaseReader = () => {
+      try {
+        ownedView?.close?.();
+      } catch {
+        /* renderer teardown is best-effort */
+      } finally {
+        ownedView?.remove();
+        ownedBook?.destroy?.();
+        ownedView = null;
+        ownedBook = null;
+      }
+    };
     const storageKey = positionKey(driveId, path);
 
     const onKeydown = (e) => {
@@ -79,49 +111,68 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
 
     (async () => {
       try {
-        const [, book] = await Promise.all([
-          import("foliate-js/view.js"),
-          openEpub(bytes),
+        const [moduleResult, bookResult] = await Promise.allSettled([
+          import("foliate-js/view.js"), openEpub(bytes),
         ]);
+        if (bookResult.status === "rejected") throw bookResult.reason;
+        const book = bookResult.value;
+        ownedBook = book;
+        if (moduleResult.status === "rejected") {
+          releaseReader();
+          throw moduleResult.reason;
+        }
         if (cancelled) {
-          book.destroy?.();
+          releaseReader();
           return;
         }
 
         const view = /** @type {any} */ (document.createElement("foliate-view"));
+        ownedView = view;
         viewRef.current = view;
         view.style.display = "block";
         view.style.width = "100%";
         view.style.height = "100%";
 
         view.addEventListener("relocate", (e) => {
+          if (cancelled) return;
           const detail = /** @type {any} */ (e).detail;
-          setProgress(progressInfo(detail));
+          const next = progressInfo(detail);
+          setProgress((previous) => previous.percent === next.percent && previous.label === next.label ? previous : next);
           const renderer = view.renderer;
           setCanPrev(!renderer?.atStart);
           setCanNext(!renderer?.atEnd);
-          clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = setTimeout(() => {
-            if (detail?.cfi || typeof detail?.fraction === "number") {
-              saveReadingPosition(storageKey, {
-                cfi: detail.cfi ?? null,
-                fraction: detail.fraction ?? null,
-              });
-            }
-          }, 400);
+          if (detail?.cfi || typeof detail?.fraction === "number") {
+            pendingPosition = { cfi: detail.cfi ?? null, fraction: detail.fraction ?? null };
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(savePosition, 400);
+          }
         });
         // Keys pressed while the book iframe has focus still turn the page.
         view.addEventListener("load", (e) => {
-          /** @type {any} */ (e).detail?.doc?.addEventListener("keydown", onKeydown);
+          if (!cancelled) /** @type {any} */ (e).detail?.doc?.addEventListener("keydown", onKeydown);
         });
 
         hostRef.current?.append(view);
-        await view.open(book);
+        opening = true;
+        try {
+          await view.open(book);
+        } finally {
+          opening = false;
+          if (cancelled) releaseReader();
+        }
+        if (cancelled) return;
 
         const renderer = view.renderer;
         renderer.setAttribute("flow", "paginated");
-        renderer.setAttribute("animated", "");
-        const applyTheme = () => renderer.setStyles?.(readerCss(currentReaderColors()));
+        if (!window.matchMedia?.(REDUCED_MOTION).matches) renderer.setAttribute("animated", "");
+        let appliedStyles = "";
+        const applyTheme = () => {
+          if (cancelled) return;
+          const styles = readerCss(currentReaderColors());
+          if (styles === appliedStyles) return;
+          appliedStyles = styles;
+          renderer.setStyles?.(styles);
+        };
         applyTheme();
         // Re-inject when the app theme flips (the iframe can't see our tokens).
         themeObserver = new MutationObserver(applyTheme);
@@ -169,17 +220,11 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
     return () => {
       cancelled = true;
       window.removeEventListener("keydown", onKeydown);
-      clearTimeout(saveTimerRef.current);
-      const view = viewRef.current;
-      viewRef.current = null;
-      try {
-        themeObserver?.disconnect();
-        view?.close?.();
-        view?.book?.destroy?.();
-        view?.remove();
-      } catch {
-        /* renderer teardown is best-effort */
-      }
+      savePosition();
+      if (viewRef.current === ownedView) viewRef.current = null;
+      themeObserver?.disconnect();
+      if (opening) ownedView?.remove();
+      else releaseReader();
       if (coverUrlLocal) URL.revokeObjectURL(coverUrlLocal);
     };
   }, [bytes, driveId, path, turn]);
@@ -187,10 +232,14 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
   // Escape closes the contents drawer before the file modal sees it.
   useEffect(() => {
     if (!tocOpen) return undefined;
+    closeContents.current?.focus({ preventScroll: true });
     const onEsc = (e) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         e.stopPropagation();
+        tocOpenRef.current = false;
         setTocOpen(false);
+        headingFocus.current?.focus({ preventScroll: true });
       }
     };
     window.addEventListener("keydown", onEsc, true);
@@ -200,6 +249,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
   const setDrawer = (open) => {
     tocOpenRef.current = open;
     setTocOpen(open);
+    if (!open) headingFocus.current?.focus({ preventScroll: true });
   };
 
   const goToTocItem = (item) => {
@@ -221,15 +271,12 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
     const dy = touch.clientY - start.y;
     if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       // A swipe started on a tap zone still fires click on release — swallow it.
-      suppressTapRef.current = true;
-      setTimeout(() => {
-        suppressTapRef.current = false;
-      }, 350);
+      suppressTapUntil.current = performance.now() + 350;
       turn(dx < 0 ? 1 : -1);
     }
   };
   const onZoneTap = (dir) => {
-    if (suppressTapRef.current) return;
+    if (performance.now() < suppressTapUntil.current) return;
     turn(dir);
   };
 
@@ -263,6 +310,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
         </div>
         {toc.length > 0 && (
           <Button
+            ref={headingFocus}
             variant="outline"
             surface={surface}
             haptic="light"
@@ -279,6 +327,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
         className="relative min-h-0 flex-1 overflow-hidden rounded-large-element border-2 border-secondary/20 surface-primary"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={() => { touchRef.current = null; }}
       >
         <div ref={hostRef} className="absolute inset-0" />
 
@@ -326,6 +375,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
               <div className="flex shrink-0 items-center justify-between gap-2 p-3">
                 <p className="font-mono text-sm">Contents</p>
                 <Button
+                  ref={closeContents}
                   variant="ghost"
                   surface="secondary"
                   haptic="light"
@@ -359,7 +409,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
           variant="outline"
           surface={surface}
           haptic="selection"
-          disabled={!canPrev}
+          disabled={phase !== "ready" || !canPrev}
           onClick={() => turn(-1)}
           aria-label="Previous page"
         >
@@ -379,8 +429,8 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
             aria-label="Reading progress"
           >
             <div
-              className="h-full rounded-pill bg-current transition-[width] duration-300"
-              style={{ width: `${progress.percent}%` }}
+              className="h-full origin-left rounded-pill bg-current motion-safe:transition-transform duration-300"
+              style={{ transform: `scaleX(${progress.percent / 100})` }}
             />
           </div>
           <p className={`mt-1 text-center text-xs ${textTone}`}>
@@ -391,7 +441,7 @@ export default function EpubReader({ bytes, driveId, path, fill = false }) {
           variant="outline"
           surface={surface}
           haptic="selection"
-          disabled={!canNext}
+          disabled={phase !== "ready" || !canNext}
           onClick={() => turn(1)}
           aria-label="Next page"
         >

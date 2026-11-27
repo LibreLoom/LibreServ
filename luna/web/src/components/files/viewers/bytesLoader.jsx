@@ -4,27 +4,44 @@ import PropTypes from "prop-types";
 import { apiErrorMessage } from "../../../lib/api.js";
 import { useFileSource } from "../../../lib/fileSource.jsx";
 
-/**
- * Bytes through the active file source (drive API, or a share link for
- * guests). Standalone helper for callers outside a component.
- * @param {import("../../../lib/fileSource.jsx").FileSource} source
- * @param {string} driveId
- * @param {string} path
- */
-export async function fetchDriveBytes(source, driveId, path) {
-  return source.fetchBytes(driveId, path);
+/** @param {string} driveId @param {string} path */
+export function useLoadedBytes(driveId, path) {
+  const source = useFileSource();
+  const [result, setResult] = useState(/** @type {{
+    source: typeof source, driveId: string, path: string, bytes?: ArrayBuffer, error?: unknown
+  }|null} */ (null));
+  const [scope, setScope] = useState({ source, driveId, path });
+  if (scope.source !== source || scope.driveId !== driveId || scope.path !== path) {
+    setScope({ source, driveId, path });
+    setResult(null);
+  }
+  useEffect(() => {
+    const request = new AbortController();
+    source.fetchBytes(driveId, path, request.signal).then(
+      (bytes) => {
+        if (!request.signal.aborted) setResult({ source, driveId, path, bytes });
+      },
+      (error) => {
+        if (!request.signal.aborted) setResult({ source, driveId, path, error });
+      },
+    );
+    return () => request.abort();
+  }, [source, driveId, path]);
+
+  return result?.source === source && result.driveId === driveId && result.path === path ? result : null;
 }
 
-/**
- * @param {import("../../../lib/fileSource.jsx").FileSource} source
- * @param {string} driveId
- * @param {string} path
- * @param {string} [mime]
- */
-export async function fetchDriveBlobUrl(source, driveId, path, mime) {
-  const buf = await source.fetchBytes(driveId, path);
-  const blob = new Blob([buf], mime ? { type: mime } : undefined);
-  return URL.createObjectURL(blob);
+/** @param {BlobPart|null|undefined} bytes @param {string} [mime] */
+export function useObjectUrl(bytes, mime) {
+  const [resource, setResource] = useState(/** @type {{ bytes: BlobPart, mime?: string, url: string }|null} */ (null));
+  useEffect(() => {
+    if (!bytes) return undefined;
+    const url = URL.createObjectURL(new Blob([bytes], mime ? { type: mime } : undefined));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- publish a resource owned by this effect
+    setResource({ bytes, mime, url });
+    return () => URL.revokeObjectURL(url);
+  }, [bytes, mime]);
+  return bytes && resource?.bytes === bytes && resource.mime === mime ? resource.url : null;
 }
 
 /**
@@ -40,33 +57,14 @@ export async function fetchDriveBlobUrl(source, driveId, path, mime) {
  * }} props
  */
 export function BytesLoader({ driveId, path, children, loadingLabel = "Opening…", surface = "secondary" }) {
-  const source = useFileSource();
-  const [bytes, setBytes] = useState(/** @type {ArrayBuffer|null} */ (null));
-  const [error, setError] = useState(/** @type {string|null} */ (null));
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setBytes(null);
-      setError(null);
-      try {
-        const buf = await source.fetchBytes(driveId, path);
-        if (!cancelled) setBytes(buf);
-      } catch (err) {
-        if (!cancelled) {
-          setError(apiErrorMessage(err, "Luna couldn't open this file. Try downloading it."));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [source, driveId, path]);
+  const result = useLoadedBytes(driveId, path);
 
   const textTone = surface === "primary" ? "text-secondary" : "text-primary";
-  if (error) return <p className={`${textTone} text-sm`}>{error}</p>;
-  if (!bytes) return <p className={`${textTone} text-sm`}>{loadingLabel}</p>;
-  return children({ bytes });
+  if (result?.error) {
+    return <p className={`${textTone} text-sm`}>{apiErrorMessage(result.error, "Luna couldn't open this file. Try downloading it.")}</p>;
+  }
+  if (!result?.bytes) return <p className={`${textTone} text-sm`}>{loadingLabel}</p>;
+  return children({ bytes: result.bytes });
 }
 
 BytesLoader.propTypes = {

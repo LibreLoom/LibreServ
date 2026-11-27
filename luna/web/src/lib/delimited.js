@@ -10,7 +10,16 @@ const SNIFF_CANDIDATES = [",", "\t", ";", "|"];
  * @returns {string}
  */
 export function sniffDelimiter(text) {
-  const lines = text.split(/\r\n|\r|\n/).filter((l) => l.trim() !== "").slice(0, 10);
+  const lines = [];
+  const breaks = /\r\n|[\r\n]/g;
+  let start = 0;
+  while (lines.length < 10) {
+    const boundary = breaks.exec(text);
+    const line = text.slice(start, boundary?.index ?? text.length);
+    if (line.trim()) lines.push(line);
+    if (!boundary) break;
+    start = breaks.lastIndex;
+  }
   if (lines.length === 0) return ",";
   let best = ",";
   let bestCount = 0;
@@ -49,9 +58,10 @@ function countOutsideQuotes(line, d) {
  * confused for structure.
  * @param {string} text
  * @param {string} [delimiter]
+ * @param {number} [limit] Stop after confirming there is a row beyond this preview.
  * @returns {string[][]}
  */
-export function parseDelimited(text, delimiter) {
+export function parseDelimited(text, delimiter, limit = Infinity) {
   const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   const d = delimiter ?? sniffDelimiter(src);
   /** @type {string[][]} */
@@ -70,8 +80,14 @@ export function parseDelimited(text, delimiter) {
   };
   const endRow = () => {
     endField();
+    if (rows.length >= limit) {
+      const empty = row.every((cell) => cell === "");
+      row = [];
+      return !empty;
+    }
     rows.push(row);
     row = [];
+    return false;
   };
 
   for (let i = 0; i < src.length; i++) {
@@ -96,7 +112,7 @@ export function parseDelimited(text, delimiter) {
       endField();
     } else if (ch === "\r" || ch === "\n") {
       if (ch === "\r" && src[i + 1] === "\n") i++;
-      endRow();
+      if (endRow()) return rows;
     } else {
       field += ch;
       fieldStart = false;
@@ -104,7 +120,7 @@ export function parseDelimited(text, delimiter) {
   }
   // Trailing row: a file ending in a newline leaves `row` empty with no
   // field content — only push when something was actually read.
-  if (field !== "" || row.length > 0) endRow();
+  if ((field !== "" || row.length > 0) && endRow()) return rows;
   // Drop a fully-empty trailing row from a final bare newline.
   while (rows.length > 0 && rows[rows.length - 1].every((c) => c === "")) {
     rows.pop();

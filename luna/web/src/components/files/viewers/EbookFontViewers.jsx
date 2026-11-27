@@ -49,12 +49,14 @@ function FontSample({ bytes, path }) {
   useEffect(() => {
     let cancelled = false;
     const id = `luna-font-${Math.random().toString(36).slice(2)}`;
+    let loadedFace = null;
     (async () => {
       try {
         const face = new FontFace(id, bytes);
         await face.load();
         if (cancelled) return;
         document.fonts.add(face);
+        loadedFace = face;
         setFamily(id);
       } catch {
         if (!cancelled) setError("Luna couldn't load this font in the browser.");
@@ -62,6 +64,7 @@ function FontSample({ bytes, path }) {
     })();
     return () => {
       cancelled = true;
+      if (loadedFace) document.fonts.delete(loadedFace);
     };
   }, [bytes]);
 

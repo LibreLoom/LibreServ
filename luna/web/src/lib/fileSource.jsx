@@ -94,8 +94,8 @@ export async function requireOk(res, fallback) {
  *   collabWsUrl: (driveId: string, path: string) => string,
  *   listDir: (driveId: string, path: string, signal?: AbortSignal) => Promise<object[]>,
  *   stat: (driveId: string, path: string) => Promise<object>,
- *   fetchBytes: (driveId: string, path: string) => Promise<ArrayBuffer>,
- *   fetchText: (driveId: string, path: string) => Promise<string>,
+ *   fetchBytes: (driveId: string, path: string, signal?: AbortSignal) => Promise<ArrayBuffer>,
+ *   fetchText: (driveId: string, path: string, signal?: AbortSignal) => Promise<string>,
  *   saveFile: (driveId: string, path: string, name: string, blob: Blob, opts?: { headers?: object, coverage?: number }) => Promise<unknown>,
  *   mkdir: (driveId: string, path: string, opts?: { private?: boolean }) => Promise<unknown>,
  *   createFile: (driveId: string, path: string, opts?: { private?: boolean }) => Promise<unknown>,
@@ -232,13 +232,13 @@ export const driveSource = {
     getJson(`/api/v1/drives/${driveId}/files?path=${encodeURIComponent(path)}`, { signal }),
   stat: (driveId, path) =>
     getJson(`/api/v1/drives/${driveId}/files/stat?path=${encodeURIComponent(path)}`),
-  async fetchBytes(driveId, path) {
-    const res = await apiFetch(contentHref(driveId, path));
+  async fetchBytes(driveId, path, signal) {
+    const res = await apiFetch(contentHref(driveId, path), { signal });
     await requireOk(res, "Luna couldn't open this file.");
     return res.arrayBuffer();
   },
-  async fetchText(driveId, path) {
-    const res = await apiFetch(contentHref(driveId, path));
+  async fetchText(driveId, path, signal) {
+    const res = await apiFetch(contentHref(driveId, path), { signal });
     await requireOk(res, "Luna couldn't open this file.");
     return res.text();
   },
@@ -640,18 +640,20 @@ export function shareSource({ token, password = "", kind = "folder", fileName = 
       if (p) params.set("path", p);
       return getJson(`/s/${token}/stat?${params}`, { headers: headers() });
     },
-    async fetchBytes(_driveId, path) {
+    async fetchBytes(_driveId, path, signal) {
       const p = rel(path);
       const res = await fetchWithAuth(
         `/s/${token}/file${p ? `?path=${encodeURIComponent(p)}` : ""}`,
+        { signal },
       );
       await requireOk(res, "Luna couldn't open this file.");
       return res.arrayBuffer();
     },
-    async fetchText(_driveId, path) {
+    async fetchText(_driveId, path, signal) {
       const p = rel(path);
       const res = await fetchWithAuth(
         `/s/${token}/file${p ? `?path=${encodeURIComponent(p)}` : ""}`,
+        { signal },
       );
       await requireOk(res, "Luna couldn't open this file.");
       return res.text();

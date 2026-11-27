@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { parseDelimited, sniffDelimiter } from "./delimited.js";
 
+describe("delimited previews", () => {
+  it("stops on a complete logical row and retains internal empty rows", () => {
+    const text = 'name,note\na,"two\nlines"\n,\nb,end\n';
+    expect(parseDelimited(text, ",", 3)).toEqual(parseDelimited(text, ",").slice(0, 3));
+  });
+
+  it("does not count trailing blank rows toward the preview", () => {
+    expect(parseDelimited("name,value\nx,y\n,\n\n", ",", 3)).toHaveLength(2);
+  });
+});
+
 describe("parseDelimited", () => {
   it("splits plain rows", () => {
     expect(parseDelimited("a,b,c\n1,2,3")).toEqual([

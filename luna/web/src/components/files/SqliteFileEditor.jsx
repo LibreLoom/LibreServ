@@ -145,7 +145,7 @@ export default function SqliteFileEditor({
           sync.adoptContent("");
         }
         const [raw, stat] = await Promise.all([
-          source.fetchBytes(driveId, path),
+          source.fetchBytes(driveId, path, hydration.signal),
           statPromise,
         ]);
         if (cancelled) return;

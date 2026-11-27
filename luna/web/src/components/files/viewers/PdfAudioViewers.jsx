@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { BytesLoader, fetchDriveBlobUrl } from "./bytesLoader.jsx";
-import { useFileSource } from "../../../lib/fileSource.jsx";
+import { BytesLoader, useLoadedBytes, useObjectUrl } from "./bytesLoader.jsx";
 import { apiErrorMessage } from "../../../lib/api.js";
 
 /**
@@ -11,29 +9,13 @@ import { apiErrorMessage } from "../../../lib/api.js";
  * fallback when EuroOffice is missing.
  */
 export default function PdfViewer({ driveId, path, fill = false }) {
-  const source = useFileSource();
-  const [url, setUrl] = useState(/** @type {string|null} */ (null));
-  const [error, setError] = useState(/** @type {string|null} */ (null));
-
-  useEffect(() => {
-    let revoked = false;
-    let objectUrl = /** @type {string|null} */ (null);
-    (async () => {
-      try {
-        objectUrl = await fetchDriveBlobUrl(source, driveId, path, "application/pdf");
-        if (!revoked) setUrl(objectUrl);
-      } catch (err) {
-        if (!revoked) setError(apiErrorMessage(err, "Luna couldn't open this PDF. Try downloading it."));
-      }
-    })();
-    return () => {
-      revoked = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [source, driveId, path]);
+  const result = useLoadedBytes(driveId, path);
+  const url = useObjectUrl(result?.bytes, "application/pdf");
 
   const textTone = fill ? "text-secondary" : "text-primary";
-  if (error) return <p className={`${textTone} text-sm`}>{error}</p>;
+  if (result?.error) {
+    return <p className={`${textTone} text-sm`}>{apiErrorMessage(result.error, "Luna couldn't open this PDF. Try downloading it.")}</p>;
+  }
   if (!url) return <p className={`${textTone} text-sm`}>Opening PDF…</p>;
 
   return (
@@ -69,13 +51,12 @@ AudioViewer.propTypes = {
 };
 
 function AudioPlayer({ bytes, path }) {
-  const url = useMemo(() => URL.createObjectURL(new Blob([bytes])), [bytes]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const url = useObjectUrl(bytes);
   if (!url) return null;
   return (
     <div className="rounded-large-element surface-primary p-4">
       <p className="text-sm mb-3 break-all">{path.split("/").pop()}</p>
-      <audio controls className="w-full" src={url}>
+      <audio controls preload="metadata" className="w-full" src={url}>
         Your browser cannot play this audio. Download it instead.
       </audio>
     </div>

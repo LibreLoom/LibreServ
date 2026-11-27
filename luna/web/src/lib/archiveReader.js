@@ -2,6 +2,9 @@
  * Minimal ZIP / TAR readers for archive listing and comic/epub pages.
  * No third-party deps — covers the common local cases Luna needs.
  */
+const ZIP_END_LENGTH = 22;
+const ZIP_MAX_COMMENT = 0xffff;
+const UTF8 = new TextDecoder("utf-8");
 
 /**
  * @param {ArrayBuffer} buf
@@ -11,8 +14,11 @@ export function listZipEntries(buf) {
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
   let eocd = -1;
-  for (let i = bytes.length - 22; i >= 0; i -= 1) {
-    if (view.getUint32(i, true) === 0x06054b50) {
+  const start = bytes.length - ZIP_END_LENGTH;
+  const end = Math.max(0, start - ZIP_MAX_COMMENT);
+  for (let i = start; i >= end; i -= 1) {
+    if (view.getUint32(i, true) === 0x06054b50 &&
+        i + ZIP_END_LENGTH + view.getUint16(i + 20, true) === bytes.length) {
       eocd = i;
       break;
     }
@@ -32,7 +38,7 @@ export function listZipEntries(buf) {
     const commentLen = view.getUint16(offset + 32, true);
     const localOffset = view.getUint32(offset + 42, true);
     const nameBytes = bytes.subarray(offset + 46, offset + 46 + nameLen);
-    const name = new TextDecoder("utf-8").decode(nameBytes);
+    const name = UTF8.decode(nameBytes);
     entries.push({ name, size, offset: localOffset, compressedSize, method });
     offset += 46 + nameLen + extraLen + commentLen;
   }
@@ -42,9 +48,11 @@ export function listZipEntries(buf) {
 /**
  * @param {ArrayBuffer} buf
  * @param {{ name: string, size: number, offset: number, compressedSize: number, method: number }} entry
+ * @param {AbortSignal} [signal]
  * @returns {Promise<Uint8Array<ArrayBuffer>>}
  */
-export async function readZipEntry(buf, entry) {
+export async function readZipEntry(buf, entry, signal) {
+  signal?.throwIfAborted();
   const view = new DataView(buf);
   if (view.getUint32(entry.offset, true) !== 0x04034b50) {
     throw new Error("This zip entry looks damaged.");
@@ -58,7 +66,9 @@ export async function readZipEntry(buf, entry) {
     if (typeof DecompressionStream === "undefined") {
       throw new Error("This browser cannot unpack zip compression.");
     }
-    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    const stream = new Blob([compressed])
+      .stream()
+      .pipeThrough(new DecompressionStream("deflate-raw"), { signal });
     const ab = await new Response(stream).arrayBuffer();
     return new Uint8Array(ab);
   }
@@ -88,7 +98,9 @@ export function listTarEntries(buf) {
         size,
       });
     }
-    offset += 512 + Math.ceil(size / 512) * 512;
+    const next = offset + 512 + Math.ceil(size / 512) * 512;
+    if (next <= offset) throw new Error("This tar entry looks damaged.");
+    offset = next;
   }
   return entries;
 }

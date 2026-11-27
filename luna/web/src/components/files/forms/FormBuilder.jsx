@@ -378,9 +378,9 @@ function BuilderSession({
     (async () => {
       try {
         const text = typeof source.fetchText === "function"
-          ? await source.fetchText(driveId, path)
+          ? await source.fetchText(driveId, path, hydration.signal)
           : await (async () => {
-              const res = await source.fetch(source.contentHref(driveId, path));
+              const res = await source.fetch(source.contentHref(driveId, path), { signal: hydration.signal });
               await requireOk(res, "Luna couldn't open this form.");
               return res.text();
             })();

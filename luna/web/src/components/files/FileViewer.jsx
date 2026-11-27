@@ -221,7 +221,7 @@ export default function FileViewer({ driveId, path, onClose, onSaved, onOpenPath
     setConverting(true);
     setError(null);
     try {
-      const bytes = await source.fetchBytes(driveId, path);
+      const bytes = await source.fetchBytes(driveId, path, request.signal);
       if (request.signal.aborted) return;
       const blob = await conversion.convert(bytes, fileExtension(name));
       if (request.signal.aborted) return;
