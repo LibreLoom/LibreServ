@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { ThemeProvider } from"@libreloom/ui/context/ThemeContext.jsx";
 import SettingsPage from "./SettingsPage";
@@ -61,7 +61,7 @@ function stubFetch(role = "admin", connectActive = false) {
   }));
 }
 
-function renderPage(initialPath = "/settings") {
+function renderPage(initialPath = "/settings", extra = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
@@ -70,6 +70,7 @@ function renderPage(initialPath = "/settings") {
       <ThemeProvider>
         <QueryClientProvider client={client}>
           <AuthProvider>
+            {extra}
             <SettingsPage />
           </AuthProvider>
         </QueryClientProvider>
@@ -179,6 +180,15 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("button", { name: /New access token/i })).toBeTruthy();
     expect(screen.getByText(/phone app, Luna Desktop, or script/i)).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 1, name: "Devices" })).toBeNull();
+  });
+
+  it("returns to the default category when navigation removes the hash", async () => {
+    stubFetch("admin");
+    renderPage("/settings#security", <Link to="/settings">Settings overview</Link>);
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: "Settings overview" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Appearance" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Security" })).toBeNull();
   });
 
   it("switches to Security when the Devices access-token link is clicked", async () => {

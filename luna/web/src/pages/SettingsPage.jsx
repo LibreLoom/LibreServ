@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Page from "@libreloom/ui/components/ui/Page.jsx";
@@ -65,19 +65,21 @@ export default function SettingsPage() {
     ? selectedCategory
     : defaultCategory;
   const [showMobileContent, setShowMobileContent] = useState(() => Boolean(hashCategory));
+  const [pendingHit, setPendingHit] = useState(
+    /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (null),
+  );
+  const [locationSelection, setLocationSelection] = useState({ key: location.key, category: hashCategory });
+  if (locationSelection.key !== location.key || locationSelection.category !== hashCategory) {
+    setLocationSelection({ key: location.key, category: hashCategory });
+    setSelectedCategory(hashCategory || defaultCategory);
+    setShowMobileContent(Boolean(hashCategory));
+    if (pendingHit?.categoryId !== hashCategory) setPendingHit(null);
+  }
   const activeLabel = categories.find((c) => c.id === activeCategory)?.label;
   usePageTitle(activeLabel ? `${activeLabel} settings` : "Settings");
 
-  // React Router Link updates location.hash via pushState — no hashchange event —
-  // and Settings stays mounted (same pathname). Follow the router hash.
-  useEffect(() => {
-    if (!hashCategory) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync selection to router hash
-    setSelectedCategory(hashCategory);
-    setShowMobileContent(true);
-  }, [hashCategory]);
-
   const selectCategory = useCallback((category) => {
+    setPendingHit(null);
     setSelectedCategory(category);
     setShowMobileContent(true);
     if (location.hash.replace(/^#/, "") === category) return;
@@ -93,23 +95,26 @@ export default function SettingsPage() {
   const searching = query.trim().length > 0;
   const { results, resultQuery, firstResult, prepare } = useSettingsSearch(categories, query);
   const searchInputRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const categoryRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+  const scrollRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const focusSearchNextRef = useRef(false);
-  const [pendingHit, setPendingHit] = useState(
-    /** @type {import("@libreloom/ui/lib/settingsSearch.js").SettingsHit | null} */ (null),
-  );
   const clearHighlight = useRef(() => {});
   useEffect(() => () => clearHighlight.current(), []);
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (scroller) scroller.scrollTop = 0;
+  }, [activeCategory, isDesktop, showMobileContent, searching]);
 
   // On a phone the box only exists on the category list, so `/` goes back to it first.
   useEffect(() => {
     if (!focusSearchNextRef.current || !searchInputRef.current) return;
     focusSearchNextRef.current = false;
-    searchInputRef.current.focus();
+    searchInputRef.current.focus({ preventScroll: true });
     searchInputRef.current.select();
   });
   useShortcut("/", () => {
     if (searchInputRef.current) {
-      searchInputRef.current.focus();
+      searchInputRef.current.focus({ preventScroll: true });
       searchInputRef.current.select();
     } else {
       focusSearchNextRef.current = true;
@@ -123,15 +128,25 @@ export default function SettingsPage() {
     setPendingHit(hit.kind === "category" ? null : hit);
   }, [selectCategory]);
 
-  // The category draws in (and its cards fade in) after the pick, so look for
-  // the setting for a moment, then scroll to it and ring it briefly.
+  // A lazy category or a query-backed card can mount after the search closes.
+  // Look only within the current category and only when its content changes.
   useEffect(() => {
-    if (!pendingHit || searching) return undefined;
-    let tries = 0;
-    const timers = /** @type {number[]} */ ([]);
+    const root = categoryRef.current;
+    if (!root || !pendingHit || searching || activeCategory !== pendingHit.categoryId) return undefined;
+    let frame = 0;
+    const timeout = window.setTimeout(() => setPendingHit(null), 3000);
+    const observer = typeof MutationObserver === "function"
+      ? new MutationObserver(schedule)
+      : null;
+    observer?.observe(root, { childList: true, subtree: true, characterData: true });
+    function schedule() {
+      if (!frame) frame = window.requestAnimationFrame(look);
+    }
     const look = () => {
-      const target = findSettingsTarget(document, pendingHit);
+      frame = 0;
+      const target = findSettingsTarget(root, pendingHit);
       if (target) {
+        observer?.disconnect();
         clearHighlight.current();
         const reduce = typeof window.matchMedia === "function"
           && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -144,15 +159,15 @@ export default function SettingsPage() {
           removeRing();
         };
         setPendingHit(null);
-      } else if (++tries < 30) {
-        timers.push(window.setTimeout(look, 100));
-      } else {
-        setPendingHit(null);
       }
     };
-    timers.push(window.setTimeout(look, 0));
-    return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [pendingHit, searching, activeCategory]);
+    schedule();
+    return () => {
+      observer?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [pendingHit, searching, activeCategory, isDesktop, showMobileContent]);
 
   const searchField = (
     <SettingsSearchField
@@ -190,18 +205,18 @@ export default function SettingsPage() {
               onCategoryChange={selectCategory}
             />
           </div>
-          <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
-            <div hidden={searching}>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-right-1 duration-150">
+            <div ref={categoryRef} hidden={searching}>
               <SettingsContent category={activeCategory} />
             </div>
             {searchResults}
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
           {!showMobileContent || searching ? (
             <div className="p-4 pt-6 pb-24">
-              <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">Settings</h1>
+              <h1 className="text-xl font-mono font-normal text-secondary mb-4 motion-safe:animate-in motion-safe:fade-in duration-150">Settings</h1>
               <div className="mb-3">{searchBox}</div>
               {searching ? (
                 searchResults
@@ -218,18 +233,21 @@ export default function SettingsPage() {
               )}
             </div>
           ) : (
-            <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-2 duration-150">
+            <div className="p-4 pt-6 pb-24 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-right-2 duration-150">
               <Button
                 variant="ghost"
                 surface="primary"
                 size="sm"
-                onClick={() => setShowMobileContent(false)}
+                onClick={() => {
+                  setPendingHit(null);
+                  setShowMobileContent(false);
+                }}
                 className="mb-4 -ml-3"
               >
                 <ArrowLeft size={ICON_SIZE.lg} />
                 <span>Back</span>
               </Button>
-              <SettingsContent category={activeCategory} />
+              <div ref={categoryRef}><SettingsContent category={activeCategory} /></div>
             </div>
           )}
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import SqliteDataViewStack from "./SqliteDataViewStack.jsx";
 
 function mount(overrides = {}) {
@@ -50,6 +50,23 @@ describe("SqliteDataViewStack", () => {
   it("renders no result pane before there is a result", () => {
     mount({ hasResult: false, result: null });
     expect(screen.getByText("Table rows")).toBeInTheDocument();
+    expect(pane("query")).toBeNull();
+  });
+
+  it("keeps a cleared result in the outgoing pane until its fade ends", () => {
+    const { rerender, props } = mount({ view: "query" });
+    rerender(<SqliteDataViewStack {...props} view="table" hasResult={false} result={null} />);
+    const result = pane("query");
+    expect(result).toHaveAttribute("inert");
+    expect(result).toHaveAttribute("aria-hidden", "true");
+    expect(result).toHaveTextContent("Query rows");
+    expect(pane("table")).not.toHaveAttribute("inert");
+
+    // Browsers send transitionend for each property; only the pane's opacity
+    // transition should retire it.
+    const end = new Event("transitionend", { bubbles: true });
+    Object.defineProperty(end, "propertyName", { value: "opacity" });
+    fireEvent(result, end);
     expect(pane("query")).toBeNull();
   });
 });

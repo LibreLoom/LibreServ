@@ -200,6 +200,16 @@ body {
   font-family: var(--font-sans);
 }
 
+/* SQLite's first result enters with the same transition as a mounted pane. */
+@media (prefers-reduced-motion: no-preference) {
+  @starting-style {
+    [data-slot="sqlite-result-view"]:not([aria-hidden="true"]) {
+      opacity: 0;
+      translate: 0.75rem 0;
+    }
+  }
+}
+
 /* Overlay locks apply to the viewport. Sticky page headers retain their
    scrolling context behind dialogs. */
 html[data-scroll-lock],
