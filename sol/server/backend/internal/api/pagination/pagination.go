@@ -43,22 +43,21 @@ type Metadata struct {
 
 // FromRequest extracts pagination parameters from an HTTP request
 func FromRequest(r *http.Request) Params {
-	pageStr := r.URL.Query().Get("page")
-	pageSizeStr := r.URL.Query().Get("page_size")
+	query := r.URL.Query()
+	pageStr := query.Get("page")
+	pageSizeStr := query.Get("page_size")
 
 	page := DefaultPage
-	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-		page = p
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
 	}
 
 	pageSize := DefaultPageSize
-	if ps, err := strconv.Atoi(pageSizeStr); err == nil {
-		if ps < MinPageSize {
-			pageSize = MinPageSize
-		} else if ps > MaxPageSize {
-			pageSize = MaxPageSize
-		} else {
-			pageSize = ps
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil {
+			pageSize = min(max(ps, MinPageSize), MaxPageSize)
 		}
 	}
 

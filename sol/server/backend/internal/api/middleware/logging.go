@@ -18,7 +18,6 @@ func Logger(logger *slog.Logger) func(next http.Handler) http.Handler {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
 			defer func() {
-				duration := time.Since(start)
 				status := ww.Status()
 				if status == 0 {
 					status = http.StatusOK
@@ -32,14 +31,18 @@ func Logger(logger *slog.Logger) func(next http.Handler) http.Handler {
 					logLevel = slog.LevelWarn
 				}
 
-				logger.Log(r.Context(), logLevel, "HTTP request",
-					"method", r.Method,
-					"path", r.URL.Path,
-					"status", status,
-					"duration_ms", duration.Milliseconds(),
-					"bytes", ww.BytesWritten(),
-					"remote_addr", r.RemoteAddr,
-					"request_id", middleware.GetReqID(r.Context()),
+				ctx := r.Context()
+				if !logger.Enabled(ctx, logLevel) {
+					return
+				}
+				logger.LogAttrs(ctx, logLevel, "HTTP request",
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.Int("status", status),
+					slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+					slog.Int("bytes", ww.BytesWritten()),
+					slog.String("remote_addr", r.RemoteAddr),
+					slog.String("request_id", middleware.GetReqID(ctx)),
 				)
 			}()
 

@@ -148,10 +148,11 @@ func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 
 			w.Header().Set("X-RateLimit-Limit", intToStr(rule.Limit))
 			w.Header().Set("X-RateLimit-Remaining", intToStr(remaining))
-			w.Header().Set("X-RateLimit-Reset", intToStr(int(reset.Seconds())))
+			resetSeconds := int(reset.Seconds())
+			w.Header().Set("X-RateLimit-Reset", intToStr(resetSeconds))
 
 			if !allowed {
-				response.RateLimitExceeded(w, int(reset.Seconds()))
+				response.RateLimitExceeded(w, resetSeconds)
 				return
 			}
 
@@ -170,19 +171,12 @@ func (l *limiter) matchRule(path string) (RateRule, bool) {
 }
 
 func (l *limiter) keyFor(r *http.Request, rule RateRule) string {
-	var identifier string
-
 	if rule.ByUser {
 		if userID, ok := GetUserIDFromContext(r.Context()); ok && userID != "" {
-			identifier = "user:" + userID
-		} else {
-			identifier = l.extractIP(r)
+			return rule.Prefix + "::user:" + userID
 		}
-	} else {
-		identifier = l.extractIP(r)
 	}
-
-	return rule.Prefix + "::" + identifier
+	return rule.Prefix + "::ip:" + l.extractIP(r)
 }
 
 func (l *limiter) extractIP(r *http.Request) string {
@@ -191,19 +185,22 @@ func (l *limiter) extractIP(r *http.Request) string {
 		host = r.RemoteAddr
 	}
 
-	if isTrustedProxy(host) {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			parts := strings.Split(forwarded, ",")
-			for i := len(parts) - 1; i >= 0; i-- {
-				ip := strings.TrimSpace(parts[i])
-				if ip != "" {
-					return "ip:" + ip
-				}
+	forwarded := r.Header.Get("X-Forwarded-For")
+	if forwarded != "" && isTrustedProxy(host) {
+		// Only the last nonempty entry is used here. Scan backward without
+		// allocating a slice for the whole header.
+		for {
+			comma := strings.LastIndexByte(forwarded, ',')
+			if ip := strings.TrimSpace(forwarded[comma+1:]); ip != "" {
+				return ip
 			}
+			if comma < 0 {
+				break
+			}
+			forwarded = forwarded[:comma]
 		}
 	}
-
-	return "ip:" + host
+	return host
 }
 
 func TrustedProxyNets() []*net.IPNet {
@@ -243,7 +240,7 @@ func (l *limiter) take(key string, rule RateRule) (remaining int, reset time.Dur
 
 	b, ok := l.data[key]
 	if !ok || now.Sub(b.windowStart) >= rule.Window {
-		b = &bucket{count: 0, windowStart: now}
+		b = &bucket{windowStart: now}
 		l.data[key] = b
 	}
 

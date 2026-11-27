@@ -41,7 +41,9 @@ func JSON(w http.ResponseWriter, status int, data interface{}) {
 
 // JSONError writes a JSON error response
 func JSONError(w http.ResponseWriter, status int, message string) {
-	JSON(w, status, map[string]string{"error": message})
+	JSON(w, status, struct {
+		Error string `json:"error"`
+	}{Error: message})
 }
 
 // JSONCreated writes a successful creation response

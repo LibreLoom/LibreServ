@@ -31,17 +31,16 @@ func trustedClientIP(r *http.Request) net.IP {
 		return direct
 	}
 
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			ip := net.ParseIP(strings.TrimSpace(parts[i]))
-			if ip == nil {
-				continue
-			}
-			if !IsTrustedProxyIP(ip) {
-				return ip
-			}
+	for xff := r.Header.Get("X-Forwarded-For"); xff != ""; {
+		comma := strings.LastIndexByte(xff, ',')
+		ip := net.ParseIP(strings.TrimSpace(xff[comma+1:]))
+		if ip != nil && !IsTrustedProxyIP(ip) {
+			return ip
 		}
+		if comma < 0 {
+			break
+		}
+		xff = xff[:comma]
 	}
 
 	if xri := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); xri != nil {

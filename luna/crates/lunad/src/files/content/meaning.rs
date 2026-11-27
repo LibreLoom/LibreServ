@@ -143,6 +143,7 @@ pub fn passages(text: &str) -> Vec<Passage> {
     out
 }
 
+#[cfg(test)]
 fn slice_chars(text: &str, p: &Passage) -> String {
     text.chars().skip(p.start).take(p.len).collect()
 }
@@ -169,11 +170,24 @@ pub fn backfill(conn: &Connection, drive_id: &str, budget: usize) -> anyhow::Res
         .collect::<Result<Vec<_>, _>>()?
     };
     for (doc, body) in &todo {
+        // Selected passages are ordered and do not overlap. Borrow their
+        // UTF-8 slices without copying or rescanning preceding passages.
+        let mut remaining = body.chars();
+        let mut previous_end = 0;
         let vecs: Vec<(usize, Passage, Vec<u8>)> = passages(body)
             .into_iter()
             .enumerate()
             .filter_map(|(i, p)| {
-                let v = model.embed(&slice_chars(body, &p))?;
+                for _ in 0..p.start - previous_end {
+                    remaining.next();
+                }
+                let tail = remaining.as_str();
+                for _ in 0..p.len {
+                    remaining.next();
+                }
+                previous_end = p.start + p.len;
+                let passage = &tail[..tail.len() - remaining.as_str().len()];
+                let v = model.embed(passage)?;
                 Some((i, p, m2v::to_i8(&v)))
             })
             .collect();

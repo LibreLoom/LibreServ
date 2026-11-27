@@ -86,12 +86,10 @@ impl Model {
         let mut rows = Vec::with_capacity(rows_n * DIM);
         let mut scales = Vec::with_capacity(rows_n);
         for r in 0..rows_n {
-            let row: Vec<f32> = (0..DIM)
-                .map(|c| {
-                    let at = (r * DIM + c) * 4;
-                    f32::from_le_bytes(data[at..at + 4].try_into().unwrap())
-                })
-                .collect();
+            let row: [f32; DIM] = std::array::from_fn(|c| {
+                let at = (r * DIM + c) * 4;
+                f32::from_le_bytes(data[at..at + 4].try_into().unwrap())
+            });
             let max = row.iter().fold(0f32, |m, v| m.max(v.abs()));
             let scale = if max > 0.0 { max / 127.0 } else { 1.0 };
             scales.push(scale);
@@ -137,8 +135,9 @@ impl Model {
     /// WordPiece ids, `[UNK]` removed, at most [`MAX_TOKENS`].
     pub fn token_ids(&self, text: &str) -> Vec<u32> {
         let mut ids = Vec::new();
+        let mut continuation = String::new();
         for word in pre_tokenize(&normalize_text(text)) {
-            self.wordpiece(&word, &mut ids);
+            self.wordpiece(word, &mut ids, &mut continuation);
             if ids.len() >= MAX_TOKENS {
                 ids.truncate(MAX_TOKENS);
                 break;
@@ -150,37 +149,57 @@ impl Model {
         ids
     }
 
-    fn wordpiece(&self, word: &str, out: &mut Vec<u32>) {
-        let chars: Vec<char> = word.chars().collect();
-        if chars.len() > MAX_WORD_CHARS {
-            if let Some(unk) = self.unk {
-                out.push(unk);
-            }
+    fn wordpiece(&self, word: &str, out: &mut Vec<u32>, continuation: &mut String) {
+        // A direct lookup handles common tokens without splitting the word.
+        if word.len() <= MAX_WORD_CHARS
+            && let Some(&id) = self.vocab.get(word)
+        {
+            out.push(id);
             return;
         }
-        let mut pieces = Vec::new();
+        let mut offsets = [0; MAX_WORD_CHARS + 1];
+        let mut len = 0;
+        for (byte, _) in word.char_indices() {
+            if len == MAX_WORD_CHARS {
+                if let Some(unk) = self.unk {
+                    out.push(unk);
+                }
+                return;
+            }
+            offsets[len] = byte;
+            len += 1;
+        }
+        offsets[len] = word.len();
+
+        let first_piece = out.len();
         let mut start = 0;
-        while start < chars.len() {
-            let mut end = chars.len();
+        while start < len {
+            let mut end = len;
             let mut found = None;
             while start < end {
-                let mut piece: String = chars[start..end].iter().collect();
-                if start > 0 {
-                    piece.insert_str(0, "##");
-                }
-                if let Some(id) = self.vocab.get(&piece) {
-                    found = Some(*id);
+                let piece = &word[offsets[start]..offsets[end]];
+                let key = if start == 0 {
+                    piece
+                } else {
+                    continuation.clear();
+                    continuation.push_str("##");
+                    continuation.push_str(piece);
+                    continuation.as_str()
+                };
+                if let Some(&id) = self.vocab.get(key) {
+                    found = Some(id);
                     break;
                 }
                 end -= 1;
             }
             match found {
                 Some(id) => {
-                    pieces.push(id);
+                    out.push(id);
                     start = end;
                 }
                 None => {
-                    // The whole word is unknown.
+                    // The whole word is unknown. Discard any matched prefix.
+                    out.truncate(first_piece);
                     if let Some(unk) = self.unk {
                         out.push(unk);
                     }
@@ -188,7 +207,6 @@ impl Model {
                 }
             }
         }
-        out.extend(pieces);
     }
 }
 
@@ -260,27 +278,22 @@ fn is_unicode_punct(c: char) -> bool {
 
 /// BERT pre-tokenizer: split on whitespace, and make every punctuation
 /// character its own word.
-pub fn pre_tokenize(text: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut cur = String::new();
-    for ch in text.chars() {
-        if ch.is_whitespace() {
-            if !cur.is_empty() {
-                words.push(std::mem::take(&mut cur));
-            }
-        } else if is_punct(ch) {
-            if !cur.is_empty() {
-                words.push(std::mem::take(&mut cur));
-            }
-            words.push(ch.to_string());
+fn pre_tokenize(mut text: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        text = text.trim_start();
+        let first = text.chars().next()?;
+        let end = if is_punct(first) {
+            first.len_utf8()
         } else {
-            cur.push(ch);
-        }
-    }
-    if !cur.is_empty() {
-        words.push(cur);
-    }
-    words
+            text.char_indices()
+                .skip(1)
+                .find(|&(_, ch)| ch.is_whitespace() || is_punct(ch))
+                .map_or(text.len(), |(byte, _)| byte)
+        };
+        let (token, rest) = text.split_at(end);
+        text = rest;
+        Some(token)
+    })
 }
 
 /// Quantize a unit vector to int8 for storage (one byte per dimension).
@@ -338,11 +351,14 @@ mod tests {
     fn normalizer_lowercases_and_strips_accents() {
         assert_eq!(normalize_text("Café Crème\tNAÏVE"), "cafe creme naive");
         assert_eq!(
-            pre_tokenize("lease, agreement!"),
+            pre_tokenize("lease, agreement!").collect::<Vec<_>>(),
             ["lease", ",", "agreement", "!"]
         );
-        assert_eq!(pre_tokenize("中文"), ["中文"]);
-        assert_eq!(pre_tokenize(&normalize_text("中文")), ["中", "文"]);
+        assert_eq!(pre_tokenize("中文").collect::<Vec<_>>(), ["中文"]);
+        assert_eq!(
+            pre_tokenize(&normalize_text("中文")).collect::<Vec<_>>(),
+            ["中", "文"]
+        );
     }
 
     #[test]
@@ -353,6 +369,8 @@ mod tests {
         // "zebra" can't be built from the vocab: the whole word is [UNK],
         // and [UNK] is left out of the mean.
         assert_eq!(m.token_ids("zebra café"), [4]);
+        // A matched prefix must be discarded when a later piece is unknown.
+        assert_eq!(m.token_ids("lease agreez café"), [1, 4]);
         assert!(m.embed("zebra").is_none());
     }
 

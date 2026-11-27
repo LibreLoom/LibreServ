@@ -34,6 +34,7 @@ pub struct Query {
     /// Folded query: lowercase, accents removed, words joined by one space.
     pub norm: String,
     pub words: Vec<String>,
+    fuzzy_words: std::sync::OnceLock<Vec<(Vec<char>, u32)>>,
 }
 
 impl Query {
@@ -44,7 +45,11 @@ impl Query {
             .filter(|w| !w.is_empty())
             .map(str::to_string)
             .collect();
-        Self { norm, words }
+        Self {
+            norm,
+            words,
+            fuzzy_words: std::sync::OnceLock::new(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -173,43 +178,77 @@ pub fn rank(query: &Query, name: &str, is_dir: bool) -> Option<Rank> {
 
 /// Total typos if every query word is near some word of the name.
 fn close_match(query: &Query, name_n: &str) -> Option<u32> {
-    let name_words: Vec<Vec<char>> = name_n.split(' ').map(|w| w.chars().collect()).collect();
-    let mut total = 0;
-    for word in &query.words {
-        let q: Vec<char> = word.chars().collect();
-        let budget = typo_budget(q.len());
-        let best = name_words
+    let fuzzy_words = query.fuzzy_words.get_or_init(|| {
+        query
+            .words
             .iter()
-            .filter_map(|w| word_distance(&q, w, budget))
-            .min()?;
-        total += best;
+            .map(|word| {
+                let chars: Vec<char> = word.chars().collect();
+                let budget = typo_budget(chars.len());
+                (chars, budget)
+            })
+            .collect()
+    });
+    let name_words: Vec<Vec<char>> = name_n.split(' ').map(|w| w.chars().collect()).collect();
+    let mut rows = DistanceRows::default();
+    let mut total = 0;
+    for (word, budget) in fuzzy_words {
+        let mut best = None;
+        for name_word in &name_words {
+            if let Some(distance) = word_distance(word, name_word, *budget, &mut rows) {
+                best = Some(best.map_or(distance, |previous: u32| previous.min(distance)));
+                if distance == 0 {
+                    break;
+                }
+            }
+        }
+        total += best?;
     }
     Some(total)
 }
 
 /// Distance from `q` to a word, or to the start of a longer word (so
 /// "passp" still finds "passport"), within `budget` typos.
-fn word_distance(q: &[char], w: &[char], budget: u32) -> Option<u32> {
-    let mut best = osa(q, w, budget);
-    if w.len() > q.len() {
+fn word_distance(q: &[char], w: &[char], budget: u32, rows: &mut DistanceRows) -> Option<u32> {
+    if w.starts_with(q) {
+        return Some(0);
+    }
+    if budget == 0 {
+        return None;
+    }
+    let mut best = osa(q, w, budget, rows);
+    if w.len() > q.len() && best != Some(1) {
         let cut = &w[..q.len()];
-        if let Some(d) = osa(q, cut, budget) {
+        if let Some(d) = osa(q, cut, budget, rows) {
             best = Some(best.map_or(d, |b| b.min(d)));
         }
     }
     best
 }
 
+#[derive(Default)]
+struct DistanceRows {
+    prev2: Vec<u32>,
+    prev: Vec<u32>,
+    cur: Vec<u32>,
+}
+
 /// Optimal-string-alignment distance (a swapped pair counts as one typo),
 /// or `None` once it exceeds `max`.
-pub fn osa(a: &[char], b: &[char], max: u32) -> Option<u32> {
+fn osa(a: &[char], b: &[char], max: u32, rows: &mut DistanceRows) -> Option<u32> {
     let (n, m) = (a.len(), b.len());
     if n.abs_diff(m) as u32 > max {
         return None;
     }
-    let mut prev2 = vec![0u32; m + 1];
-    let mut prev: Vec<u32> = (0..=m as u32).collect();
-    let mut cur = vec![0u32; m + 1];
+    // Reuse the same three buffers across word comparisons. Each recurrence
+    // overwrites its entire row before the next comparison can read it.
+    let DistanceRows { prev2, prev, cur } = rows;
+    prev2.resize(m + 1, 0);
+    prev.resize(m + 1, 0);
+    cur.resize(m + 1, 0);
+    for (i, value) in prev.iter_mut().enumerate() {
+        *value = i as u32;
+    }
     for i in 1..=n {
         cur[0] = i as u32;
         let mut row_min = cur[0];
@@ -225,8 +264,8 @@ pub fn osa(a: &[char], b: &[char], max: u32) -> Option<u32> {
         if row_min > max {
             return None;
         }
-        std::mem::swap(&mut prev2, &mut prev);
-        std::mem::swap(&mut prev, &mut cur);
+        std::mem::swap(prev2, prev);
+        std::mem::swap(prev, cur);
     }
     let d = prev[m];
     (d <= max).then_some(d)
@@ -416,9 +455,14 @@ mod tests {
     fn osa_counts_a_swap_as_one() {
         let a: Vec<char> = "teh".chars().collect();
         let b: Vec<char> = "the".chars().collect();
-        assert_eq!(osa(&a, &b, 2), Some(1));
+        let mut rows = DistanceRows::default();
+        assert_eq!(osa(&a, &b, 2, &mut rows), Some(1));
         let c: Vec<char> = "xyz".chars().collect();
-        assert_eq!(osa(&a, &c, 2), None);
+        assert_eq!(osa(&a, &c, 2, &mut rows), None);
+        // A rejected comparison can leave partial rows. Reuse them at
+        // another width, then grow them again for a transposition.
+        assert_eq!(osa(&['t'], &['a'], 2, &mut rows), Some(1));
+        assert_eq!(osa(&a, &b, 2, &mut rows), Some(1));
     }
 
     #[test]

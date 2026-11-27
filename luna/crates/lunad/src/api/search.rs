@@ -74,7 +74,7 @@ async fn search(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let raw = query.q.trim().to_string();
     let quick = query.quick;
-    if raw.chars().count() < 2 {
+    if raw.chars().nth(1).is_none() {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             "Type at least 2 letters to search.",
@@ -118,7 +118,11 @@ async fn search(
             tracing::warn!(error = %e, "search failed");
         })?;
         perf.field("names_only", names_only);
-        let expr = crate::files::content::query::fts_expr(&parsed);
+        let expr = if names_only {
+            None
+        } else {
+            crate::files::content::query::fts_expr(&parsed)
+        };
         let conn = work_state.db.lock().map_err(|_| ())?;
         let (hits, truncated) = visible_hits(&conn, &work_user, candidates, limit, expr.as_deref());
         perf.field("drives", drives.len());

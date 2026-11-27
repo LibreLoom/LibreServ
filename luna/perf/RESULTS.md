@@ -382,3 +382,44 @@ the 2 GiB target.
 Not measured here: W/D/K/C journey times. The bundle figure is an asset-size
 measurement, not a browser timing, and the full 3040 stand-in run was not done.
 See `sol/perf/RESULTS.md` for the Sol side and the conversion commands.
+
+## Backend optimization inventory
+
+Each entry records an implemented change. The measurements above predate this
+work. This inventory includes Luna and Sol because both ship server backends.
+
+| # | Backend | Work reduced |
+|---|---|---|
+| 1 | Luna | Distribute exact matches to drive deduplication sets in one pass over the results. |
+| 2 | Luna | Look up duplicate candidates using borrowed paths and names. |
+| 3 | Luna | Store each folder path once in the deduplication set. |
+| 4 | Luna | Reorder search candidates in place after sorting their keys. |
+| 5 | Luna | Skip sorting empty and single-result candidate lists. |
+| 6 | Luna | Build the SQL LIKE pattern only when the prefix scan uses it. |
+| 7 | Luna | Stop selecting and binding the unused search pagination values. |
+| 8 | Luna | Read file metadata and allocate the drive ID only for ranked name matches. |
+| 9 | Luna | Decode fuzzy query words and calculate typo budgets once per query. |
+| 10 | Luna | Reuse edit-distance rows across word comparisons for a candidate. |
+| 11 | Luna | Use direct prefix comparisons for exact matches and zero-typo words. |
+| 12 | Luna | Stop comparing a query word after finding a zero-distance match. |
+| 13 | Luna | Skip testing a shortened word when the full word is already one edit away. |
+| 14 | Luna | Quantize model rows from a fixed-size array during model load. |
+| 15 | Luna | Tokenize borrowed text lazily and stop at the model's token limit. |
+| 16 | Luna | Look up whole vocabulary words before trying WordPiece splits. |
+| 17 | Luna | Borrow WordPiece prefixes and reuse storage for continuation keys. |
+| 18 | Luna | Write WordPiece IDs directly into the token buffer and roll back unknown words. |
+| 19 | Luna | Borrow passage slices in a single forward traversal during embedding backfill. |
+| 20 | Sol | Decode pagination URL parameters once per request. |
+| 21 | Sol | Skip integer parsing for absent pagination fields. |
+| 22 | Sol | Encode single-field JSON errors from a struct. |
+| 23 | Sol | Use typed request log fields and skip constructing fields at disabled levels. |
+| 24 | Sol | Walk forwarded address lists without allocating split slices. |
+| 25 | Sol | Build the rate-limiter key in a single concatenation. |
+| 26 | Luna | Use static SQL for the indexed and prefix name scan variants. |
+| 27 | Luna | Share exact and fuzzy FTS expressions across drives in one search. |
+| 28 | Luna | Share the content FTS expression across drives. |
+| 29 | Luna | Embed a meaning query once across all eligible drives. |
+| 30 | Luna | Bypass content and meaning passes for folder-only searches. |
+| 31 | Luna | Skip constructing the snippet query expression when names fill the answer. |
+| 32 | Luna | Stop validating the minimum query length after the second character. |
+| 33 | Luna | Keep the first sorted result list when later passes add no candidates. |
