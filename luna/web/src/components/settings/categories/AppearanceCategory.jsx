@@ -126,7 +126,7 @@ function PaletteChip({ label, dots, selected, onSelect, ariaLabel }) {
         {dots.map((color, i) => (
           <span
             key={i}
-            className="h-5 w-5 rounded-full border border-secondary/30"
+            className="h-5 w-5 rounded-full border border-secondary/30 motion-safe:transition-colors motion-safe:duration-300"
             style={{ backgroundColor: color }}
           />
         ))}
