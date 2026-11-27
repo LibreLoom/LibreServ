@@ -93,10 +93,10 @@ const DaySection = memo(/** @param {any} props */ function DaySection({
     <section
       aria-labelledby={`day-${group.key}`}
     >
-      <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 surface-primary px-1 py-2">
+      <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 surface-primary py-2">
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-pill hover:bg-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-safe:transition-colors"
+          className="-ml-1.5 inline-flex h-7 w-7 items-center justify-center rounded-pill hover:bg-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-safe:transition-colors"
           aria-expanded={!isCollapsed}
           aria-controls={`day-grid-${group.key}`}
           aria-label={isCollapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
