@@ -172,6 +172,60 @@ describe("AuthProvider setup gating", () => {
     expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
   });
 
+  it("stays on /%72ecover/ when the startup read finds no Admin", async () => {
+    // React Router decodes percent escapes when matching, so /%72ecover/ is
+    // the /recover route. The startup decision compared the raw pathname, saw
+    // an unknown route and replaced recovery with the setup wizard.
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
+      if (u.endsWith("/api/v1/auth/status")) {
+        return new Response(JSON.stringify({ has_admin: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        return new Response(JSON.stringify({ name: "Luna", setup_completed: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    window.history.pushState({}, "", "/%72ecover/");
+
+    function Probe() {
+      const { loading } = useAuth();
+      const { pathname } = useLocation();
+      return (
+        <div>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`AT ${pathname}`}</span>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/%72ecover/"]}>
+        <AuthProvider>
+          <Probe />
+          <Routes>
+            <Route path="/recover" element={<div>RECOVERY WIZARD</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    // Wait for the read to land: checking the route before then would pass
+    // even if the decision later replaces recovery with the wizard.
+    expect(await screen.findByText("READY")).toBeInTheDocument();
+    expect(screen.getByText("AT /%72ecover/")).toBeInTheDocument();
+    expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
+  });
+
   it("keeps login when setup is incomplete but an account exists", async () => {
     renderAt("/login", { setupCompleted: false, hasAdmin: true });
     expect(await screen.findByText("LOGIN SCREEN")).toBeInTheDocument();

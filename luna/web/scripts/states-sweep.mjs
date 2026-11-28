@@ -91,6 +91,53 @@ async function resetTheme(theme) {
 }
 
 /**
+ * Verify the gallery frame still holds the fake for `sid` and, when it does,
+ * capture what the frame renders. Returns `false` when the fake is missing,
+ * not ready, or belongs to another scenario.
+ *
+ * This is the single verification used at BOTH visit time (to accept a fresh
+ * load) and measurement time (to reject a frame that Vite reloaded during the
+ * settling gap). Sharing it means an empty snapshot can never pass as a
+ * successful visit. Passed unchanged to waitForFunction / evaluate, so it must
+ * stay self-contained: it runs in the browser context, not in Node.
+ */
+function inspectFrame({ sid, enc }) {
+  const f = document.querySelector("iframe");
+  const w = f?.contentWindow;
+  const c = w?.__lunaFake;
+  if (!c || !w?.document?.body?.innerText) return false;
+  // Wait until the app has actually applied a theme, not just installed the fake.
+  if (!w.document.documentElement?.style?.colorScheme) return false;
+  const snap = c.snapshot?.() || {};
+  const fakeId = snap.scenarioId || snap.scenario?.id || c.scenario?.id || "";
+  const fromSrc = (f.getAttribute("src") || "").includes(`__mock=${enc}`);
+  // A fake with an id must match this scenario; without an id, the mock src
+  // must identify it. A stale/mismatched fake is rejected just like a missing one.
+  if (!((!fakeId || fakeId === sid) && (!!fakeId || fromSrc))) return false;
+
+  const text = w.document.body.innerText || "";
+  const crashed = Array.isArray(snap.crashed) ? snap.crashed.length > 0 : !!snap.crashed;
+  // Record what the frame renders, not what the scenario declares.
+  const theme = w.document.documentElement.classList.contains("dark") ? "dark" : "light";
+  let storedTheme = "";
+  try { storedTheme = w.localStorage.getItem("theme") || ""; } catch { /* storage blocked */ }
+  // Measure the frame's own viewport, not the gallery element's box: the
+  // app's layout and media queries see these INNER dimensions.
+  const innerWidth = w.innerWidth;
+  const innerHeight = w.innerHeight;
+  return {
+    crashed,
+    crashDetail: crashed ? JSON.stringify(snap.crashed).slice(0, 200) : "",
+    unhandled: (snap.unhandled || []).length,
+    banner: /No mock|no handler|not mocked|fake crashed/i.test(text),
+    theme,
+    storedTheme,
+    innerWidth,
+    innerHeight,
+  };
+}
+
+/**
  * Open a scenario in a frame we can prove belongs to it. A hash assignment to
  * the value already in the address bar is a no-op (the gallery's hashchange
  * handler never fires), so setting the hash alone cannot re-boot a scenario
@@ -113,18 +160,9 @@ async function visitScenario(scenario, reload) {
   } else {
     await page.evaluate((sid) => { window.location.hash = encodeURIComponent(sid); }, scenario.id);
   }
-  await page.waitForFunction(({ sid, enc }) => {
-    const f = document.querySelector("iframe");
-    const w = f?.contentWindow;
-    const c = w?.__lunaFake;
-    if (!c || !w?.document?.body?.innerText) return false;
-    // Wait until the app has actually applied a theme, not just installed the fake.
-    if (!w.document.documentElement?.style?.colorScheme) return false;
-    const snap = c.snapshot?.() || {};
-    const fakeId = snap.scenarioId || snap.scenario?.id || c.scenario?.id || "";
-    const fromSrc = (f.getAttribute("src") || "").includes(`__mock=${enc}`);
-    return (!fakeId || fakeId === sid) && (!!fakeId || fromSrc);
-  }, { sid: scenario.id, enc: encoded }, { timeout: 20000 });
+  // Resolves once inspectFrame returns a snapshot, i.e. the frame's fake is
+  // present and provably belongs to this scenario. A stale frame never counts.
+  await page.waitForFunction(inspectFrame, { sid: scenario.id, enc: encoded }, { timeout: 20000 });
 }
 
 const records = [];
@@ -132,6 +170,7 @@ let failures = 0;
 let contextWidth = 1280; // matches the width the context was created with
 for (let i = 0; i < scenarios.length; i++) {
   const scenario = scenarios[i];
+  const encoded = encodeURIComponent(scenario.id);
   let status = "ok";
   let observed = [];
   // A failed visit never gets to claim a rendered theme or viewport. Reset at
@@ -173,50 +212,38 @@ for (let i = 0; i < scenarios.length; i++) {
       await visitScenario(scenario, attempt === 1 || i === 0);
       errBefore = { page: pageErrors.length, console: consoleErrors.length };
       await page.waitForTimeout(200);
-      const info = await page.evaluate(() => {
-        const f = document.querySelector("iframe");
-        const w = f.contentWindow;
-        const snap = w.__lunaFake?.snapshot?.() || {};
-        const text = w.document.body.innerText || "";
-        const crashed = Array.isArray(snap.crashed) ? snap.crashed.length > 0 : !!snap.crashed;
-        // Record what the frame renders, not what the scenario declares.
-        const theme = w.document.documentElement.classList.contains("dark") ? "dark" : "light";
-        let storedTheme = "";
-        try { storedTheme = w.localStorage.getItem("theme") || ""; } catch { /* storage blocked */ }
-        // Measure the frame's own viewport, not the gallery element's box: the
-        // app's layout and media queries see these INNER dimensions.
-        const innerWidth = w.innerWidth;
-        const innerHeight = w.innerHeight;
-        return {
-          crashed,
-          crashDetail: crashed ? JSON.stringify(snap.crashed).slice(0, 200) : "",
-          unhandled: (snap.unhandled || []).length,
-          banner: /No mock|no handler|not mocked|fake crashed/i.test(text),
-          theme,
-          storedTheme,
-          innerWidth,
-          innerHeight,
-        };
-      });
-      // Classify by the frame's real inner width against the app's breakpoints
-      // (phone < 768, tablet 768-1023, desktop >= 1024), not by element height.
-      info.viewport = classifyWidth(info.innerWidth);
-      info.frame = { innerWidth: info.innerWidth, innerHeight: info.innerHeight };
-      rendered = { viewport: info.viewport, theme: info.theme, frame: info.frame };
-      const widthOk = presetMatches(scenario.viewport, info.innerWidth);
-      observed.push(`loaded ${scenario.url} in ${info.viewport}/${info.theme} (frame ${info.innerWidth}x${info.innerHeight}) with the fake installed`);
-      if (scenario.theme !== info.theme) observed.push(`theme rendered ${info.theme} (stored ${info.storedTheme || "none"}, scenario declared ${scenario.theme || "default"})`);
-      if (scenario.viewport !== info.viewport || !widthOk) {
-        // Never silently record a mismatched label: the declared preset and the
-        // width the app actually rendered must agree, or the visit is a problem.
+      // Re-run the exact visit-time verification against the frame we are
+      // about to measure. Vite can reload the iframe during the settling gap;
+      // without this, a missing fake would read as an empty snapshot and be
+      // recorded as a successful visit with the fake "installed" (lines 93-127).
+      const info = await page.evaluate(inspectFrame, { sid: scenario.id, enc: encoded });
+      if (!info) {
+        // No fake, or one belonging to another scenario: never record an empty
+        // snapshot as a clean success. Leave `rendered` at its per-attempt
+        // "unknown" reset and let the fresh-reload retry handle a one-off blip.
         status = "problem";
-        const expected = scenario.viewport === "desktop" ? ">= 1024" : `${PRESETS[scenario.viewport]?.frame ?? scenario.viewport}px`;
-        observed.push(`viewport mismatch: frame inner ${info.innerWidth}x${info.innerHeight} rendered ${info.viewport}, scenario declared ${scenario.viewport} (expected ${expected})`);
+        observed.push("fake missing or stale in the measured frame (frame reloaded during settling)");
+      } else {
+        // Classify by the frame's real inner width against the app's breakpoints
+        // (phone < 768, tablet 768-1023, desktop >= 1024), not by element height.
+        info.viewport = classifyWidth(info.innerWidth);
+        info.frame = { innerWidth: info.innerWidth, innerHeight: info.innerHeight };
+        rendered = { viewport: info.viewport, theme: info.theme, frame: info.frame };
+        const widthOk = presetMatches(scenario.viewport, info.innerWidth);
+        observed.push(`loaded ${scenario.url} in ${info.viewport}/${info.theme} (frame ${info.innerWidth}x${info.innerHeight}) with the fake installed`);
+        if (scenario.theme !== info.theme) observed.push(`theme rendered ${info.theme} (stored ${info.storedTheme || "none"}, scenario declared ${scenario.theme || "default"})`);
+        if (scenario.viewport !== info.viewport || !widthOk) {
+          // Never silently record a mismatched label: the declared preset and the
+          // width the app actually rendered must agree, or the visit is a problem.
+          status = "problem";
+          const expected = scenario.viewport === "desktop" ? ">= 1024" : `${PRESETS[scenario.viewport]?.frame ?? scenario.viewport}px`;
+          observed.push(`viewport mismatch: frame inner ${info.innerWidth}x${info.innerHeight} rendered ${info.viewport}, scenario declared ${scenario.viewport} (expected ${expected})`);
+        }
+        if (info.crashed) { status = "problem"; observed.push(`fake crashed: ${info.crashDetail}`); }
+        if (info.unhandled) { status = "problem"; observed.push(`${info.unhandled} unhandled error(s)`); }
+        if (info.banner) { status = "problem"; observed.push("no-mock/crash banner in frame"); }
+        if (status === "ok") observed.push("no fake crash, unhandled error or missing-mock banner");
       }
-      if (info.crashed) { status = "problem"; observed.push(`fake crashed: ${info.crashDetail}`); }
-      if (info.unhandled) { status = "problem"; observed.push(`${info.unhandled} unhandled error(s)`); }
-      if (info.banner) { status = "problem"; observed.push("no-mock/crash banner in frame"); }
-      if (status === "ok") observed.push("no fake crash, unhandled error or missing-mock banner");
     } catch (e) {
       status = "problem";
       observed.push(`harness: ${String(e).slice(0, 200)}`);

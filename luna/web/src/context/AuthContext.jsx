@@ -11,13 +11,20 @@ const AuthContext = createContext(undefined);
 // exists so a recovery file can create a new Admin account at boot.
 const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
-// React Router matches /recover, /recover/ and /RECOVER/ as the same route
-// (it is case-insensitive and ignores a trailing slash), but the browser
-// reports the literal pathname. Normalize before comparing so neither a
-// trailing slash nor different case can bounce someone off a page they
-// are already on.
+// React Router matches /recover, /recover/, /RECOVER/ and /%72ecover/ as the
+// same route: it decodes percent escapes, is case-insensitive and ignores a
+// trailing slash. The browser reports the literal pathname, so normalize the
+// same way before comparing or someone can be bounced off the page they are
+// already on. A malformed escape must not break startup routing — React
+// Router leaves such a pathname undecoded too, so we fall back to the literal.
 function normalizePath(path) {
-  const stripped = path.length > 1 ? path.replace(/\/+$/, "") : path;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    decoded = path;
+  }
+  const stripped = decoded.length > 1 ? decoded.replace(/\/+$/, "") : decoded;
   return stripped.toLowerCase();
 }
 

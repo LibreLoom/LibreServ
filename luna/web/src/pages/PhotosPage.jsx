@@ -1714,6 +1714,12 @@ export default function PhotosPage() {
       && document.documentElement.scrollHeight < r.y + window.innerHeight;
     const needPhoto = !!r.photo && photoHit < 0;
     if ((needY || needPhoto) && photoQuery.hasNextPage && r.pages < 60) {
+      // A failed next-page fetch stays an error until Try again is pressed.
+      // Pause instead of paging on: the sentinel would retry the same page on
+      // every query update, up to the 60-page bound, throughout an outage.
+      // The page's Try again calls fetchNextPage for this error, so a
+      // successful retry clears it and this effect resumes where it stopped.
+      if (photoQuery.isFetchNextPageError) return;
       if (!photoQuery.isFetchingNextPage) {
         r.pages += 1;
         photoQuery.fetchNextPage();

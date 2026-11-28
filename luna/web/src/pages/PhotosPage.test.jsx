@@ -804,6 +804,68 @@ describe("PhotosPage", () => {
     });
   });
 
+  it("waits for Try again when a deep-linked photo needs a failed next page", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    const p = `${encodeURIComponent("b")}|${encodeURIComponent("older.jpg")}`;
+    window.history.replaceState(null, "", `/photos#library?p=${p}`);
+    let failNextPage = true;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          return new Response(JSON.stringify({
+            items: [{
+              drive_id: "a", path: "recent.jpg", name: "recent.jpg",
+              taken_at: 1_700_000_000, thumb: "/t1", kind: "image",
+            }],
+            next_offset: 1, has_more: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (failNextPage) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "b", path: "older.jpg", name: "older.jpg",
+            taken_at: 946_684_800, thumb: "/t0", kind: "image",
+          }],
+          next_offset: offset + 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const nextPageCalls = () => fetchMock.mock.calls.filter(([url, init]) => {
+      const u = String(url);
+      return u.startsWith("/api/v1/photos?")
+        && init?.priority !== "low"
+        && Number(new URL(u, "http://luna.local").searchParams.get("offset")) > 0;
+    }).length;
+    const user = userEvent.setup();
+    renderPhotos();
+
+    expect(await screen.findByText("Couldn't reach Luna")).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(nextPageCalls()).toBe(1);
+    expect(screen.queryByRole("dialog", { name: "older.jpg" })).not.toBeInTheDocument();
+
+    failNextPage = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("dialog", { name: "older.jpg" })).toBeInTheDocument();
+    expect(nextPageCalls()).toBe(2);
+    await waitFor(() => {
+      expect(window.location.hash).toBe(`#library?p=${p}`);
+    });
+  });
+
   it("follows hashchange for back/forward navigation", async () => {
     stubPhotosFetch();
     renderPhotos();
