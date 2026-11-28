@@ -866,6 +866,46 @@ describe("PhotosPage", () => {
     });
   });
 
+  it("keeps a deep-linked photo when the first page fails and Try again reloads", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    const p = `${encodeURIComponent("b")}|${encodeURIComponent("beach.jpg")}`;
+    window.history.replaceState(null, "", `/photos#library?p=${p}`);
+    let failFirstPage = true;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0 && failFirstPage) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "b", path: "beach.jpg", name: "beach.jpg",
+            taken_at: 1_700_000_000, thumb: "/t0", kind: "image",
+          }],
+          next_offset: 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPhotos();
+
+    expect(await screen.findByText("Couldn't reach Luna")).toBeInTheDocument();
+    expect(window.location.hash).toBe(`#library?p=${p}`);
+
+    failFirstPage = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
+    expect(window.location.hash).toBe(`#library?p=${p}`);
+  });
+
   it("follows hashchange for back/forward navigation", async () => {
     stubPhotosFetch();
     renderPhotos();

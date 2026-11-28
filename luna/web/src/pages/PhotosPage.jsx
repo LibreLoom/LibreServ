@@ -1706,6 +1706,19 @@ export default function PhotosPage() {
   useEffect(() => {
     const r = restoreRef.current;
     if (r.done || photoQuery.isLoading) return;
+    // Hold the target until the request settles. A failed first page leaves
+    // neither `hasNextPage` nor the photo, so the fall-through below would
+    // clear `p=` before Try again can load the list; page 60 can likewise
+    // still be in flight when the page cap is reached. Pausing on a next-page
+    // error also keeps the sentinel from retrying the same page on every
+    // query update, up to the 60-page bound, throughout an outage. The page's
+    // Try again re-issues that page, and a successful retry resumes us here.
+    if (
+      photoQuery.isError
+      || photoQuery.isFetching
+      || photoQuery.isFetchingNextPage
+      || photoQuery.isFetchNextPageError
+    ) return;
     const photoHit = r.photo
       ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
       : -1;
@@ -1714,12 +1727,6 @@ export default function PhotosPage() {
       && document.documentElement.scrollHeight < r.y + window.innerHeight;
     const needPhoto = !!r.photo && photoHit < 0;
     if ((needY || needPhoto) && photoQuery.hasNextPage && r.pages < 60) {
-      // A failed next-page fetch stays an error until Try again is pressed.
-      // Pause instead of paging on: the sentinel would retry the same page on
-      // every query update, up to the 60-page bound, throughout an outage.
-      // The page's Try again calls fetchNextPage for this error, so a
-      // successful retry clears it and this effect resumes where it stopped.
-      if (photoQuery.isFetchNextPageError) return;
       if (!photoQuery.isFetchingNextPage) {
         r.pages += 1;
         photoQuery.fetchNextPage();

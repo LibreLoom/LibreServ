@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { matchRoutes, useNavigate } from "react-router-dom";
 import { UNAUTHORIZED_EVENT, apiFetch, getJson, postJson } from "../lib/api";
 
 const AuthContext = createContext(undefined);
@@ -9,24 +9,11 @@ const AuthContext = createContext(undefined);
 // setup wizard so a fresh Luna always boots straight into setup instead of
 // an app with no account. /recover also stays reachable before an account
 // exists so a recovery file can create a new Admin account at boot.
-const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
-
-// React Router matches /recover, /recover/, /RECOVER/ and /%72ecover/ as the
-// same route: it decodes percent escapes, is case-insensitive and ignores a
-// trailing slash. The browser reports the literal pathname, so normalize the
-// same way before comparing or someone can be bounced off the page they are
-// already on. A malformed escape must not break startup routing — React
-// Router leaves such a pathname undecoded too, so we fall back to the literal.
-function normalizePath(path) {
-  let decoded;
-  try {
-    decoded = decodeURIComponent(path);
-  } catch {
-    decoded = path;
-  }
-  const stripped = decoded.length > 1 ? decoded.replace(/\/+$/, "") : decoded;
-  return stripped.toLowerCase();
-}
+// These are route patterns for the router's own matcher, not strings to
+// compare against the raw pathname: decoding a whole pathname with
+// decodeURIComponent turns /recover%2F into /recover/, but React Router keeps
+// the encoded slash inside that segment and renders its 404 page instead.
+const SETUP_EXCEPTION_ROUTES = [{ path: "/setup" }, { path: "/login" }, { path: "/recover" }];
 
 // A startup or recovery attempt can be blackholed (a firewall drops the
 // packet instead of refusing it). Without a bound, browser fetch keeps the
@@ -168,13 +155,21 @@ export function AuthProvider({ children }) {
     // provider on every ?file= / #hash change, so opening a file re-rendered
     // the whole app tree.
     function routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists }) {
-      const path = normalizePath(typeof window !== "undefined" ? window.location.pathname : "");
+      // Ask the router which page this pathname actually renders. matchRoutes
+      // decodes percent escapes per segment just like <Routes> does, so
+      // /recover, /recover/, /RECOVER/ and /%72ecover/ all count as recovery,
+      // while /recover%2F matches nothing and must go to setup rather than
+      // being left on the 404 page. A malformed escape leaves the path
+      // undecoded there too, so startup routing never throws.
+      const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+      const matched = matchRoutes(SETUP_EXCEPTION_ROUTES, { pathname }) || [];
+      const routePath = matched[0]?.route.path;
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
-      if (!adminExists && !me && path !== "/recover") {
-        if (path !== "/setup") {
+      if (!adminExists && !me && routePath !== "/recover") {
+        if (routePath !== "/setup") {
           navigateRef.current("/setup", { replace: true });
         }
-      } else if (needsSetup && !ALLOWED_DURING_SETUP.includes(path)) {
+      } else if (needsSetup && !routePath) {
         navigateRef.current("/setup", { replace: true });
       }
     }

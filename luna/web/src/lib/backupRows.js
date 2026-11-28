@@ -61,11 +61,30 @@ export const PAUSED_FROM_DRIVE_HINT =
   "Luna found this backup on a drive, not in its own records. Check it's one you want, then resume it.";
 
 /**
+ * One plain instruction for a missing payment card, whether it came from lunad
+ * in `waiting_reason` or from a manual run response in `last_error`.
+ */
+const PAYMENT_CARD_REASON = "Add a payment card in Luna Connect before cloud backups can start.";
+
+/**
+ * Connect's payment-card messages arrive as raw prose in both fields. Replace
+ * that prose wherever it surfaces, but leave the "connect this Luna first"
+ * instruction and every other reason exactly as they are.
+ * @param {string | null | undefined} text
+ */
+function normalizeWaitingReason(text) {
+  if (typeof text === "string" && text.startsWith("Add a payment card at")) {
+    return PAYMENT_CARD_REASON;
+  }
+  return text;
+}
+
+/**
  * Backup lists carry a waiting reason. Manual run responses still carry prose.
  * @param {{ kind?: string, last_error?: string, waiting_reason?: string | null }} backup
  */
 export function backupWaitingReason({ kind, last_error: error, waiting_reason: reason }) {
-  if (reason !== undefined) return reason;
+  if (reason !== undefined) return normalizeWaitingReason(reason);
   if (!error || (kind !== "drive" && kind !== "cloud")) return null;
   if (error.startsWith("Waiting: ")) return error.slice("Waiting: ".length);
   if (kind !== "cloud") return null;
@@ -88,7 +107,7 @@ export function backupWaitingReason({ kind, last_error: error, waiting_reason: r
     return error;
   }
   if (error.startsWith("Add a payment card at")) {
-    return "Add a payment card in Luna Connect before cloud backups can start.";
+    return PAYMENT_CARD_REASON;
   }
   return null;
 }

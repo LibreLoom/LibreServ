@@ -184,6 +184,34 @@ describe("backupWaitingReason", () => {
       expect(backupWaitingReason(row)).not.toBe(CONNECT);
     }
   });
+
+  it("lets the billing copy win when both the server reason and the last error name a payment card", () => {
+    const row = cloud({
+      waiting_reason: "Add a payment card at connect.luna.libreloom.org to store your cloud backup.",
+      last_error: "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.",
+    });
+    expect(backupWaitingReason(row)).toBe(BILLING);
+    expect(backupWaitingReason(row)).not.toContain("connect.luna.libreloom.org");
+    expect(backupWaitingReason(row)).not.toContain("Add a payment card at");
+  });
+
+  it("normalizes each payment waiting_reason lunad sends", () => {
+    for (const waiting_reason of [
+      "Add a payment card at connect.luna.libreloom.org to store your cloud backup.",
+      "Add a payment card at Luna Connect (connect.luna.libreloom.org), then start the cloud backup.",
+    ]) {
+      expect(backupWaitingReason(cloud({ waiting_reason }))).toBe(BILLING);
+    }
+  });
+
+  it("leaves the connect instruction and every other server reason unchanged", () => {
+    expect(backupWaitingReason(cloud({ waiting_reason: CONNECT }))).toBe(CONNECT);
+    expect(backupWaitingReason(cloud({ waiting_reason: "Cloud storage is full." }))).toBe("Cloud storage is full.");
+    expect(backupWaitingReason(cloud({ waiting_reason: "Unlock the original drive with its password." }))).toBe(
+      "Unlock the original drive with its password.",
+    );
+    expect(backupWaitingReason(cloud({ waiting_reason: null }))).toBeNull();
+  });
 });
 
 describe("sortByUrgency and lastCopyLine", () => {
