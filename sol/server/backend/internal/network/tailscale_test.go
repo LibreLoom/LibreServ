@@ -107,6 +107,43 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestStartupRejectsOldBootIntentWithLiveSocket(t *testing.T) {
+	for _, intent := range []string{"pending old-boot", "123 456 old-boot"} {
+		t.Run(intent, func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "ts-old-boot-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			node := filepath.Join(dir, "tailscale")
+			if err := os.Mkdir(node, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for name, value := range map[string]string{"reset-required": "1", "launch-intent": intent, "tailscaled.state": `{"_serve/old":"e30="}`} {
+				if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			listener, err := net.Listen("unix", filepath.Join(node, "tailscaled.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			svc := NewTailscaleService(dir, 8080)
+			if err := svc.WaitLegacyCleanup(); err == nil || !strings.Contains(err.Error(), "socket is held by a process whose ownership could not be verified") {
+				t.Fatalf("expected live socket ownership error, got %v", err)
+			}
+			if !tailscaleFileExists(filepath.Join(node, "launch-intent")) || !tailscaleFileExists(filepath.Join(node, "reset-required")) {
+				t.Fatal("ownership evidence or reset intent removed")
+			}
+			state, err := os.ReadFile(filepath.Join(node, "tailscaled.state"))
+			if err != nil || !strings.Contains(string(state), "_serve/") {
+				t.Fatalf("saved access changed: %s, %v", state, err)
+			}
+		})
+	}
+}
+
 func TestStartupCompletesInterruptedDisable(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {

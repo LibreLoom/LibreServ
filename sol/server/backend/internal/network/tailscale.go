@@ -1532,6 +1532,9 @@ func (s *TailscaleService) stopDaemon() error {
 		}
 		if fields[0] == "pending" && len(fields) == 2 {
 			if fields[1] != boot {
+				if err := s.verifySocketStopped(); err != nil {
+					return err
+				}
 				return s.retireLaunch()
 			}
 			return errors.New("a previous Tailscale start could not be verified")
@@ -1540,6 +1543,9 @@ func (s *TailscaleService) stopDaemon() error {
 			return errors.New("a previous Tailscale start could not be verified")
 		}
 		if fields[2] != boot {
+			if err := s.verifySocketStopped(); err != nil {
+				return err
+			}
 			return s.retireLaunch()
 		}
 		raw, start = []byte(fields[0]), fields[1]
