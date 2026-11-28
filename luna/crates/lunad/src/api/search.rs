@@ -281,8 +281,6 @@ async fn factory_reset(
             ));
         }
     }
-    let connect = state.connect.clone();
-    let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let tailscale_dir = state.data_dir.clone();
     let tailscale_port = state.http_port;
     let (forgotten, _tailscale_reset_guard) = tokio::task::spawn_blocking(move || {
@@ -302,6 +300,8 @@ async fn factory_reset(
             "Luna couldn't turn off Tailscale before reset.",
         ));
     }
+    let connect = state.connect.clone();
+    let _ = tokio::task::spawn_blocking(move || connect.deactivate()).await;
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -702,6 +702,27 @@ mod tests {
         .await;
         assert_eq!(denied.status(), 400);
         assert!(dir.path().join("connect.json").exists());
+
+        let tailscale = dir.path().join("tailscale");
+        std::fs::create_dir_all(&tailscale).unwrap();
+        std::fs::write(tailscale.join("launch-intent"), "invalid").unwrap();
+        let blocked = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/system/factory-reset",
+                r#"{"confirm":true,"password":"hunter22hunter1"}"#,
+                Some(&cookie),
+                Some(&csrf),
+            ),
+        )
+        .await;
+        assert_eq!(blocked.status(), 500);
+        assert!(
+            dir.path().join("connect.json").exists(),
+            "blocked reset must keep Connect claimed"
+        );
+        std::fs::remove_dir_all(&tailscale).unwrap();
 
         let ok = call(
             &app,

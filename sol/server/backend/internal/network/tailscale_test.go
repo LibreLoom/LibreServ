@@ -107,6 +107,110 @@ func TestHeadscaleSelectionPersistsBeforeDaemonStart(t *testing.T) {
 	}
 }
 
+func TestStartupCompletesInterruptedDisable(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			dir := t.TempDir()
+			node := filepath.Join(dir, "tailscale")
+			if err := os.Mkdir(node, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for name, value := range map[string]string{"reset-required": "1", "stop-failed": "unverified", "stop-verified": mustBootID(t), "restore-serve": "public", "approval-url": "https://example.invalid", "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`} {
+				if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if enabled {
+				if err := os.WriteFile(filepath.Join(node, "enabled"), []byte("1"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc := NewTailscaleService(dir, 8080)
+			svc.waitForRestore()
+			for _, name := range []string{"enabled", "reset-required", "stop-failed", "restore-serve", "approval-url"} {
+				if tailscaleFileExists(filepath.Join(node, name)) {
+					t.Fatalf("startup retained %s", name)
+				}
+			}
+			state, err := os.ReadFile(filepath.Join(node, "tailscaled.state"))
+			if err != nil || strings.Contains(string(state), "_serve/") || !strings.Contains(string(state), "identity") {
+				t.Fatalf("saved state: %s, %v", state, err)
+			}
+			if svc.Status().ResidualExposure {
+				t.Fatal("verified cleanup reported residual exposure")
+			}
+		})
+	}
+}
+
+func TestStartupAllowsDashboardAfterVerifiedStopWithUnreadableState(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"reset-required": "1", "stop-verified": mustBootID(t), "tailscaled.state": "invalid"} {
+		if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewTailscaleService(dir, 8080)
+	if err := svc.WaitLegacyCleanup(); err != nil {
+		t.Fatalf("verified stop blocked dashboard: %v", err)
+	}
+	svc.waitForRestore()
+	if !tailscaleFileExists(filepath.Join(node, "reset-required")) || svc.Status().ResidualExposure {
+		t.Fatal("failed saved-state cleanup did not retain reset intent after verified stop")
+	}
+}
+
+func TestDisabledStatusDoesNotShowStaleApproval(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "approval-url"), []byte("https://example.invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	st := (&TailscaleService{dir: dir}).statusLocked()
+	if st.State != "off" || st.ApprovalURL != "" {
+		t.Fatalf("disabled status exposed stale approval: %#v", st)
+	}
+}
+
+func TestStartupClearsStopWarningWhenEnabledRemovalFails(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.MkdirAll(filepath.Join(node, "enabled"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"enabled/child": "1", "reset-required": "1", "stop-failed": "unverified", "stop-verified": mustBootID(t)} {
+		if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewTailscaleService(dir, 8080)
+	err := svc.WaitLegacyCleanup()
+	svc.waitForRestore()
+	if err != nil || svc.Status().ResidualExposure || svc.Status().State != "error" || !tailscaleFileExists(filepath.Join(node, "reset-required")) {
+		t.Fatalf("verified stop or retained cleanup intent misreported: %v", err)
+	}
+}
+
+func TestStartupRejectsUnverifiedStopDuringInterruptedDisable(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "tailscale")
+	if err := os.Mkdir(node, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"reset-required": "1", "launch-intent": "invalid"} {
+		if err := os.WriteFile(filepath.Join(node, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewTailscaleService(dir, 8080)
+	if err := svc.WaitLegacyCleanup(); err == nil || !tailscaleFileExists(filepath.Join(node, "reset-required")) || !tailscaleFileExists(filepath.Join(node, "launch-intent")) {
+		t.Fatalf("unverified stop did not fail closed: %v", err)
+	}
+}
+
 func TestPrivateSwitchWithoutListenerClearsOldPublicAccess(t *testing.T) {
 	dir := t.TempDir()
 	for name, value := range map[string]string{"enabled": "1", "stop-verified": mustBootID(t), "restore-serve": "public", "tailscaled.state": `{"_serve/old":"e30=","identity":"keep"}`} {
@@ -863,16 +967,17 @@ func TestTailscaleUninstallRefusesUnverifiedListenerWithoutTrustingCLIExit(t *te
 	}
 	writeExecutable(t, filepath.Join(dir, "tailscale", "tailscale"), "exit 1\n")
 	removed := filepath.Join(dir, "remove-calls")
+	systemctlCalls := filepath.Join(dir, "systemctl-calls")
 	// Exercise the real uninstall flow, replacing ALL deletion/systemd/root
 	// operations. No system path is mutated by this regression harness.
 	run := func() error {
 		cmd := exec.Command("bash", "-c", `source "$1"
-check_root() { :; }; run_systemctl() { :; }
+check_root() { :; }; run_systemctl() { printf '%s\n' "$*" >> "$TS_SYSTEMCTL"; }
 log_info() { :; }; log_warn() { :; }; log_error() { :; }
 rm() { printf '%s\n' "$*" >> "$TS_REMOVALS"; }
 DATA_DIR="$2"; TAILSCALE_INSTALL_DIR="$2/tailscale"
 do_uninstall`, "check", installer, dir, removed)
-		cmd.Env = append(os.Environ(), "TS_REMOVALS="+removed)
+		cmd.Env = append(os.Environ(), "TS_REMOVALS="+removed, "TS_SYSTEMCTL="+systemctlCalls)
 		return cmd.Run()
 	}
 	if err := run(); err == nil {
@@ -880,6 +985,9 @@ do_uninstall`, "check", installer, dir, removed)
 	}
 	if tailscaleFileExists(removed) {
 		t.Fatal("uninstall attempted to remove files")
+	}
+	if calls, err := os.ReadFile(systemctlCalls); err != nil || strings.Contains(string(calls), "disable ") {
+		t.Fatalf("refused uninstall disabled the service: %s, %v", calls, err)
 	}
 	if err := os.Remove(sock); err != nil {
 		t.Fatal(err)
@@ -895,6 +1003,9 @@ do_uninstall`, "check", installer, dir, removed)
 	}
 	if !tailscaleFileExists(removed) {
 		t.Fatal("uninstall harness never reached its stubbed deletion")
+	}
+	if calls, err := os.ReadFile(systemctlCalls); err != nil || !strings.Contains(string(calls), "disable ") {
+		t.Fatalf("successful uninstall did not disable service: %s, %v", calls, err)
 	}
 }
 

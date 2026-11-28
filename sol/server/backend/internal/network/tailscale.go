@@ -108,7 +108,34 @@ func NewTailscaleService(dataDir string, port int) *TailscaleService {
 	if strings.EqualFold(os.Getenv("SOL_INSECURE_DEV"), "true") {
 		s.devScenario = os.Getenv("SOL_TAILSCALE_SCENARIO")
 	}
-	if s.devScenario == "" && tailscaleFileExists(filepath.Join(s.dir, "enabled")) {
+	if s.devScenario == "" && tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
+		s.restoreDone = make(chan struct{})
+		go func() {
+			defer close(s.restoreDone)
+			if err := s.stopDaemon(); err != nil {
+				s.cleanupErr = err
+				_ = os.WriteFile(filepath.Join(s.dir, "stop-failed"), []byte("unverified"), 0600)
+			} else {
+				if err := os.Remove(filepath.Join(s.dir, "stop-failed")); err != nil && !os.IsNotExist(err) {
+					slog.Warn("Could not clear Tailscale stop warning after verified stop", "error", err)
+				}
+				err := os.Remove(filepath.Join(s.dir, "enabled"))
+				if err == nil || os.IsNotExist(err) {
+					err = syncTailscaleDir(s.dir)
+				}
+				if err == nil {
+					for _, name := range []string{"private-enabled", "approval-type", "auth-url", "approval-url"} {
+						_ = os.Remove(filepath.Join(s.dir, name))
+					}
+					err = s.clearAccessAfterVerifiedStop()
+				}
+				if err != nil {
+					slog.Warn("Could not finish interrupted Tailscale cleanup", "error", err)
+				}
+			}
+			close(s.cleanupDone)
+		}()
+	} else if s.devScenario == "" && tailscaleFileExists(filepath.Join(s.dir, "enabled")) {
 		// Gate mutations until this bounded restore finishes, without holding
 		// the status mutex through daemon readiness. Status remains readable.
 		s.restoreDone = make(chan struct{})
@@ -263,21 +290,6 @@ func (s *TailscaleService) StopForShutdown() error {
 }
 
 func (s *TailscaleService) restoreForWebListener() error {
-	// Complete an interrupted disable without restarting or restoring access.
-	// Remove opt-in first, before clearAccessIfRequired removes the marker.
-	if tailscaleFileExists(filepath.Join(s.dir, "reset-required")) {
-		if err := os.Remove(filepath.Join(s.dir, "enabled")); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := s.stopDaemon(); err != nil {
-			s.cleanupErr = err
-			close(s.cleanupDone)
-			return err
-		}
-		err := s.clearAccessIfRequired()
-		close(s.cleanupDone)
-		return err
-	}
 	if err := s.stopDaemon(); err != nil {
 		return err
 	}
@@ -603,6 +615,11 @@ func (s *TailscaleService) clearAccessIfRequired() error {
 		_ = os.WriteFile(filepath.Join(s.dir, "stop-failed"), []byte("unverified"), 0600)
 		return err
 	}
+	return s.clearAccessAfterVerifiedStop()
+}
+
+// clearAccessAfterVerifiedStop must only be called after stopDaemon succeeds.
+func (s *TailscaleService) clearAccessAfterVerifiedStop() error {
 	if err := os.Remove(filepath.Join(s.dir, "stop-failed")); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -889,14 +906,14 @@ func (s *TailscaleService) statusLocked() TailscaleStatus {
 		st.State, st.Error = "error", "Tailscale access cleanup is incomplete. Sign out of Tailscale before connecting again."
 		return st
 	}
+	if !st.Enabled {
+		return st
+	}
 	if b, e := os.ReadFile(filepath.Join(s.dir, "approval-url")); e == nil {
 		st.ApprovalURL = strings.TrimSpace(string(b))
 		if kind, e := os.ReadFile(filepath.Join(s.dir, "approval-type")); e == nil {
 			st.ApprovalType = strings.TrimSpace(string(kind))
 		}
-	}
-	if !st.Enabled {
-		return st
 	}
 	raw, err := s.run("status", "--json")
 	if err != nil {

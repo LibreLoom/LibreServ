@@ -996,7 +996,6 @@ do_uninstall() {
 
     log_info "Stopping service..."
     run_systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    run_systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
     # Stop any private or public listener before removing the product CLI.
     # Forget the remote identity after stopping it, so reinstalling cannot
@@ -1025,6 +1024,7 @@ do_uninstall() {
         log_error "Could not verify that Tailscale stopped. Sol files were kept."
         return 1
     fi
+    run_systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
     log_info "Forgetting Tailscale's saved remote connection"
     rm -rf "${DATA_DIR}/tailscale"
 

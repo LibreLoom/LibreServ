@@ -52,7 +52,7 @@ describe("TailscaleCard", () => {
     getJson.mockResolvedValue({ installed: true, enabled: false, identity_saved: true, state: "error", residual_exposure: true });
     postJson.mockResolvedValue({ installed: true, enabled: false, state: "off" });
     renderCard();
-    expect(await screen.findByText("Public access may still be on. Turn off Tailscale and check again.")).toBeInTheDocument();
+    expect(await screen.findByText("Public access may still be on.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Turn off Tailscale" }));
     await waitFor(() => expect(postJson).toHaveBeenCalledWith("/api/v1/tailscale/disable", {}));
   });
