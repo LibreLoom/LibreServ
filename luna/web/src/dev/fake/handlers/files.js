@@ -13,6 +13,7 @@ import {
 } from "../fsmodel.js";
 import { activeRun } from "./format.js";
 import { broadensAccess, cancelJob, enqueueJob, findJob, jobJson, tickJobs, visibleJobs } from "../jobs.js";
+import { photoKey } from "../photos.js";
 import { nextId } from "../world.js";
 
 // Scenario seeds build trees with these.
@@ -447,6 +448,14 @@ del("/api/v1/drives/:id/files", ({ world, user, params, query }) => {
     const { entry } = trashEntry(fs, trashPath);
     if (entry) entry.photo = { ...photo };
     world.photos = world.photos.filter((p) => p !== photo);
+    // Trashing a photo drops its favorites and album refs (photos_indexer.rs:505
+    // and remove_indexed_path). Clear them here too: a restore to the original
+    // path must not resurrect a favorite or an album membership.
+    if (entry) entry.photo.favorited = false;
+    const key = photoKey(photo);
+    for (const [id, keys] of Object.entries(world.albumItems || {})) {
+      world.albumItems[id] = keys.filter((k) => k !== key);
+    }
   }
   return { ok: true, trash_path: trashPath };
 });

@@ -776,6 +776,16 @@ export default function PhotosPage() {
     (next) => {
       if (!SEGMENT_IDS.includes(next) || next === activeSegment) return;
       setPlacesDrawMode(false);
+      // Switching tabs clears the album before hashchange can see the exit, so
+      // onHashChange's `leavingAlbum` branch never clears the album's search.
+      // Mirror that cleanup here, using the same held-album check, or the
+      // search rides into Library/Favorites. Browser Back out of a photo
+      // keeps the album in the hash and never calls this handler.
+      const heldAlbum = hashStateRef.current?.albumView || pendingAlbumRef.current;
+      if (heldAlbum) {
+        setQ("");
+        setSearch("");
+      }
       setAlbumView(null);
       setViewLabel(null);
       setDuplicatesView(false);
@@ -783,7 +793,7 @@ export default function PhotosPage() {
       window.location.hash = next;
       setSegment(next);
     },
-    [activeSegment, setPlacesDrawMode, setAlbumView, setViewLabel, setDuplicatesView, setFilters, setSegment],
+    [activeSegment, setPlacesDrawMode, setAlbumView, setViewLabel, setDuplicatesView, setFilters, setSegment, setQ, setSearch],
   );
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
@@ -1141,6 +1151,10 @@ export default function PhotosPage() {
       queryClient.invalidateQueries({ queryKey: ["photos-places"] });
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+      // A restored file lands in the index only now. If Photos refetched
+      // mid-indexing, these two cached a list without it — clear them too.
+      queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-memories"] });
     }
     wasIndexingRef.current = indexing;
   }, [indexing, queryClient]);
