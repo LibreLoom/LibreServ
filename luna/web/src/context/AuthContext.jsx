@@ -11,11 +11,14 @@ const AuthContext = createContext(undefined);
 // exists so a recovery file can create a new Admin account at boot.
 const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
-// React Router matches /recover and /recover/ as the same route, but the
-// browser reports the literal pathname. Normalize before comparing so a
-// trailing slash cannot bounce someone off a page they are already on.
+// React Router matches /recover, /recover/ and /RECOVER/ as the same route
+// (it is case-insensitive and ignores a trailing slash), but the browser
+// reports the literal pathname. Normalize before comparing so neither a
+// trailing slash nor different case can bounce someone off a page they
+// are already on.
 function normalizePath(path) {
-  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+  const stripped = path.length > 1 ? path.replace(/\/+$/, "") : path;
+  return stripped.toLowerCase();
 }
 
 // A startup or recovery attempt can be blackholed (a firewall drops the

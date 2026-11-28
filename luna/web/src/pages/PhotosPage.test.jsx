@@ -431,6 +431,65 @@ describe("PhotosPage", () => {
     expect(offsetZeroCalls()).toBe(beforeRetry);
   });
 
+  it("retries the failed next page instead of refetching loaded pages when a date jump loses the connection", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let failNextPage = true;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          return new Response(JSON.stringify({
+            items: [{
+              drive_id: "a", path: "recent.jpg", name: "recent.jpg",
+              taken_at: 1_700_000_000, thumb: "/t1", kind: "image",
+            }],
+            next_offset: 1, has_more: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (failNextPage) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "a", path: "older.jpg", name: "older.jpg",
+            taken_at: 946_684_800, thumb: "/t0", kind: "image",
+          }],
+          next_offset: offset + 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPhotos();
+
+    await screen.findByLabelText("recent.jpg");
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Jump to a day" }));
+    fireEvent.change(screen.getByLabelText("Day to jump to"), {
+      target: { value: "2020-01-01" },
+    });
+
+    expect(await screen.findByText("Couldn't reach Luna")).toBeInTheDocument();
+    const offsetZeroCalls = () => fetchMock.mock.calls.filter(([url]) => {
+      const u = String(url);
+      return u.startsWith("/api/v1/photos?")
+        && new URL(u, "http://luna.local").searchParams.get("offset") === "0";
+    }).length;
+    const beforeRetry = offsetZeroCalls();
+
+    failNextPage = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByLabelText("older.jpg")).toBeInTheDocument();
+    expect(offsetZeroCalls()).toBe(beforeRetry);
+  });
+
   it("shows photos from every drive without asking which one", async () => {
     stubPhotosFetch();
     renderPhotos();

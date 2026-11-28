@@ -56,7 +56,12 @@ page.on("pageerror", (e) => pageErrors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
 
 await page.goto(GALLERY, { waitUntil: "load" });
-await page.waitForFunction(() => document.querySelector("iframe")?.contentWindow?.__lunaFake, null, { timeout: 20000 });
+// Do NOT wait for the first scenario's fake here. That readiness check belongs
+// inside each recorded attempt (see visitScenario below): if a scenario throws
+// before installing __lunaFake, gating the whole sweep on this startup wait
+// would time out and exit before smoke-results.json is written, hiding a real
+// failure and leaving the previous report in place. The registry is a plain
+// module import with no dependency on the fake, so it is safe to load now.
 const scenarios = await page.evaluate(async () => {
   const m = await import("/src/dev/scenarios/registry.js");
   return m.scenarios.map((s) => ({
