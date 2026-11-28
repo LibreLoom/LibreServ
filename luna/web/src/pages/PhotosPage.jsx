@@ -518,10 +518,10 @@ export default function PhotosPage() {
   const restoreRef = useRef({
     y: initialHash.y || 0,
     photo: initialHash.photo || null,
-    // A `p=` under `#albums/…` names a photo in that album, not in the whole
-    // library. Hold it until the album (and its own list) is here.
+    // A `p=` or `y=` under `#albums/…` belongs to that album's own list, not
+    // the whole library. Hold it until the album (and its own list) is here.
     album:
-      initialHash.photo && initialHash.albumId
+      (initialHash.photo || initialHash.y) && initialHash.albumId
         ? { home: initialHash.albumHome, id: initialHash.albumId }
         : null,
     pages: 0,
@@ -662,7 +662,7 @@ export default function PhotosPage() {
           y: parsed.y || 0,
           photo: parsed.photo || null,
           album:
-            parsed.photo && parsed.albumId
+            (parsed.photo || parsed.y) && parsed.albumId
               ? { home: parsed.albumHome, id: parsed.albumId }
               : null,
           pages: 0,
@@ -1087,10 +1087,29 @@ export default function PhotosPage() {
     const found = list.find(
       (a) => a.id === pending.id && a.home_drive_id === pending.home,
     );
-    if (!found) return;
+    if (found) {
+      pendingAlbumRef.current = null;
+      tryOpenAlbum(found);
+      return;
+    }
+    // A slow list is still allowed to deliver the album. Wait for a successful
+    // answer (and for a refetch to settle) before calling a link dead — an
+    // error must not be dressed up as a deleted album.
+    if (!albums.isSuccess || albums.isFetching) return;
     pendingAlbumRef.current = null;
-    tryOpenAlbum(found);
-  }, [albums.data, tryOpenAlbum]);
+    // Release the `?y=`/`p=` restore too: while it is pending, hash sync stays
+    // blocked and the dead link survives every later album card and URL change.
+    restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
+    haptic("warning");
+    setAlbumView(null);
+    setViewLabel(null);
+    setLightbox(null);
+    setSlideshow(false);
+    setAlbumExitNotice("That album no longer exists.");
+    // Lands on the Albums grid, where the notice lives, and writes a clean
+    // `#albums` through the now-unblocked hash sync.
+    window.location.hash = "albums";
+  }, [albums.data, albums.isSuccess, albums.isFetching, tryOpenAlbum]);
 
   const looking = photoQuery.isLoading || (indexing && photos.length === 0);
   // Only a successful, empty drives answer means "no drives". An error (above
@@ -1119,10 +1138,18 @@ export default function PhotosPage() {
       ? apiErrorMessage(photoQuery.error, "Luna couldn't open Photos. Try again.")
       : null;
   // A status-0 answer means Luna answered nothing at all — the device is
-  // offline or Luna is down. That is different from an empty drive list.
+  // offline or Luna is down. That is different from an empty drive list, and
+  // from a failed *next* page: when pages are already cached, the timeline and
+  // day picker stay usable and the inline notice owns the retry. Only a
+  // first-page failure takes over the whole screen.
+  const hasCachedPages = (photoQuery.data?.pages?.length ?? 0) > 0;
   const connectionError =
     (drives.isError && /** @type {any} */ (drives.error)?.status === 0 ? drives.error : null)
-    || (photoQuery.isError && /** @type {any} */ (photoQuery.error)?.status === 0 ? photoQuery.error : null);
+    || (photoQuery.isError
+      && /** @type {any} */ (photoQuery.error)?.status === 0
+      && !hasCachedPages
+      ? photoQuery.error
+      : null);
   const connectionMessage = connectionError
     ? apiErrorMessage(connectionError, "Couldn't reach Luna. Check this device's connection and try again.")
     : null;

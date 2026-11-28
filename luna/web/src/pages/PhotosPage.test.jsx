@@ -588,7 +588,9 @@ describe("PhotosPage", () => {
       target: { value: "2020-01-01" },
     });
 
-    expect(await screen.findByText("Couldn't reach Luna")).toBeInTheDocument();
+    expect(await screen.findByLabelText("recent.jpg")).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't reach Luna\. Check this device/)).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't reach Luna")).not.toBeInTheDocument();
     const offsetZeroCalls = () => fetchMock.mock.calls.filter(([url]) => {
       const u = String(url);
       return u.startsWith("/api/v1/photos?")
@@ -962,7 +964,9 @@ describe("PhotosPage", () => {
     const user = userEvent.setup();
     renderPhotos();
 
-    expect(await screen.findByText("Couldn't reach Luna")).toBeInTheDocument();
+    expect(await screen.findByLabelText("recent.jpg")).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't reach Luna\. Check this device/)).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't reach Luna")).not.toBeInTheDocument();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -1054,6 +1058,32 @@ describe("PhotosPage", () => {
     });
     expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
     expect(window.location.hash).toBe(`#albums/a/al1?p=${p}`);
+  });
+
+  it("ejects a deleted album deep link once the album list settles", async () => {
+    let releaseAlbums;
+    const albumsHold = new Promise((resolve) => { releaseAlbums = resolve; });
+    stubPhotosFetch({
+      albums: [{ id: "al2", home_drive_id: "a", name: "Trip", item_count: 1 }],
+      albumsHold,
+    });
+    const p = `${encodeURIComponent("a")}|${encodeURIComponent("beach.jpg")}`;
+    window.history.replaceState(null, "", `/photos#albums/a/al1?p=${p}`);
+    renderPhotos();
+
+    expect(window.location.hash).toBe(`#albums/a/al1?p=${p}`);
+    expect(screen.queryByText("That album no longer exists.")).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseAlbums();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(await screen.findByText("That album no longer exists.")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe("#albums"));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Trip/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#albums/a/al2"));
   });
 
   it("holds a deep-linked photo while the first page is paused offline", async () => {
