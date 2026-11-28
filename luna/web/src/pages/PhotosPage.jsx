@@ -639,7 +639,21 @@ export default function PhotosPage() {
     const onHashChange = () => {
       const parsed = parsePhotosHash(window.location.hash);
       if (SEGMENT_IDS.includes(parsed.segment)) setSegment(parsed.segment);
+      // Browser Back out of a photo keeps the same album in the hash. That is
+      // not a new album link: this album's filters and search stay. A link to
+      // a *different* album still drops them, so a smart album's filters can't
+      // leak into the album that replaces it.
+      const heldAlbum = hashStateRef.current.albumView || pendingAlbumRef.current;
+      const heldHome = heldAlbum
+        ? ("home_drive_id" in heldAlbum ? heldAlbum.home_drive_id : heldAlbum.home)
+        : undefined;
+      const sameAlbum =
+        !!parsed.albumId
+        && !!heldAlbum
+        && parsed.albumId === heldAlbum.id
+        && parsed.albumHome === heldHome;
       setFilters((prev) => {
+        if (sameAlbum) return prev;
         // A named album owns its own unfiltered list. Drop the filters of the
         // view being replaced (e.g. the Videos smart album's `kind=video`) so
         // its request is not narrowed and, if the lookup fails, the Albums grid
@@ -697,7 +711,7 @@ export default function PhotosPage() {
         // it seeds restoreRef from the initial hash, not from hashchange.
         restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
       }
-      if (parsed.albumId) {
+      if (parsed.albumId && !sameAlbum) {
         // A new album link takes over the screen. Drop the view it replaces:
         // Duplicates and a smart album would otherwise keep rendering over the
         // album, and a stale album would hide the retry if this lookup fails.
@@ -726,7 +740,7 @@ export default function PhotosPage() {
           tryOpenAlbum(found);
         } else pendingAlbumRef.current = { home: parsed.albumHome, id: parsed.albumId };
         setPendingAlbumTick((t) => t + 1);
-      } else {
+      } else if (!parsed.albumId) {
         pendingAlbumRef.current = null;
         albumRevalidatedRef.current = null;
         setPendingAlbumTick((t) => t + 1);
@@ -2093,6 +2107,24 @@ export default function PhotosPage() {
     monthDayLabel(filters.monthDay) ||
     rangeFromFilters?.label ||
     "Filtered photos";
+  // A member whose last shared album disappears lands on the no-access screen,
+  // which returns before the page's usual notice slot — build it once so both
+  // screens can show why the album is gone.
+  const albumExitNoticeView = albumExitNotice ? (
+    <PageNotice variant="warning" className="mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span>{albumExitNotice}</span>
+        <Button
+          size="sm"
+          variant="outline"
+          surface="primary"
+          onClick={() => setAlbumExitNotice(null)}
+        >
+          Dismiss
+        </Button>
+      </div>
+    </PageNotice>
+  ) : null;
 
   if (connectionMessage) {
     return (
@@ -2167,6 +2199,7 @@ export default function PhotosPage() {
     }
     return (
       <Page title="Photos" titleId="photos-title">
+        {albumExitNoticeView}
         <EmptyState
           icon={PlugZap}
           title={isAdmin ? "No drives yet" : "No photos you can open yet"}
@@ -2265,21 +2298,7 @@ export default function PhotosPage() {
           </Button>
         </div>
       )}
-      {albumExitNotice && activeSegment === "albums" && !albumView && (
-        <PageNotice variant="warning" className="mb-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>{albumExitNotice}</span>
-            <Button
-              size="sm"
-              variant="outline"
-              surface="primary"
-              onClick={() => setAlbumExitNotice(null)}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </PageNotice>
-      )}
+      {albumExitNotice && activeSegment === "albums" && !albumView && albumExitNoticeView}
       {showPageLevelError(photosLoadError, actionModalOpen) && (
         <PageNotice variant="error" className="mb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

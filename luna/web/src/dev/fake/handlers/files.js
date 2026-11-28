@@ -441,7 +441,13 @@ del("/api/v1/drives/:id/files", ({ world, user, params, query }) => {
   if (!fs.nodes[path] && photo) addFile(world, driveId, path, { size: photo.size ?? 1200 });
   if (!fs.nodes[path]) throw notFound();
   const trashPath = moveToTrash(world, driveId, path);
-  if (photo) world.photos = world.photos.filter((p) => p !== photo);
+  if (photo) {
+    // The library row is the only record a generated photo has, so keep it on
+    // the trash entry: Restore must put it back or it stays out of Photos and Duplicates.
+    const { entry } = trashEntry(fs, trashPath);
+    if (entry) entry.photo = { ...photo };
+    world.photos = world.photos.filter((p) => p !== photo);
+  }
   return { ok: true, trash_path: trashPath };
 });
 
@@ -466,6 +472,13 @@ post("/api/v1/drives/:id/files/restore", ({ world, user, params, body }) => {
   // The folders the item came from may be gone by now: make them again.
   ensureDirs(fs, parentOf(dest));
   for (const [rel, n] of Object.entries(entry.nodes)) fs.nodes[rel ? join(dest, rel) : dest] = n;
+  // A trashed generated photo left its library row with the trash entry. Put it
+  // back at the restored path, with the restored name, so Photos and Duplicates
+  // show it again. Real files and other trash entries have no photo to restore.
+  if (entry.photo) {
+    world.photos ??= [];
+    world.photos.push({ ...entry.photo, drive_id: driveId, path: dest, name: base(dest) });
+  }
   fs.trash = fs.trash.filter((t) => t !== entry);
   return { ok: true };
 });
