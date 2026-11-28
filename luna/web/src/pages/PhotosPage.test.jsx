@@ -2441,4 +2441,53 @@ describe("PhotosPage", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  it("offers a retry when a cached Duplicates refresh fails", async () => {
+    window.history.replaceState(null, "", "/photos#albums");
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let fail = false;
+    let calls = 0;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/photos/duplicates")) {
+        calls += 1;
+        if (fail) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({ groups: [{
+          key: "g1",
+          name: "one.jpg",
+          items: [
+            { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1, thumb: "/t", kind: "image" },
+            { drive_id: "b", path: "copy.jpg", name: "one.jpg", taken_at: 2, thumb: "/t", kind: "image" },
+          ],
+        }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    renderPhotos({ client });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /Possible duplicates/i }));
+    expect(await screen.findByText(/one.jpg · 2 copies/i)).toBeInTheDocument();
+
+    fail = true;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["photos-duplicates"] });
+    });
+    expect(await screen.findByText(/Couldn't check for duplicates/i)).toBeInTheDocument();
+    expect(screen.getByText(/one.jpg · 2 copies/i)).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't reach Luna")).not.toBeInTheDocument();
+    const before = calls;
+
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Couldn't check for duplicates/i)).not.toBeInTheDocument(),
+    );
+    expect(calls).toBeGreaterThan(before);
+  });
 });

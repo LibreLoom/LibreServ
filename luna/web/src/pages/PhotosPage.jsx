@@ -2040,6 +2040,11 @@ export default function PhotosPage() {
                 // so the jump can resume when that day arrives.
                 if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
                 else photoQuery.refetch();
+                // Places and Duplicates disable the timeline query above, so
+                // its refetch cannot recover a failed view on this screen.
+                // Retry the request that owns the active view as well.
+                if (activeSegment === "places") places.refetch();
+                if (duplicatesView) duplicates.refetch();
               }}
             >
               Try again
@@ -2516,6 +2521,13 @@ export default function PhotosPage() {
             setRenameValue(album.name || "");
           }}
           onSmart={(smart, saved) => {
+            // An unresolved album hash can still be pending from a refetch.
+            // Disarm it and its `?y=`/`p=` restore before opening a smart
+            // album, or the settled lookup could eject the view just opened.
+            pendingAlbumRef.current = null;
+            if (!restoreRef.current.done) {
+              restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
+            }
             setAlbumView(null);
             setQ("");
             setSearch("");
@@ -2688,6 +2700,16 @@ export default function PhotosPage() {
               icon={ImageIcon}
               title="Couldn't check for duplicates"
               description="Try again in a moment."
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={duplicates.isFetching}
+                  onClick={() => duplicates.refetch()}
+                >
+                  Try again
+                </Button>
+              }
             />
           )}
           {!duplicates.isLoading && !duplicates.isError && (duplicates.data?.groups || []).length === 0 && (
