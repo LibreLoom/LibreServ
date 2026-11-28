@@ -1144,8 +1144,11 @@ export default function PhotosPage() {
     noDrives &&
     (albums.isLoading || albums.isPending || (!albums.isFetched && !albums.isError));
   const memberAlbumOnly = !isAdmin && noDrives && !memberAlbumsGatePending && albumList.length > 0;
+  // Only a timeline view owns this error. Places and Duplicates disable the
+  // timeline query, so a failed refetch of that disabled query must not show an
+  // unrelated "Try again" on a working map or duplicate list.
   const photosLoadError =
-    photoQuery.isError && !looking
+    photoQuery.isError && !looking && !placesMapOverview && !duplicatesView
       ? apiErrorMessage(photoQuery.error, "Luna couldn't open Photos. Try again.")
       : null;
   // A status-0 answer means Luna answered nothing at all — the device is
@@ -1173,6 +1176,8 @@ export default function PhotosPage() {
       : null)
     || (photoQuery.isError
       && /** @type {any} */ (photoQuery.error)?.status === 0
+      && !placesMapOverview
+      && !duplicatesView
       && !hasCachedView
       ? photoQuery.error
       : null);
@@ -2034,17 +2039,24 @@ export default function PhotosPage() {
               variant="primary"
               onClick={() => {
                 queryClient.invalidateQueries({ queryKey: ["drives"] });
+                // Retry the request that owns the visible view. Places and
+                // Duplicates disable the timeline query, so refetching it here
+                // would surface an unrelated timeline error on a working map
+                // or duplicate list.
+                if (duplicatesView) duplicates.refetch();
+                else if (placesMapOverview) places.refetch();
                 // A failed next-page fetch (a date jump that ran out of loaded
                 // days) kept its target, so refetching would only reload the
                 // pages already on screen. Retry the page that actually failed
                 // so the jump can resume when that day arrives.
-                if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
+                else if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
                 else photoQuery.refetch();
-                // Places and Duplicates disable the timeline query above, so
-                // its refetch cannot recover a failed view on this screen.
-                // Retry the request that owns the active view as well.
-                if (activeSegment === "places") places.refetch();
-                if (duplicatesView) duplicates.refetch();
+                // The album lookup is a separate request. An outage on an album
+                // deep link can leave it failed after drives and the photo list
+                // recover, stranding the link on an empty Albums grid.
+                if (activeSegment === "albums" && !albumView && !duplicatesView) {
+                  albums.refetch();
+                }
               }}
             >
               Try again
@@ -2493,8 +2505,15 @@ export default function PhotosPage() {
 
       {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
         <AlbumsPanel
-          albums={albums.data || []}
+          albums={albumList}
           loading={albums.isLoading}
+          error={
+            albums.isError && albumList.length === 0
+              ? apiErrorMessage(albums.error, "Luna couldn't load albums. Try again.")
+              : null
+          }
+          retrying={albums.isFetching}
+          onRetry={() => albums.refetch()}
           currentUser={user}
           onOpen={(album) => {
             // A hashchange can name an album missing from a list that is still
@@ -3080,6 +3099,9 @@ PhotosLoadingStatus.propTypes = {
 function AlbumsPanel({
   albums,
   loading,
+  error,
+  retrying,
+  onRetry,
   currentUser,
   onOpen,
   onCreate,
@@ -3104,6 +3126,20 @@ function AlbumsPanel({
 
   if (loading) {
     return <PhotosLoadingStatus label="Loading albums…" />;
+  }
+  if (error) {
+    return (
+      <EmptyState
+        icon={PlugZap}
+        title="Couldn't load albums"
+        description={error}
+        action={
+          <Button variant="primary" loading={retrying} onClick={onRetry}>
+            Try again
+          </Button>
+        }
+      />
+    );
   }
   // Read per render — cheap localStorage hit, and picks up filters saved from
   // the filter sheet without a remount.
@@ -3259,6 +3295,9 @@ function AlbumsPanel({
 AlbumsPanel.propTypes = {
   albums: PropTypes.array,
   loading: PropTypes.bool,
+  error: PropTypes.string,
+  retrying: PropTypes.bool,
+  onRetry: PropTypes.func,
   currentUser: PropTypes.shape({
     id: PropTypes.string,
     role: PropTypes.string,

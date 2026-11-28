@@ -49,13 +49,22 @@ const queryClient = new QueryClient({
 
 /** Shown while Luna answers none of the startup requests (e.g. after an update). */
 export function LunaUnreachableNotice() {
+  const mainRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const skipToMain = (/** @type {import("react").MouseEvent<HTMLAnchorElement>} */ event) => {
+    // A plain #hash jump would overwrite the URL's album, photo or scroll
+    // target. Luna puts the real page back as soon as it answers, so keep the
+    // deep link: move focus ourselves and leave the address bar alone.
+    event.preventDefault();
+    mainRef.current?.focus();
+  };
   return (
     <>
       {/* Skip link sits before <main> and lands on the focusable landmark,
           the same shape every other page in the app uses. */}
-      <a href="#unreachable-content" className="skip-link">Skip to main content</a>
+      <a href="#unreachable-content" className="skip-link" onClick={skipToMain}>Skip to main content</a>
       <main
         id="unreachable-content"
+        ref={mainRef}
         data-slot="luna-unreachable"
         className="fixed inset-0 grid place-items-center surface-primary px-4"
         tabIndex={-1}

@@ -2490,4 +2490,28 @@ describe("PhotosPage", () => {
     );
     expect(calls).toBeGreaterThan(before);
   });
+
+  it("offers a retry when the album list fails", async () => {
+    stubPhotosFetch({
+      albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 1 }],
+    });
+    const baseFetch = globalThis.fetch;
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/photos/albums") && fail) throw new TypeError("Failed to fetch");
+      return baseFetch(url, init);
+    }));
+    window.history.replaceState(null, "", "/photos#albums");
+    const user = userEvent.setup();
+    renderPhotos();
+
+    expect(await screen.findByText("Couldn't load albums")).toBeInTheDocument();
+    expect(screen.queryByText("No albums yet")).not.toBeInTheDocument();
+
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
+  });
 });
