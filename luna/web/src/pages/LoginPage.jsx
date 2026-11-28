@@ -66,8 +66,10 @@ export default function LoginPage({ unreachable = false }) {
   const returnTo = location.state?.from?.pathname || "/";
   // RequireAuth renders this page in place of the page you were on, so the URL
   // never moves to /login. Signing in then just swaps your page back in; only
-  // the real /login route needs to navigate anywhere.
-  const inPlace = location.pathname !== "/login";
+  // the real /login route needs to navigate anywhere. The router matches
+  // /login and /login/ alike, so ignore a trailing slash before comparing.
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
+  const inPlace = pathname !== "/login";
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {
@@ -132,7 +134,7 @@ export default function LoginPage({ unreachable = false }) {
     try {
       const me = await login(username.trim(), password);
       // Headed for the Dashboard: ask for its data now, while its page renders.
-      if ((inPlace ? location.pathname : returnTo) === "/") prefetchDashboard(queryClient, me);
+      if ((inPlace ? pathname : returnTo) === "/") prefetchDashboard(queryClient, me);
       addToast({ type: "success", message: "Signed in." });
       if (!inPlace) navigate(returnTo, { replace: true });
     } catch (err) {

@@ -268,4 +268,49 @@ describe("EuroOfficeHost source plumbing", () => {
       ),
     );
   });
+
+  it("lets Mod+Shift+S and Mod+Alt+S through while saving on plain Ctrl+S", async () => {
+    vi.mocked(saveEuroOfficeDocument).mockClear();
+    const onRegisterSave = vi.fn();
+    render(
+      <EuroOfficeHost
+        driveId="d1"
+        path="docs/Report.docx"
+        canWrite
+        onRegisterSave={onRegisterSave}
+      />,
+    );
+    await waitFor(() => expect(lastEditor()).toBeTruthy());
+
+    // The fake DocEditor leaves the placeholder in place; the host binds its
+    // keydown fallback to the live iframe document after onDocumentReady.
+    const mount = /** @type {HTMLElement} */ (
+      document.querySelector("[data-fake-editor]")?.parentElement
+    );
+    const iframe = document.createElement("iframe");
+    iframe.name = "frameEditor";
+    mount.appendChild(iframe);
+    act(() => lastEditor().events.onDocumentReady());
+    const frameDoc = iframe.contentDocument;
+    expect(frameDoc).toBeTruthy();
+
+    for (const init of [
+      { key: "S", ctrlKey: true, shiftKey: true },
+      { key: "S", ctrlKey: true, altKey: true },
+      { key: "S", metaKey: true, shiftKey: true },
+      { key: "S", metaKey: true, altKey: true },
+    ]) {
+      const event = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+      act(() => { frameDoc.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(saveEuroOfficeDocument).not.toHaveBeenCalled();
+
+    const saveEvent = new KeyboardEvent("keydown", {
+      key: "s", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    act(() => { frameDoc.dispatchEvent(saveEvent); });
+    expect(saveEvent.defaultPrevented).toBe(true);
+    await waitFor(() => expect(saveEuroOfficeDocument).toHaveBeenCalledTimes(1));
+  });
 });

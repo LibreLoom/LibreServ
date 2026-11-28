@@ -579,7 +579,16 @@ export default function EuroOfficeHost({
               // which the load throws away).
               if (canSave && !saveKeyDocRef.current && hostDoc) {
                 saveKeyHandlerRef.current = (e) => {
-                  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+                  // Only plain Ctrl/Cmd+S saves. Mod+Shift+S is a different
+                  // shortcut and must reach the parent, and Alt+S must not
+                  // save behind the person's back. Same checks as the
+                  // fullscreen editor's capture handler.
+                  if (
+                    !e.shiftKey &&
+                    !e.altKey &&
+                    (e.ctrlKey || e.metaKey) &&
+                    e.key.toLowerCase() === "s"
+                  ) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     saveFnRef.current?.().catch(() => {});
