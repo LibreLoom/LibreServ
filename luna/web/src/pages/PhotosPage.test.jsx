@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { FileOpsProvider } from "../context/FileOpsContext.jsx";
@@ -975,15 +975,9 @@ describe("PhotosPage", () => {
     const baseFetch = globalThis.fetch;
     const p = `${encodeURIComponent("b")}|${encodeURIComponent("beach.jpg")}`;
     window.history.replaceState(null, "", `/photos#library?p=${p}`);
-    let online = false;
-    Object.defineProperty(window.navigator, "onLine", {
-      configurable: true,
-      get: () => online,
-    });
     const fetchMock = vi.fn(async (url, init) => {
       const u = String(url);
       if (u.startsWith("/api/v1/photos?")) {
-        if (!online) throw new TypeError("Failed to fetch");
         return new Response(JSON.stringify({
           items: [{
             drive_id: "b", path: "beach.jpg", name: "beach.jpg",
@@ -995,21 +989,29 @@ describe("PhotosPage", () => {
       return baseFetch(url, init);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderPhotos();
+    // TanStack Query tracks connectivity through its own online manager;
+    // overriding navigator.onLine alone would only exercise the error path.
+    onlineManager.setOnline(false);
+    try {
+      renderPhotos();
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
-    expect(window.location.hash).toBe(`#library?p=${p}`);
-    expect(screen.queryByRole("dialog", { name: "beach.jpg" })).not.toBeInTheDocument();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+      // The paused first page never fetched, so restoration must stay armed.
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/v1/photos?"))).toHaveLength(0);
+      expect(window.location.hash).toBe(`#library?p=${p}`);
+      expect(screen.queryByRole("dialog", { name: "beach.jpg" })).not.toBeInTheDocument();
 
-    online = true;
-    act(() => { window.dispatchEvent(new Event("online")); });
-    const retry = screen.queryByRole("button", { name: "Try again" });
-    if (retry) await userEvent.setup().click(retry);
-    expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
-    expect(window.location.hash).toBe(`#library?p=${p}`);
-    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
+      await act(async () => {
+        onlineManager.setOnline(true);
+      });
+      // Resuming the paused query restores the deep link with no manual retry.
+      expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
+      expect(window.location.hash).toBe(`#library?p=${p}`);
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it("follows hashchange for back/forward navigation", async () => {

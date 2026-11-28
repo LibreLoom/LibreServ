@@ -501,6 +501,11 @@ export default function PhotosPage() {
   const [jumpTarget, setJumpTarget] = useState(
     /** @type {{ ymd: string, label: string }|null} */ (null),
   );
+  // The list a pending jump belongs to. A failed page leaves the jump armed;
+  // without this, switching segments would page and scroll a different list
+  // for that old date. Bound during render so no effect ever runs for a stale
+  // list, while a jump on its own list still resumes after Try again.
+  const jumpListRef = useRef(/** @type {string|null} */ (null));
   const jumpPagesRef = useRef(0);
   const [columns, setColumns] = useState(readGridCols);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
@@ -815,6 +820,20 @@ export default function PhotosPage() {
       monthDayParam,
     ],
   );
+
+  // Bind a pending jump to the list it was started on and drop it when that
+  // list changes underneath it. React does this during render so the jump
+  // effect cannot page or scroll for a target from a previous list.
+  const jumpListKey = JSON.stringify(listKey);
+  if (jumpTarget) {
+    if (jumpListRef.current == null) jumpListRef.current = jumpListKey;
+    else if (jumpListRef.current !== jumpListKey) {
+      jumpListRef.current = null;
+      setJumpTarget(null);
+    }
+  } else {
+    jumpListRef.current = null;
+  }
 
   // Everything the photo list filters on; the Places map sends the same set.
   const listOpts = {
@@ -1511,6 +1530,13 @@ export default function PhotosPage() {
     // W9 (luna/perf): ends in LightboxMedia once the preview, then the full photo, decode.
     perfStart("W9", { fromInput: true });
     perfStart("W9:full", { fromInput: true });
+    // An explicit click wins over a deep-link restore still paging toward an
+    // older `?p=` target. Disarm it: while it is pending, hash sync is blocked,
+    // and a page arriving later would replace the photo just opened with the
+    // restore's. Normal deep-link entry and Back/Forward never call this.
+    if (!restoreRef.current.done) {
+      restoreRef.current = { y: 0, photo: null, pages: 0, done: true };
+    }
     setLightbox({ key: photoSelectionKey(photo) });
   }, []);
 
@@ -1536,7 +1562,8 @@ export default function PhotosPage() {
   }, [photoQuery]);
 
   // Date jump: keep fetching pages until the loaded span reaches the target
-  // day, then scroll the closest day header into view.
+  // day, then scroll the closest day header into view. The target is bound to
+  // its list at render time above, so this only ever runs for that list.
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
     // A failed page fetch stays an error until someone retries it. Without
@@ -2805,6 +2832,8 @@ export default function PhotosPage() {
         onClose={() => setJumpOpen(false)}
         onJump={(ymd) => {
           jumpPagesRef.current = 0;
+          // A new jump binds to the list after the changes below are applied.
+          jumpListRef.current = null;
           const bounds = dayBoundsLocal(ymd);
           // Jumping scrolls the timeline — leave single-day/duplicates/month-day
           // views first so there is a timeline position to land on.
