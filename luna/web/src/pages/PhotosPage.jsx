@@ -507,12 +507,23 @@ export default function PhotosPage() {
   // list, while a jump on its own list still resumes after Try again.
   const jumpListRef = useRef(/** @type {string|null} */ (null));
   const jumpPagesRef = useRef(0);
+  // The day-header scroll is queued on an animation frame after the jump
+  // finishes. Keep its id so a list change can stop it before the page slide
+  // swaps in another timeline with the same day ids.
+  const jumpScrollRef = useRef(0);
+  const activePageKeyRef = useRef("");
   const [columns, setColumns] = useState(readGridCols);
   const dropZoneRef = useRef(/** @type {HTMLDivElement|null} */ (null));
   const scrollPosRef = useRef(0);
   const restoreRef = useRef({
     y: initialHash.y || 0,
     photo: initialHash.photo || null,
+    // A `p=` under `#albums/…` names a photo in that album, not in the whole
+    // library. Hold it until the album (and its own list) is here.
+    album:
+      initialHash.photo && initialHash.albumId
+        ? { home: initialHash.albumHome, id: initialHash.albumId }
+        : null,
     pages: 0,
     done: !(initialHash.y > 0 || initialHash.photo),
   });
@@ -650,6 +661,10 @@ export default function PhotosPage() {
         restoreRef.current = {
           y: parsed.y || 0,
           photo: parsed.photo || null,
+          album:
+            parsed.photo && parsed.albumId
+              ? { home: parsed.albumHome, id: parsed.albumId }
+              : null,
           pages: 0,
           done: false,
         };
@@ -660,7 +675,7 @@ export default function PhotosPage() {
         // old target could finish afterwards, reopen the photo we just left
         // and write `p=` back into the hash. Deep-link entry is unaffected:
         // it seeds restoreRef from the initial hash, not from hashchange.
-        restoreRef.current = { y: 0, photo: null, pages: 0, done: true };
+        restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
       }
       if (parsed.albumId) {
         // Back/forward (or a pasted link) names the album — reopen it. If the
@@ -825,6 +840,15 @@ export default function PhotosPage() {
   // list changes underneath it. React does this during render so the jump
   // effect cannot page or scroll for a target from a previous list.
   const jumpListKey = JSON.stringify(listKey);
+  const listKeyRef = useRef(jumpListKey);
+  if (listKeyRef.current !== jumpListKey) {
+    // A jump's target is already cleared by the time its queued scroll may
+    // still be waiting for a day header. Cancel it here: that header belongs
+    // to the outgoing page, or a same-named day in the new timeline.
+    if (jumpScrollRef.current) cancelAnimationFrame(jumpScrollRef.current);
+    jumpScrollRef.current = 0;
+    listKeyRef.current = jumpListKey;
+  }
   if (jumpTarget) {
     if (jumpListRef.current == null) jumpListRef.current = jumpListKey;
     else if (jumpListRef.current !== jumpListKey) {
@@ -1535,7 +1559,7 @@ export default function PhotosPage() {
     // and a page arriving later would replace the photo just opened with the
     // restore's. Normal deep-link entry and Back/Forward never call this.
     if (!restoreRef.current.done) {
-      restoreRef.current = { y: 0, photo: null, pages: 0, done: true };
+      restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
     }
     setLightbox({ key: photoSelectionKey(photo) });
   }, []);
@@ -1566,13 +1590,6 @@ export default function PhotosPage() {
   // its list at render time above, so this only ever runs for that list.
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
-    // A failed page fetch stays an error until someone retries it. Without
-    // this guard the coverage check below would fire the same request again
-    // as soon as isFetchingNextPage clears, up to the 1000-page runaway limit.
-    // Just pause here: keep the target so the page's Try again can resume the
-    // jump once it has loaded that day, instead of forcing the user to pick
-    // the date a second time.
-    if (photoQuery.isFetchNextPageError) return;
     const target = jumpTarget.ymd;
     const { newest, oldest, undated } = loadedDaySpan;
     const covered =
@@ -1580,6 +1597,13 @@ export default function PhotosPage() {
       || (newest != null && target >= newest)
       || undated
       || !photoQuery.hasNextPage;
+    // A failed page fetch stays an error until someone retries it. Without
+    // this guard the coverage check below would fire the same request again
+    // as soon as isFetchingNextPage clears, up to the 1000-page runaway limit.
+    // Keep the target so the page's Try again can resume the jump once that
+    // day arrives. But an old failure must not block a *new* jump to a day
+    // already on screen: that jump needs no more pages at all.
+    if (!covered && photoQuery.isFetchNextPageError) return;
     // A 30,000-photo library is ~375 pages at 80 per page. Keep going until
     // the loaded span actually covers the target; 1000 is only a runaway guard.
     if (!covered && photoQuery.hasNextPage && jumpPagesRef.current < 1000) {
@@ -1596,15 +1620,28 @@ export default function PhotosPage() {
     const reduced =
       typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // The timeline can draw the end of a page a little later (its first
-    // days come first), so wait up to 2 s for the day to appear.
+    // The timeline can draw the end of a page a little later (its first days
+    // come first), so wait up to 2 s for the day to appear. Look inside the
+    // active page's timeline: SlidePages keeps the outgoing page mounted
+    // during a slide, and both pages can have a header for the same day.
     const giveUp = performance.now() + 2000;
     const scrollToDay = () => {
-      const el = document.getElementById(`day-${nearest}`);
-      if (el) el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-      else if (performance.now() < giveUp) requestAnimationFrame(scrollToDay);
+      const page = [...document.querySelectorAll("[data-slide-page]")].find(
+        (el) => /** @type {HTMLElement} */ (el).dataset.slidePage === activePageKeyRef.current,
+      );
+      const el = page
+        ?.querySelector('[data-slot="photo-timeline"]')
+        ?.querySelector(`[id="day-${nearest}"]`);
+      if (el) {
+        jumpScrollRef.current = 0;
+        el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+      } else if (performance.now() < giveUp) {
+        jumpScrollRef.current = requestAnimationFrame(scrollToDay);
+      } else {
+        jumpScrollRef.current = 0;
+      }
     };
-    requestAnimationFrame(scrollToDay);
+    jumpScrollRef.current = requestAnimationFrame(scrollToDay);
   }, [jumpTarget, photos, loadedDaySpan, photoQuery]);
 
   useEffect(() => {
@@ -1753,6 +1790,18 @@ export default function PhotosPage() {
       || photoQuery.isFetchingNextPage
       || photoQuery.isFetchNextPageError
     ) return;
+    // An album photo's `p=` belongs to the album's own list. The unscoped
+    // list can settle before the albums request, so finalizing from it would
+    // drop `p=` before the album ever opens. Wait until that album is open —
+    // its scoped query is then the one this effect pages and searches.
+    if (
+      r.album
+      && (
+        pendingAlbumRef.current
+        || albumView?.id !== r.album.id
+        || albumView?.home_drive_id !== r.album.home
+      )
+    ) return;
     const photoHit = r.photo
       ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
       : -1;
@@ -1779,7 +1828,7 @@ export default function PhotosPage() {
     if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
     else if (!r.photo) setLightbox(null);
     writeHash();
-  }, [photos, photoQuery, writeHash, restoreTick]);
+  }, [photos, photoQuery, writeHash, restoreTick, albumView]);
 
   const actionModalOpen =
     newAlbumOpen
@@ -1817,6 +1866,9 @@ export default function PhotosPage() {
             // On Places, a drawn area swaps the map for its photos: a new page.
             || (activeSegment === "places" && placeBboxParam ? "area" : "")
           }`;
+  // The jump's queued header lookup reads this when its frame fires: the page
+  // on screen is the only one whose day ids it may scroll to.
+  activePageKeyRef.current = pageKey;
   const reduceMotion = useReducedMotion();
 
   // Where this page sits for the slide (SlidePages): detail views sit past
