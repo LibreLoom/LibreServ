@@ -537,6 +537,10 @@ export default function PhotosPage() {
       ? { home: initialHash.albumHome, id: initialHash.albumId }
       : null,
   );
+  // A hashchange can name a missing album after the Albums query has already
+  // settled. Bump this so the resolver effect retries the new pending lookup
+  // even when no query data moved (the same pattern as restoreTick).
+  const [pendingAlbumTick, setPendingAlbumTick] = useState(0);
   const hashStateRef = useRef(
     /** @type {{ activeSegment: string, albumView: PhotosAlbum|null, viewLabel: string|null, filters: import("../components/photos/PhotosFilterSheet.jsx").PhotosFilters, duplicatesView: boolean, lightbox: { key: string }|null }|null} */ (null),
   );
@@ -693,8 +697,10 @@ export default function PhotosPage() {
           pendingAlbumRef.current = null;
           tryOpenAlbum(found);
         } else pendingAlbumRef.current = { home: parsed.albumHome, id: parsed.albumId };
+        setPendingAlbumTick((t) => t + 1);
       } else {
         pendingAlbumRef.current = null;
+        setPendingAlbumTick((t) => t + 1);
         setAlbumView(null);
         setViewLabel(null);
       }
@@ -1114,7 +1120,7 @@ export default function PhotosPage() {
     // Lands on the Albums grid, where the notice lives, and writes a clean
     // `#albums` through the now-unblocked hash sync.
     window.location.hash = "albums";
-  }, [albums.data, albums.isSuccess, albums.isFetching, tryOpenAlbum]);
+  }, [albums.data, albums.isSuccess, albums.isFetching, tryOpenAlbum, pendingAlbumTick]);
 
   const looking = photoQuery.isLoading || (indexing && photos.length === 0);
   // Only a successful, empty drives answer means "no drives". An error (above
@@ -1148,15 +1154,24 @@ export default function PhotosPage() {
   // day picker stay usable and the inline notice owns the retry. Only a
   // first-page failure takes over the whole screen.
   const hasCachedPages = (photoQuery.data?.pages?.length ?? 0) > 0;
+  // Places and Duplicates disable the timeline query, so its empty cache says
+  // nothing about whether those views already have an answer on screen. Check
+  // the active view's own cache: a status-0 refresh must not replace a
+  // populated map or duplicate list with the full-page connection screen.
+  const hasCachedPlaces =
+    activeSegment === "places" && places.isSuccess && Array.isArray(places.data);
+  const hasCachedDuplicates =
+    duplicatesView && duplicates.isSuccess && !!duplicates.data;
+  const hasCachedView = hasCachedPages || hasCachedPlaces || hasCachedDuplicates;
   const connectionError =
     (drives.isError
       && /** @type {any} */ (drives.error)?.status === 0
-      && !hasCachedPages
+      && !hasCachedView
       ? drives.error
       : null)
     || (photoQuery.isError
       && /** @type {any} */ (photoQuery.error)?.status === 0
-      && !hasCachedPages
+      && !hasCachedView
       ? photoQuery.error
       : null);
   const connectionMessage = connectionError
@@ -1626,6 +1641,12 @@ export default function PhotosPage() {
   // its list at render time above, so this only ever runs for that list.
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
+    // A failed or offline-paused first page has no loaded days at all, so the
+    // `!hasNextPage` coverage check below would call the target covered and
+    // clear it with no day to scroll to. Hold the jump until page one actually
+    // lands; retry/reconnect then finishes it. A next-page failure still leaves
+    // loaded days, so jumps to those finish as before.
+    if (!photoQuery.data?.pages?.length) return;
     const target = jumpTarget.ymd;
     const { newest, oldest, undated } = loadedDaySpan;
     const covered =
@@ -1823,71 +1844,6 @@ export default function PhotosPage() {
     setDrawTick((t) => t + 1);
   }, []);
 
-  // Restore `#…?y=&p=` on load: keep paging until the saved depth is reachable
-  // and the photo is in the list, then scroll and reopen the lightbox.
-  useEffect(() => {
-    const r = restoreRef.current;
-    if (r.done || photoQuery.isLoading) return;
-    // Hold the target until the request settles. A failed first page leaves
-    // neither `hasNextPage` nor the photo, so the fall-through below would
-    // clear `p=` before Try again can load the list; page 60 can likewise
-    // still be in flight when the page cap is reached. Pausing on a next-page
-    // error also keeps the sentinel from retrying the same page on every
-    // query update, up to the 60-page bound, throughout an outage. The page's
-    // Try again re-issues that page, and a successful retry resumes us here.
-    // A paused query reports none of loading, fetching or error while the
-    // first page waits for the network, so hold until it resumes and settles.
-    if (
-      photoQuery.isError
-      || photoQuery.isPaused
-      || photoQuery.isFetching
-      || photoQuery.isFetchingNextPage
-      || photoQuery.isFetchNextPageError
-    ) return;
-    // An album photo's `p=` belongs to the album's own list. The unscoped
-    // list can settle before the albums request, so finalizing from it would
-    // drop `p=` before the album ever opens. Wait until that album is open —
-    // its scoped query is then the one this effect pages and searches.
-    if (
-      r.album
-      && (
-        pendingAlbumRef.current
-        || albumView?.id !== r.album.id
-        || albumView?.home_drive_id !== r.album.home
-      )
-    ) return;
-    // Hold a scroll restore until the timeline has drawn every loaded photo;
-    // otherwise the page height used below (and written back to `?y=`) belongs
-    // to the first frame, not the list the person is looking at.
-    if (r.y > 0 && timelineMounted && drawnListRef.current !== photos) return;
-    const photoHit = r.photo
-      ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
-      : -1;
-    const needY =
-      r.y > 0
-      && document.documentElement.scrollHeight < r.y + window.innerHeight;
-    const needPhoto = !!r.photo && photoHit < 0;
-    if ((needY || needPhoto) && photoQuery.hasNextPage && r.pages < 60) {
-      if (!photoQuery.isFetchingNextPage) {
-        r.pages += 1;
-        photoQuery.fetchNextPage();
-      }
-      return;
-    }
-    r.done = true;
-    if (r.y > 0) {
-      const max = Math.max(
-        0,
-        document.documentElement.scrollHeight - window.innerHeight,
-      );
-      scrollPosRef.current = Math.min(r.y, max);
-      window.scrollTo(0, scrollPosRef.current);
-    }
-    if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
-    else if (!r.photo) setLightbox(null);
-    writeHash();
-  }, [photos, photoQuery, writeHash, restoreTick, albumView, timelineMounted, drawTick]);
-
   const actionModalOpen =
     newAlbumOpen
     || albumPick != null
@@ -1949,6 +1905,79 @@ export default function PhotosPage() {
   const handlePagesSettled = useCallback(() => {
     setMapPage((m) => (m.lingers ? { ...m, lingers: false } : m));
   }, []);
+
+  // Restore `#…?y=&p=` on load: keep paging until the saved depth is reachable
+  // and the photo is in the list, then scroll and reopen the lightbox. This
+  // sits after the map layout so it can wait for a map page to slide out before
+  // it measures the scroller.
+  useEffect(() => {
+    const r = restoreRef.current;
+    if (r.done || photoQuery.isLoading) return;
+    // Hold the target until the request settles. A failed first page leaves
+    // neither `hasNextPage` nor the photo, so the fall-through below would
+    // clear `p=` before Try again can load the list; page 60 can likewise
+    // still be in flight when the page cap is reached. Pausing on a next-page
+    // error also keeps the sentinel from retrying the same page on every
+    // query update, up to the 60-page bound, throughout an outage. The page's
+    // Try again re-issues that page, and a successful retry resumes us here.
+    // A paused query reports none of loading, fetching or error while the
+    // first page waits for the network, so hold until it resumes and settles.
+    if (
+      photoQuery.isError
+      || photoQuery.isPaused
+      || photoQuery.isFetching
+      || photoQuery.isFetchingNextPage
+      || photoQuery.isFetchNextPageError
+    ) return;
+    // An album photo's `p=` belongs to the album's own list. The unscoped
+    // list can settle before the albums request, so finalizing from it would
+    // drop `p=` before the album ever opens. Wait until that album is open —
+    // its scoped query is then the one this effect pages and searches.
+    if (
+      r.album
+      && (
+        pendingAlbumRef.current
+        || albumView?.id !== r.album.id
+        || albumView?.home_drive_id !== r.album.home
+      )
+    ) return;
+    // Hold a scroll restore until the timeline has drawn every loaded photo,
+    // and until a Places map we just left has slid out. While that map lingers,
+    // Page keeps its fixed viewport height and the cached timeline behind it
+    // reports a clipped scroll height; measuring here would save `y=0` or fetch
+    // pages that only look missing because the page cannot grow yet.
+    if (
+      r.y > 0
+      && (mapPage.lingers || (timelineMounted && drawnListRef.current !== photos))
+    ) return;
+    const photoHit = r.photo
+      ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
+      : -1;
+    const needY =
+      r.y > 0
+      && document.documentElement.scrollHeight < r.y + window.innerHeight;
+    const needPhoto = !!r.photo && photoHit < 0;
+    if ((needY || needPhoto) && photoQuery.hasNextPage && r.pages < 60) {
+      if (!photoQuery.isFetchingNextPage) {
+        r.pages += 1;
+        photoQuery.fetchNextPage();
+      }
+      return;
+    }
+    r.done = true;
+    if (r.y > 0) {
+      const max = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      scrollPosRef.current = Math.min(r.y, max);
+      window.scrollTo(0, scrollPosRef.current);
+    }
+    if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
+    else if (!r.photo) setLightbox(null);
+    writeHash();
+  }, [photos, photoQuery, writeHash, restoreTick, albumView, timelineMounted, drawTick, mapPage.lingers]);
+
   // A switch scrolls the new page to the top; the deep-link `?y=` must not
   // carry the old page's depth to it.
   const handlePageChange = useCallback(() => {

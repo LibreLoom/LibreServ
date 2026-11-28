@@ -941,6 +941,60 @@ describe("PhotosPage", () => {
     });
   });
 
+  it("keeps a date jump through a failed first page and finishes it after Try again", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let releaseFirstPage;
+    const firstPageHold = new Promise((resolve) => { releaseFirstPage = resolve; });
+    let failFirstPage = true;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          await firstPageHold;
+          if (failFirstPage) throw new TypeError("Failed to fetch");
+        }
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "a", path: "beach.jpg", name: "beach.jpg",
+            taken_at: 1_600_000_000, thumb: "/t0", kind: "image",
+          }],
+          next_offset: 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPhotos();
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Jump to a day" }));
+    fireEvent.change(screen.getByLabelText("Day to jump to"), {
+      target: { value: "2020-01-01" },
+    });
+
+    await act(async () => {
+      releaseFirstPage();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    failFirstPage = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByLabelText("beach.jpg")).toBeInTheDocument();
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+  });
+
   it("keeps cached photos and the day picker when a drive refresh fails offline", async () => {
     vi.stubGlobal("IntersectionObserver", class {
       observe() {}
@@ -1126,6 +1180,23 @@ describe("PhotosPage", () => {
     });
     expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
     expect(window.location.hash).toBe(`#albums/a/al1?p=${p}`);
+  });
+
+  it("resolves a missing album named by a hashchange after the album list settled", async () => {
+    stubPhotosFetch({
+      albums: [{ id: "al1", home_drive_id: "a", name: "Trip" }],
+    });
+    window.history.replaceState(null, "", "/photos#albums");
+    renderPhotos();
+
+    await screen.findByRole("button", { name: /^Trip/ });
+
+    act(() => {
+      window.location.hash = "albums/a/gone";
+    });
+
+    expect(await screen.findByText("That album no longer exists.")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe("#albums"));
   });
 
   it("ejects a deleted album deep link once the album list settles", async () => {
