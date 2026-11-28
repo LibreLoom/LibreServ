@@ -285,6 +285,8 @@ describe("parsePhotosHash", () => {
 describe("PhotosPage", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/photos");
+    // jsdom has no layout engine or scrollIntoView; jumps scroll a day header.
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   describe("saveDownloadResponse", () => {
@@ -370,6 +372,7 @@ describe("PhotosPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
+    delete Element.prototype.scrollIntoView;
   });
 
   it("retries the failed next page instead of refetching loaded pages when a date jump fails", async () => {
@@ -429,6 +432,62 @@ describe("PhotosPage", () => {
 
     expect(await screen.findByLabelText("older.jpg")).toBeInTheDocument();
     expect(offsetZeroCalls()).toBe(beforeRetry);
+  });
+
+  it("abandons a pending photo restore when Back removes ?p=", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    const p = `${encodeURIComponent("b")}|${encodeURIComponent("older.jpg")}`;
+    window.history.replaceState(null, "", `/photos#library?p=${p}`);
+    let releasePage;
+    const slowPage = new Promise((resolve) => { releasePage = resolve; });
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          return new Response(JSON.stringify({
+            items: [{
+              drive_id: "a", path: "recent.jpg", name: "recent.jpg",
+              taken_at: 1_700_000_000, thumb: "/t1", kind: "image",
+            }],
+            next_offset: 1, has_more: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        await slowPage;
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "b", path: "older.jpg", name: "older.jpg",
+            taken_at: 946_684_800, thumb: "/t0", kind: "image",
+          }],
+          next_offset: offset + 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPhotos();
+
+    await screen.findByLabelText("recent.jpg");
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes("offset=1"))).toBe(true);
+    });
+
+    act(() => { window.location.hash = "library"; });
+    await waitFor(() => expect(window.location.hash).toBe("#library"));
+
+    await act(async () => {
+      releasePage();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(await screen.findByLabelText("older.jpg")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe("#library"));
   });
 
   it("retries the failed next page instead of refetching loaded pages when a date jump loses the connection", async () => {
@@ -904,6 +963,53 @@ describe("PhotosPage", () => {
 
     expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
     expect(window.location.hash).toBe(`#library?p=${p}`);
+  });
+
+  it("holds a deep-linked photo while the first page is paused offline", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    const p = `${encodeURIComponent("b")}|${encodeURIComponent("beach.jpg")}`;
+    window.history.replaceState(null, "", `/photos#library?p=${p}`);
+    let online = false;
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      get: () => online,
+    });
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")) {
+        if (!online) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "b", path: "beach.jpg", name: "beach.jpg",
+            taken_at: 1_700_000_000, thumb: "/t0", kind: "image",
+          }],
+          next_offset: 1, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPhotos();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(window.location.hash).toBe(`#library?p=${p}`);
+    expect(screen.queryByRole("dialog", { name: "beach.jpg" })).not.toBeInTheDocument();
+
+    online = true;
+    act(() => { window.dispatchEvent(new Event("online")); });
+    const retry = screen.queryByRole("button", { name: "Try again" });
+    if (retry) await userEvent.setup().click(retry);
+    expect(await screen.findByRole("dialog", { name: "beach.jpg" })).toBeInTheDocument();
+    expect(window.location.hash).toBe(`#library?p=${p}`);
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
   });
 
   it("follows hashchange for back/forward navigation", async () => {

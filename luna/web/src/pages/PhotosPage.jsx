@@ -649,6 +649,13 @@ export default function PhotosPage() {
           done: false,
         };
         setRestoreTick((t) => t + 1);
+      } else {
+        // Back/forward to a hash with neither `?p=` nor `?y=` abandons the
+        // pending restore. Otherwise a page fetch still in flight from the
+        // old target could finish afterwards, reopen the photo we just left
+        // and write `p=` back into the hash. Deep-link entry is unaffected:
+        // it seeds restoreRef from the initial hash, not from hashchange.
+        restoreRef.current = { y: 0, photo: null, pages: 0, done: true };
       }
       if (parsed.albumId) {
         // Back/forward (or a pasted link) names the album — reopen it. If the
@@ -1533,15 +1540,12 @@ export default function PhotosPage() {
   useEffect(() => {
     if (!jumpTarget || photoQuery.isLoading) return;
     // A failed page fetch stays an error until someone retries it. Without
-    // this guard the guard below would fire the same request again as soon as
-    // isFetchingNextPage clears, up to the 1000-page runaway limit. Stop the
-    // jump and leave the page's error notice (with Try again) on screen.
-    if (photoQuery.isFetchNextPageError) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- a failed jump must release the target so the page's Try again is usable
-      setJumpTarget(null);
-      jumpPagesRef.current = 0;
-      return;
-    }
+    // this guard the coverage check below would fire the same request again
+    // as soon as isFetchingNextPage clears, up to the 1000-page runaway limit.
+    // Just pause here: keep the target so the page's Try again can resume the
+    // jump once it has loaded that day, instead of forcing the user to pick
+    // the date a second time.
+    if (photoQuery.isFetchNextPageError) return;
     const target = jumpTarget.ymd;
     const { newest, oldest, undated } = loadedDaySpan;
     const covered =
@@ -1713,8 +1717,11 @@ export default function PhotosPage() {
     // error also keeps the sentinel from retrying the same page on every
     // query update, up to the 60-page bound, throughout an outage. The page's
     // Try again re-issues that page, and a successful retry resumes us here.
+    // A paused query reports none of loading, fetching or error while the
+    // first page waits for the network, so hold until it resumes and settles.
     if (
       photoQuery.isError
+      || photoQuery.isPaused
       || photoQuery.isFetching
       || photoQuery.isFetchingNextPage
       || photoQuery.isFetchNextPageError
@@ -1852,8 +1859,9 @@ export default function PhotosPage() {
               onClick={() => {
                 queryClient.invalidateQueries({ queryKey: ["drives"] });
                 // A failed next-page fetch (a date jump that ran out of loaded
-                // days) cleared its target, so refetching would only reload the
-                // pages already on screen. Retry the page that actually failed.
+                // days) kept its target, so refetching would only reload the
+                // pages already on screen. Retry the page that actually failed
+                // so the jump can resume when that day arrives.
                 if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
                 else photoQuery.refetch();
               }}
@@ -1999,8 +2007,9 @@ export default function PhotosPage() {
               surface="primary"
               onClick={() => {
                 // A failed next-page fetch (a date jump that ran out of loaded
-                // days) cleared its target, so refetching would only reload the
-                // pages already on screen. Retry the page that actually failed.
+                // days) kept its target, so refetching would only reload the
+                // pages already on screen. Retry the page that actually failed
+                // so the jump can resume when that day arrives.
                 if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
                 else photoQuery.refetch();
               }}
