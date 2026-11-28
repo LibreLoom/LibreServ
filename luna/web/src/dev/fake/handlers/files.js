@@ -455,6 +455,12 @@ del("/api/v1/drives/:id/files", ({ world, user, params, query }) => {
     const key = photoKey(photo);
     for (const [id, keys] of Object.entries(world.albumItems || {})) {
       world.albumItems[id] = keys.filter((k) => k !== key);
+      // An explicit cover that pointed at the trashed photo must move to a
+      // surviving member (or be cleared when none is left), or a later Restore
+      // to the same path makes the photo the cover again. Lunad does the same
+      // repair in remove_indexed_path -> remove_album_items_for_path.
+      const album = (world.albums || []).find((a) => a.id === id);
+      if (album?.cover_key === key) album.cover_key = world.albumItems[id][0] || "";
     }
   }
   return { ok: true, trash_path: trashPath };

@@ -464,22 +464,24 @@ fn worker_loop(
             let mut perf = crate::perf::Timer::new("D5", "photos.new");
             perf.field("count", batch.len());
             for (drive_id, rel) in batch {
-                pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
                 let mount = {
                     let guard = mounts.lock().unwrap();
                     guard.mounts.get(&drive_id).cloned()
                 };
-                let Some(root) = mount else {
-                    continue;
-                };
-                if let Err(e) = photos::index_one_meta(&drive_id, &root, &rel) {
-                    tracing::debug!(drive_id, rel, error = %e, "photos meta index skipped");
-                    continue;
+                if let Some(root) = mount {
+                    if let Err(e) = photos::index_one_meta(&drive_id, &root, &rel) {
+                        tracing::debug!(drive_id, rel, error = %e, "photos meta index skipped");
+                    } else {
+                        found_count.fetch_add(1, Ordering::Relaxed);
+                        if let Err(e) = photos::finish_thumb(&drive_id, &root, &rel) {
+                            tracing::debug!(drive_id, rel, error = %e, "photos thumb deferred");
+                        }
+                    }
                 }
-                found_count.fetch_add(1, Ordering::Relaxed);
-                if let Err(e) = photos::finish_thumb(&drive_id, &root, &rel) {
-                    tracing::debug!(drive_id, rel, error = %e, "photos thumb deferred");
-                }
+                // Stay busy until the metadata write is visible to Photos.
+                // Going idle first lets the status poll refresh a list that
+                // still misses the newly indexed (or restored) photo.
+                pending.fetch_sub(1.min(pending.load(Ordering::Relaxed)), Ordering::Relaxed);
             }
         }
 
