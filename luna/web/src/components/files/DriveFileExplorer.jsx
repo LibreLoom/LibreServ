@@ -66,6 +66,20 @@ import {
   TRASH_PATH,
 } from "../../lib/paths.js";
 
+// A restore puts a photo back where Photos can see it. Photos caches its
+// results under `["photos"]` and under several `["photos-*"]` keys; TanStack
+// Query matches prefixes by array element, so invalidating one does not touch
+// the others. Every one has to be made stale or the page can keep serving its
+// pre-restore results until their staleTime runs out.
+const PHOTO_QUERY_KEYS = [
+  ["photos"],
+  ["photos-status"],
+  ["photos-albums"],
+  ["photos-places"],
+  ["photos-duplicates"],
+  ["photos-memories"],
+];
+
 /**
  * Icon button that downloads a file or folder (folders arrive as a zip).
  * @param {{ driveId: string, path: string, label: string, kind?: string }} props
@@ -322,6 +336,11 @@ export default function DriveFileExplorer({
     for (const queryKey of staleKeys(paths)) queryClient.invalidateQueries({ queryKey });
   }
 
+  /** Make every Photos cache stale — a restored item can appear in any of them. */
+  function invalidatePhotos() {
+    for (const queryKey of PHOTO_QUERY_KEYS) queryClient.invalidateQueries({ queryKey });
+  }
+
   /**
    * Hand an upload to the file task store. It keeps running (and showing in the
    * dock) if this page goes away, and it owns every error and the success toast.
@@ -520,6 +539,7 @@ export default function DriveFileExplorer({
     onSuccess: (_d, item) => {
       addToast({ type: "success", message: "Restored." });
       invalidate([item.dest, item.path]);
+      invalidatePhotos();
     },
     onError: (err, item) => {
       invalidate([item.dest, item.path]);
@@ -558,7 +578,7 @@ export default function DriveFileExplorer({
           }),
       })),
       successToast: (done) => (done === 1 ? "Restored." : `Restored ${done} items.`),
-      invalidateKeys: staleKeys(items.flatMap((i) => [i.dest, i.path])),
+      invalidateKeys: [...staleKeys(items.flatMap((i) => [i.dest, i.path])), ...PHOTO_QUERY_KEYS],
     });
   }
 

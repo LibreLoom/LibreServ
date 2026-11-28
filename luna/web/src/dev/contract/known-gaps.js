@@ -3,6 +3,11 @@
 /** @type {{ key: string, path: string, reason: string }[]} */
 export const KNOWN_GAPS = [
   {
+    key: "GET /api/v1/photos/albums",
+    path: "$[].owner_user_id",
+    reason: "lunad's list_albums uses album_json, which includes owner_user_id for managers; the recorded fixture was captured as a viewer and lacks the key. The fake keeps it so a member's own album is not mislabelled 'Shared with you' and owner controls stay available.",
+  },
+  {
     key: "GET /api/v1/system/health/check",
     path: "$.checks.search_inside.details",
     reason: "The CI container that records lunad's responses has no pdftotext or tesseract, so lunad reports search_inside as a warning (with details and more); the fake shows the OS image, where both are installed and the row passes.",

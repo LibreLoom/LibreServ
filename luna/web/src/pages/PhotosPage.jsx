@@ -652,6 +652,11 @@ export default function PhotosPage() {
         && !!heldAlbum
         && parsed.albumId === heldAlbum.id
         && parsed.albumHome === heldHome;
+      // Browser Back *out* of the album lands on a hash with no album id. Its
+      // filters and search must go with it: at `#albums` a `kind=video` keeps
+      // the timeline open and hides the grid. Back that only closed a photo
+      // still names the album (`sameAlbum` above), so both stay there.
+      const leavingAlbum = !parsed.albumId && !!heldAlbum;
       setFilters((prev) => {
         if (sameAlbum) return prev;
         // A named album owns its own unfiltered list. Drop the filters of the
@@ -660,7 +665,13 @@ export default function PhotosPage() {
         // and its retry stay visible instead of a filtered timeline. Smart
         // albums keep their filters: they open through onSmart, not a hash link.
         if (parsed.albumId) return { ...EMPTY_FILTERS };
-        const next = { ...prev, monthDay: parsed.onThisDay ? "today" : "" };
+        // Leaving the album rebases on a clean filter set instead of carrying
+        // its `kind=video` or search scope into whatever the hash names now.
+        // A new `#day/` or `#onthisday` scope below still applies.
+        const next = {
+          ...(leavingAlbum ? EMPTY_FILTERS : prev),
+          monthDay: parsed.onThisDay ? "today" : "",
+        };
         if (parsed.day) {
           if (dayBoundsLocal(parsed.day)) {
             next.dateFrom = parsed.day;
@@ -676,7 +687,10 @@ export default function PhotosPage() {
         // `placeBbox` is an ordinary filter and rides along anywhere.
         if (parsed.segment !== "places") next.place = null;
         // Our own hash writes echo back here; keep the same object when
-        // nothing changed so the page doesn't re-render and re-query.
+        // nothing changed so the page doesn't re-render and re-query. The
+        // album exit is an intentional reset: return its fresh object even
+        // when the day/place fields alone compare equal.
+        if (leavingAlbum) return next;
         const same =
           next.monthDay === prev.monthDay &&
           next.dateFrom === prev.dateFrom &&
@@ -746,6 +760,12 @@ export default function PhotosPage() {
         setPendingAlbumTick((t) => t + 1);
         setAlbumView(null);
         setViewLabel(null);
+        if (leavingAlbum) {
+          // The album's search ends with its filters. Closing a photo inside
+          // the album never reaches this branch (the hash still names it).
+          setQ("");
+          setSearch("");
+        }
       }
     };
     window.addEventListener("hashchange", onHashChange);

@@ -468,7 +468,11 @@ post("/api/v1/drives/:id/files/restore", ({ world, user, params, body }) => {
     throw fail(409, "Restoring here lets everyone with access to this folder open it.", "broadens_access");
   }
   needWritable(world, driveId);
-  if (fs.nodes[dest]) throw fail(409, "A file or folder with this name is already there. Choose another name.");
+  // Generated photos are library rows without fs nodes. Checking only the
+  // filesystem would let a restore put a second photo at a path another row
+  // already holds; lunad refuses when the destination exists.
+  const photoAtDest = (world.photos || []).some((p) => p.drive_id === driveId && p.path === dest);
+  if (fs.nodes[dest] || photoAtDest) throw fail(409, "A file or folder with this name is already there. Choose another name.");
   // The folders the item came from may be gone by now: make them again.
   ensureDirs(fs, parentOf(dest));
   for (const [rel, n] of Object.entries(entry.nodes)) fs.nodes[rel ? join(dest, rel) : dest] = n;

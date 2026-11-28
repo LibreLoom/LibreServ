@@ -54,12 +54,10 @@ function albumRow(w, a, user) {
 
 get("/api/v1/photos/albums", ({ world, user }) => {
   state(world);
-  return world.albums.filter((a) => canSee(world, a, user)).map((a) => {
-    const row = albumRow(world, a, user);
-    // The list never carries the owner; only the single-album answer does.
-    delete row.owner_user_id;
-    return row;
-  });
+  // lunad's list_albums uses the same album_json as the single-album answer:
+  // managers keep owner_user_id, members get the public projection. Stripping
+  // it here made a member's own album look shared and hid the owner controls.
+  return world.albums.filter((a) => canSee(world, a, user)).map((a) => albumRow(world, a, user));
 });
 
 post("/api/v1/photos/albums", ({ world, user, body }) => {
