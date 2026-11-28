@@ -1980,7 +1980,13 @@ export default function PhotosPage() {
               size="sm"
               variant="outline"
               surface="primary"
-              onClick={() => photoQuery.refetch()}
+              onClick={() => {
+                // A failed next-page fetch (a date jump that ran out of loaded
+                // days) cleared its target, so refetching would only reload the
+                // pages already on screen. Retry the page that actually failed.
+                if (photoQuery.isFetchNextPageError) photoQuery.fetchNextPage();
+                else photoQuery.refetch();
+              }}
             >
               Try again
             </Button>

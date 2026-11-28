@@ -52,7 +52,7 @@ function renderLogin(queryClient = newQueryClient(), path = "/login") {
     <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<LoginPage navigateAfterLogin />} />
           <Route path="/" element={<div>LUNA HOME</div>} />
         </Routes>
       </AuthProvider>
@@ -89,18 +89,21 @@ describe("LoginPage", () => {
     expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
   });
 
-  it("leaves the sign-in form after signing in at /login/", async () => {
-    // The router matches /login/ to the /login route, but the reported
-    // pathname keeps its trailing slash. Signing in there must navigate away
-    // just as it does at /login, instead of leaving the form on screen.
-    stubFetch();
-    renderLogin(newQueryClient(), "/login/");
-    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
-    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
-    expect(screen.queryByText("Sign in to continue.")).not.toBeInTheDocument();
-  });
+  it.each(["/login", "/login/", "/LOGIN/"])(
+    "leaves the sign-in form after signing in at %s",
+    async (path) => {
+      // The router matches all three spellings to the /login route. Whichever
+      // one lands on the form, a successful sign-in must navigate away instead
+      // of leaving the form on screen.
+      stubFetch();
+      renderLogin(newQueryClient(), path);
+      fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+      fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "hunter22hunter" } });
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+      expect(await screen.findByText(/LUNA HOME/i)).toBeInTheDocument();
+      expect(screen.queryByText("Sign in to continue.")).not.toBeInTheDocument();
+    }
+  );
 
   it("asks for the Dashboard's drives and recents as soon as sign-in succeeds", async () => {
     stubFetch();

@@ -214,7 +214,7 @@ function LoginRoute() {
     if (/** @type {any} */ (navigator).connection?.saveData) return;
     DashboardPage.preload().catch(() => {});
   }, []);
-  return <LoginPage unreachable={unreachable} />;
+  return <LoginPage unreachable={unreachable} navigateAfterLogin />;
 }
 
 function GalleryToPhotosRedirect() {

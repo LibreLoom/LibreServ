@@ -27,7 +27,7 @@ function getLoginQuip() {
   return loginQuips[hoursSinceEpoch % loginQuips.length];
 }
 
-export default function LoginPage({ unreachable = false }) {
+export default function LoginPage({ unreachable = false, navigateAfterLogin = false }) {
   usePageTitle("Sign in");
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -64,12 +64,12 @@ export default function LoginPage({ unreachable = false }) {
   // Where to send the user after a successful login — the page they were
   // trying to reach, or home.
   const returnTo = location.state?.from?.pathname || "/";
-  // RequireAuth renders this page in place of the page you were on, so the URL
-  // never moves to /login. Signing in then just swaps your page back in; only
-  // the real /login route needs to navigate anywhere. The router matches
-  // /login and /login/ alike, so ignore a trailing slash before comparing.
+  // The /login route tells us to leave after signing in. RequireAuth renders
+  // this page in place of the page you were on without moving the URL, so it
+  // passes no prop: signing in there just swaps your page back in, no
+  // navigation needed. Pathname matching here would break /LOGIN/, which the
+  // router also matches to /login.
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
-  const inPlace = pathname !== "/login";
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {
@@ -134,9 +134,9 @@ export default function LoginPage({ unreachable = false }) {
     try {
       const me = await login(username.trim(), password);
       // Headed for the Dashboard: ask for its data now, while its page renders.
-      if ((inPlace ? pathname : returnTo) === "/") prefetchDashboard(queryClient, me);
+      if ((navigateAfterLogin ? returnTo : pathname) === "/") prefetchDashboard(queryClient, me);
       addToast({ type: "success", message: "Signed in." });
-      if (!inPlace) navigate(returnTo, { replace: true });
+      if (navigateAfterLogin) navigate(returnTo, { replace: true });
     } catch (err) {
       perfCancel("W3");
       setErrorStatus(err.status || "NetworkError");

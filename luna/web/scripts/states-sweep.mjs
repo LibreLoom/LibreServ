@@ -88,14 +88,19 @@ async function resetTheme(theme) {
 /**
  * Open a scenario in a frame we can prove belongs to it. A hash assignment to
  * the value already in the address bar is a no-op (the gallery's hashchange
- * handler never fires), so a retry cannot reuse that: it reloads the gallery
- * document, which recreates the iframe from scratch. In both cases we wait for
- * the frame's fake (or its __mock src) to identify the exact scenario before
- * the visit is accepted — a stale frame must never count as a fresh retry.
+ * handler never fires), so setting the hash alone cannot re-boot a scenario
+ * that is already open in the frame: `reload` recreates the gallery document,
+ * which rebuilds the iframe from scratch and boots the fake again. The first
+ * scenario needs that forced reload — opening the gallery boots it before any
+ * error baseline is taken, so without a fresh load its startup errors would
+ * never fall inside an observed visit window. Retries use the same path. In
+ * both cases we wait for the frame's fake (or its __mock src) to identify the
+ * exact scenario before the visit is accepted — a stale frame must never
+ * count as a fresh load.
  */
-async function visitScenario(scenario, retry) {
+async function visitScenario(scenario, reload) {
   const encoded = encodeURIComponent(scenario.id);
-  if (retry) {
+  if (reload) {
     await page.evaluate((sid) => { window.location.hash = encodeURIComponent(sid); }, scenario.id);
     // page.goto with only a different hash is a same-document navigation; a
     // real reload is what guarantees a new iframe and a new boot of the fake.
@@ -154,7 +159,13 @@ for (let i = 0; i < scenarios.length; i++) {
     status = "ok";
     try {
       await resetTheme(scenario.theme);
-      await visitScenario(scenario, attempt === 1);
+      // The first scenario is already booted by simply opening the gallery,
+      // before any error baseline exists. Force a genuine reload so its fake
+      // boots again and any startup error lands in the visit's observed window;
+      // retries reload for the same reason. The viewport/preset is already set
+      // above and survives a document reload, and the fresh frame is still
+      // checked against the exact scenario id below.
+      await visitScenario(scenario, attempt === 1 || i === 0);
       errBefore = { page: pageErrors.length, console: consoleErrors.length };
       await page.waitForTimeout(200);
       const info = await page.evaluate(() => {
