@@ -61,7 +61,7 @@ import useMultiSelect, { photoSelectionKey } from "../hooks/useMultiSelect.js";
 import { useAuth } from "../context/AuthContext";
 import { haptic } from "@libreloom/ui/utils/haptics.js";
 import { perfCancel, perfDetailed, perfStart, perfWhenImagesShown } from "../lib/perf.js";
-import { INDEXING_REFRESH_MS, indexingRefreshDelay } from "../lib/photosIndexing.js";
+import { INDEXING_REFRESH_MAX_MS, INDEXING_REFRESH_MS, indexingRefreshDelay } from "../lib/photosIndexing.js";
 import { useShortcut, useShortcutsSheet } from "@libreloom/ui/context/ShortcutsContext.jsx";
 import {
   apiErrorMessage,
@@ -97,6 +97,8 @@ import {
 
 const PHOTOS_DOWNLOAD_MAX = 200;
 const PHOTOS_DOWNLOAD_FILENAME = "photos.zip";
+/** A duplicate/On-this-day scan reads every accessible drive; cap it while idle. */
+const IDLE_SCAN_DEDUPE_MS = INDEXING_REFRESH_MAX_MS;
 
 /**
  * Save a download without buffering the whole response when the browser
@@ -1144,10 +1146,11 @@ export default function PhotosPage() {
     return () => clearInterval(id);
   }, [indexing, queryClient]);
 
-  // Refresh for each completed index revision, not only for a render that
-  // catches busy turning off. lunad sends `found_count` as null to Members, so
-  // the idle revision needs a completion signal every role receives: react-query
-  // advances `dataUpdatedAt` on each status poll, never on a render or mount.
+  // A status poll advances `dataUpdatedAt` even when every Member-visible
+  // field is byte-identical, so `completionRevision` still marks a possible
+  // completion: a short job can finish between two idle polls without moving
+  // any field. Use that tick for the cached timelines — otherwise a restored
+  // photo stays missing from Library and Places until something else changes.
   // A busy → idle key change still covers a rescan that found nothing new.
   const statusRevision = !photosStatus.data
     ? null
@@ -1159,29 +1162,39 @@ export default function PhotosPage() {
     : `${statusRevision}:${photosStatus.dataUpdatedAt}`;
   const lastCompletionRef = useRef(/** @type {string | null} */ (null));
   const lastStatusRevisionRef = useRef(/** @type {string | null} */ (null));
+  const lastScanRefreshAtRef = useRef(0);
   useEffect(() => {
     if (!completionRevision) return;
     const previousCompletion = lastCompletionRef.current;
     const previousStatus = lastStatusRevisionRef.current;
     lastCompletionRef.current = completionRevision;
     lastStatusRevisionRef.current = statusRevision;
-    // The first snapshot is a baseline; a busy poll never refreshes on its own.
-    if (previousCompletion === null || statusRevision?.startsWith("busy:")) return;
-    const statusChanged = previousStatus !== statusRevision;
-    // Cached timelines reload every loaded page, so clear them only when a
-    // Member-visible status field (or an Admin's found count) actually moved.
-    if (statusChanged) {
-      queryClient.invalidateQueries({ queryKey: ["photos"] });
-      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
-      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-      queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+    // The first snapshot is a baseline, never a completion; a busy poll is
+    // progress, not a finished index.
+    if (previousCompletion === null) {
+      lastScanRefreshAtRef.current = Date.now();
+      return;
     }
-    // A restored file lands in the index only now. If Photos refetched
-    // mid-indexing, these two cached a list without it — clear them on every
-    // idle poll too: a job that finishes between polls leaves every status
-    // field unchanged, and Members never receive `found_count` at all.
-    queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-memories"] });
+    if (statusRevision?.startsWith("busy:")) return;
+
+    const statusChanged = previousStatus !== statusRevision;
+    queryClient.invalidateQueries({ queryKey: ["photos"] });
+    queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+    // Invalidating a live status query triggers another poll; do that only on
+    // a real status change or the new `dataUpdatedAt` would feed this effect.
+    if (statusChanged) queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+
+    // Duplicates and On this day scan photo rows across every accessible drive.
+    // An identical idle tick is not evidence of a finished job, so rate-limit
+    // them while keeping a real completion (and a job that finished after a
+    // longer stale stretch) able to refresh immediately.
+    const now = Date.now();
+    if (statusChanged || now - lastScanRefreshAtRef.current >= IDLE_SCAN_DEDUPE_MS) {
+      lastScanRefreshAtRef.current = now;
+      queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-memories"] });
+    }
   }, [completionRevision, statusRevision, queryClient]);
 
   const rescan = useMutation({
@@ -1478,15 +1491,20 @@ export default function PhotosPage() {
   });
 
   const trashMany = useMutation({
-    /** @param {PhotosPhoto[]} items */
-    mutationFn: async (items) => {
+    /**
+     * `trashed` is filled as each delete succeeds, so a partial failure can
+     * retry only the items that are still there.
+     * @param {{ items: PhotosPhoto[], trashed: PhotosPhoto[] }} args
+     */
+    mutationFn: async ({ items, trashed }) => {
       for (const photo of items) {
         await deleteJson(
           `/api/v1/drives/${photo.drive_id}/files?path=${encodeURIComponent(photo.path)}`,
         );
+        trashed.push(photo);
       }
     },
-    onSuccess: (_d, items) => {
+    onSuccess: (_d, { items }) => {
       setTrashBulk(null);
       selection.exit();
       setAddToAlbumTarget(null);
@@ -1503,7 +1521,17 @@ export default function PhotosPage() {
       queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
-    onError: (err) => setError(apiErrorMessage(err)),
+    onError: (err, { items, trashed }) => {
+      if (trashed.length > 0) {
+        // Some photos are already in Trash: the grid and album covers changed
+        // even though the batch failed, and those paths must not be retried.
+        queryClient.invalidateQueries({ queryKey: ["photos"] });
+        queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
+        queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+        setTrashBulk(items.slice(trashed.length));
+      }
+      setError(apiErrorMessage(err));
+    },
   });
 
   const createAlbum = useMutation({
@@ -3084,7 +3112,7 @@ export default function PhotosPage() {
           setTrashBulk(null);
           setError(null);
         }}
-        onConfirm={() => trashBulk && trashMany.mutate(trashBulk)}
+        onConfirm={() => trashBulk && trashMany.mutate({ items: trashBulk, trashed: [] })}
         title="Move selected to trash?"
         message={`Luna will move ${trashBulk?.length || 0} items to Trash. You can restore them from Files later.`}
         variant="danger-undoable"

@@ -38,5 +38,7 @@ describe("driveFormat", () => {
     expect(previewHeadline({ empty: false, partitions: [{ state: "unreadable" }] }).title).toBe("Luna can't read this drive.");
     expect(previewHeadline({ empty: false, partitions: [{ state: "installer_media" }] }).title).toBe("This looks like an installer disk.");
     expect(previewHeadline({ empty: false, partitions: [{ state: "has_files" }, { state: "locked" }] }).title).toBe("This drive has files on it.");
+    expect(previewHeadline({ empty: false, partitions: [{ state: "empty" }, { state: "locked" }] })).toEqual({ title: "Luna couldn't check everything on this drive.", tone: "careful" });
+    expect(previewHeadline({ empty: false, partitions: [{ state: "unreadable" }, { state: "locked" }] }).title).toBe("Luna can't read this drive.");
   });
 });

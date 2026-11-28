@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import PropTypes from "prop-types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Button from "@libreloom/ui/components/ui/Button.jsx";
@@ -40,7 +40,12 @@ export default function UnlockPrompt({ driveId, deviceName, onUnlocked, beforeSe
   const [notice, setNotice] = useState("");
   const adding = Boolean(deviceName);
   const key = adding ? `add-${deviceName}` : driveId;
-  const inputId = `unlock-${key}`;
+  // Several prompts can share one drive (a member's shared folders). useId
+  // gives each its own field and notice, so a notice never attaches to a
+  // different prompt's field. React's raw ids contain punctuation, which is
+  // awkward in selectors, so keep only letters, digits, dash and underscore.
+  const instance = useId().replace(/[^A-Za-z0-9_-]/g, "");
+  const inputId = `unlock-${key}-${instance}`;
   const noticeId = `${inputId}-notice`;
 
   // FormInput owns `aria-describedby` when there is a field error (a wrong

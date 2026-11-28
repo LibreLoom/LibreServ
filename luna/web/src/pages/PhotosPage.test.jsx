@@ -2560,4 +2560,100 @@ describe("PhotosPage", () => {
     expect(await screen.findByText("Trip")).toBeInTheDocument();
     expect(window.location.hash).toBe("#albums/a/al1");
   });
+
+  it("refreshes the Library timeline on an identical idle status poll", async () => {
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let timelineCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes("/photos?") && !u.includes("month_day=")) timelineCalls += 1;
+      return baseFetch(url, init);
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    const before = timelineCalls;
+
+    // A restore can finish between two idle polls, leaving every Member-visible
+    // status field identical; only the poll tick can mark a completed index.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["photos-status"] });
+    });
+
+    await waitFor(() => expect(timelineCalls).toBeGreaterThan(before));
+  });
+
+  it("does not rescan duplicates on repeated identical idle polls", async () => {
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let duplicateCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      if (String(url).includes("/photos/duplicates")) duplicateCalls += 1;
+      return baseFetch(url, init);
+    }));
+    window.history.replaceState(null, "", "/photos#albums");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Smart albums/i }));
+    fireEvent.click(await screen.findByRole("option", { name: /Possible duplicates/i }));
+    await waitFor(() => expect(duplicateCalls).toBeGreaterThan(0));
+    const before = duplicateCalls;
+
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["photos-status"] });
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["photos-status"] });
+    });
+
+    expect(duplicateCalls).toBe(before);
+  });
+
+  it("retries only the unfinished photos after a partial bulk trash", async () => {
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    /** @type {string[]} */
+    const deleted = [];
+    let failTwo = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if ((init?.method || "GET").toUpperCase() === "DELETE" && u.includes("?path=")) {
+        const path = decodeURIComponent(u.split("?path=")[1]);
+        if (path === "two.jpg" && failTwo) {
+          return new Response(JSON.stringify({ error: "Couldn't move it" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        deleted.push(path);
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    renderPhotos({ client });
+
+    fireEvent.contextMenu(await screen.findByLabelText("one.jpg"));
+    fireEvent.click(screen.getByLabelText("two.jpg"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
+    const beforeInvalidations = invalidate.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Luna will move 1 items to Trash/)).toBeInTheDocument(),
+    );
+    expect(deleted).toEqual(["one.jpg"]);
+    expect(invalidate.mock.calls.slice(beforeInvalidations).some(
+      ([filters]) => filters?.queryKey?.[0] === "photos-albums",
+    )).toBe(true);
+
+    failTwo = false;
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg"]));
+  });
 });

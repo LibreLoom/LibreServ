@@ -83,12 +83,35 @@ describe("UnlockPrompt", () => {
     show();
     type("anything");
     const notice = await screen.findByRole("status");
+    const field = screen.getByLabelText("Drive password");
     expect(notice).toHaveAttribute("aria-live", "polite");
     expect(notice.textContent).toMatch(/already working on this drive/);
-    expect(document.getElementById("unlock-d1-notice")).toBe(notice);
-    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-describedby", "unlock-d1-notice");
-    expect(screen.getByLabelText("Drive password")).toHaveAttribute("aria-invalid", "false");
+    expect(document.getElementById(`${field.id}-notice`)).toBe(notice);
+    expect(field).toHaveAttribute("aria-describedby", `${field.id}-notice`);
+    expect(field).toHaveAttribute("aria-invalid", "false");
     expect(document.querySelector("#unlock-d1-error")).toBeNull();
+  });
+
+  it("keeps a notice on its own field when two prompts share a drive", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => reply({ error: "Luna is already working on this drive. Wait until it finishes.", code: "drive_busy" }, 409)));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <ToastProvider>
+        <QueryClientProvider client={client}>
+          <div className="surface-secondary text-primary p-4">
+            <UnlockPrompt driveId="d1" />
+            <UnlockPrompt driveId="d1" />
+          </div>
+        </QueryClientProvider>
+      </ToastProvider>,
+    );
+    const [first, second] = screen.getAllByLabelText("Drive password");
+    expect(first.id).not.toBe(second.id);
+    fireEvent.change(second, { target: { value: "anything" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Unlock" })[1]);
+    const notice = await screen.findByRole("status");
+    expect(second).toHaveAttribute("aria-describedby", notice.id);
+    expect(first).not.toHaveAttribute("aria-describedby");
   });
 
   it("adds a drive Luna hasn't added through unlock-and-add, letting go of the look first", async () => {

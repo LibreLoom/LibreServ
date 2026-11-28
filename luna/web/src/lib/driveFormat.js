@@ -93,9 +93,10 @@ export function partitionStateLine(state) {
   }
 }
 
-// "locked" is healthy (it just waits for a password), so it gets its own
-// headline and is not part of the unreadable branch.
-const UNREADABLE_STATES = new Set(["unreadable", "unknown_filesystem"]);
+// Parts Luna couldn't look into. "locked" is healthy on its own (it just waits
+// for a password) and gets its own headline when every part is locked, but in a
+// mix its contents are still unchecked.
+const UNVERIFIED_STATES = new Set(["unreadable", "unknown_filesystem", "locked"]);
 
 /**
  * The one line at the top of the preview. The server's `empty` verdict decides
@@ -116,14 +117,19 @@ export function previewHeadline(preview) {
   if (parts.every((p) => p.state === "locked")) {
     return { title: "This drive is protected with a password.", tone: "careful" };
   }
-  // Keep the old verdict for a fully unreadable drive, and add the case where
-  // no part lists any files but at least one couldn't be looked into: saying
-  // "files on it" there would be a guess.
-  const allUnreadable = parts.every((p) => UNREADABLE_STATES.has(p.state));
-  const noFiles = parts.every((p) => !(p.files > 0 || p.folders > 0));
-  const someUnreadable = parts.some((p) => UNREADABLE_STATES.has(p.state));
-  if (allUnreadable || (noFiles && someUnreadable)) {
+  // Keep the old verdict for a drive Luna couldn't look into at all. If no part
+  // lists files but one couldn't be checked — including a locked part — say so:
+  // claiming "files on it" there would be a guess.
+  const allUnverified = parts.every((p) => UNVERIFIED_STATES.has(p.state));
+  // A partition the server marked `has_files` counts as evidence even when the
+  // preview omits its item counts.
+  const noFiles = parts.every((p) => p.state !== "has_files" && !(p.files > 0 || p.folders > 0));
+  const someUnverified = parts.some((p) => UNVERIFIED_STATES.has(p.state));
+  if (allUnverified) {
     return { title: "Luna can't read this drive.", tone: "careful" };
+  }
+  if (noFiles && someUnverified) {
+    return { title: "Luna couldn't check everything on this drive.", tone: "careful" };
   }
   return { title: "This drive has files on it.", tone: "careful" };
 }
