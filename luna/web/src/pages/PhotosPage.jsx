@@ -688,6 +688,12 @@ export default function PhotosPage() {
         restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
       }
       if (parsed.albumId) {
+        // A new album link takes over the screen. Drop the view it replaces:
+        // Duplicates and a smart album would otherwise keep rendering over the
+        // album, and a stale album would hide the retry if this lookup fails.
+        setDuplicatesView(false);
+        setViewLabel(null);
+        setAlbumView(null);
         // Back/forward (or a pasted link) names the album — reopen it. If the
         // albums query hasn't landed yet, the resolver effect picks it up.
         const list = queryClient.getQueryData(["photos-albums"]);
@@ -1122,9 +1128,11 @@ export default function PhotosPage() {
       return;
     }
     // A slow list is still allowed to deliver the album. Wait for a successful
-    // answer (and for a refetch to settle) before calling a link dead — an
-    // error must not be dressed up as a deleted album.
-    if (!albums.isSuccess || albums.isFetching) return;
+    // answer (and for a refetch to actually settle) before calling a link dead
+    // — an error must not be dressed up as a deleted album. A paused offline
+    // refresh keeps the cached success but never lands, so it must not eject
+    // the link before reconnect.
+    if (!albums.isSuccess || albums.isFetching || albums.isPaused) return;
     pendingAlbumRef.current = null;
     // Release the `?y=`/`p=` restore too: while it is pending, hash sync stays
     // blocked and the dead link survives every later album card and URL change.
@@ -1138,7 +1146,7 @@ export default function PhotosPage() {
     // Lands on the Albums grid, where the notice lives, and writes a clean
     // `#albums` through the now-unblocked hash sync.
     window.location.hash = "albums";
-  }, [albums.data, albums.isSuccess, albums.isFetching, tryOpenAlbum, pendingAlbumTick]);
+  }, [albums.data, albums.isSuccess, albums.isFetching, albums.isPaused, tryOpenAlbum, pendingAlbumTick]);
 
   const looking = photoQuery.isLoading || (indexing && photos.length === 0);
   // Only a successful, empty drives answer means "no drives". An error (above
@@ -1185,7 +1193,18 @@ export default function PhotosPage() {
     activeSegment === "places" && Array.isArray(places.data);
   const hasCachedDuplicates =
     duplicatesView && !!duplicates.data;
-  const hasCachedView = hasCachedPages || hasCachedPlaces || hasCachedDuplicates;
+  // The Albums grid is its own view with an inline retry, fed by the albums
+  // query rather than the timeline. A status-0 drives refresh must not hide a
+  // populated grid behind the full-page connection screen.
+  const hasCachedAlbums =
+    activeSegment === "albums"
+    && !albumView
+    && !viewLabel
+    && !duplicatesView
+    && filterActiveCount === 0
+    && albumList.length > 0;
+  const hasCachedView =
+    hasCachedPages || hasCachedPlaces || hasCachedDuplicates || hasCachedAlbums;
   const connectionError =
     (drives.isError
       && /** @type {any} */ (drives.error)?.status === 0

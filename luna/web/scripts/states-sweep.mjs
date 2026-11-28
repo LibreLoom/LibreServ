@@ -75,10 +75,13 @@ const scenarios = await page.evaluate(async () => {
 });
 console.log(`smoke-sweeping ${scenarios.length} scenarios`);
 
-// Vite HMR during a long sweep can reload the page mid-scenario. Those
-// network-change/dynamic-import errors are harness artifacts, not app failures.
-const isHarnessTransient = (message) =>
-  /ERR_NETWORK_CHANGED|Failed to fetch dynamically imported module/i.test(String(message));
+// Vite HMR during a long sweep can reload the page mid-scenario. An
+// ERR_NETWORK_CHANGED error is that reload signal: a harness artifact, always
+// ignored. A failed dynamic import is only the same artifact when the same
+// attempt also observed that signal — otherwise a lazy route is genuinely
+// broken, even if the fake and page shell were visible, and must be recorded.
+const isHmrReloadSignal = (message) => /ERR_NETWORK_CHANGED/i.test(String(message));
+const isDynamicImportFailure = (message) => /Failed to fetch dynamically imported module/i.test(String(message));
 
 /** Theme storage is shared with the frame (same origin), so reset it per visit. */
 async function resetTheme(theme) {
@@ -250,11 +253,16 @@ for (let i = 0; i < scenarios.length; i++) {
     }
     // Errors from the fresh load (visit mark → confirmed baseline) plus errors
     // after the baseline; load-time failures must stay in the record too.
-    const newErrors = pageErrors.slice(visitMark.page, errBefore.page)
+    const attemptErrors = pageErrors.slice(visitMark.page, errBefore.page)
       .concat(consoleErrors.slice(visitMark.console, errBefore.console))
       .concat(pageErrors.slice(errBefore.page))
-      .concat(consoleErrors.slice(errBefore.console))
-      .filter((message) => !isHarnessTransient(message));
+      .concat(consoleErrors.slice(errBefore.console));
+    // Only a reload signal observed in THIS attempt can excuse a failed
+    // dynamic import. Without one, the import error is a real broken lazy
+    // route and stays in the record, so a visible fake cannot mask it.
+    const hmrReloadObserved = attemptErrors.some(isHmrReloadSignal);
+    const newErrors = attemptErrors.filter((message) =>
+      !isHmrReloadSignal(message) && !(hmrReloadObserved && isDynamicImportFailure(message)));
     if (newErrors.length) { status = "problem"; observed.push(newErrors.join(" | ").slice(0, 300)); }
     if (status === "ok" || attempt === 1) break;
     // Try once more after a short pause for Vite to settle.
