@@ -487,6 +487,10 @@ export default function PhotosPage() {
   const [sharePhoto, setSharePhoto] = useState(null);
   const [trashPhoto, setTrashPhoto] = useState(null);
   const [trashBulk, setTrashBulk] = useState(/** @type {object[]|null} */ (null));
+  // The bulk-trash dialog can be dismissed (Cancel, X, Escape) while its
+  // deletes are still running. A later failure must not put the retry list
+  // back and reopen a dialog the person already closed.
+  const trashBulkOpenRef = useRef(false);
   const [trashAlbum, setTrashAlbum] = useState(null);
   const [shareAlbum, setShareAlbum] = useState(null);
   const [albumPick, setAlbumPick] = useState(/** @type {object[]|null} */ (null));
@@ -1178,12 +1182,28 @@ export default function PhotosPage() {
     if (statusRevision?.startsWith("busy:")) return;
 
     const statusChanged = previousStatus !== statusRevision;
-    queryClient.invalidateQueries({ queryKey: ["photos"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-places"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-    // Invalidating a live status query triggers another poll; do that only on
-    // a real status change or the new `dataUpdatedAt` would feed this effect.
-    if (statusChanged) queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+    if (statusChanged) {
+      // A real busy → idle completion earns a full reload: every cached page
+      // must be revisited because new photos landed.
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      // Invalidating a live status query triggers another poll; do that only
+      // on a real change or the new `dataUpdatedAt` would feed this effect.
+      queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+    } else {
+      // Every idle poll moves `dataUpdatedAt` without moving a status field.
+      // Treating that tick like a completion used to cancel an in-flight
+      // `fetchNextPage` and restart every cached page from page one, so a slow
+      // library could starve date jumps and deep-link restore forever. Mark
+      // the timelines stale and refetch without cancelling: TanStack Query
+      // coalesces the refetch into the running fetch instead of restarting it,
+      // and the next observer refetch still sees the restored photo.
+      const keepFetching = { cancelRefetch: false };
+      queryClient.invalidateQueries({ queryKey: ["photos"] }, keepFetching);
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] }, keepFetching);
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] }, keepFetching);
+    }
 
     // Duplicates and On this day scan photo rows across every accessible drive.
     // An identical idle tick is not evidence of a finished job, so rate-limit
@@ -1505,6 +1525,7 @@ export default function PhotosPage() {
       }
     },
     onSuccess: (_d, { items }) => {
+      trashBulkOpenRef.current = false;
       setTrashBulk(null);
       selection.exit();
       setAddToAlbumTarget(null);
@@ -1521,14 +1542,36 @@ export default function PhotosPage() {
       queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
-    onError: (err, { items, trashed }) => {
-      if (trashed.length > 0) {
-        // Some photos are already in Trash: the grid and album covers changed
-        // even though the batch failed, and those paths must not be retried.
+    onError: async (err, { items, trashed }) => {
+      // The delete that threw may have reached Luna before the connection
+      // dropped. Retrying it would get a 404 and strand every later photo
+      // behind it, so ask Trash by original path before calling it unfinished.
+      const failed = items[trashed.length];
+      let landedInTrash = false;
+      if (failed) {
+        try {
+          const entries = await getJson(
+            `/api/v1/drives/${encodeURIComponent(failed.drive_id)}/files?path=${encodeURIComponent(".luna-trash")}`,
+          );
+          landedInTrash = Array.isArray(entries)
+            && entries.some((entry) => entry?.original_path === failed.path);
+        } catch {
+          // If Trash can't be read, keep the item in the retry list: one
+          // harmless 404 beats skipping a photo that never left the library.
+        }
+      }
+      // Confirmably moved photos (and the uncertain one, if it landed) changed
+      // the grid and album covers whether or not the dialog is still open.
+      if (trashed.length > 0 || landedInTrash) {
         queryClient.invalidateQueries({ queryKey: ["photos"] });
         queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
         queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-        setTrashBulk(items.slice(trashed.length));
+      }
+      // Only update the retry list if the dialog this batch came from is still
+      // open; a later failure must not revive one the person dismissed.
+      if (trashBulkOpenRef.current) {
+        const retry = items.slice(trashed.length + (landedInTrash ? 1 : 0));
+        setTrashBulk(retry.length ? retry : null);
       }
       setError(apiErrorMessage(err));
     },
@@ -3048,7 +3091,10 @@ export default function PhotosPage() {
           setNewAlbumOpen(true);
         }}
         onDownload={() => downloadSelected(selection.selectedItems)}
-        onTrash={() => setTrashBulk(selection.selectedItems)}
+        onTrash={() => {
+          trashBulkOpenRef.current = true;
+          setTrashBulk(selection.selectedItems);
+        }}
       />
 
       {lightbox && (
@@ -3109,6 +3155,7 @@ export default function PhotosPage() {
       <ConfirmModal
         open={!!trashBulk}
         onClose={() => {
+          trashBulkOpenRef.current = false;
           setTrashBulk(null);
           setError(null);
         }}

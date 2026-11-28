@@ -2584,6 +2584,36 @@ describe("PhotosPage", () => {
     await waitFor(() => expect(timelineCalls).toBeGreaterThan(before));
   });
 
+  it("lets an in-flight timeline fetch finish when an idle status poll ticks", async () => {
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let releaseFirstPage;
+    const firstPageHold = new Promise((resolve) => { releaseFirstPage = resolve; });
+    let firstPageCalls = 0;
+    const fetchMock = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith("/api/v1/photos?")
+          && new URL(u, "http://luna.local").searchParams.get("offset") === "0") {
+        firstPageCalls += 1;
+        await firstPageHold;
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+
+    await waitFor(() => expect(firstPageCalls).toBe(1));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["photos-status"] });
+    });
+
+    // The tick marks the timeline stale but coalesces into the running fetch.
+    expect(firstPageCalls).toBe(1);
+    await act(async () => { releaseFirstPage(); });
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+  });
+
   it("does not rescan duplicates on repeated identical idle polls", async () => {
     stubPhotosFetch();
     const baseFetch = globalThis.fetch;
@@ -2655,5 +2685,98 @@ describe("PhotosPage", () => {
     failTwo = false;
     fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
     await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg"]));
+  });
+
+  it("does not retry a photo whose lost delete response still landed in Trash", async () => {
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch({
+      photosItems: [
+        { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1_700_000_000, thumb: "/t1", kind: "image" },
+        { drive_id: "a", path: "two.jpg", name: "two.jpg", taken_at: 1_700_000_100, thumb: "/t2", kind: "image" },
+        { drive_id: "a", path: "three.jpg", name: "three.jpg", taken_at: 1_700_000_200, thumb: "/t3", kind: "image" },
+      ],
+    });
+    const baseFetch = globalThis.fetch;
+    /** @type {string[]} */
+    const deleted = [];
+    let dropTwoResponse = true;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if ((init?.method || "GET").toUpperCase() === "GET" && u.includes(".luna-trash")) {
+        return new Response(JSON.stringify([
+          { name: "nonce-two.jpg", original_path: "two.jpg", kind: "file" },
+        ]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if ((init?.method || "GET").toUpperCase() === "DELETE" && u.includes("?path=")) {
+        const path = decodeURIComponent(u.split("?path=")[1]);
+        deleted.push(path);
+        if (path === "two.jpg" && dropTwoResponse) {
+          // Luna moved it, but the connection dropped before the answer arrived.
+          throw new TypeError("Failed to fetch");
+        }
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+
+    fireEvent.contextMenu(await screen.findByLabelText("one.jpg"));
+    fireEvent.click(screen.getByLabelText("two.jpg"));
+    fireEvent.click(screen.getByLabelText("three.jpg"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg"]));
+    // The retry list starts at three.jpg, never at the already-trashed two.jpg.
+    await waitFor(() =>
+      expect(screen.getByText(/Luna will move 1 items to Trash/)).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg", "three.jpg"]));
+  });
+
+  it("does not reopen a bulk trash dialog dismissed while a delete is pending", async () => {
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let releasePending;
+    const pendingHold = new Promise((resolve) => { releasePending = resolve; });
+    let pendingStarted = false;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if ((init?.method || "GET").toUpperCase() === "DELETE" && u.includes("?path=")) {
+        const path = decodeURIComponent(u.split("?path=")[1]);
+        if (path === "two.jpg") {
+          pendingStarted = true;
+          await pendingHold;
+          return new Response(JSON.stringify({ error: "Couldn't move it" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+
+    fireEvent.contextMenu(await screen.findByLabelText("one.jpg"));
+    fireEvent.click(screen.getByLabelText("two.jpg"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
+    expect(screen.getByRole("dialog", { name: "Move selected to trash?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() => expect(pendingStarted).toBe(true));
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Move selected to trash?" })).not.toBeInTheDocument(),
+    );
+
+    await act(async () => { releasePending(); });
+    expect(screen.queryByRole("dialog", { name: "Move selected to trash?" })).not.toBeInTheDocument();
   });
 });
