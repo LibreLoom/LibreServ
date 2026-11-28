@@ -321,6 +321,7 @@ const REST_IDLE_MAX_MS = 300;
  *   onSelectDay?: (photos: PhotosPhoto[]) => void,
  *   onDeselectDay?: (photos: PhotosPhoto[]) => void,
  *   columns?: 3|4|5|6,
+ *   onDrawComplete?: (photos: PhotosPhoto[]|null) => void,
  * }} props
  */
 export default function PhotoTimeline({
@@ -338,6 +339,7 @@ export default function PhotoTimeline({
   onSelectDay = undefined,
   onDeselectDay = undefined,
   columns = 6,
+  onDrawComplete = undefined,
 }) {
   const sentinel = useRef(null);
   const root = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -411,6 +413,17 @@ export default function PhotoTimeline({
       else if (idle) clearTimeout(idle);
     };
   }, [drawAll, restWaits]);
+  // Report the list once every loaded photo is drawn, so a caller restoring a
+  // saved scroll position can wait for the real page height instead of the
+  // short first frame. Report null while only the first frame is drawn: a
+  // timeline remounting on a cached list must invalidate an older report.
+  // Keep the callback in a ref so a parent re-render cannot re-fire it for an
+  // unchanged list.
+  const drawDone = useRef(onDrawComplete);
+  drawDone.current = onDrawComplete;
+  useEffect(() => {
+    drawDone.current?.(drawAll ? photos : null);
+  }, [drawAll, photos]);
   const shownGroups = useMemo(() => {
     if (drawn >= photos.length) return groups;
     const out = [];
@@ -575,4 +588,5 @@ PhotoTimeline.propTypes = {
   onSelectDay: PropTypes.func,
   onDeselectDay: PropTypes.func,
   columns: PropTypes.oneOf([3, 4, 5, 6]),
+  onDrawComplete: PropTypes.func,
 };

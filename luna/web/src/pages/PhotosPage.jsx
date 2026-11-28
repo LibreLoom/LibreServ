@@ -686,8 +686,13 @@ export default function PhotosPage() {
               (a) => a.id === parsed.albumId && a.home_drive_id === parsed.albumHome,
             )
           : null;
-        if (found) tryOpenAlbum(found);
-        else pendingAlbumRef.current = { home: parsed.albumHome, id: parsed.albumId };
+        if (found) {
+          // The hash now names this album, so any lookup still pending for an
+          // older one is superseded. Leaving it armed lets a refresh that
+          // confirms the old album missing eject the one just opened here.
+          pendingAlbumRef.current = null;
+          tryOpenAlbum(found);
+        } else pendingAlbumRef.current = { home: parsed.albumHome, id: parsed.albumId };
       } else {
         pendingAlbumRef.current = null;
         setAlbumView(null);
@@ -1144,7 +1149,11 @@ export default function PhotosPage() {
   // first-page failure takes over the whole screen.
   const hasCachedPages = (photoQuery.data?.pages?.length ?? 0) > 0;
   const connectionError =
-    (drives.isError && /** @type {any} */ (drives.error)?.status === 0 ? drives.error : null)
+    (drives.isError
+      && /** @type {any} */ (drives.error)?.status === 0
+      && !hasCachedPages
+      ? drives.error
+      : null)
     || (photoQuery.isError
       && /** @type {any} */ (photoQuery.error)?.status === 0
       && !hasCachedPages
@@ -1760,6 +1769,10 @@ export default function PhotosPage() {
   // W7/W8 (luna/perf): the first screen of timeline thumbnails, and the
   // thumbnails once a scroll or day jump comes to rest.
   const timelineShown = showTimeline && photos.length > 0;
+  // Both full-page states above return before the timeline mounts. A scroll
+  // restore must not wait for a draw that cannot happen in those states.
+  const timelineMounted =
+    timelineShown && !connectionMessage && !(noDrives && !memberAlbumOnly);
   useEffect(() => {
     perfStart("W7", { fromInput: true, keep: true });
     return () => perfCancel("W7");
@@ -1796,6 +1809,20 @@ export default function PhotosPage() {
     };
   }, [showTimeline, placesMapOverview, writeHash]);
 
+  // A timeline draws only its first screenful before the rest follows in a
+  // background render (PhotoTimeline's FIRST_PAINT_PHOTOS). A `?y=` restore
+  // must not clamp to that short frame: Forward into a cached album with no
+  // more pages would save a shallow scroll and rewrite the hash before the
+  // rest of the list appears. The timeline reports the array it finished
+  // drawing, and null while a fresh timeline is still on its first frame, so a
+  // new page or a remount on the same cached list waits for its own draw.
+  const drawnListRef = useRef(/** @type {PhotosPhoto[]|null} */ (null));
+  const [drawTick, setDrawTick] = useState(0);
+  const onTimelineDrawn = useCallback((/** @type {PhotosPhoto[]|null} */ list) => {
+    drawnListRef.current = list;
+    setDrawTick((t) => t + 1);
+  }, []);
+
   // Restore `#…?y=&p=` on load: keep paging until the saved depth is reachable
   // and the photo is in the list, then scroll and reopen the lightbox.
   useEffect(() => {
@@ -1829,6 +1856,10 @@ export default function PhotosPage() {
         || albumView?.home_drive_id !== r.album.home
       )
     ) return;
+    // Hold a scroll restore until the timeline has drawn every loaded photo;
+    // otherwise the page height used below (and written back to `?y=`) belongs
+    // to the first frame, not the list the person is looking at.
+    if (r.y > 0 && timelineMounted && drawnListRef.current !== photos) return;
     const photoHit = r.photo
       ? photos.findIndex((p) => photoSelectionKey(p) === r.photo)
       : -1;
@@ -1855,7 +1886,7 @@ export default function PhotosPage() {
     if (r.photo && photoHit >= 0) setLightbox({ key: r.photo });
     else if (!r.photo) setLightbox(null);
     writeHash();
-  }, [photos, photoQuery, writeHash, restoreTick, albumView]);
+  }, [photos, photoQuery, writeHash, restoreTick, albumView, timelineMounted, drawTick]);
 
   const actionModalOpen =
     newAlbumOpen
@@ -2160,6 +2191,11 @@ export default function PhotosPage() {
                   return;
                 }
                 pendingAlbumRef.current = null;
+                // A deep link opened directly has no pushed entry to pop, so
+                // this branch clears the view itself. Disarm its `?y=`/`p=`
+                // restore too: while it is pending, hash sync stays blocked
+                // and the URL would keep pointing at the album just left.
+                restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
                 setAlbumView(null);
                 setViewLabel(null);
                 setDuplicatesView(false);
@@ -2591,6 +2627,7 @@ export default function PhotosPage() {
           onSelectDay={(dayPhotos) => selection.selectItems(dayPhotos)}
           onDeselectDay={(dayPhotos) => selection.deselectItems(dayPhotos)}
           columns={/** @type {3|4|5|6} */ (columns)}
+          onDrawComplete={onTimelineDrawn}
         />
       )}
 

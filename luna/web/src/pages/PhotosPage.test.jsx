@@ -161,8 +161,9 @@ function stubUploadXhr() {
   return opens;
 }
 
-function renderPhotos({ withShortcuts = false } = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/** @param {{ withShortcuts?: boolean, client?: QueryClient }} [options] */
+function renderPhotos({ withShortcuts = false, client } = {}) {
+  client ??= new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ToastProvider>
     <QueryClientProvider client={client}>
@@ -486,6 +487,27 @@ describe("PhotosPage", () => {
 
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
     expect(nextPageCalls()).toBe(before);
+  });
+
+  it("in-page Back on a pending album deep link frees the URL for later albums", async () => {
+    stubPhotosFetch({
+      albums: [
+        { id: "al1", home_drive_id: "a", name: "Trip" },
+        { id: "al2", home_drive_id: "a", name: "Cabin" },
+      ],
+      photosHold: new Promise(() => {}),
+    });
+    window.history.replaceState(null, "", "/photos#albums/a/al1?y=350");
+    renderPhotos();
+
+    expect(await screen.findByRole("button", { name: /^Back$/i })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#albums/a/al1?y=350");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/i }));
+    await waitFor(() => expect(window.location.hash).toBe("#albums"));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Cabin\b/i }));
+    await waitFor(() => expect(window.location.hash).toBe("#albums/a/al2"));
   });
 
   it("abandons a pending photo restore when Back removes ?p=", async () => {
@@ -917,6 +939,52 @@ describe("PhotosPage", () => {
     await waitFor(() => {
       expect(window.location.hash).toBe(`#library?p=${p}`);
     });
+  });
+
+  it("keeps cached photos and the day picker when a drive refresh fails offline", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    stubPhotosFetch();
+    const baseFetch = globalThis.fetch;
+    let drivesCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith("/drives")) {
+        drivesCalls += 1;
+        if (drivesCalls > 1) throw new TypeError("Failed to fetch");
+      }
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          return new Response(JSON.stringify({
+            items: [{
+              drive_id: "a", path: "recent.jpg", name: "recent.jpg",
+              taken_at: 1_700_000_000, thumb: "/t1", kind: "image",
+            }],
+            next_offset: 1, has_more: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        throw new TypeError("Failed to fetch");
+      }
+      return baseFetch(url, init);
+    }));
+    renderPhotos({ client });
+
+    expect(await screen.findByLabelText("recent.jpg")).toBeInTheDocument();
+
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["drives"] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByLabelText("recent.jpg")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="photo-timeline"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: /More options/i })).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't reach Luna")).not.toBeInTheDocument();
   });
 
   it("waits for Try again when a deep-linked photo needs a failed next page", async () => {
