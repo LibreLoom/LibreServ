@@ -605,7 +605,9 @@ fn take_event(
     };
     match event {
         PhotosEvent::Upsert { drive_id, rel } => {
-            removes.remove(&(drive_id.clone(), rel.clone()));
+            if removes.remove(&(drive_id.clone(), rel.clone())).is_some() {
+                settle();
+            }
             if !upserts.insert((drive_id, rel)) {
                 settle();
             }
@@ -623,7 +625,9 @@ fn take_event(
             if upserts.remove(&(drive_id.clone(), from.clone())) {
                 settle();
             }
-            removes.remove(&(drive_id.clone(), to.clone()));
+            if removes.remove(&(drive_id.clone(), to.clone())).is_some() {
+                settle();
+            }
             renames.push((drive_id, from, to));
         }
         PhotosEvent::Rescan { drive_id } => {

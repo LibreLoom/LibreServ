@@ -1145,32 +1145,44 @@ export default function PhotosPage() {
   }, [indexing, queryClient]);
 
   // Refresh for each completed index revision, not only for a render that
-  // catches busy turning off. A short busy stretch can sit entirely between
-  // two status polls; `found_count` still moves when a restored photo lands,
-  // so an idle revision that differs from the last one is a finished index.
-  // A busy → idle key change also covers a rescan that found nothing new.
-  const indexRevision = !photosStatus.data
+  // catches busy turning off. lunad sends `found_count` as null to Members, so
+  // the idle revision needs a completion signal every role receives: react-query
+  // advances `dataUpdatedAt` on each status poll, never on a render or mount.
+  // A busy → idle key change still covers a rescan that found nothing new.
+  const statusRevision = !photosStatus.data
     ? null
     : photosStatus.data.busy
-      ? `busy:${photosStatus.data.found_count ?? ""}:${photosStatus.data.phase ?? ""}`
-      : `idle:${photosStatus.data.found_count ?? ""}:${photosStatus.data.last_error ?? ""}`;
-  const lastIndexRevisionRef = useRef(/** @type {string | null} */ (null));
+      ? `busy:${photosStatus.data.phase ?? ""}:${photosStatus.data.pending ?? 0}:${photosStatus.data.found_count ?? ""}`
+      : `idle:${photosStatus.data.phase ?? ""}:${photosStatus.data.pending ?? 0}:${photosStatus.data.last_error ?? ""}:${photosStatus.data.found_count ?? ""}`;
+  const completionRevision = statusRevision === null
+    ? null
+    : `${statusRevision}:${photosStatus.dataUpdatedAt}`;
+  const lastCompletionRef = useRef(/** @type {string | null} */ (null));
+  const lastStatusRevisionRef = useRef(/** @type {string | null} */ (null));
   useEffect(() => {
-    if (!indexRevision) return;
-    const previous = lastIndexRevisionRef.current;
-    lastIndexRevisionRef.current = indexRevision;
-    // The first snapshot is a baseline; an unchanged idle snapshot means no
-    // indexing finished since the last refresh.
-    if (indexRevision.startsWith("busy:") || previous === null || previous === indexRevision) return;
-    queryClient.invalidateQueries({ queryKey: ["photos"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-places"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
-    queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+    if (!completionRevision) return;
+    const previousCompletion = lastCompletionRef.current;
+    const previousStatus = lastStatusRevisionRef.current;
+    lastCompletionRef.current = completionRevision;
+    lastStatusRevisionRef.current = statusRevision;
+    // The first snapshot is a baseline; a busy poll never refreshes on its own.
+    if (previousCompletion === null || statusRevision?.startsWith("busy:")) return;
+    const statusChanged = previousStatus !== statusRevision;
+    // Cached timelines reload every loaded page, so clear them only when a
+    // Member-visible status field (or an Admin's found count) actually moved.
+    if (statusChanged) {
+      queryClient.invalidateQueries({ queryKey: ["photos"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-places"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-status"] });
+    }
     // A restored file lands in the index only now. If Photos refetched
-    // mid-indexing, these two cached a list without it — clear them too.
+    // mid-indexing, these two cached a list without it — clear them on every
+    // idle poll too: a job that finishes between polls leaves every status
+    // field unchanged, and Members never receive `found_count` at all.
     queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
     queryClient.invalidateQueries({ queryKey: ["photos-memories"] });
-  }, [indexRevision, queryClient]);
+  }, [completionRevision, statusRevision, queryClient]);
 
   const rescan = useMutation({
     mutationFn: () => postJson("/api/v1/photos/rescan", {}),
@@ -1460,6 +1472,7 @@ export default function PhotosPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
       queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -1488,6 +1501,7 @@ export default function PhotosPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["photos"] });
       queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
+      queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
