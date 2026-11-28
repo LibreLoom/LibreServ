@@ -558,6 +558,12 @@ export default function PhotosPage() {
   const writeHash = useCallback(() => {
     const s = hashStateRef.current;
     if (!s) return;
+    // A `#albums/<home>/<id>` link names the album before it can be opened.
+    // Writing the plain Albums hash while the lookup is still pending would
+    // destroy the target on an outage, with no link left to retry. The resolver
+    // clears this and opens the album (or rewrites the hash itself when the
+    // album is gone), after which hash sync resumes.
+    if (pendingAlbumRef.current) return;
     let base = `#${s.activeSegment}`;
     // A single-day range on a timeline segment deep-links as `#day/`.
     const singleDay =
@@ -802,6 +808,18 @@ export default function PhotosPage() {
     !filters.place &&
     !placeBboxParam &&
     !duplicatesView;
+  // Boolean() because the album/label terms are truthiness tests, not booleans.
+  // Defined before the error states so only a view that actually shows the
+  // timeline can be owned by a failed timeline request. The query itself may
+  // still be running in the background on the Albums grid or the Places map.
+  const showTimeline = Boolean(
+    !duplicatesView &&
+      (activeSegment === "library" ||
+        activeSegment === "favorites" ||
+        (activeSegment === "places" && !placesMapOverview) ||
+        (activeSegment === "albums" &&
+          (albumView || viewLabel || filterActiveCount > 0))),
+  );
   const filterChips = filterChipList(filters);
 
   const listKey = useMemo(
@@ -1148,7 +1166,7 @@ export default function PhotosPage() {
   // timeline query, so a failed refetch of that disabled query must not show an
   // unrelated "Try again" on a working map or duplicate list.
   const photosLoadError =
-    photoQuery.isError && !looking && !placesMapOverview && !duplicatesView
+    photoQuery.isError && showTimeline && !looking && !placesMapOverview && !duplicatesView
       ? apiErrorMessage(photoQuery.error, "Luna couldn't open Photos. Try again.")
       : null;
   // A status-0 answer means Luna answered nothing at all — the device is
@@ -1176,6 +1194,10 @@ export default function PhotosPage() {
       : null)
     || (photoQuery.isError
       && /** @type {any} */ (photoQuery.error)?.status === 0
+      // The timeline can be fetched behind a view that does not show it (the
+      // Albums grid, a Places map). Its status-0 failure must not replace a
+      // working view with the connection screen; that view owns its own retry.
+      && showTimeline
       && !placesMapOverview
       && !duplicatesView
       && !hasCachedView
@@ -1784,16 +1806,6 @@ export default function PhotosPage() {
     };
   }, [activeSegment, albumView, filters.place, uploadFiles]);
 
-  // Boolean() because the album/label terms are truthiness tests, not booleans.
-  const showTimeline = Boolean(
-    !duplicatesView &&
-      (activeSegment === "library" ||
-        activeSegment === "favorites" ||
-        (activeSegment === "places" && !placesMapOverview) ||
-        (activeSegment === "albums" &&
-          (albumView || viewLabel || filterActiveCount > 0))),
-  );
-
   // W7/W8 (luna/perf): the first screen of timeline thumbnails, and the
   // thumbnails once a scroll or day jump comes to rest.
   const timelineShown = showTimeline && photos.length > 0;
@@ -2072,6 +2084,29 @@ export default function PhotosPage() {
       return (
         <Page title="Photos" titleId="photos-title">
           <PhotosLoadingStatus label="Loading photos…" />
+        </Page>
+      );
+    }
+    // The Albums probe is how a Member with no drives finds shared photos. An
+    // error there must offer its own retry instead of claiming there is nothing
+    // to open — the list may hold albums the person can see.
+    if (!isAdmin && albums.isError) {
+      return (
+        <Page title="Photos" titleId="photos-title">
+          <EmptyState
+            icon={PlugZap}
+            title="Couldn't load albums"
+            description={apiErrorMessage(albums.error, "Luna couldn't load albums. Try again.")}
+            action={
+              <Button
+                variant="primary"
+                loading={albums.isFetching}
+                onClick={() => albums.refetch()}
+              >
+                Try again
+              </Button>
+            }
+          />
         </Page>
       );
     }
@@ -2504,6 +2539,24 @@ export default function PhotosPage() {
       )}
 
       {activeSegment === "albums" && !albumView && !viewLabel && !duplicatesView && filterActiveCount === 0 && (
+        <>
+        {albums.isError && albumList.length > 0 && (
+          <EmptyState
+            icon={PlugZap}
+            title="Couldn't load albums"
+            description="Try again in a moment."
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                loading={albums.isFetching}
+                onClick={() => albums.refetch()}
+              >
+                Try again
+              </Button>
+            }
+          />
+        )}
         <AlbumsPanel
           albums={albumList}
           loading={albums.isLoading}
@@ -2608,6 +2661,7 @@ export default function PhotosPage() {
             }
           }}
         />
+        </>
       )}
 
       {placesMapOverview && (

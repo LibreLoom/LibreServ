@@ -2514,4 +2514,42 @@ describe("PhotosPage", () => {
 
     expect(await screen.findByRole("button", { name: /^Trip/ })).toBeInTheDocument();
   });
+
+  it("keeps a working Albums grid when the background photo list fails offline", async () => {
+    stubPhotosFetch({ albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 1 }] });
+    const baseFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url, init) => {
+      if (String(url).startsWith("/api/v1/photos?")) throw new TypeError("Failed to fetch");
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/photos#albums");
+    renderPhotos();
+
+    await screen.findByRole("button", { name: /^Trip/ });
+    await waitFor(() => expect(fetchMock.mock.calls.some(
+      ([url]) => String(url).startsWith("/api/v1/photos?"),
+    )).toBe(true));
+    expect(screen.queryByText("Couldn't reach Luna")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Trip/ })).toBeInTheDocument();
+  });
+
+  it("keeps a bare album deep link while the album lookup is pending", async () => {
+    let releaseAlbums;
+    const albumsHold = new Promise((resolve) => { releaseAlbums = resolve; });
+    stubPhotosFetch({
+      albums: [{ id: "al1", home_drive_id: "a", name: "Trip", item_count: 1 }],
+      albumsHold,
+      photosHold: new Promise(() => {}),
+    });
+    window.history.replaceState(null, "", "/photos#albums/a/al1");
+    renderPhotos();
+
+    expect(window.location.hash).toBe("#albums/a/al1");
+
+    await act(async () => { releaseAlbums(); });
+
+    expect(await screen.findByText("Trip")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#albums/a/al1");
+  });
 });
