@@ -1158,10 +1158,12 @@ export default function PhotosPage() {
   // nothing about whether those views already have an answer on screen. Check
   // the active view's own cache: a status-0 refresh must not replace a
   // populated map or duplicate list with the full-page connection screen.
+  // A failed refresh keeps `data` but clears `isSuccess`, so judge by the
+  // retained data — the map and duplicate list stay up with an inline error.
   const hasCachedPlaces =
-    activeSegment === "places" && places.isSuccess && Array.isArray(places.data);
+    activeSegment === "places" && Array.isArray(places.data);
   const hasCachedDuplicates =
-    duplicatesView && duplicates.isSuccess && !!duplicates.data;
+    duplicatesView && !!duplicates.data;
   const hasCachedView = hasCachedPages || hasCachedPlaces || hasCachedDuplicates;
   const connectionError =
     (drives.isError
@@ -1906,6 +1908,14 @@ export default function PhotosPage() {
     setMapPage((m) => (m.lingers ? { ...m, lingers: false } : m));
   }, []);
 
+  // The connection screen returns before SlidePages mounts, so its onSettled
+  // callback never ends a Places map exit. Clear the flag during render (the
+  // same pattern as the key change above): after a retry the timeline must
+  // remount at its normal height with scroll restore unblocked.
+  if (connectionMessage && mapPage.lingers) {
+    setMapPage((m) => ({ ...m, lingers: false }));
+  }
+
   // Restore `#…?y=&p=` on load: keep paging until the saved depth is reachable
   // and the photo is in the list, then scroll and reopen the lightbox. This
   // sits after the map layout so it can wait for a map page to slide out before
@@ -2481,7 +2491,17 @@ export default function PhotosPage() {
           albums={albums.data || []}
           loading={albums.isLoading}
           currentUser={user}
-          onOpen={tryOpenAlbum}
+          onOpen={(album) => {
+            // A hashchange can name an album missing from a list that is still
+            // refetching. If that lookup stays armed, its settled refetch would
+            // eject the album opened here and rewrite the URL to `#albums`.
+            // Disarm it and the `?y=`/`p=` restore bound to the old link first.
+            pendingAlbumRef.current = null;
+            if (!restoreRef.current.done) {
+              restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
+            }
+            tryOpenAlbum(album);
+          }}
           onCreate={() => setNewAlbumOpen(true)}
           onDelete={(album) => {
             setError(null);

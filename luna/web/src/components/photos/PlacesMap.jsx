@@ -437,7 +437,10 @@ export default function PlacesMap({
     );
   }
 
-  if (error) {
+  // A refresh failure keeps `data`, so cached markers stay on the map and the
+  // error shows in an inline notice. Only a first-page failure with no markers
+  // takes over the view; the page's connection screen covers an outage there.
+  if (error && !markers.length) {
     return (
       <EmptyState
         noPopIn
@@ -578,6 +581,21 @@ export default function PlacesMap({
           </div>
         )}
       </div>
+
+      {error && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute bottom-3 left-3 z-[1000] flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-large-element surface-secondary px-3 py-2 text-sm shadow-xl ring-2 ring-accent"
+        >
+          <span>{error}</span>
+          {onRetry && (
+            <Button size="sm" variant="outline" surface="secondary" onClick={onRetry}>
+              Try again
+            </Button>
+          )}
+        </div>
+      )}
 
       <MapContainer
         center={center}

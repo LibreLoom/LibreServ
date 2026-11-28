@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import PlacesMap, { PlacePopupContent } from "./PlacesMap.jsx";
@@ -199,5 +199,27 @@ describe("PlacesMap", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onDrawModeChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps cached markers and shows an inline notice on a refresh failure", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(
+      <PlacesMap
+        places={[{ key: "home", label: "Home", count: 2, lat: 37.7, lon: -122.4 }]}
+        error="Couldn't reach Luna. Check this device's connection and try again."
+        onRetry={onRetry}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("map-container")).toBeInTheDocument();
+    expect(document.querySelector(".places-map")).toBeTruthy();
+    expect(screen.queryByText("Couldn't load places")).not.toBeInTheDocument();
+
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Couldn't reach Luna");
+    await user.click(within(notice).getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });
