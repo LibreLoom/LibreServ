@@ -1194,6 +1194,10 @@ describe("PhotosPage", () => {
     act(() => {
       window.location.hash = "albums/a/gone";
     });
+    // A cache miss revalidates once before the link is declared dead.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
 
     expect(await screen.findByText("That album no longer exists.")).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#albums"));
@@ -1216,6 +1220,10 @@ describe("PhotosPage", () => {
     await act(async () => {
       releaseAlbums();
       await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The first settled miss triggers one revalidation before ejecting.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
     expect(await screen.findByText("That album no longer exists.")).toBeInTheDocument();

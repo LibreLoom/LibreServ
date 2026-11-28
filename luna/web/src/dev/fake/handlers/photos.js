@@ -319,7 +319,11 @@ get("/api/v1/photos/duplicates", ({ world }) => {
     if (!p.dup || trashed.has(photoKey(p))) continue;
     (groups.get(p.dup) || groups.set(p.dup, []).get(p.dup)).push(p);
   }
-  return { groups: [...groups.entries()].map(([key, items]) => ({ key, name: items[0].name, items })) };
+  // Match lunad (api/photos.rs): a group with fewer than two surviving items
+  // is no longer a duplicate, so it must disappear instead of lingering as one.
+  return { groups: [...groups.entries()]
+    .filter(([, items]) => items.length > 1)
+    .map(([key, items]) => ({ key, name: items[0].name, items })) };
 });
 
 put("/api/v1/photos/favorites", ({ world, body }) => {

@@ -537,6 +537,10 @@ export default function PhotosPage() {
       ? { home: initialHash.albumHome, id: initialHash.albumId }
       : null,
   );
+  // The album we last revalidated the cached list for. A link to an album
+  // shared since the last fetch misses the cache; revalidate once so a stale
+  // answer cannot declare the link dead, without refetching on every render.
+  const albumRevalidatedRef = useRef(/** @type {string|null} */ (null));
   // A hashchange can name a missing album after the Albums query has already
   // settled. Bump this so the resolver effect retries the new pending lookup
   // even when no query data moved (the same pattern as restoreTick).
@@ -636,6 +640,12 @@ export default function PhotosPage() {
       const parsed = parsePhotosHash(window.location.hash);
       if (SEGMENT_IDS.includes(parsed.segment)) setSegment(parsed.segment);
       setFilters((prev) => {
+        // A named album owns its own unfiltered list. Drop the filters of the
+        // view being replaced (e.g. the Videos smart album's `kind=video`) so
+        // its request is not narrowed and, if the lookup fails, the Albums grid
+        // and its retry stay visible instead of a filtered timeline. Smart
+        // albums keep their filters: they open through onSmart, not a hash link.
+        if (parsed.albumId) return { ...EMPTY_FILTERS };
         const next = { ...prev, monthDay: parsed.onThisDay ? "today" : "" };
         if (parsed.day) {
           if (dayBoundsLocal(parsed.day)) {
@@ -694,6 +704,12 @@ export default function PhotosPage() {
         setDuplicatesView(false);
         setViewLabel(null);
         setAlbumView(null);
+        // The previous view's search would otherwise ride into the album's own
+        // list; clear it with the filters above.
+        setQ("");
+        setSearch("");
+        // A new link gets its own cache-miss revalidation (see the resolver).
+        albumRevalidatedRef.current = null;
         // Back/forward (or a pasted link) names the album — reopen it. If the
         // albums query hasn't landed yet, the resolver effect picks it up.
         const list = queryClient.getQueryData(["photos-albums"]);
@@ -712,6 +728,7 @@ export default function PhotosPage() {
         setPendingAlbumTick((t) => t + 1);
       } else {
         pendingAlbumRef.current = null;
+        albumRevalidatedRef.current = null;
         setPendingAlbumTick((t) => t + 1);
         setAlbumView(null);
         setViewLabel(null);
@@ -1124,6 +1141,7 @@ export default function PhotosPage() {
     );
     if (found) {
       pendingAlbumRef.current = null;
+      albumRevalidatedRef.current = null;
       tryOpenAlbum(found);
       return;
     }
@@ -1133,7 +1151,24 @@ export default function PhotosPage() {
     // refresh keeps the cached success but never lands, so it must not eject
     // the link before reconnect.
     if (!albums.isSuccess || albums.isFetching || albums.isPaused) return;
+    // The cached list can predate a newly shared album (Albums was already
+    // open when the link was followed). Revalidate once before concluding the
+    // target is absent, then wait for that refetch to settle through the deps
+    // above: isFetching holds us while it runs, and the settled answer either
+    // opens the album or, if it is still missing, passes the guard below.
+    const key = `${pending.home}\0${pending.id}`;
+    if (albumRevalidatedRef.current !== key) {
+      albumRevalidatedRef.current = key;
+      // A mocked/fast refetch can settle without a visible isFetching change;
+      // nudge the resolver explicitly once it finishes so the settled answer
+      // is always evaluated.
+      void Promise.resolve(albums.refetch()).finally(() => {
+        setPendingAlbumTick((tick) => tick + 1);
+      });
+      return;
+    }
     pendingAlbumRef.current = null;
+    albumRevalidatedRef.current = null;
     // Release the `?y=`/`p=` restore too: while it is pending, hash sync stays
     // blocked and the dead link survives every later album card and URL change.
     restoreRef.current = { y: 0, photo: null, album: null, pages: 0, done: true };
@@ -1146,6 +1181,7 @@ export default function PhotosPage() {
     // Lands on the Albums grid, where the notice lives, and writes a clean
     // `#albums` through the now-unblocked hash sync.
     window.location.hash = "albums";
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch is stable; the settled query fields above are the real triggers
   }, [albums.data, albums.isSuccess, albums.isFetching, albums.isPaused, tryOpenAlbum, pendingAlbumTick]);
 
   const looking = photoQuery.isLoading || (indexing && photos.length === 0);
