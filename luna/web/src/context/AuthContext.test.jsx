@@ -40,6 +40,13 @@ function renderAt(path, { setupCompleted = false, hasAdmin = false } = {}) {
 }
 
 describe("AuthProvider setup gating", () => {
+  afterEach(() => {
+    // routeAfterRefresh reads window.location directly; MemoryRouter's own
+    // path is irrelevant to it. Restore the tab for the next test.
+    window.history.pushState({}, "", "/");
+    vi.unstubAllGlobals();
+  });
+
   it("sends a fresh Luna to the setup wizard", async () => {
     renderAt("/", { setupCompleted: false, hasAdmin: false });
     expect(await screen.findByText("SETUP WIZARD")).toBeInTheDocument();
@@ -53,6 +60,61 @@ describe("AuthProvider setup gating", () => {
   it("keeps password recovery reachable when Luna has no Admin yet", async () => {
     renderAt("/recover", { setupCompleted: false, hasAdmin: false });
     expect(await screen.findByText("RECOVERY WIZARD")).toBeInTheDocument();
+  });
+
+  it("stays on /recover/ when the startup read finds no Admin", async () => {
+    // The router matches /recover and /recover/ as the same route, but the
+    // startup decision read window.location.pathname literally. With a
+    // trailing slash it looked like an unknown route and was replaced by the
+    // setup wizard, so recovery was unreachable at /recover/.
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
+      if (u.endsWith("/api/v1/auth/status")) {
+        return new Response(JSON.stringify({ has_admin: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/setup")) {
+        return new Response(JSON.stringify({ name: "Luna", setup_completed: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    window.history.pushState({}, "", "/recover/");
+
+    function Probe() {
+      const { loading } = useAuth();
+      const { pathname } = useLocation();
+      return (
+        <div>
+          <span>{loading ? "LOADING" : "READY"}</span>
+          <span>{`AT ${pathname}`}</span>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/recover/"]}>
+        <AuthProvider>
+          <Probe />
+          <Routes>
+            <Route path="/recover" element={<div>RECOVERY WIZARD</div>} />
+            <Route path="/setup" element={<div>SETUP WIZARD</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    // Wait for the read to land: checking the route before then would pass
+    // even if the decision later replaces recovery with the wizard.
+    expect(await screen.findByText("READY")).toBeInTheDocument();
+    expect(screen.getByText("AT /recover/")).toBeInTheDocument();
+    expect(screen.getByText("RECOVERY WIZARD")).toBeInTheDocument();
+    expect(screen.queryByText("SETUP WIZARD")).not.toBeInTheDocument();
   });
 
   it("keeps login when setup is incomplete but an account exists", async () => {

@@ -124,8 +124,10 @@ for (let i = 0; i < scenarios.length; i++) {
   const scenario = scenarios[i];
   let status = "ok";
   let observed = [];
-  // A failed visit never gets to claim a rendered theme or viewport.
-  let rendered = { viewport: "unknown", theme: "unknown", frame: { innerWidth: null, innerHeight: null } };
+  // A failed visit never gets to claim a rendered theme or viewport. Reset at
+  // the start of every attempt so a retry that fails before measuring cannot
+  // inherit the previous attempt's theme/dimensions.
+  let rendered;
 
   // Widen the gallery before visiting so its frame can honour the declared
   // preset. Context-level sizing survives the fresh-reload retry (page.reload),
@@ -138,6 +140,10 @@ for (let i = 0; i < scenarios.length; i++) {
 
   // A reload can break one visit; retry that scenario once before recording.
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Each attempt starts unmeasured. If this attempt fails before it can read
+    // the frame, the record must say "unknown", not reuse a prior attempt's
+    // theme/frame from a visit that did measure before failing.
+    rendered = { viewport: "unknown", theme: "unknown", frame: { innerWidth: null, innerHeight: null } };
     // Mark the whole visit window up front: errors thrown while the fresh
     // frame loads still belong to this attempt and must not be lost.
     const visitMark = { page: pageErrors.length, console: consoleErrors.length };

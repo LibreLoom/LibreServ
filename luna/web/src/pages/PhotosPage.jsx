@@ -1046,10 +1046,19 @@ export default function PhotosPage() {
   // Only a successful, empty drives answer means "no drives". An error (above
   // all status 0, offline) must never be dressed up as an empty library.
   const noDrives = drives.isSuccess && driveList.length === 0;
-  // lunad's rescan (api/photos.rs) queues a scan for every drive the caller can
-  // access, Members included. The drives list is access-filtered, so a member
-  // with a drive in it has something to rescan; one with no drives does not.
-  const canRescan = isAdmin || (drives.isSuccess && driveList.length > 0);
+  // lunad's rescan (api/photos.rs) only arms `as_is` drives with a live mount.
+  // A Member's drive list is access-filtered but still lists drives that are
+  // unplugged or mounted read-only, so an eligible drive must be checked before
+  // offering the action. Admins keep their usual Rescan unless every listed
+  // drive is known to be unusable — lunad would answer 400 for those.
+  const hasRescanDrive = driveList.some((d) =>
+    d.mounted !== false
+    && (isAdmin
+      ? d.mount_point !== "" && (d.state == null || d.state === "as_is")
+      : d.state === "as_is"));
+  const canRescan = isAdmin
+    ? !drives.isSuccess || driveList.length === 0 || hasRescanDrive
+    : drives.isSuccess && hasRescanDrive;
   const memberAlbumsGatePending =
     !isAdmin &&
     noDrives &&
@@ -1507,7 +1516,14 @@ export default function PhotosPage() {
     : 0;
 
   const loadMore = useCallback(() => {
-    if (photoQuery.hasNextPage && !photoQuery.isFetchingNextPage) {
+    // A failed next-page fetch stays an error until Try again is pressed. The
+    // sentinel would otherwise keep asking for the same page on every query
+    // update, so leave the retry to the page's error notice.
+    if (
+      photoQuery.hasNextPage
+      && !photoQuery.isFetchingNextPage
+      && !photoQuery.isFetchNextPageError
+    ) {
       photoQuery.fetchNextPage();
     }
   }, [photoQuery]);
@@ -2420,6 +2436,7 @@ export default function PhotosPage() {
           photos={photos}
           hasMore={!!photoQuery.hasNextPage}
           loadingMore={photoQuery.isFetchingNextPage}
+          pagingError={!!photoQuery.isFetchNextPageError}
           onLoadMore={loadMore}
           onOpen={openPhoto}
           selectMode={selection.selectMode}

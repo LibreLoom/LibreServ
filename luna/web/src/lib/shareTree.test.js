@@ -102,6 +102,41 @@ describe("shareTree", () => {
     ]);
   });
 
+  it("keeps browsable roots in the Places list with writable false", () => {
+    const rows = [
+      // Read on a mounted read-only drive: no write caps, still a place.
+      { id: "ro", kind: "path", drive_id: "ro-drive", path: "photos", name: "Photos", caps: "view" },
+      // Read on a writable drive is still browse-only (the grant lacks writes).
+      { id: "view", kind: "path", drive_id: "d1", path: "docs", caps: "view" },
+      // A Write grant stays writable in this mode.
+      { id: "w", kind: "path", drive_id: "d1", path: "inbox", caps: "full" },
+      // Unpresent drives, albums and files are never places.
+      { id: "gone", kind: "path", drive_id: "gone", path: "", caps: "full" },
+      { id: "album", kind: KIND_ALBUM, drive_id: "d1", album_id: "al1", caps: "view" },
+      { id: "file", kind: "path", drive_id: "d1", path: "one.txt", is_file: true, caps: "view" },
+    ];
+    const present = (id) => id === "d1" || id === "ro-drive";
+    const roots = memberWritableRoots(rows, present, () => "Drive", { includeReadOnly: true });
+    expect(roots).toEqual([
+      { driveId: "d1", path: "inbox", label: "inbox", writable: true },
+      { driveId: "ro-drive", path: "photos", label: "Photos", writable: false },
+      { driveId: "d1", path: "docs", label: "docs", writable: false },
+    ]);
+    // The strict default keeps copy destinations write-only, with no flag.
+    expect(memberWritableRoots(rows, present, () => "Drive")).toEqual([
+      { driveId: "d1", path: "inbox", label: "inbox" },
+    ]);
+  });
+
+  it("does not let a Read row hide a Write grant on the same folder", () => {
+    const rows = [
+      { id: "view", kind: "path", drive_id: "d1", path: "docs", caps: "view" },
+      { id: "write", kind: "path", drive_id: "d1", path: "docs", caps: "full" },
+    ];
+    expect(memberWritableRoots(rows, () => true, () => "Drive", { includeReadOnly: true }))
+      .toEqual([{ driveId: "d1", path: "docs", label: "docs", writable: true }]);
+  });
+
   it("treats a whole-drive grant as the normal root", () => {
     const rows = [{ id: "w", kind: "path", drive_id: "d1", path: "", caps: "view" }];
     expect(memberPathFloor(rows, "d1", "anywhere/deep")).toBe("");

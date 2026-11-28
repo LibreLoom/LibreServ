@@ -118,19 +118,36 @@ export function memberPathFloor(rows, driveId, path) {
   return hasDriveRow ? target : "";
 }
 
+function rootLabel(row, driveId, path, driveLabel) {
+  return row.name
+    || (path ? path.split("/").pop() : "")
+    || driveLabel(driveId)
+    || "Shared folder";
+}
+
 /**
- * A member's writable destination roots — where a move/copy/folder-create
- * can actually land: every grant root with upload or edit bits on a
- * present drive.
+ * A member's destination roots — by default only where a move/copy/
+ * folder-create can actually land: every grant root with upload or edit bits
+ * on a present drive. Copy pickers must keep this strict default.
+ *
+ * `includeReadOnly` is for the Places/nav list: it also returns browsable
+ * (VIEW) roots, each marked `writable: false`, so a shared folder on a
+ * mounted read-only drive stays reachable without becoming a destination.
+ * Writable roots carry `writable: true` in that mode; the caller still
+ * combines it with the drive's own read-only state.
  *
  * @param rows   member access rows (`/me/access`)
  * @param isPresent  (driveId) => the drive is mounted and usable
  * @param driveLabel (driveId) => display label for a drive
+ * @param {{ includeReadOnly?: boolean }} [options]
  */
-export function memberWritableRoots(rows, isPresent, driveLabel) {
+export function memberWritableRoots(rows, isPresent, driveLabel, { includeReadOnly = false } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
   const roots = [];
   const seen = new Set();
-  for (const row of Array.isArray(rows) ? rows : []) {
+  // Writable roots first: a later VIEW row for the same path must not hide
+  // the write grant that makes it a destination.
+  for (const row of list) {
     // A file grant isn't a folder anything can move into.
     if (row.kind === KIND_ALBUM || row.is_file) continue;
     const driveId = driveIdOf(row);
@@ -140,11 +157,28 @@ export function memberWritableRoots(rows, isPresent, driveLabel) {
     const key = `${driveId}:${path}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const label = row.name
-      || (path ? path.split("/").pop() : "")
-      || driveLabel(driveId)
-      || "Shared folder";
-    roots.push({ driveId, path, label });
+    const label = rootLabel(row, driveId, path, driveLabel);
+    roots.push(includeReadOnly
+      ? { driveId, path, label, writable: true }
+      : { driveId, path, label });
+  }
+  if (includeReadOnly) {
+    for (const row of list) {
+      if (row.kind === KIND_ALBUM || row.is_file) continue;
+      const driveId = driveIdOf(row);
+      if (!driveId || !isPresent(driveId)) continue;
+      if ((capsBits(row.caps) & CAP.VIEW) === 0) continue;
+      const path = pathKey(row.path);
+      const key = `${driveId}:${path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      roots.push({
+        driveId,
+        path,
+        label: rootLabel(row, driveId, path, driveLabel),
+        writable: false,
+      });
+    }
   }
   return roots;
 }

@@ -310,6 +310,7 @@ const REST_IDLE_MAX_MS = 300;
  *   photos: PhotosPhoto[],
  *   hasMore?: boolean,
  *   loadingMore?: boolean,
+ *   pagingError?: boolean,
  *   onLoadMore?: () => void,
  *   onOpen?: (photo: PhotosPhoto) => void,
  *   selectMode?: boolean,
@@ -326,6 +327,7 @@ export default function PhotoTimeline({
   photos,
   hasMore = false,
   loadingMore = false,
+  pagingError = false,
   onLoadMore = undefined,
   onOpen = undefined,
   selectMode = false,
@@ -424,8 +426,10 @@ export default function PhotoTimeline({
   useEffect(() => {
     const el = sentinel.current;
     // Not before every photo is drawn: the short first frame would show the
-    // sentinel and fetch a page nobody scrolled to.
-    if (!el || !hasMore || !drawAll) return undefined;
+    // sentinel and fetch a page nobody scrolled to. After a failed fetch the
+    // sentinel stays visible, but the page's error notice owns the retry —
+    // reobserving on each query update would retry the same page forever.
+    if (!el || !hasMore || !drawAll || pagingError) return undefined;
     // Two frames later: after a jump, the days now on screen draw in the
     // next frame and ask for their thumbnails then. Drawing the next page
     // first held those requests back behind its long render (W8).
@@ -454,7 +458,7 @@ export default function PhotoTimeline({
       io.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [hasMore, onLoadMore, photos.length, drawAll]);
+  }, [hasMore, onLoadMore, photos.length, drawAll, pagingError]);
 
   useEffect(() => {
     function endDrag() {
@@ -560,6 +564,7 @@ PhotoTimeline.propTypes = {
   photos: PropTypes.arrayOf(PropTypes.object).isRequired,
   hasMore: PropTypes.bool,
   loadingMore: PropTypes.bool,
+  pagingError: PropTypes.bool,
   onLoadMore: PropTypes.func,
   onOpen: PropTypes.func,
   selectMode: PropTypes.bool,

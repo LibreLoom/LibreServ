@@ -75,11 +75,12 @@ export default function FilePage() {
   // file browser itself can render and more than one drive is ready.
   const presentDriveCount = (drives.data || []).filter(isPresentDrive).length;
 
-  // Members don't get a raw drive picker — their places are the shared roots
-  // they can open. Equity with the admin selector, not equality: the menu
-  // looks the same but holds different things. Only places that can take
-  // writes are drop/copy destinations; a mounted read-only drive still gets
-  // a browse-only entry so its files stay reachable.
+  // Members don't get a raw drive picker — their places are every shared
+  // root they can browse. Equity with the admin selector, not equality: the
+  // menu looks the same but holds different things. A place is a drop/copy
+  // destination only when its grant allows writes AND its drive does; a
+  // Read grant on a mounted read-only drive stays reachable as a browse-only
+  // entry (the copy pickers keep their stricter filter).
   const userId = user?.id;
   const memberDests = useMemo(() => {
     if (isAdmin || !userId) return null;
@@ -90,15 +91,19 @@ export default function FilePage() {
       (drives.data || []).filter(isWritableDrive).map((d) => d.id),
     );
     const labelOf = (id) => (drives.data || []).find((d) => d.id === id)?.label;
-    return memberWritableRoots(access.data, (id) => present.has(id), labelOf)
-      .map((r) => ({
-        driveId: r.driveId,
-        path: r.path,
-        label: r.label,
-        sub: labelOf(r.driveId),
-        icon: /** @type {"folder"|"drive"} */ (r.path ? "folder" : "drive"),
-        writable: writable.has(r.driveId),
-      }));
+    return memberWritableRoots(
+      access.data,
+      (id) => present.has(id),
+      labelOf,
+      { includeReadOnly: true },
+    ).map((r) => ({
+      driveId: r.driveId,
+      path: r.path,
+      label: r.label,
+      sub: labelOf(r.driveId),
+      icon: /** @type {"folder"|"drive"} */ (r.path ? "folder" : "drive"),
+      writable: writable.has(r.driveId) && r.writable !== false,
+    }));
   }, [isAdmin, userId, drives.data, access.data]);
 
   const showDriveMenu = drive != null

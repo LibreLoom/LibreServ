@@ -11,6 +11,13 @@ const AuthContext = createContext(undefined);
 // exists so a recovery file can create a new Admin account at boot.
 const ALLOWED_DURING_SETUP = ["/setup", "/login", "/recover"];
 
+// React Router matches /recover and /recover/ as the same route, but the
+// browser reports the literal pathname. Normalize before comparing so a
+// trailing slash cannot bounce someone off a page they are already on.
+function normalizePath(path) {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
 // A startup or recovery attempt can be blackholed (a firewall drops the
 // packet instead of refusing it). Without a bound, browser fetch keeps the
 // in-flight guard shut for minutes and the app stalls. Abort a whole attempt
@@ -151,7 +158,7 @@ export function AuthProvider({ children }) {
     // provider on every ?file= / #hash change, so opening a file re-rendered
     // the whole app tree.
     function routeAfterRefresh({ me, setup: setupState, hasAdmin: adminExists }) {
-      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      const path = normalizePath(typeof window !== "undefined" ? window.location.pathname : "");
       const needsSetup = !adminExists || Boolean(setupState && setupState.setup_completed === false);
       if (!adminExists && !me && path !== "/recover") {
         if (path !== "/setup") {
