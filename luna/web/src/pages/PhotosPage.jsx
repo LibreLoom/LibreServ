@@ -488,9 +488,11 @@ export default function PhotosPage() {
   const [trashPhoto, setTrashPhoto] = useState(null);
   const [trashBulk, setTrashBulk] = useState(/** @type {object[]|null} */ (null));
   // The bulk-trash dialog can be dismissed (Cancel, X, Escape) while its
-  // deletes are still running. A later failure must not put the retry list
-  // back and reopen a dialog the person already closed.
-  const trashBulkOpenRef = useRef(false);
+  // deletes are still running, then opened again for a different selection.
+  // Each open gets its own token (0 = closed), and every mutation carries the
+  // token it started from, so a late result from the old batch cannot close
+  // or overwrite the newer dialog.
+  const trashBulkTokenRef = useRef(0);
   const [trashAlbum, setTrashAlbum] = useState(null);
   const [shareAlbum, setShareAlbum] = useState(null);
   const [albumPick, setAlbumPick] = useState(/** @type {object[]|null} */ (null));
@@ -1131,6 +1133,8 @@ export default function PhotosPage() {
   foundCountRef.current = foundCount;
   const loadedPagesRef = useRef(0);
   loadedPagesRef.current = photoQuery.data?.pages?.length ?? 0;
+  const timelineFetchingRef = useRef(false);
+  timelineFetchingRef.current = photoQuery.isFetching;
   useEffect(() => {
     if (!indexing) return undefined;
     let refreshedAt = foundCountRef.current;
@@ -1192,17 +1196,31 @@ export default function PhotosPage() {
       // on a real change or the new `dataUpdatedAt` would feed this effect.
       queryClient.invalidateQueries({ queryKey: ["photos-status"] });
     } else {
-      // Every idle poll moves `dataUpdatedAt` without moving a status field.
-      // Treating that tick like a completion used to cancel an in-flight
-      // `fetchNextPage` and restart every cached page from page one, so a slow
-      // library could starve date jumps and deep-link restore forever. Mark
-      // the timelines stale and refetch without cancelling: TanStack Query
-      // coalesces the refetch into the running fetch instead of restarting it,
-      // and the next observer refetch still sees the restored photo.
+      // Only the poll tick moved (`dataUpdatedAt`), not the index fields.
+      // `cancelRefetch: false` protects a request already in flight, but once
+      // the timeline is idle the invalidation still starts a sequential
+      // reload of every cached page — every eight seconds on a big library,
+      // starving date jumps and deep-link restore. Mark such timelines stale
+      // without a refetch instead; a genuine status change above still
+      // refreshes them at once, and the next page or observer fetch reads the
+      // new index. A single cached page is cheap, so keep the restore
+      // visibility the tick used to provide when there is nothing to page
+      // through and no listing request running.
+      const cachedPages = loadedPagesRef.current;
+      const skipRefetch = cachedPages > 1 || (cachedPages > 0 && timelineFetchingRef.current);
       const keepFetching = { cancelRefetch: false };
-      queryClient.invalidateQueries({ queryKey: ["photos"] }, keepFetching);
-      queryClient.invalidateQueries({ queryKey: ["photos-places"] }, keepFetching);
-      queryClient.invalidateQueries({ queryKey: ["photos-albums"] }, keepFetching);
+      queryClient.invalidateQueries(
+        { queryKey: ["photos"], refetchType: skipRefetch ? "none" : undefined },
+        keepFetching,
+      );
+      queryClient.invalidateQueries(
+        { queryKey: ["photos-places"], refetchType: skipRefetch ? "none" : undefined },
+        keepFetching,
+      );
+      queryClient.invalidateQueries(
+        { queryKey: ["photos-albums"], refetchType: skipRefetch ? "none" : undefined },
+        keepFetching,
+      );
     }
 
     // Duplicates and On this day scan photo rows across every accessible drive.
@@ -1513,20 +1531,29 @@ export default function PhotosPage() {
   const trashMany = useMutation({
     /**
      * `trashed` is filled as each delete succeeds, so a partial failure can
-     * retry only the items that are still there.
-     * @param {{ items: PhotosPhoto[], trashed: PhotosPhoto[] }} args
+     * retry only the items that are still there. `attemptedAt` is when the
+     * current delete left: a Trash entry's `{unix-seconds}-` name prefix proves
+     * it came from this request rather than an older item at the same path.
+     * `token` is the dialog this batch was started from.
+     * @param {{ items: PhotosPhoto[], trashed: PhotosPhoto[], attemptedAt?: number|null, token?: number }} args
      */
-    mutationFn: async ({ items, trashed }) => {
+    mutationFn: async (args) => {
+      const { items, trashed } = args;
       for (const photo of items) {
+        args.attemptedAt = Date.now();
         await deleteJson(
           `/api/v1/drives/${photo.drive_id}/files?path=${encodeURIComponent(photo.path)}`,
         );
         trashed.push(photo);
       }
     },
-    onSuccess: (_d, { items }) => {
-      trashBulkOpenRef.current = false;
-      setTrashBulk(null);
+    onSuccess: (_d, { items, token }) => {
+      // A batch that finishes after its dialog was dismissed must not close a
+      // newer confirmation that happens to be open now.
+      if (token && trashBulkTokenRef.current === token) {
+        trashBulkTokenRef.current = 0;
+        setTrashBulk(null);
+      }
       selection.exit();
       setAddToAlbumTarget(null);
       addToast({
@@ -1542,10 +1569,12 @@ export default function PhotosPage() {
       queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
       queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
     },
-    onError: async (err, { items, trashed }) => {
+    onError: async (err, { items, trashed, attemptedAt, token }) => {
       // The delete that threw may have reached Luna before the connection
       // dropped. Retrying it would get a 404 and strand every later photo
-      // behind it, so ask Trash by original path before calling it unfinished.
+      // behind it, so ask Trash before calling it unfinished. A same-path
+      // entry from an earlier deletion is not evidence: require a trash time
+      // at or after this request, and keep the item when either is unknown.
       const failed = items[trashed.length];
       let landedInTrash = false;
       if (failed) {
@@ -1553,8 +1582,18 @@ export default function PhotosPage() {
           const entries = await getJson(
             `/api/v1/drives/${encodeURIComponent(failed.drive_id)}/files?path=${encodeURIComponent(".luna-trash")}`,
           );
-          landedInTrash = Array.isArray(entries)
-            && entries.some((entry) => entry?.original_path === failed.path);
+          const since = attemptedAt == null ? null : Math.floor(attemptedAt / 1000);
+          landedInTrash = Array.isArray(entries) && since !== null && entries.some((entry) => {
+            if (entry?.original_path !== failed.path) return false;
+            // The listing's `modified` is the photo's old mtime, not the time
+            // it was trashed. Names are `{unix-seconds}-{name}` (with a `{n}-`
+            // suffix on collisions), so the numeric prefix is the only trash
+            // timestamp this payload carries. seconds are floored at both
+            // ends: a delete that landed after `attemptedAt` cannot have a
+            // smaller prefix.
+            const secs = Number(String(entry?.name || "").match(/^(\d+)-/)?.[1]);
+            return Number.isFinite(secs) && secs >= since;
+          });
         } catch {
           // If Trash can't be read, keep the item in the retry list: one
           // harmless 404 beats skipping a photo that never left the library.
@@ -1567,13 +1606,15 @@ export default function PhotosPage() {
         queryClient.invalidateQueries({ queryKey: ["photos-duplicates"] });
         queryClient.invalidateQueries({ queryKey: ["photos-albums"] });
       }
-      // Only update the retry list if the dialog this batch came from is still
-      // open; a later failure must not revive one the person dismissed.
-      if (trashBulkOpenRef.current) {
+      // Only the dialog that started this batch may get its retry list. A
+      // later failure must not revive one the person dismissed, or replace a
+      // newer confirmation's selection with this batch's leftovers.
+      if (token && trashBulkTokenRef.current === token) {
         const retry = items.slice(trashed.length + (landedInTrash ? 1 : 0));
+        trashBulkTokenRef.current = retry.length ? token : 0;
         setTrashBulk(retry.length ? retry : null);
+        if (retry.length) setError(apiErrorMessage(err));
       }
-      setError(apiErrorMessage(err));
     },
   });
 
@@ -3092,7 +3133,7 @@ export default function PhotosPage() {
         }}
         onDownload={() => downloadSelected(selection.selectedItems)}
         onTrash={() => {
-          trashBulkOpenRef.current = true;
+          trashBulkTokenRef.current += 1;
           setTrashBulk(selection.selectedItems);
         }}
       />
@@ -3155,11 +3196,19 @@ export default function PhotosPage() {
       <ConfirmModal
         open={!!trashBulk}
         onClose={() => {
-          trashBulkOpenRef.current = false;
+          trashBulkTokenRef.current = 0;
           setTrashBulk(null);
           setError(null);
         }}
-        onConfirm={() => trashBulk && trashMany.mutate({ items: trashBulk, trashed: [] })}
+        onConfirm={() => {
+          if (!trashBulk) return;
+          trashMany.mutate({
+            items: trashBulk,
+            trashed: [],
+            attemptedAt: null,
+            token: trashBulkTokenRef.current,
+          });
+        }}
         title="Move selected to trash?"
         message={`Luna will move ${trashBulk?.length || 0} items to Trash. You can restore them from Files later.`}
         variant="danger-undoable"

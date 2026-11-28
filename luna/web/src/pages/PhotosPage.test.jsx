@@ -2584,34 +2584,73 @@ describe("PhotosPage", () => {
     await waitFor(() => expect(timelineCalls).toBeGreaterThan(before));
   });
 
-  it("lets an in-flight timeline fetch finish when an idle status poll ticks", async () => {
+  it("does not restart page one when an idle status poll ticks during a next-page fetch", async () => {
+    // The sentinel must not page on its own: this test holds the later page
+    // until a date jump asks for it, with page one already cached.
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
     stubPhotosFetch();
     const baseFetch = globalThis.fetch;
-    let releaseFirstPage;
-    const firstPageHold = new Promise((resolve) => { releaseFirstPage = resolve; });
+    let releaseNextPage;
+    const nextPageHold = new Promise((resolve) => { releaseNextPage = resolve; });
     let firstPageCalls = 0;
+    let laterPageCalls = 0;
     const fetchMock = vi.fn(async (url, init) => {
       const u = String(url);
-      if (u.startsWith("/api/v1/photos?")
-          && new URL(u, "http://luna.local").searchParams.get("offset") === "0") {
-        firstPageCalls += 1;
-        await firstPageHold;
+      if (u.startsWith("/api/v1/photos?")) {
+        const offset = Number(new URL(u, "http://luna.local").searchParams.get("offset"));
+        if (offset === 0) {
+          firstPageCalls += 1;
+          return new Response(JSON.stringify({
+            items: [{
+              drive_id: "a", path: "one.jpg", name: "one.jpg",
+              taken_at: 1_700_000_000, thumb: "/t1", kind: "image",
+            }],
+            next_offset: 1, has_more: true,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        laterPageCalls += 1;
+        await nextPageHold;
+        return new Response(JSON.stringify({
+          items: [{
+            drive_id: "a", path: "two.jpg", name: "two.jpg",
+            taken_at: 1_699_000_000, thumb: "/t2", kind: "image",
+          }],
+          next_offset: 2, has_more: false,
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return baseFetch(url, init);
     });
     vi.stubGlobal("fetch", fetchMock);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
     renderPhotos({ client });
 
-    await waitFor(() => expect(firstPageCalls).toBe(1));
+    // Page one lands first, and its look-ahead starts the held later request.
+    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    expect(firstPageCalls).toBe(1);
+    await waitFor(() => expect(laterPageCalls).toBe(1));
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Jump to a day" }));
+    fireEvent.change(screen.getByLabelText("Day to jump to"), {
+      target: { value: "2020-01-01" },
+    });
+    // The jump's fetchNextPage consumes the held page with cached data present.
+    expect(await screen.findByText("Loading more…")).toBeInTheDocument();
+    const firstBeforeTick = firstPageCalls;
+
     await act(async () => {
       await client.invalidateQueries({ queryKey: ["photos-status"] });
     });
+    expect(firstPageCalls).toBe(firstBeforeTick);
 
-    // The tick marks the timeline stale but coalesces into the running fetch.
-    expect(firstPageCalls).toBe(1);
-    await act(async () => { releaseFirstPage(); });
-    expect(await screen.findByLabelText("one.jpg")).toBeInTheDocument();
+    await act(async () => { releaseNextPage(); });
+    expect(await screen.findByLabelText("two.jpg")).toBeInTheDocument();
+    expect(firstPageCalls).toBe(firstBeforeTick);
   });
 
   it("does not rescan duplicates on repeated identical idle polls", async () => {
@@ -2704,7 +2743,9 @@ describe("PhotosPage", () => {
       const u = String(url);
       if ((init?.method || "GET").toUpperCase() === "GET" && u.includes(".luna-trash")) {
         return new Response(JSON.stringify([
-          { name: "nonce-two.jpg", original_path: "two.jpg", kind: "file" },
+          // Trash names are `{unix-seconds}-{name}`: the entry must postdate
+          // the delete that lost its response, not just share its path.
+          { name: `${Math.floor(Date.now() / 1000)}-two.jpg`, original_path: "two.jpg", kind: "file" },
         ]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if ((init?.method || "GET").toUpperCase() === "DELETE" && u.includes("?path=")) {
@@ -2735,6 +2776,60 @@ describe("PhotosPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
     await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg", "three.jpg"]));
+  });
+
+  it("retries a replacement when an older Trash entry shares its path", async () => {
+    window.history.replaceState(null, "", "/photos#library");
+    stubPhotosFetch({
+      photosItems: [
+        { drive_id: "a", path: "one.jpg", name: "one.jpg", taken_at: 1_700_000_000, thumb: "/t1", kind: "image" },
+        { drive_id: "a", path: "two.jpg", name: "two.jpg", taken_at: 1_700_000_100, thumb: "/t2", kind: "image" },
+        { drive_id: "a", path: "three.jpg", name: "three.jpg", taken_at: 1_700_000_200, thumb: "/t3", kind: "image" },
+      ],
+    });
+    const baseFetch = globalThis.fetch;
+    /** @type {string[]} */
+    const deleted = [];
+    let dropTwoResponse = true;
+    // A photo at this path was already trashed yesterday. It must not stand
+    // in for the replacement whose delete just failed.
+    const oldEntry = `${Math.floor(Date.now() / 1000) - 86_400}-two.jpg`;
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      const u = String(url);
+      if ((init?.method || "GET").toUpperCase() === "GET" && u.includes(".luna-trash")) {
+        return new Response(JSON.stringify([
+          { name: oldEntry, original_path: "two.jpg", kind: "file" },
+        ]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if ((init?.method || "GET").toUpperCase() === "DELETE" && u.includes("?path=")) {
+        const path = decodeURIComponent(u.split("?path=")[1]);
+        deleted.push(path);
+        if (path === "two.jpg" && dropTwoResponse) {
+          throw new TypeError("Failed to fetch");
+        }
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return baseFetch(url, init);
+    }));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPhotos({ client });
+
+    fireEvent.contextMenu(await screen.findByLabelText("one.jpg"));
+    fireEvent.click(screen.getByLabelText("two.jpg"));
+    fireEvent.click(screen.getByLabelText("three.jpg"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Trash" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg"]));
+    // The old entry is not evidence for this delete, so two.jpg stays in the
+    // retry list alongside three.jpg.
+    await waitFor(() =>
+      expect(screen.getByText(/Luna will move 2 items to Trash/)).toBeInTheDocument(),
+    );
+    dropTwoResponse = false;
+    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+    await waitFor(() => expect(deleted).toEqual(["one.jpg", "two.jpg", "two.jpg", "three.jpg"]));
   });
 
   it("does not reopen a bulk trash dialog dismissed while a delete is pending", async () => {
